@@ -49,6 +49,8 @@ fuzzfit_target := justfile_directory() + "/target/fuzzfit"
 fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/fuel/fuzzfit_guest.wasm"
 
 fuelscape_target := justfile_directory() + "/target/before-fuelscape"
+curves_target := justfile_directory() + "/target/budget-curves-build"
+curves_out := justfile_directory() + "/target/budget-curves"
 surfacecheck_target := justfile_directory() + "/target/surfacecheck"
 
 wasm32pins_target := justfile_directory() + "/target/wasm32-pins"
@@ -352,6 +354,7 @@ gate-streams:
     start_stream internal-docs 10 _gate-internal-docs
     start_stream docsrs       10 _gate-docsrs
     start_stream audit        10 _gate-audit
+    start_stream curves       10 _gate-curves
     wait
 
     failed=$(cd "$logs" && ls *.failed 2>/dev/null | sed 's/\.failed$//')
@@ -400,6 +403,7 @@ _gate-surface: surface-totality
 _gate-internal-docs: docs-internal
 _gate-docsrs: docs-docsrs
 _gate-audit: supply-chain
+_gate-curves: budget-curves-lint
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `serde,borsh` is checked as a pair because both derive on the same types.
@@ -515,6 +519,29 @@ suanpan-fuel: suanpan-fuel-build
 fuelscape-test: fuzzfit-build
     cargo clippy -p before-fuelscape --all-targets --target-dir {{ fuelscape_target }} -- -D warnings
     FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run --ignore-default-filter -p before-fuelscape --target-dir {{ fuelscape_target }}
+
+# Lint the budget-curves tool, which no workspace-wide recipe compiles.
+budget-curves-lint:
+    cargo clippy -p rumors-budget-curves --all-targets --locked --target-dir {{ curves_target }} -- -D warnings
+
+# The curves come from deterministic sessions of the library's own session
+# code over the test kit's link model, so every point reproduces exactly on
+# any machine. The default grid runs 10^5 and 10^6 messages per replica,
+# three overlaps, and three links, about a thousand sessions; at 10^6 a
+# session takes minutes and gigabytes, so choose `--jobs` for the machine's
+# memory. Options pass through to `simulate`, e.g.
+# `just budget-curves --sizes 100000 --jobs 64`. A rerun keeps the sessions
+# target/budget-curves/sessions.jsonl already holds and runs only the rest.
+
+# Run the budget curves' sessions and render their plots and tables into target/budget-curves.
+budget-curves *args:
+    mkdir -p {{ curves_out }}
+    cargo run --release --locked -p rumors-budget-curves --target-dir {{ curves_target }} -- simulate --out {{ curves_out }}/sessions.jsonl {{ args }}
+    cargo run --release --locked -p rumors-budget-curves --target-dir {{ curves_target }} -- render --data {{ curves_out }}/sessions.jsonl --out {{ curves_out }}
+
+# Render the budget curves' plots and tables from the sessions already run.
+budget-curves-render:
+    cargo run --release --locked -p rumors-budget-curves --target-dir {{ curves_target }} -- render --data {{ curves_out }}/sessions.jsonl --out {{ curves_out }}
 
 # One log-log fuel-by-size heatmap per public operation, with the committed
 # adversarial families overlaid; deterministic per seed and plan. Options
@@ -760,7 +787,7 @@ worst-cases:
 # gate, not on shared runners.
 
 # Build everything in CI's primary job, without running libFuzzer.
-ci: gate-lints _gate-workspace _gate-doctest _gate-fuzz _gate-internal-docs _gate-docsrs fuelscape-claims features wasm-check bench-build fuelscape-verify viz
+ci: gate-lints _gate-workspace _gate-doctest _gate-fuzz _gate-internal-docs _gate-docsrs _gate-curves fuelscape-claims features wasm-check bench-build fuelscape-verify viz
 
 # Re-run the gate judgments suitable for shared CI runners.
 ci-instruments: _gate-audit _gate-board _gate-surface

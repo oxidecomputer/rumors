@@ -12,3 +12,7 @@ pub mod link;
 /// Deterministic replica pairs reconciled over the link model, with what
 /// each side's ledger admitted.
 pub mod session;
+
+/// A lower estimate of a session's duration at a budget below its
+/// unlimited-budget peak, from the unlimited session.
+pub mod slowdown;

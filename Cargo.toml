@@ -15,6 +15,7 @@ members = [
     "crates/before/wasm32-pins/guest",
     "crates/before/wasm32-pins/harness",
     "crates/before/wasm32-pins/protocol",
+    "crates/rumors-budget-curves",
     "crates/rumors-tracing",
     "crates/rumors-testkit",
     "crates/suanpan",

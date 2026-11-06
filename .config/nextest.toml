@@ -59,6 +59,7 @@ not (
     | package(focused-fuel-guest)
     | package(focused-fuel-harness)
     | package(focused-fuel-protocol)
+    | package(rumors-budget-curves)
     | package(fuzzfit-guest)
     | package(fuzzfit-harness)
     | package(suanpan-fuel-guest)

@@ -2182,6 +2182,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rumors-budget-curves"
+version = "0.0.0"
+dependencies = [
+ "alloc-meter",
+ "clap",
+ "plotters",
+ "rayon",
+ "rumors",
+ "rumors-testkit",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rumors-testkit"
 version = "0.1.0"
 dependencies = [
