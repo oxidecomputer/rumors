@@ -605,16 +605,16 @@ fn arb_reply_to_question() -> impl Strategy<Value = (usize, usize, usize, Vec<Op
 }
 
 proptest! {
-    /// The records the take derives from any reply within its question's
-    /// bound hold no more than the question's records part, at a leaf's
-    /// parent as at every height above.
+    /// The records derived from any reply within its question's bound hold
+    /// no more than the question's records part, at a leaf's parent as at
+    /// every height above.
     ///
     /// Each record holds exactly what [`charges::derived_record_bytes`]
     /// prices it at.
     ///
     /// The reply's queries list at most what the peer's count leaves, which
     /// the reply's bound allows; about a leaf's parent, each query requests
-    /// its leaf, and the record the take derives for it names that leaf.
+    /// its leaf, and the record derived for it names that leaf.
     #[test]
     fn derived_records_fit_the_records_part(
         (height, listed, count, reactions) in arb_reply_to_question(),
@@ -679,9 +679,9 @@ proptest! {
         prop_assert!(held <= room, "{held} B of records over a records part of {room} B");
     }
 
-    /// The records the take derives from the fullest reply within its
-    /// question's bound fill the question's records part exactly, so the
-    /// part is the least that holds every reply's records.
+    /// The records derived from the fullest reply within its question's
+    /// bound fill the question's records part exactly, so the part is the
+    /// least that holds every reply's records.
     ///
     /// The fullest reply queries every position the asker listed, and its
     /// queries list as many entries as the peer's grandchild count allows,

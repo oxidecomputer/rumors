@@ -71,17 +71,19 @@ fn every_invited_reply_parks_while_its_stage_is_held() {
     );
 }
 
-/// The scope queue fed at each take completes this fixture at a fan less
-/// one slot, and at its own capacity no publish waits.
+/// The scope queue, fed as each stage takes a chunk from parking, completes
+/// this fixture at a fan less one slot, and at its own capacity no publish
+/// waits.
 ///
-/// The responder takes the initiator's full-fan reply chunk by chunk, each
-/// take publishing its chunk's scopes before its stage receives the chunk.
-/// The scope queue's constructor, `next_scopes`, argues that a fan beside
-/// the outgoing replies' chunks never makes a take wait, whatever the
-/// chunking, and that a fan less one slot is the fewest at which a take of
-/// a full-fan chunk can complete; the decoder delivers
-/// each question as its frame arrives, so this session's takes publish far
-/// fewer than a fan at once, and both capacities complete.
+/// The responder takes the initiator's full-fan reply chunk by chunk, and
+/// its proxy publishes each chunk's scopes before its stage receives the
+/// chunk. The scope queue's constructor, `next_scopes`, argues that a fan
+/// beside the outgoing replies' chunks never makes a stage taking a chunk
+/// wait, whatever the chunking, and that a fan less one slot is the fewest
+/// at which a stage can take a full-fan chunk; the decoder delivers each
+/// question as its frame arrives, so the chunks this session's stages take
+/// each publish far fewer than a fan of scopes at once, and both capacities
+/// complete.
 #[test]
 fn scope_queue_capacity_law() {
     let (initiator, responder) = full_fan_behind_two_pair();

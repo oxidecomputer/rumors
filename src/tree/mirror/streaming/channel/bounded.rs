@@ -171,10 +171,11 @@ impl<T> Sender<T> {
     /// nothing. That poll changes nothing the channel does next. A sender
     /// that did not park answers without touching the channel's state. A
     /// sender that parked holds no waker, since parking clears it, so the
-    /// poll stores the inert waker in that empty slot: the receiver's next
-    /// take, which unparks the sender, wakes it and so wakes nothing, as it
-    /// would have woken nothing before, and a later send that finds the
-    /// sender still parked registers its own task in its place.
+    /// poll stores the inert waker in that empty slot: when the receiver
+    /// next takes an item and unparks the sender, it wakes that waker and
+    /// so wakes nothing, as it would have woken nothing before, and a later
+    /// send that finds the sender still parked registers its own task in
+    /// its place.
     ///
     /// The reading is exact when the receiver runs on the sending thread,
     /// or is idle while the send completes. A receiver on another thread
@@ -278,8 +279,8 @@ impl<T> Sender<T> {
 ///
 /// `futures-channel` parks a sender on the send that *fills* its channel:
 /// it boxes a node holding the sender's task, takes the task's lock, and
-/// the receiver's next take wakes it. A send into an edge that still has
-/// room after it costs only the item's own node.
+/// the receiver wakes the sender when it next takes an item. A send into an
+/// edge that still has room after it costs only the item's own node.
 #[cfg(any(test, feature = "test-internals"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EdgeSend {
@@ -333,8 +334,8 @@ impl<T> Receiver<T> {
     /// waiting, or `None` when nothing was queued.
     ///
     /// After this call each send fails as it would after the receiver is
-    /// dropped, so every item is either returned by a take or refused at
-    /// its sender; none is dropped unseen.
+    /// dropped, so every item is either received or refused at its sender;
+    /// none is dropped unseen.
     pub fn close_and_try_recv(&mut self) -> Option<T> {
         self.0.close();
         self.0.try_recv().ok()
@@ -362,13 +363,14 @@ pub const UNBOUNDED: usize = usize::MAX >> 2;
 /// to its consumer: two.
 ///
 /// Such an edge's progress argument asks for one slot and holds at any
-/// larger capacity, so the second slot is for speed alone. `futures-channel`
-/// parks a sender on the send that *fills* its channel: it boxes a second
-/// node holding the sender's task, takes the task's lock, and the
-/// receiver's next take wakes the task. A send into a one-slot edge always
-/// fills it, so every send would park. With a second slot, a send that
-/// finds the edge empty leaves room behind it and completes without
-/// parking; only a send that finds the previous item still queued parks.
+/// larger capacity, so the second slot is for speed alone.
+/// `futures-channel` parks a sender on the send that *fills* its channel:
+/// it boxes a second node holding the sender's task, takes the task's lock,
+/// and the receiver wakes the task when it next takes an item. A send into
+/// a one-slot edge always fills it, so every send would park. With a second
+/// slot, a send that finds the edge empty leaves room behind it and
+/// completes without parking; only a send that finds the previous item
+/// still queued parks.
 ///
 /// An edge built with it can hold a second item, so every count of what
 /// such an edge holds counts two.

@@ -215,8 +215,8 @@ where
     /// scopes the chunk's questions create, at the level of height `H`, and
     /// publishes them through `publish`, then hands the chunk over. The
     /// responder's terminal replies ask nothing and publish nothing. The
-    /// typed height alone chooses the [`ReplyLevel`], in decoding and in the
-    /// take, so the two cannot disagree on it.
+    /// typed height alone chooses the [`ReplyLevel`], in decoding and as
+    /// the stage takes each chunk, so the two cannot disagree on it.
     fn respond<H>(
         &mut self,
         questions: Receiver<Outstanding>,
@@ -230,8 +230,9 @@ where
         let incoming = self.incoming::<H>();
         let (parking, mut parked) = queues::parked_replies(H::HEIGHT);
         // The pump decodes into parking, so for the session-budget meter
-        // its work is the parked replies' unless it marks otherwise; the
-        // take derives question records.
+        // its work is the parked replies' unless it marks otherwise;
+        // question records are derived as the stage takes each chunk, not
+        // here.
         self.spawn(
             TaskRole::Decoder { height: H::HEIGHT }.paced(
                 Holding::ParkedReplies.creating(
@@ -368,9 +369,9 @@ fn stream_at<H: Height>(speaker: Speaker) -> LogicalStream {
 pub(crate) struct Outstanding {
     /// The record the question's reply is validated against.
     pub(crate) scope: Scope,
-    /// The charge for the record, which returns once the take has read the
-    /// reply's last chunk, and for the records the take derives from the
-    /// reply's questions, each of which takes its part.
+    /// The charge for the record, which returns once the stage has taken
+    /// the reply's last chunk, and for the records derived from the reply's
+    /// questions, each of which takes its part.
     pub(crate) record: Charge,
     /// The room the reply's chunks take while they park.
     ///
@@ -385,26 +386,29 @@ pub(crate) struct Parked<E> {
     /// The chunk.
     chunk: erased::Reply<E>,
     /// On a reply's first chunk, the record of the local question the reply
-    /// answers, from which the take derives the scopes the reply's own
-    /// questions create, and the record's charge.
+    /// answers, from which the proxy derives the scopes the reply's own
+    /// questions create as the stage takes the reply, and the record's
+    /// charge.
     opens: Option<(Arc<Scope>, Charge)>,
 }
 
-/// The reply the take is part way through: the record it answers, how far
-/// its taken chunks replayed against the record, and the record's charge.
+/// The reply the stage is part way through taking: the record it answers,
+/// how far its taken chunks replayed against the record, and the record's
+/// charge.
 struct Taking {
     /// The record of the question the reply answers.
     answered: Arc<Scope>,
     /// How far the reply's taken chunks replayed against the record.
     replay: Replay,
     /// The charge for the record and for the records the reply's questions
-    /// derive: each derived record takes its part as the take derives it,
-    /// and the rest returns once the take has read the reply's last chunk.
+    /// derive: each derived record takes its part as the proxy derives it,
+    /// and the rest returns once the stage has taken the reply's last
+    /// chunk.
     record: Charge,
 }
 
-/// A record the take derived from a question in the peer's reply, on its
-/// way to the encoder that answers it, with its charge.
+/// A record derived from a question in the peer's reply, on its way to the
+/// encoder that answers it, with its charge.
 ///
 /// The charge is the record's part of the records part of the reservation
 /// of the question whose reply asked it

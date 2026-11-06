@@ -415,8 +415,9 @@ pub struct Query<E> {
 /// The other parts travel with the question's record instead
 /// ([`Carried::Question`](super::message::Carried::Question)): the room the
 /// reply's chunks park in, to the decoder, which charges each chunk its
-/// part as it decodes, and the records part, in the record's own charge,
-/// to the take, which charges each record it derives its part.
+/// part as it decodes, and the records part, in the record's own charge, to
+/// the proxy, which charges each record it derives from the reply's
+/// questions its part as the stage takes the reply from parking.
 #[derive(Default)]
 pub(crate) struct Reserved {
     /// The parent resolution's slots, which the resolution keeps until its

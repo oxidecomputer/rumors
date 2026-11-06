@@ -43,28 +43,29 @@ pub fn parked_replies<E>(height: usize) -> (Sender<Parked<E>>, Receiver<Parked<E
 /// Carry the scopes a taken chunk's questions create, labeled at the
 /// scopes' height, each with its charge ([`Derived`]).
 ///
-/// `FAN + OUTGOING_REPLY_CHUNKS` slots mean a take never waits, whatever
-/// the encoder consuming this queue is doing. The encoder dequeues an
-/// answer's scope before it takes any of the answer's chunks, and the walk
-/// takes its next chunk only after handing on every answer to the
-/// questions of the current one, through a channel that holds
-/// [`OUTGOING_REPLY_CHUNKS`] chunks. So when a stage takes a chunk, every
-/// earlier answer the encoder has not begun lies wholly in that channel,
-/// one chunk at least each, and the encoder has dequeued every earlier
-/// scope but at most [`OUTGOING_REPLY_CHUNKS`] of them. Those scopes and
-/// the chunk's new ones fit, even while the encoder waits elsewhere: for
-/// room in its question queue, or on the peer. A reply's questions take
-/// distinct positions of the record it answers, so its chunks together
-/// create at most `FAN` scopes.
+/// `FAN + OUTGOING_REPLY_CHUNKS` slots mean a stage taking a chunk never
+/// waits to publish its scopes, whatever the encoder consuming this queue
+/// is doing. The encoder dequeues an answer's scope before it takes any of
+/// the answer's chunks, and the walk takes its next chunk only after
+/// handing on every answer to the questions of the current one, through a
+/// channel that holds [`OUTGOING_REPLY_CHUNKS`] chunks. So when a stage
+/// takes a chunk, every earlier answer the encoder has not begun lies
+/// wholly in that channel, one chunk at least each, and the encoder has
+/// dequeued every earlier scope but at most [`OUTGOING_REPLY_CHUNKS`] of
+/// them. Those scopes and the chunk's new ones fit, even while the encoder
+/// waits elsewhere: for room in its question queue, or on the peer. A
+/// reply's questions take distinct positions of the record it answers, so
+/// its chunks together create at most `FAN` scopes.
 ///
-/// With fewer slots a take can wait on the encoder. During a take the
-/// encoder dequeues the earlier scopes and then the take's first, whose
-/// answer the stage produces only after the take, and no more; so a
-/// full-fan chunk needs `FAN − 1` of its scopes queued at once, and
-/// `FAN − 2` slots stall every take of one. At `FAN − 1` slots or more,
-/// below `FAN + OUTGOING_REPLY_CHUNKS`, such a take can complete only once
-/// the encoder dequeues, so it waits on whatever the encoder waits on, the
-/// peer included.
+/// With fewer slots, a stage taking a chunk can wait on the encoder. While
+/// the proxy publishes a taken chunk's scopes, the encoder dequeues the
+/// earlier scopes and then the chunk's first, whose answer the stage
+/// produces only once it has received the chunk, and no more; so a full-fan
+/// chunk needs `FAN − 1` of its scopes queued at once, and with `FAN − 2`
+/// slots a stage can never take one. At `FAN − 1` slots or more, below
+/// `FAN + OUTGOING_REPLY_CHUNKS`, a stage can take a full-fan chunk only
+/// once the encoder dequeues, so it waits on whatever the encoder waits on,
+/// the peer included.
 pub fn next_scopes(height: usize) -> (Sender<Derived>, Receiver<Derived>) {
     channel(
         QueueRole::new(QueueKind::ProxyNextScopes, height),

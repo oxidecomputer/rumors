@@ -25,8 +25,9 @@
 //! side that pairs a reply's reactions with the question's listing passes
 //! over the covered children as it reaches them, so none infers them ahead
 //! of the reaction that reaches them: the encoder, the decoder, and the
-//! take here, through the one cursor [`adapter`] gives them, and the walk's
-//! resolver over its own children.
+//! proxy as it derives a taken reply's questions, all here, through the one
+//! cursor [`adapter`] gives them, and the walk's resolver over its own
+//! children.
 //!
 //! An empty query occupies its signal alone; a nonempty query's body is its
 //! listing, one entry per child it lists, each carrying the child's digest

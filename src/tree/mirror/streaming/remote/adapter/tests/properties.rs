@@ -110,7 +110,7 @@ enum Sent {
     Match(ByteSet),
 }
 
-/// A decoded reply with the scopes a take derives from it.
+/// A decoded reply with the scopes the proxy derives from it.
 struct Decoded {
     /// The decoded reply.
     reply: Reply<Erased>,

@@ -114,9 +114,10 @@
 //! The scratch is what a stage, encoder, or decoder fills for a place while
 //! it builds items it charges only once built: an answer's plan, a chunk's
 //! reactions before its question is admitted, a decoder's ready reactions,
-//! a take's derived scopes. Each place is owed its own scratch for each of
-//! the [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS) logical streams, computed from the types it
-//! covers ([`ledger_scratch`]).
+//! the scopes derived from a chunk's questions as its stage takes it. Each
+//! place is owed its own scratch for each of the
+//! [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS) logical streams,
+//! computed from the types it covers ([`ledger_scratch`]).
 //!
 //! The classes the ledger leaves out, the session's fixed state, are
 //! bounded by their capacities:
@@ -198,11 +199,11 @@
 //!   another.
 //! - **Fit.** Every reply a stage finishes held no more reactions, and its
 //!   queries no more listing entries, than its question reserved room for,
-//!   and the records the take derives from its questions held no more than
-//!   the reservation's records part, which pays for nothing else.
-//!   Coverage checks that part's place together with the question records'
-//!   own charges, and does not see the part missing at these fixtures'
-//!   sizes; this check does.
+//!   and the records derived from its questions held no more than the
+//!   reservation's records part, which pays for nothing else. Coverage
+//!   checks that part's place together with the question records' own
+//!   charges, and does not see the part missing at these fixtures' sizes;
+//!   this check does.
 //! - **Zero.** Each side's ledger holds nothing once the session ends.
 //! - **Outgoing floor.** Over the session, each side's charges to its
 //!   outgoing replies, the sum of every rise in that place's account, are
@@ -514,8 +515,8 @@ struct LedgerReport {
 struct Fits {
     /// Replies finished.
     replies: usize,
-    /// The bytes the records the takes derived from those replies'
-    /// questions held, summed.
+    /// The bytes the records derived from those replies' questions held,
+    /// summed.
     records: usize,
     /// Those that held more than their reservation allowed, or whose
     /// questions derived records beyond its records part.
@@ -1699,16 +1700,16 @@ divided_proptest! {
     /// place a session keeps state in stays within its bound and the ledgers
     /// keep their identities, with leaf requests in flight.
     ///
-    /// Hashing cannot place leaves that share 31 bytes, so the fixture places
-    /// them ([`with_leaf_paths`]): under each of [`PLACED_NODES`] nodes, `A`
-    /// holds the lower half of a fan of leaves and `B` the upper half. Every
-    /// level above disputes, and each node's leaf-parent answer asks a leaf
-    /// request for each leaf the peer listed that it lacks, half a fan per
-    /// node. At [`PLACED_BUDGET`] many are in flight at once, more than the
-    /// questions' scratch allows per stream, so coverage sees a leaf request's
-    /// charge go missing; and every record the take derives for a leaf request
-    /// is held to the records part of the question that asked about its
-    /// parent.
+    /// Hashing cannot place leaves that share 31 bytes, so the fixture
+    /// places them ([`with_leaf_paths`]): under each of [`PLACED_NODES`]
+    /// nodes, `A` holds the lower half of a fan of leaves and `B` the upper
+    /// half. Every level above disputes, and each node's leaf-parent answer
+    /// asks a leaf request for each leaf the peer listed that it lacks,
+    /// half a fan per node. At [`PLACED_BUDGET`] many are in flight at
+    /// once, more than the questions' scratch allows per stream, so
+    /// coverage sees a leaf request's charge go missing; and every record
+    /// derived for a leaf request is held to the records part of the
+    /// question that asked about its parent.
     ///
     /// Each leaf parent's peeled view is hashed anew over its half fan of
     /// children, so each side must hash: the hashing place's bound and the

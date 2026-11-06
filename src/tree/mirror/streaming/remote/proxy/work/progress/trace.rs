@@ -31,14 +31,14 @@ pub enum Kind {
     /// The walk takes an incoming answer's first chunk; its derived scopes
     /// publish next, before the stage receives it.
     TakenReply {
-        /// Scopes the take publishes.
+        /// Scopes the proxy publishes for the chunk.
         scopes: usize,
     },
     /// The walk takes a later chunk of the answer it took last at this
     /// height; its derived scopes publish next, before the stage receives
     /// it.
     TakenChunk {
-        /// Scopes the take publishes.
+        /// Scopes the proxy publishes for the chunk.
         scopes: usize,
     },
     /// One derived scope is being published for the next exchange.
@@ -62,7 +62,8 @@ struct Event {
 #[derive(Debug)]
 pub struct Trace(Vec<Event>);
 
-/// Check publication ordering, and that takes answer published questions.
+/// Check publication ordering, and that the walk takes only answers to
+/// published questions.
 impl Trace {
     /// Assert wire-before-question and reply-before-scope ordering.
     pub fn assert_valid(&self) {
@@ -130,16 +131,17 @@ impl Trace {
     /// answer at its first chunk.
     ///
     /// The encoder labels each question it publishes with a runtime height,
-    /// and the take labels each answer with its stage's typed height. This
-    /// check holds the two labelings to each other: under every label, takes
-    /// never outnumber the questions published before them, and by the end
-    /// of the trace the two counts are equal. Once the labels agree, the
-    /// ordering half holds by construction, since a take consumes a reply
-    /// decoded against the dequeued record of a published question; what the
-    /// check can fail on is a label one side computes differently, or a
-    /// question published and never answered and taken. The root opening is
-    /// the one take without a question: it answers the greeting, at most
-    /// once per endpoint.
+    /// and the proxy labels each answer the walk takes with its stage's
+    /// typed height. This check holds the two labelings to each other:
+    /// under every label, the answers taken never outnumber the questions
+    /// published before them, and by the end of the trace the two counts
+    /// are equal. Once the labels agree, the ordering half holds by
+    /// construction, since the walk takes only replies decoded against the
+    /// dequeued record of a published question; what the check can fail on
+    /// is a label one side computes differently, or a question published
+    /// and never answered and taken. The root opening is the one answer
+    /// taken without a question: it answers the greeting, at most once per
+    /// endpoint.
     ///
     /// Only a completed session's trace balances, so call this on those.
     pub fn assert_takes_answer_published_questions(&self) {
@@ -159,8 +161,8 @@ impl Trace {
                     };
                     assert!(
                         *taken <= published,
-                        "event {event:?} at trace index {index}: take {taken} has no \
-                         published question to answer ({published} published)",
+                        "event {event:?} at trace index {index}: taken answer {taken} \
+                         has no published question to answer ({published} published)",
                     );
                 }
                 Kind::WireFrame { .. } | Kind::TakenChunk { .. } | Kind::NextScope => {}

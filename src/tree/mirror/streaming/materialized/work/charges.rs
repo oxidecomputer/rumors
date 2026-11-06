@@ -9,20 +9,21 @@
 //! ([`ReplyBound`]), in the same element sizes the reply's items have
 //! when they arrive.
 //!
-//! A reservation is three parts, one per place the reply's items take.
-//! The query keeps the parent resolution's part, which moves into that
+//! A reservation is three parts, one per place the reply's items take. The
+//! query keeps the parent resolution's part, which moves into that
 //! resolution and returns at its assembly. The records part rides the
-//! question's record charge ([`record`]) to the take, which splits each
-//! record it derives from the reply's questions its own price out of it
-//! ([`derived_bytes`]); that record carries its charge to the encoder,
-//! which drops it with the record once it has finished the reply to the
-//! question. The room the reply's chunks park in ([`room`]) travels with
-//! the question's record to the decoder, which charges each chunk its own
-//! part as it decodes ([`parked_bytes`]) and returns whatever exceeds what
-//! the reply can still deliver as soon as the reply shows it
-//! ([`ReplyQuota`]): whatever the bound allowed beyond what the reply holds
-//! returns as the reply narrows it, and each chunk's part as soon as its
-//! stage has used it.
+//! question's record charge ([`record`]). As the stage takes the reply from
+//! parking, the proxy derives a record from each of the reply's questions
+//! and splits that record's own price out of the charge
+//! ([`derived_bytes`]); the record carries its charge to the encoder, which
+//! drops it with the record once it has finished the reply to the question.
+//! The room the reply's chunks park in ([`room`]) travels with the
+//! question's record to the decoder, which charges each chunk its own part
+//! as it decodes ([`parked_bytes`]) and returns whatever exceeds what the
+//! reply can still deliver as soon as the reply shows it ([`ReplyQuota`]):
+//! whatever the bound allowed beyond what the reply holds returns as the
+//! reply narrows it, and each chunk's part as soon as its stage has used
+//! it.
 
 use std::mem::size_of;
 
@@ -242,8 +243,8 @@ pub(crate) fn parked_bytes<E>(chunk: &Reply<E>) -> usize {
     queued::<Parked<E>>() + buffer(&chunk.reactions) + owned_bytes(&chunk.reactions)
 }
 
-/// The bytes the take's record of one question a reply asks holds while it
-/// waits, the question listing `listing` entries in a reply about a node
+/// The bytes the record derived from one question a reply asks holds while
+/// it waits, the question listing `listing` entries in a reply about a node
 /// at `height`.
 ///
 /// That is the price of a record of one recorded child per listing entry,
@@ -253,18 +254,19 @@ pub(crate) const fn derived_record_bytes(height: usize, listing: usize) -> usize
     derived_bytes(if height == 1 { 1 } else { listing })
 }
 
-/// The bytes a record the take derives holds while it waits, with
-/// `recorded` children: its node in the channel it waits in, carrying its
-/// charge ([`Derived`]), and its children.
+/// The bytes a record derived from a reply's question holds while it waits,
+/// with `recorded` children: its node in the channel it waits in, carrying
+/// its charge ([`Derived`]), and its children.
 ///
-/// The take derives each record, a [`Scope`], at exactly its recorded
-/// children, and charges it this much out of the records part of the
-/// reservation of the question whose reply asked it.
+/// As the stage takes the reply from parking, the proxy derives each
+/// record, a [`Scope`], at exactly its recorded children, and charges it
+/// this much out of the records part of the reservation of the question
+/// whose reply asked it.
 pub(crate) const fn derived_bytes(recorded: usize) -> usize {
     queued::<Derived>() + recorded * size_of::<RecordedChild>()
 }
 
-/// The part of a reservation the records the take derives take: the most
+/// The part of a reservation for a reply's derived records: the most
 /// [`derived_record_bytes`] can sum to over a reply to a question about a
 /// node at `height` that lists `listed` children, bounded by `bound`.
 ///
@@ -288,8 +290,8 @@ pub(crate) const fn records_room(height: usize, bound: ReplyBound, listed: usize
 /// The room a question about a node at `height` listing `listed` children
 /// sets aside for the peer's reply bounded by `bound`.
 ///
-/// That is the reply's chunks parked, the records its take derives, and
-/// the parent resolution the stage builds.
+/// That is the reply's chunks parked, the records derived from its
+/// questions, and the parent resolution the stage builds.
 pub(crate) const fn reservation<E>(height: usize, bound: ReplyBound, listed: usize) -> usize {
     parked_room::<E>(bound, listed)
         + records_room(height, bound, listed)
@@ -319,24 +321,25 @@ pub(super) fn room<E>(grant: &mut Charge, bound: ReplyBound, listed: usize) -> C
 ///
 /// The record waits in the decoder's queue beside its charge and its
 /// reply's room ([`Outstanding`]), then in the allocation the decoder
-/// shares with the take until the take reads its reply's last chunk, so it
-/// is priced at the larger of the two, beside one recorded child per listed
-/// child ([`RecordedChild`]).
+/// shares with the parked reply until the stage takes the reply's last
+/// chunk from parking, so it is priced at the larger of the two, beside one
+/// recorded child per listed child ([`RecordedChild`]).
 pub(crate) const fn record_bytes(listed: usize) -> usize {
     max(queued::<Outstanding>(), shared::<Scope>()) + listed * size_of::<RecordedChild>()
 }
 
 /// The charge, built out of `grant`, for the record of a question and for
-/// the records the take derives from its reply's questions.
+/// the records derived from its reply's questions.
 ///
 /// The question is about a node at `height` and lists `listed` children
 /// ([`record_bytes`]); its reply is bounded by `bound` ([`records_room`]).
 /// The chunk carrying the question hands the charge to its encoder.
 ///
-/// Both are records, charged to one place, so one charge carries them:
-/// with the record to the decoder and then to the take, which splits each
-/// derived record's price out of it ([`derived_bytes`]), and keeps the
-/// record's own part until it has taken the reply's last chunk.
+/// Both are records, charged to one place, so one charge carries them: with
+/// the record to the decoder, and then with the reply's first parked chunk.
+/// As the stage takes the reply from parking, the proxy splits each derived
+/// record's price out of the charge ([`derived_bytes`]), and keeps the
+/// record's own part until the stage has taken the reply's last chunk.
 pub(super) fn record(
     grant: &mut Charge,
     height: usize,
@@ -733,7 +736,8 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 ///   returned: one node of the place's item type per channel of the place.
 ///   A stream's questions travel one channel; its resolutions two, the
 ///   child and the parent ones; its outgoing replies one; its parked chunks
-///   one; its records two, the decoder's queue and the take's scopes.
+///   one; its records two, the decoder's queue and the queue of scopes
+///   derived from taken chunks.
 /// - [`Holding::OutgoingReplies`]: a chunk's reactions, allocated before
 ///   its question is admitted with one slot spare for it, at most a fan in
 ///   all, with the set of later matches the answer's match carries
@@ -742,11 +746,11 @@ pub(crate) const fn assert_grants_fit<E: ErasedNode, Err>() {
 ///   bound at those counts ([`chunk_bound`]).
 /// - [`Holding::ParkedReplies`]: a decoder's ready reactions and its open
 ///   group's runs, a fan of each, in vectors at most twice their length.
-/// - [`Holding::QuestionRecords`]: a take's derived scopes for one chunk, a
-///   fan, in a vector at most twice its length; and the one record an
-///   encoder holds that no charge covers, the opening question's, which the
-///   peer asked in its greeting and this side reserved nothing for, a
-///   scope with a fan of radices and counts.
+/// - [`Holding::QuestionRecords`]: the scopes derived from one taken
+///   chunk's questions, a fan, in a vector at most twice its length; and
+///   the one record an encoder holds that no charge covers, the opening
+///   question's, which the peer asked in its greeting and this side
+///   reserved nothing for, a scope with a fan of radices and counts.
 pub(crate) const fn scratch<E, Err>(place: Holding) -> usize {
     match place {
         Holding::Questions => max(queued::<Query<E>>(), queued::<LeafRequest>()),

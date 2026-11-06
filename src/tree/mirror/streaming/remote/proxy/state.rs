@@ -1,11 +1,11 @@
 //! Typed protocol states over an open session pipe.
 //!
-//! Each proxy stage owns the one [`Derived`] queue needed to interpret the local
-//! reply it will receive at that height. Background tasks write local replies
-//! while decoding the remote replies which answer local questions. Decoded
-//! replies park until their stage takes them, so decoding never waits on the
-//! walk; each take publishes the scopes its reply's questions create before
-//! the stage receives the reply.
+//! Each proxy stage owns the one [`Derived`] queue needed to interpret the
+//! local reply it will receive at that height. Background tasks write local
+//! replies while decoding the remote replies which answer local questions.
+//! Decoded replies park until their stage takes them, so decoding never
+//! waits on the walk; as a stage takes a reply, the proxy publishes the
+//! scopes the reply's questions create before the stage receives it.
 
 use crate::tree::mirror::streaming::message::Listed;
 use std::marker::PhantomData;

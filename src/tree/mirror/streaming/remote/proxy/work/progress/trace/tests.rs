@@ -77,7 +77,7 @@ fn empty_trace_fails_the_divergent_session_floor() {
 }
 
 /// The least a divergent session records meets the floor: the responder
-/// proxy's opening wire frame, its question, and its take of the answer,
+/// proxy's opening wire frame, its question, and the answer its walk takes,
 /// and the initiator proxy's greeting-seeded opening reply.
 #[test]
 fn minimal_divergent_session_meets_the_floor() {
@@ -93,7 +93,7 @@ fn minimal_divergent_session_meets_the_floor() {
     trace.assert_covers_divergent_session();
 }
 
-/// A take following its published question answers it.
+/// A taken answer following its published question answers it.
 #[test]
 fn accepts_take_after_published_question() {
     let (_, trace) = with_trace(|| {
@@ -103,8 +103,9 @@ fn accepts_take_after_published_question() {
     trace.assert_takes_answer_published_questions();
 }
 
-/// A take with no question published under its label answers nothing:
-/// the take and the encoder disagree about the question's height.
+/// A taken answer with no question published under its label answers
+/// nothing: the stage taking it and the encoder disagree about the
+/// question's height.
 #[test]
 #[should_panic(expected = "has no published question to answer")]
 fn rejects_take_before_published_question() {
@@ -112,8 +113,8 @@ fn rejects_take_before_published_question() {
     trace.assert_takes_answer_published_questions();
 }
 
-/// Another endpoint's published question cannot pair with this endpoint's
-/// take: each endpoint answers only its own questions.
+/// Another endpoint's published question cannot pair with an answer this
+/// endpoint takes: each endpoint answers only its own questions.
 #[test]
 #[should_panic(expected = "has no published question to answer")]
 fn rejects_take_answering_the_other_endpoints_question() {
@@ -177,7 +178,8 @@ fn rejects_parent_take_answering_a_leaf_question() {
 }
 
 /// Exactly one greeting-seeded opening reply per endpoint answers the
-/// greeting itself; a second root take has no question to answer.
+/// greeting itself; a second answer taken at the root has no question to
+/// answer.
 #[test]
 #[should_panic(expected = "has no published question to answer")]
 fn rejects_a_second_greeting_seeded_opening() {

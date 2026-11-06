@@ -509,7 +509,8 @@ where
                 WireReaction::Query(listing) => {
                     self.close_group().await;
                     // Validate the question's position now, at its frame;
-                    // the scope it creates is derived at the take.
+                    // the scope it creates is derived when the stage takes
+                    // this chunk from parking.
                     let (prefix, _) = self.level.check(&mut positions, &listing)?;
                     self.quota.query(radix(&prefix), listing.len())?;
                     self.ready.push(ProtocolReaction::Query(listing));

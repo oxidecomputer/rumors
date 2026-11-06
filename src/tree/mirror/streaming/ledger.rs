@@ -19,20 +19,22 @@
 //!   lists, the resolutions awaiting assembly, the records of the questions
 //!   it sent. Each is charged as it is built.
 //! - **Invited items**, which the peer's replies to this side's questions
-//!   become: a parked reply, the records its take derives, and the parent
-//!   resolution the stage builds from it. Each question is charged, when
-//!   it is asked, a *reservation*: the most those items can hold, from the
-//!   bound the peer's grandchild count of the node asked about sets
-//!   ([`ReplyBound`]). Each part of the reservation returns as soon as it
-//!   is known to be unused. The room the reply's chunks park in travels
-//!   with the question's record to the decoder, which charges each chunk
-//!   its own part as it decodes, returned once the chunk's stage has used
-//!   it, and returns the rest as soon as the reply shows it cannot use it:
-//!   whatever exceeds what the reply can still deliver. The records part
-//!   rides the question's record to the take, which charges each record it
-//!   derives its part, returned once this side's encoder has answered that
-//!   record's question, and the parent resolution's part moves into that
-//!   resolution and returns at assembly.
+//!   become: a parked reply, the records derived from its questions as its
+//!   stage takes it from parking, and the parent resolution the stage
+//!   builds from it. Each question is charged, when it is asked, a
+//!   *reservation*: the most those items can hold, from the bound the
+//!   peer's grandchild count of the node asked about sets ([`ReplyBound`]).
+//!   Each part of the reservation returns as soon as it is known to be
+//!   unused. The room the reply's chunks park in travels with the
+//!   question's record to the decoder, which charges each chunk its own
+//!   part as it decodes, returned once the chunk's stage has used it, and
+//!   returns the rest as soon as the reply shows it cannot use it: whatever
+//!   exceeds what the reply can still deliver. The records part rides the
+//!   question's record through the decoder; as the stage takes the reply
+//!   from parking, the proxy charges each record it derives from the
+//!   reply's questions its part, returned once this side's encoder has
+//!   answered that record's question; and the parent resolution's part
+//!   moves into that resolution and returns at assembly.
 //! - **The session allowance**, beside the ledger: the fixed state every
 //!   session sets up whatever it compares (the pipe's buffers and lanes,
 //!   decode fans, assembly's queues and spines, hashing, and the stages'
@@ -1059,7 +1061,7 @@ pub struct ReplyFit {
     pub listing: usize,
     /// The listing entries its reservation allowed.
     pub listing_bound: usize,
-    /// The bytes the records the take derived from its questions held.
+    /// The bytes the records derived from its questions held.
     pub records: usize,
     /// The bytes its reservation's records part held for them.
     pub records_bound: usize,

@@ -215,7 +215,7 @@ impl Scope {
     }
 
     /// The bytes this record holds while it waits in a channel, as the
-    /// take's record of a question the peer asked.
+    /// record derived from a question the peer asked.
     ///
     /// That is its node in the channel, beside the charge it carries there
     /// ([`Derived`](crate::tree::mirror::streaming::remote::Derived)), and

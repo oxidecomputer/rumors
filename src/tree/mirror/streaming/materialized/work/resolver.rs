@@ -74,16 +74,16 @@ where
     /// stayed with it, which the resolution takes: its slots.
     reservation: Reserved,
     /// The bytes the records part of the question's reservation holds
-    /// ([`charges::records_room`]), which the take's records of the
+    /// ([`charges::records_room`]), which the records derived from the
     /// reply's questions must fit.
     records: usize,
     /// What the reply has held so far: its reaction slots, one per
     /// reaction and one per child its match covers, as its bound counts
     /// them, and the listing entries its queries carried.
     held: ReplyBound,
-    /// The bytes the records the take derives from the reply's questions
-    /// so far hold ([`charges::derived_record_bytes`]), which the
-    /// reservation's records part pays for.
+    /// The bytes the records derived so far from the reply's questions hold
+    /// ([`charges::derived_record_bytes`]), which the reservation's records
+    /// part pays for.
     derived: usize,
 }
 

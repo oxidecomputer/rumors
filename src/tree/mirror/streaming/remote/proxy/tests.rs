@@ -639,7 +639,8 @@ fn instrumented_reconcile(
 }
 
 /// Every observed proxy queue has its documented capacity at a budget of
-/// zero and drains, and no take waits to publish a scope.
+/// zero and drains, and no stage taking a chunk from parking waits to
+/// publish a scope.
 ///
 /// That a queue never holds more than its capacity is the bounded channel's
 /// own contract, which `channel::bounded`'s tests check directly
@@ -672,7 +673,7 @@ fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
         if role.kind == QueueKind::ProxyNextScopes {
             assert_eq!(
                 stats.blocked_send_polls, 0,
-                "a take waited to publish a scope"
+                "a stage taking a chunk waited to publish a scope"
             );
         }
     }

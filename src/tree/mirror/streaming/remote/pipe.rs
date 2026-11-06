@@ -123,9 +123,10 @@
 //! - The decoder infers nothing. It checks the covered radixes against the
 //!   question's record at the match's frame and parks the match with them;
 //!   the covered children are resolved by whoever consumes the reply, the
-//!   take as it derives the reply's questions and the walk's resolver as it
-//!   pairs reactions with its children, each as it reaches them. No queue
-//!   fills with inferred matches.
+//!   proxy as it derives the reply's questions while the stage takes the
+//!   reply, and the walk's resolver as it pairs reactions with its
+//!   children, each as it reaches them. No queue fills with inferred
+//!   matches.
 //! - The decoder's one new step, telling a covered position from one a
 //!   frame must take, waits for nothing: an uncovered position's frame is
 //!   one it waits for anyway, and a covered position needs none. At the

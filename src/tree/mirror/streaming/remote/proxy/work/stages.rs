@@ -18,8 +18,8 @@
 //!   their stage takes them, each chunk charged its part of the room its
 //!   question set aside, and parking never waits, so decoding never waits
 //!   on the walk;
-//! - at each take, the scopes the chunk's questions create flow into the
-//!   next phase, before the stage receives the chunk.
+//! - as a stage takes each chunk, the scopes its questions create flow into
+//!   the next phase, before the stage receives it.
 //!
 //! Each question's frame reaches the multiplexer before its record
 //! publishes. Each edge's capacity rationale lives at its constructor in
@@ -60,9 +60,10 @@ where
     /// carrying the question's record.
     ///
     /// The decoder reads the record in place, and the record then travels
-    /// with its reply, so the take derives the reply's questions from the
-    /// very record the decoder validated it against. Every reply crosses one
-    /// [`LeafEdge`], which the pump owns for its whole run.
+    /// with its reply, so when the stage takes the reply, the proxy derives
+    /// the reply's questions from the very record the decoder validated it
+    /// against. Every reply crosses one [`LeafEdge`], which the pump owns
+    /// for its whole run.
     ///
     /// The decoder charges each chunk its own part of the room the question
     /// set aside for its reply's chunks, which returns once the chunk's
@@ -146,8 +147,9 @@ where
     /// the reply and its root scope are synthesized from the retained
     /// listing.
     ///
-    /// Nothing is decoded, so nothing parks: like any take, the replayed
-    /// opening publishes its one scope before the stage receives it.
+    /// Nothing is decoded, so nothing parks: like any chunk a stage takes,
+    /// the replayed opening publishes its one scope before the stage
+    /// receives it.
     pub fn initiator(
         &mut self,
     ) -> (
