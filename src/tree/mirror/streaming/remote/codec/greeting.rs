@@ -9,19 +9,12 @@
 //!
 //! The map's keys ride in CBOR deterministic order (bytewise
 //! lexicographic over their encodings), and the decoder requires exactly
-//! this key set in exactly that order: one spelling per greeting.
-//!
-//! - `"listing"`: the sender's root-fan listing, the same
-//!   `{radix: [hash, count − 1]}` map spelling a query frame carries.
-//! - `"set_len"`: the sender's declared set size.
-//! - `"version"`: the sender's causal version — the version-atom tag
-//!   wrapping a byte string of the version's canonical encoding.
-//! - `"grandchildren"`: the sender's root grandchild count, which bounds
-//!   the elected responder's reply to the opening question.
-//! - `"max_version_bytes"`: the sender's version-size bound.
-//! - `"payload_depth_limit"`: the sender's payload nesting-depth limit,
-//!   which the counterparty's must equal for the session to proceed.
-//! - `"target_message_size"`: the sender's supply-run byte target.
+//! this key set in exactly that order: one spelling per greeting. The key
+//! set and its order are [`FIELDS`]; each field's meaning is documented at
+//! [`Greeting`]. The listing uses the same `{radix: [hash, count − 1]}` map
+//! spelling a query frame carries, and the version is the version-atom tag wrapping a
+//! byte string of the version's canonical encoding; every other field is an
+//! unsigned integer.
 
 use crate::{
     Version,

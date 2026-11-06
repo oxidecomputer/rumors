@@ -340,29 +340,22 @@ fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
     )
 }
 
-/// A budget far from [`rumors::default::SYNC_MEMORY_BUDGET`]'s 512 MiB, so
-/// the wire-equality pin below cannot pass by the two configurations
-/// coinciding.
+/// A budget far from [`rumors::default::SYNC_MEMORY_BUDGET`], so
+/// the comparison below cannot pass by the two configurations coinciding.
 const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;
 
-/// A configured sync memory budget leaves the bootstrap wire byte-identical
-/// to the default's: the budget is deliberately not wire-visible, so peers
-/// with different budgets interoperate.
+/// A configured sync memory budget never reaches the wire.
 ///
-/// The same seeded provider serves the same corpus to a default-budget
-/// newcomer and to one advertising [`OFF_DEFAULT_BUDGET`]; the full wire
-/// capture (both directions) must be equal byte for byte. This pins the
-/// structural guarantee that the greeting does not carry the budget —
-/// each side admits its work against its own budget — so
-/// a regression that leaks the budget onto the wire fails here rather
-/// than surfacing as an interoperability break between fleets rolled out
-/// with different budgets. The negative control proves the comparator has
-/// teeth: under the identical harness, a knob that *is* wire-visible
-/// (the greeting carries the message-size target) must change the
-/// capture, so a comparator bug that always reports equality fails the
-/// control.
+/// A budget bounds only what its own side holds, so no peer is told it. A
+/// bootstrap newcomer is empty and asks one question, which its budget
+/// admits whatever its value. The same seeded provider serves the same
+/// corpus to a default-budget newcomer and to one on
+/// [`OFF_DEFAULT_BUDGET`]: the two captures must be equal byte for byte.
+/// The negative control shows the comparator detects a changed session: an
+/// option that changes the session itself (the message-size target) must
+/// change the capture.
 #[test]
-fn sync_memory_budget_is_not_wire_visible() {
+fn sync_memory_budget_never_reaches_the_wire() {
     let default_budget = capture_bootstrap(seeded_provider(), Peer::<u64>::bootstrap());
     let custom_budget = capture_bootstrap(
         seeded_provider(),
@@ -370,7 +363,7 @@ fn sync_memory_budget_is_not_wire_visible() {
     );
     assert_eq!(
         default_budget, custom_budget,
-        "a configured sync memory budget must not change one wire byte of the session",
+        "a configured sync memory budget must not change the wire",
     );
 
     // Negative control: the same harness must be able to see a difference.
@@ -380,7 +373,7 @@ fn sync_memory_budget_is_not_wire_visible() {
     );
     assert_ne!(
         default_budget, custom_target,
-        "the wire-visible target knob must change the capture: an equality here \
+        "the message-size target must change the capture: an equality here \
          means the comparator cannot distinguish sessions at all",
     );
 }

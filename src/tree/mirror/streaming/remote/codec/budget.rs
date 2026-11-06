@@ -40,7 +40,8 @@ use super::frame::{MAX_QUERY_CHILDREN, SUPPLY_HEAD_LEN, listing_entry_len};
 use super::signal::FRAME_OPENER_LEN;
 use crate::tree::mirror::streaming::message::Grandchildren;
 
-/// The exact wire size of one full-fan query frame.
+/// The exact wire size of one full-fan query frame: the largest frame that
+/// carries one comparison rather than supplied records.
 ///
 /// This includes the frame opener, the listing-map head, and every radix,
 /// hash, and grandchild count, each count at its widest. Radix keys have
