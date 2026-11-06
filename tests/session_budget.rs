@@ -2015,7 +2015,8 @@ divided_proptest! {
 }
 
 /// The byte-vector payloads [`large_byte_vectors_keep_the_bound`] sends, in
-/// bytes, each with the number of messages each side sends.
+/// bytes, each with the number of messages each side sends and whether its
+/// message lies past the largest budgeted message.
 ///
 /// The first is past the preallocation cap serde's sequence decoding keeps
 /// to, 1 MiB, so decoding it outgrows a buffer, and within the default
@@ -2023,9 +2024,9 @@ divided_proptest! {
 /// pools. The second is a mebibyte past the largest budgeted message, so it
 /// travels alone, beyond the run budget, and holds its excess beside the
 /// pools as it crosses.
-const LARGE_PAYLOADS: [(usize, u64); 2] = [
-    ((1 << 20) + (1 << 16), 4),
-    (rumors::MAX_BUDGETED_MESSAGE_SIZE + (1 << 20), 2),
+const LARGE_PAYLOADS: [(usize, u64, bool); 2] = [
+    ((1 << 20) + (1 << 16), 4, false),
+    (rumors::MAX_BUDGETED_MESSAGE_SIZE + (1 << 20), 2, true),
 ];
 
 /// The most a lone record's message holds beyond its payload's encoding: its
@@ -2132,21 +2133,31 @@ fn decoding(payload: usize) -> (usize, usize, usize) {
 ///   grows its buffer by doubling and keeps the capacity it reached, where
 ///   the sender built the vector at its exact length.
 ///
-/// So that the bounds judge the regions they name, each session must have
-/// decoded beyond the decode fans' own bound, and a payload past the run
-/// budget must have held more on the wire than one budgeted message.
+/// So that the bounds judge the regions they name, each payload's message
+/// must lie within or past the largest budgeted message as
+/// [`LARGE_PAYLOADS`] says, each session must have decoded beyond the
+/// decode fans' own bound, and a payload past the run budget must have held
+/// more on the wire than one budgeted message.
 #[test]
 fn large_byte_vectors_keep_the_bound() {
     reference();
-    for (payload, count) in LARGE_PAYLOADS {
+    for (payload, count, past) in LARGE_PAYLOADS {
         let (encoded, kept, transient) = decoding(payload);
+        let excess = (encoded + RECORD_FRAMING).saturating_sub(rumors::MAX_BUDGETED_MESSAGE_SIZE);
+        assert_eq!(
+            excess > 0,
+            past,
+            "a {payload}-byte payload's message, {encoded} B encoded beside {RECORD_FRAMING} B of \
+             framing, must lie {} the largest budgeted message, {} B",
+            if past { "past" } else { "within" },
+            rumors::MAX_BUDGETED_MESSAGE_SIZE,
+        );
         let run = run_fixture(
             || payload_fixture(BUDGET_NETWORK_SEED, payload, count, 0),
             [count; 2],
             release_everything,
         );
         let mut measured = Measured::of(count, 0, 0, run);
-        let excess = (encoded + RECORD_FRAMING).saturating_sub(rumors::MAX_BUDGETED_MESSAGE_SIZE);
         measured.wire = (wire_allowance(rumors::default::TARGET_MESSAGE_SIZE) + 2 * excess) as u128;
         measured.decoded = (DECODE_AHEAD_BYTES + transient) as u128;
         measured.replica_slack = u128::from(count) * (kept - payload) as u128;
