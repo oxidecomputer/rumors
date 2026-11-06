@@ -96,6 +96,17 @@ pub const FIXED_ALLOWANCE: usize = fixed_allowance::<Local>();
 pub const SESSION_ALLOWANCE: usize =
     session_allowance::<Local>(crate::default::TARGET_MESSAGE_SIZE);
 
+/// The largest message of supplied records, framing included, that a
+/// session's wire pools cover at the message-size target `target`:
+/// [`MAX_BUDGETED_MESSAGE_SIZE`](crate::MAX_BUDGETED_MESSAGE_SIZE) at the
+/// default target.
+///
+/// Only a lone record larger than the target makes a larger message, which
+/// holds its excess over this beside the pools as it crosses.
+pub const fn budgeted_message_bytes(target: usize) -> usize {
+    crate::tree::mirror::streaming::remote::budgeted_message_bytes(target)
+}
+
 /// The most bytes one side's wire buffering holds at once at the
 /// message-size target `target`, a supply record larger than a pool
 /// aside: its two wire pools beside the pipe's fixed state.

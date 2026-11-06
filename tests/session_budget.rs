@@ -299,8 +299,8 @@ use proptest::test_runner::{Config, TestRunner};
 use rumors::testing::{
     Admission, COMPARISON_FRAME_BYTES, DECODE_AHEAD_BYTES, FLOOR_ALLOWANCE, HASHING_SCRATCH_BYTES,
     Holding, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, assembly_allowance,
-    attribute_allocations, join_snapshots, ledger_scratch, observe_admissions, observe_fits,
-    observe_ledgers, wire_allowance, with_leaf_paths,
+    attribute_allocations, budgeted_message_bytes, join_snapshots, ledger_scratch,
+    observe_admissions, observe_fits, observe_ledgers, wire_allowance, with_leaf_paths,
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::common::budget::BudgetChoice;
@@ -2014,20 +2014,31 @@ divided_proptest! {
     }
 }
 
-/// The byte-vector payloads [`large_byte_vectors_keep_the_bound`] sends, in
-/// bytes, each with the number of messages each side sends and whether its
-/// message lies past the largest budgeted message.
+/// The byte-vector payloads [`large_byte_vectors_keep_the_bound`] sends:
+/// bytes, messages per side, the target both peers run at, and whether the
+/// message lies past the largest budgeted message at that target.
 ///
 /// The first is past the preallocation cap serde's sequence decoding keeps
-/// to, 1 MiB, so decoding it outgrows a buffer, and within the default
-/// target's run budget, so it travels in a run of its own beside the wire
-/// pools. The second is a mebibyte past the largest budgeted message, so it
+/// to, 1 MiB, so decoding it outgrows a buffer. Its peers run at
+/// [`WITHIN_TARGET`], whose run budget holds it, so it travels in a run of
+/// its own beside the wire pools. The second is a mebibyte past the largest
+/// budgeted message at the default target, at which its peers run, so it
 /// travels alone, beyond the run budget, and holds its excess beside the
 /// pools as it crosses.
-const LARGE_PAYLOADS: [(usize, u64, bool); 2] = [
-    ((1 << 20) + (1 << 16), 4, false),
-    (rumors::MAX_BUDGETED_MESSAGE_SIZE + (1 << 20), 2, true),
+const LARGE_PAYLOADS: [(usize, u64, usize, bool); 2] = [
+    ((1 << 20) + (1 << 16), 4, WITHIN_TARGET, false),
+    (
+        rumors::MAX_BUDGETED_MESSAGE_SIZE + (1 << 20),
+        2,
+        rumors::default::TARGET_MESSAGE_SIZE,
+        true,
+    ),
 ];
+
+/// The message-size target of the first of [`LARGE_PAYLOADS`]: large
+/// enough that its largest budgeted message, about twice the target, holds
+/// a payload past serde's preallocation cap.
+const WITHIN_TARGET: usize = 1 << 20;
 
 /// The most a lone record's message holds beyond its payload's encoding: its
 /// frame and run heads, at most nine bytes each, and its version, which
@@ -2035,8 +2046,8 @@ const LARGE_PAYLOADS: [(usize, u64, bool); 2] = [
 const RECORD_FRAMING: usize = 1 << 10;
 
 /// Two forks of the network `network` names, each holding `count`
-/// byte-vector messages of `payload` bytes that the other lacks, at the
-/// default target and on a memory budget whose ledger admits work against
+/// byte-vector messages of `payload` bytes that the other lacks, at target
+/// `target` and on a memory budget whose ledger admits work against
 /// `budget`.
 ///
 /// Each message's first eight bytes are its index among its side's sends,
@@ -2045,11 +2056,11 @@ fn payload_fixture(
     network: NetworkSeed,
     payload: usize,
     count: u64,
+    target: usize,
     budget: usize,
 ) -> Fixture<Vec<u8>> {
     let configure = |peer: Peer<Vec<u8>>| {
-        rumors::testing::ledger_budget(peer, budget)
-            .target_message_size(rumors::default::TARGET_MESSAGE_SIZE)
+        rumors::testing::ledger_budget(peer, budget).target_message_size(target)
     };
     let (built, [a, b]) = measure(|| {
         block_on(async {
@@ -2116,16 +2127,16 @@ fn decoding(payload: usize) -> (usize, usize, usize) {
 ///
 /// The suite's other fixtures carry `u64` payloads at a run target of one
 /// comparison, so they never decode a payload past serde's cap or read a
-/// run over one payload granule. Here each side sends [`LARGE_PAYLOADS`] at
-/// the default target, and the session is held to the suite's bounds
+/// run over one payload granule. Here each side sends [`LARGE_PAYLOADS`],
+/// each at its own target, and the session is held to the suite's bounds
 /// ([`bound_violation`]) with three of them widened, each by what
 /// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) names as
 /// held beyond the budget, computed independently of the session:
 ///
 /// - Wire buffering may also hold, in each direction, a lone record's
-///   excess over the largest budgeted message
-///   ([`MAX_BUDGETED_MESSAGE_SIZE`](rumors::MAX_BUDGETED_MESSAGE_SIZE)),
-///   its message taken as its payload's encoding and [`RECORD_FRAMING`].
+///   excess over the largest budgeted message at its target
+///   ([`budgeted_message_bytes`]), its message taken as its payload's
+///   encoding and [`RECORD_FRAMING`].
 /// - The decode fans may also hold one message's decoding transient, which
 ///   [`decoding`] measures by decoding the same payload alone.
 /// - Each replica may keep, for each message it gains, what the decoded
@@ -2141,24 +2152,25 @@ fn decoding(payload: usize) -> (usize, usize, usize) {
 #[test]
 fn large_byte_vectors_keep_the_bound() {
     reference();
-    for (payload, count, past) in LARGE_PAYLOADS {
+    for (payload, count, target, past) in LARGE_PAYLOADS {
         let (encoded, kept, transient) = decoding(payload);
-        let excess = (encoded + RECORD_FRAMING).saturating_sub(rumors::MAX_BUDGETED_MESSAGE_SIZE);
+        let budgeted = budgeted_message_bytes(target);
+        let excess = (encoded + RECORD_FRAMING).saturating_sub(budgeted);
         assert_eq!(
             excess > 0,
             past,
             "a {payload}-byte payload's message, {encoded} B encoded beside {RECORD_FRAMING} B of \
-             framing, must lie {} the largest budgeted message, {} B",
+             framing, must lie {} the largest budgeted message at a {target}-byte target, \
+             {budgeted} B",
             if past { "past" } else { "within" },
-            rumors::MAX_BUDGETED_MESSAGE_SIZE,
         );
         let run = run_fixture(
-            || payload_fixture(BUDGET_NETWORK_SEED, payload, count, 0),
+            || payload_fixture(BUDGET_NETWORK_SEED, payload, count, target, 0),
             [count; 2],
             release_everything,
         );
         let mut measured = Measured::of(count, 0, 0, run);
-        measured.wire = (wire_allowance(rumors::default::TARGET_MESSAGE_SIZE) + 2 * excess) as u128;
+        measured.wire = (wire_allowance(target) + 2 * excess) as u128;
         measured.decoded = (DECODE_AHEAD_BYTES + transient) as u128;
         measured.replica_slack = u128::from(count) * (kept - payload) as u128;
         println!("{payload}-byte payloads: {}", measured.report());
@@ -2177,7 +2189,7 @@ fn large_byte_vectors_keep_the_bound() {
             if excess > 0 {
                 let wire = measured.holding(side, Holding::Wire).transient_peak;
                 assert!(
-                    wire > rumors::MAX_BUDGETED_MESSAGE_SIZE,
+                    wire > budgeted,
                     "{side:?} held {wire} B on the wire for {payload}-byte payloads past the run \
                      budget, no more than one budgeted message, so no lone record's excess was \
                      judged",
