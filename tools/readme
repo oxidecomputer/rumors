@@ -83,6 +83,11 @@ CRATES = [
         rdme_args=["-w", "rumors-tracing"],
     ),
     Crate(
+        name="rumors-netperf",
+        readme="crates/rumors-netperf/README.md",
+        rdme_args=["-w", "rumors-netperf"],
+    ),
+    Crate(
         name="suanpan",
         readme="crates/suanpan/README.md",
         rdme_args=["-w", "suanpan"],

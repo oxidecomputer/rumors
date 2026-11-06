@@ -432,3 +432,21 @@ pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::{Iter, Snapshot};
 pub use tree::mirror::streaming::stats::SessionStats;
+
+/// Whether this build of the crate carries the `test-internals` feature.
+///
+/// This exists only for the workspace's measurement tool,
+/// `rumors-netperf`, which refuses to measure with a build that carries
+/// the feature: its introspection and scheduling hooks cost time on the
+/// session paths the tool times. No application has a use for it, so it
+/// is hidden from the documentation.
+///
+/// The tool depends on this crate with default features, yet the feature
+/// can still reach its copy: cargo unifies a package's features across
+/// everything one invocation builds, so building the tool beside a crate
+/// that enables `test-internals`, such as the test kit or the budget
+/// curves, compiles the feature into the tool too. The tool's manifest
+/// cannot rule that out, so the tool reads this constant before it
+/// measures.
+#[doc(hidden)]
+pub const TEST_INTERNALS: bool = cfg!(feature = "test-internals");

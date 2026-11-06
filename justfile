@@ -50,6 +50,7 @@ fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/fuel/fuzzfit_gue
 
 fuelscape_target := justfile_directory() + "/target/before-fuelscape"
 curves_target := justfile_directory() + "/target/budget-curves-build"
+netperf_target := justfile_directory() + "/target/netperf"
 curves_out := justfile_directory() + "/target/budget-curves"
 surfacecheck_target := justfile_directory() + "/target/surfacecheck"
 
@@ -355,6 +356,7 @@ gate-streams:
     start_stream docsrs       10 _gate-docsrs
     start_stream audit        10 _gate-audit
     start_stream curves       10 _gate-curves
+    start_stream netperf      10 _gate-netperf
     wait
 
     failed=$(cd "$logs" && ls *.failed 2>/dev/null | sed 's/\.failed$//')
@@ -404,6 +406,7 @@ _gate-internal-docs: docs-internal
 _gate-docsrs: docs-docsrs
 _gate-audit: supply-chain
 _gate-curves: budget-curves-lint
+_gate-netperf: netperf-check
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `serde,borsh` is checked as a pair because both derive on the same types.
@@ -523,6 +526,25 @@ fuelscape-test: fuzzfit-build
 # Lint the budget-curves tool, which no workspace-wide recipe compiles.
 budget-curves-lint:
     cargo clippy -p rumors-budget-curves --all-targets --locked --target-dir {{ curves_target }} -- -D warnings
+
+# The link-measurement tool builds alone, with `-p`, so cargo resolves the
+# library's features for it alone and never compiles `test-internals` into
+# the binary it measures with. Its tests run here rather than in the
+# workspace's suites, since it is a tool-side member.
+
+# Lint, document, and test the link-measurement tool (rumors-netperf).
+netperf-check:
+    cargo clippy -p rumors-netperf --all-targets --locked --target-dir {{ netperf_target }} -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc -p rumors-netperf --no-deps --locked --target-dir {{ netperf_target }}/doc-public
+    RUSTDOCFLAGS="-D warnings" cargo doc -p rumors-netperf --no-deps --document-private-items --locked --target-dir {{ netperf_target }}/doc-internal
+    cargo nextest run --ignore-default-filter -p rumors-netperf --cargo-profile release --locked --target-dir {{ netperf_target }}
+
+# Emulation needs Linux; pair mode runs anywhere. Options pass through, e.g.
+# `just netperf doctor` or `just netperf run --grid crates/rumors-netperf/grids/quick.toml`.
+
+# Build the link-measurement tool in release and run it with the given arguments.
+netperf *args:
+    cargo run --release --locked -p rumors-netperf --target-dir {{ netperf_target }} -- {{ args }}
 
 # The curves come from deterministic sessions of the library's own session
 # code over the test kit's link model, so every point reproduces exactly on

@@ -16,6 +16,7 @@ members = [
     "crates/before/wasm32-pins/harness",
     "crates/before/wasm32-pins/protocol",
     "crates/rumors-budget-curves",
+    "crates/rumors-netperf",
     "crates/rumors-tracing",
     "crates/rumors-testkit",
     "crates/suanpan",
@@ -51,6 +52,7 @@ default-members = [
 [workspace.dependencies]
 alloc-meter = { path = "crates/alloc-meter" }
 aes-gcm = { version = "0.11", default-features = false }
+anyhow = "1"
 async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
@@ -72,6 +74,8 @@ ciborium = "=0.2.2"
 clap = "4"
 console_error_panic_hook = "0.1"
 criterion = "0.5"
+csv = "1"
+dirs = "7"
 dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
@@ -92,6 +96,7 @@ insta = "1.47"
 itertools = "0.14"
 libm = "0.2"
 mimalloc = "0.1"
+nix = { version = "0.31", default-features = false }
 num-bigint = "0.4"
 num-traits = "0.2"
 peak_alloc = "0.3"
@@ -103,9 +108,11 @@ rand = "0.10"
 rand08 = { package = "rand", version = "0.8" }
 rand_chacha = "0.10"
 rand_chacha03 = { package = "rand_chacha", version = "0.3" }
+rand_distr = "0.6"
 rayon = "1"
-# A self-signed certificate for the TLS record suite's sessions,
-# generated per run, so no key is ever committed.
+# A self-signed certificate for the TLS sessions of the TLS record suite
+# and the link-measurement tool, generated per run, so no key is ever
+# committed.
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
 rumors = { path = "." }
 rumors-testkit = { path = "crates/rumors-testkit" }
@@ -115,8 +122,9 @@ rustc_version = "0.4"
 # and surfacecheck refuses any document whose format_version differs from
 # `rustdoc_types::FORMAT_VERSION`.
 rustdoc-types = "=0.59.0"
-# TLS for the TLS record suite, on the `ring` provider, which builds with
-# a C compiler alone on every host the tests run on.
+# TLS for the TLS record suite and the link-measurement tool, on the
+# `ring` provider, which builds with a C compiler alone on every host they
+# run on.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 schnellru = { version = "0.2.4", default-features = false }
 seq-macro = "0.3"
@@ -135,7 +143,11 @@ thiserror = "2"
 tinyvec = { version = "1.11", features = ["alloc"] }
 tokio = { version = "1", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+toml = "1"
 tracing = "0.1"
+# The link-measurement tool's readable source revision, from the git
+# command line, which every host that builds from a checkout already has.
+vergen-gitcl = "10"
 wasm-bindgen = "0.2"
 wasm32-pins-protocol = { path = "crates/before/wasm32-pins/protocol" }
 wasmtime = { version = "48.0.8", default-features = false }
