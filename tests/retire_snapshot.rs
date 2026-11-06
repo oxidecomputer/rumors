@@ -153,7 +153,10 @@ fn retire_into_bootstrapper() {
                 .join(&mut end.read, &mut end.write)
                 .await
             {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined {
+                    peer,
+                    connection: rumors::Connection::Reusable { .. },
+                } => peer,
                 _ => panic!("the retiree served the bootstrap"),
             };
         },

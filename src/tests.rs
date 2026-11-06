@@ -10,7 +10,7 @@ use before::Party;
 use tokio::io::{BufReader, DuplexStream};
 use tokio::sync::watch;
 
-use crate::bookmark::{BookmarkHandle, NoBookmark};
+use crate::bookmark::{Bookmark, BookmarkHandle, NoBookmark};
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::network::NetworkSecret;
 use crate::observe::{
@@ -36,7 +36,7 @@ fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
 }
 
 /// Read a `Peer`'s party for assertions.
-fn party_of(k: &Peer<u64>) -> Party {
+fn party_of<B: Bookmark>(k: &Peer<u64, B>) -> Party {
     k.inner.borrow().party.dangerously_alias()
 }
 
@@ -71,7 +71,10 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
         (
             provider,
             (match boot_out {
-                crate::Joined::Joined { peer, .. } => peer,
+                crate::Joined::Joined {
+                    peer,
+                    connection: crate::Connection::Reusable { .. },
+                } => peer,
                 _ => panic!("provider served the bootstrap"),
             }),
         )
@@ -433,9 +436,7 @@ divided_proptest! {
 /// The joiner's party, if a bootstrap returned a peer.
 fn joined_party<R, W>(joined: crate::Joined<u64, R, W>) -> Option<Party> {
     match joined {
-        crate::Joined::Joined { peer, .. } | crate::Joined::Unconfirmed { peer, .. } => {
-            Some(party_of(&peer))
-        }
+        crate::Joined::Joined { peer, .. } => Some(party_of(&peer)),
         crate::Joined::Failed { .. } => None,
         other => panic!("a provider serves the bootstrap or the session fails, got {other:?}"),
     }
@@ -588,8 +589,9 @@ struct Cancelled {
     provider_failed_in: Option<crate::error::Phase>,
     /// The joiner's party, if the join returned a peer.
     joiner: Option<Party>,
-    /// Whether the join returned a peer whose completion was unconfirmed.
-    unconfirmed: bool,
+    /// Whether the join returned a peer whose session then failed, so that
+    /// its provider never confirmed completion.
+    connection_lost: bool,
     /// Suspensions of the joiner's session, then of the provider's.
     suspensions: [usize; 2],
 }
@@ -618,7 +620,13 @@ fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usiz
         );
         (served.map(drop), joined)
     });
-    let unconfirmed = matches!(joined, crate::Joined::Unconfirmed { .. });
+    let connection_lost = matches!(
+        joined,
+        crate::Joined::Joined {
+            connection: crate::Connection::Lost { .. },
+            ..
+        }
+    );
     Cancelled {
         provider: party_of(&provider),
         provider_failed_in: match served {
@@ -627,7 +635,7 @@ fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usiz
             _ => None,
         },
         joiner: joined_party(joined),
-        unconfirmed,
+        connection_lost,
         suspensions: polls.map(|polls| polls.load(std::sync::atomic::Ordering::Relaxed)),
     }
 }
@@ -651,9 +659,9 @@ divided_proptest! {
     /// before reconciliation, so a provider whose session failed in
     /// reconciliation, holding the whole seed with no peer joined, had its
     /// unsent fork come back to it; some cancellation does that. And some join
-    /// returns
-    /// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed), keeping a party
-    /// whose completion the cancelled provider never confirmed.
+    /// returns a peer beside a
+    /// [`Connection::Lost`](crate::Connection::Lost), keeping a party whose
+    /// completion the cancelled provider never confirmed.
     ///
     /// A cancellation can strand the fork, which neither side then holds: a
     /// joiner that leaves after its last reconciliation bytes leaves the
@@ -667,7 +675,7 @@ divided_proptest! {
         let clean = cancelled_bootstrap(network, usize::MAX, usize::MAX);
         assert!(clean.joiner.is_some(), "an uncancelled bootstrap joins");
         let points = |suspensions: usize| (1..=suspensions + 1).chain([usize::MAX]);
-        let (mut restored, mut unconfirmed) = (0, 0);
+        let (mut restored, mut lost) = (0, 0);
         for joiner_at in points(clean.suspensions[0]) {
             for provider_at in points(clean.suspensions[1]) {
                 let cancelled = cancelled_bootstrap(network, joiner_at, provider_at);
@@ -677,7 +685,7 @@ divided_proptest! {
                     Some(joiner) => {
                         assert!(whole.join(joiner).is_ok(), "{at}: one identity on both sides");
                         assert_eq!(whole, Party::seed(), "{at}: a joined peer, yet identity stranded");
-                        unconfirmed += usize::from(cancelled.unconfirmed);
+                        lost += usize::from(cancelled.connection_lost);
                     }
                     None => {
                         restored += usize::from(
@@ -690,7 +698,7 @@ divided_proptest! {
             }
         }
         assert!(restored > 0, "some cancellation returns a reserved, unsent fork to the provider");
-        assert!(unconfirmed > 0, "some join keeps a party its provider never confirmed");
+        assert!(lost > 0, "some join keeps a party its provider never confirmed");
     }
 }
 
@@ -1016,16 +1024,41 @@ impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for StallAfter<W> {
     }
 }
 
+/// Bookmark storage whose committed record the test can read back.
+#[derive(Clone, Default)]
+struct SharedRecord(Arc<std::sync::Mutex<Option<Vec<u8>>>>);
+
+/// Model atomic replacement of an in-memory record that cannot fail.
+impl Bookmark for SharedRecord {
+    /// Replacing an in-memory buffer cannot fail.
+    type Error = std::convert::Infallible;
+    /// An owned snapshot of the committed bytes.
+    type Reader = std::io::Cursor<Vec<u8>>;
+
+    /// Return a snapshot of the committed bytes.
+    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
+        Ok(self.0.lock().unwrap().clone().map(std::io::Cursor::new))
+    }
+
+    /// Replace the complete record.
+    async fn store(&self, bytes: Vec<u8>) -> Result<(), Self::Error> {
+        *self.0.lock().unwrap() = Some(bytes);
+        Ok(())
+    }
+}
+
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
     /// A joiner whose session deadline expires after its whole party has
-    /// arrived keeps the party.
+    /// arrived keeps the party, and attaches its selected bookmark.
     ///
     /// The deadline expires while the joiner waits for the provider's completion
-    /// marker, and the join returns
-    /// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed) carrying a peer with
-    /// the provider's content and the deadline's error.
+    /// marker, and the join returns a peer with the provider's content beside
+    /// a [`Connection::Lost`](crate::Connection::Lost) carrying the deadline's
+    /// error. The peer comes back in [`Joined::Joined`](crate::Joined::Joined),
+    /// which carries a peer only once its bookmark is attached, and the
+    /// bookmark holds a persisted record.
     ///
     /// A clean bootstrap measures how many bytes the provider writes. A second
     /// provider, built identically from the same network seed, then serves
@@ -1059,6 +1092,7 @@ divided_proptest! {
         });
 
         let provider = provider();
+        let record = SharedRecord::default();
         let joined = tokio::runtime::Builder::new_current_thread()
             .enable_time()
             .start_paused(true)
@@ -1073,18 +1107,26 @@ divided_proptest! {
                 let serve = provider.gossip_once(&mut a_end.read, &mut stalled);
                 let join = Peer::<u64>::bootstrap()
                     .session_deadline(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
+                    .bookmark(record.clone())
                     .join(&mut b_end.read, &mut b_end.write);
                 let joined = tokio::select! {
                     joined = join => joined,
                     _ = serve => panic!("the stalled provider cannot finish"),
                 };
                 match joined {
-                    crate::Joined::Unconfirmed { peer, error, .. } => (peer, error),
+                    crate::Joined::Joined {
+                        peer,
+                        connection: crate::Connection::Lost { error },
+                    } => (peer, error),
                     other => panic!("a deadline after the party arrives keeps the peer, got {other:?}"),
                 }
             });
         let (peer, error) = joined;
         assert!(matches!(error, Error::DeadlineExceeded), "got {error:?}");
+        assert!(
+            record.0.lock().unwrap().is_some(),
+            "attachment persists a record despite the lost connection"
+        );
         assert_eq!(
             peer.snapshot().len(),
             3,
@@ -1197,7 +1239,7 @@ divided_proptest! {
             );
             served.expect("the provider serves the bootstrap");
             match joined {
-                crate::Joined::Joined { peer, .. } => peer,
+                crate::Joined::Joined { peer, connection: crate::Connection::Reusable { .. } } => peer,
                 other => panic!("the bootstrap joins, got {other:?}"),
             }
         });

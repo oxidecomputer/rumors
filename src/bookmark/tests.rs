@@ -12,7 +12,7 @@ use proptest::prelude::*;
 use super::*;
 use crate::testing::property::{SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
-use crate::{Joined, Peer};
+use crate::{Connection, Joined, Peer};
 
 /// Whether a store confirms durability or fails on either side of replacement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -123,7 +123,7 @@ divided_proptest! {
                 sendable(Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)),
             );
             served.unwrap();
-            let Joined::Joined { peer, .. } = joined else {
+            let Joined::Joined { peer, connection: Connection::Reusable { .. } } = joined else {
                 panic!("the peer must join")
             };
             let received = peer.into_rumors().snapshot();
@@ -343,7 +343,7 @@ proptest! {
             let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
             let (served, joined) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), bootstrap.join(&mut far.read, &mut far.write));
             served.unwrap();
-            let Joined::Joined { peer, .. } = joined else { panic!("reliable bootstrap must join") };
+            let Joined::Joined { peer, connection: Connection::Reusable { .. } } = joined else { panic!("reliable bootstrap must join") };
             {
                 let applied = peer.bookmark.size_limit();
                 assert_eq!(applied, limit.max(format::record_size(0, 0)));

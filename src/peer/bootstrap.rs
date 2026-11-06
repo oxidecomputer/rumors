@@ -12,7 +12,7 @@ use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
 use crate::{Error, Peer};
 
 use super::bookmark::Unbookmarked;
-use super::gossip::Bootstrapped;
+use super::connection::Connection;
 use super::{MemoryBudget, SessionSettings};
 
 /// Configuration for joining a gossip network through [`Peer::bootstrap`].
@@ -93,9 +93,11 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// restart bookkeeping, not messages; the join receives those from the
     /// provider. See [`Bookmark`] for storage and ownership requirements.
     ///
-    /// This calls [`Peer::bookmark`] after the session. If attachment fails,
-    /// [`Joined::Unbookmarked`] returns the live peer and the storage error.
-    /// If the session fails or bails, the returned builder owns the untouched
+    /// This calls [`Peer::bookmark`] once the session has ended with this
+    /// side holding its whole identity, whether or not the session then
+    /// completed. If attachment fails, [`Joined::Unbookmarked`] returns the
+    /// live peer and the storage error. If the session fails before the
+    /// identity arrives, or bails, the returned builder owns the untouched
     /// bookmark and can retry.
     pub fn bookmark<B: Bookmark>(self, bookmark: B) -> Bootstrap<T, B> {
         Bootstrap {
@@ -222,21 +224,25 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// be gossiping or retiring. Two bootstrappers cannot supply each other;
     /// both return [`Joined::Bailed`] with their builders.
     ///
-    /// [`Joined::Failed`] returns the builder on session failure, including
+    /// [`Joined::Failed`] returns the builder when the session fails before
+    /// this side has received its whole identity, including on
     /// [`session_deadline`](Self::session_deadline) expiry. Discard the
-    /// connection and retry on another. A failure after this side has
-    /// received its whole identity, while it confirms completion, instead
-    /// returns the live peer in [`Joined::Unconfirmed`]: the provider has
-    /// already given that identity up.
+    /// connection and retry on another. Once the whole identity has
+    /// arrived, this side has joined however the session ends, because the
+    /// provider gave that identity up before sending it. A failure after
+    /// that point, while the two sides confirm completion, returns the live
+    /// peer with a [`Connection::Lost`] carrying the error.
     ///
     /// If a bookmark was selected, joining then attaches it through
-    /// [`Peer::bookmark`]. A failed attachment returns [`Joined::Unbookmarked`],
-    /// preserving the joined peer.
+    /// [`Peer::bookmark`], whether or not the session completed. A failed
+    /// attachment returns [`Joined::Unbookmarked`], preserving the joined
+    /// peer.
     ///
     /// Cancelling drops the builder and any joined peer. Cancellation during
     /// the session leaves the connection at an unknown position; once
-    /// bookmark attachment begins, the session is complete and the
-    /// connection rests at its boundary. See
+    /// bookmark attachment begins, the session has ended, and the
+    /// connection stays where the session left it: at its boundary if the
+    /// session completed, at an unknown position if it failed. See
     /// [what a session promises](crate#what-a-session-promises).
     ///
     /// The provider gives up the identity it donates before it starts to
@@ -246,8 +252,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// a crashed peer's identity does (see [`Bookmark`]). To bound a join's
     /// duration, configure [`session_deadline`](Self::session_deadline)
     /// rather than dropping the future: a deadline that expires after the
-    /// whole identity has arrived returns the live peer in
-    /// [`Joined::Unconfirmed`], where dropping the future would discard it.
+    /// whole identity has arrived returns the live peer with a
+    /// [`Connection::Lost`], where dropping the future would discard it.
     pub async fn join<R, W>(self, mut read: R, mut write: W) -> Joined<T, R, W, B>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -255,54 +261,59 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         W: AsyncWrite + Unpin + Send,
     {
         // The session needs a copy of the settings, not ownership of storage.
-        // Retaining self lets both unsuccessful outcomes return it unchanged.
-        match Peer::bootstrap_inner(self.session_config(), &mut read, &mut write).await {
-            Ok(Bootstrapped::Joined(peer)) => match peer
-                .bookmark_size_limit(self.bookmark_size_limit)
-                .bookmark(self.bookmark)
-                .await
-            {
-                Ok(peer) => Joined::Joined { peer, read, write },
-                Err(unbookmarked) => Joined::Unbookmarked {
-                    unbookmarked,
+        // Retaining self lets both outcomes without a peer return it unchanged.
+        let (peer, completed) =
+            Peer::bootstrap_inner(self.session_config(), &mut read, &mut write).await;
+        let Some(peer) = peer else {
+            return match completed {
+                Ok(()) => Joined::Bailed {
+                    bootstrap: self,
                     read,
                     write,
                 },
-            },
-            Ok(Bootstrapped::Bailed) => Joined::Bailed {
-                bootstrap: self,
-                read,
-                write,
-            },
-            Ok(Bootstrapped::Unconfirmed { peer, error }) => Joined::Unconfirmed {
-                peer: peer.bookmark_size_limit(self.bookmark_size_limit),
-                bookmark: self.bookmark,
-                error,
-            },
-            Err(error) => Joined::Failed {
-                error,
-                bootstrap: self,
+                Err(error) => Joined::Failed {
+                    error,
+                    bootstrap: self,
+                },
+            };
+        };
+        // The peer holds its whole identity whether or not the session
+        // completed, so the selected bookmark is attached either way; the
+        // connection's fate is reported beside it.
+        let connection = Connection::from_session(completed, read, write);
+        match peer
+            .bookmark_size_limit(self.bookmark_size_limit)
+            .bookmark(self.bookmark)
+            .await
+        {
+            Ok(peer) => Joined::Joined { peer, connection },
+            Err(unbookmarked) => Joined::Unbookmarked {
+                unbookmarked,
+                connection,
             },
         }
     }
 }
 
-/// A bootstrap's outcome, preserving either its new peer or its retry
-/// configuration.
+/// A bootstrap's outcome: a new peer and its connection's fate, or the
+/// builder for a retry.
 ///
-/// Every outcome but [`Unconfirmed`](Self::Unconfirmed) and
-/// [`Failed`](Self::Failed) completed the session and returns the
-/// connection's halves, resting at the session boundary.
+/// Once this side has received its whole identity it has joined the
+/// network, however the session then ends. [`Joined`](Self::Joined) and
+/// [`Unbookmarked`](Self::Unbookmarked) carry the new peer beside a
+/// [`Connection`] that says whether the connection can carry another
+/// session. Without an identity, [`Bailed`](Self::Bailed) completed the
+/// session and returns the connection's halves, resting at the session
+/// boundary, and [`Failed`](Self::Failed) returns only the builder.
 #[must_use = "Joined contains a peer or a builder needed for retry"]
 pub enum Joined<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
-    /// The session succeeded and any selected bookmark was attached and persisted.
+    /// This side joined the network, and any selected bookmark was attached
+    /// and persisted.
     Joined {
         /// The new peer, carrying the selected configuration and storage.
         peer: Peer<T, B>,
-        /// The connection's read half, ready for another session.
-        read: R,
-        /// The connection's write half, ready for another session.
-        write: W,
+        /// Whether the connection can carry another session.
+        connection: Connection<R, W>,
     },
     /// Both endpoints were bootstrapping; neither could provide a gossip network.
     /// Storage was not touched.
@@ -314,34 +325,17 @@ pub enum Joined<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
         /// The connection's write half, ready for another session.
         write: W,
     },
-    /// The session succeeded, but attaching the bookmark failed.
-    /// The returned peer is live and unbookmarked; retry its bookmark attachment.
+    /// This side joined the network, but attaching the selected bookmark
+    /// failed. The returned peer is live and unbookmarked; retry its
+    /// bookmark attachment.
     Unbookmarked {
         /// The joined peer and the attachment's failure.
         unbookmarked: Unbookmarked<T, B>,
-        /// The connection's read half, ready for another session.
-        read: R,
-        /// The connection's write half, ready for another session.
-        write: W,
+        /// Whether the connection can carry another session.
+        connection: Connection<R, W>,
     },
-    /// This side received its whole identity and the provider's content,
-    /// then the session failed before the provider confirmed completion,
-    /// for example by a cut connection or an expired deadline.
-    ///
-    /// The peer is live and stands exactly as a [`Joined`](Self::Joined)
-    /// peer does: the provider gave the identity up before sending it, so
-    /// no other peer holds it. Storage was not touched: attach `bookmark`
-    /// with [`Peer::bookmark`] to keep restart bookkeeping. Discard the
-    /// connection.
-    Unconfirmed {
-        /// The new peer, carrying the selected configuration but no storage.
-        peer: Peer<T>,
-        /// The selected storage, untouched.
-        bookmark: B,
-        /// The failure after the identity arrived.
-        error: Error,
-    },
-    /// The session failed. Storage was not touched; discard the connection.
+    /// The session failed, and this side received no whole identity.
+    /// Storage was not touched; discard the connection.
     Failed {
         /// The session error.
         error: Error,
@@ -356,23 +350,23 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Joined<T, R, W,
     /// Formats the outcome and the peer or retry state it carries.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Joined { peer, .. } => f
+            Self::Joined { peer, connection } => f
                 .debug_struct("Joined")
                 .field("peer", peer)
-                .finish_non_exhaustive(),
+                .field("connection", connection)
+                .finish(),
             Self::Bailed { bootstrap, .. } => f
                 .debug_struct("Bailed")
                 .field("bootstrap", bootstrap)
                 .finish_non_exhaustive(),
-            Self::Unbookmarked { unbookmarked, .. } => f
+            Self::Unbookmarked {
+                unbookmarked,
+                connection,
+            } => f
                 .debug_struct("Unbookmarked")
                 .field("unbookmarked", unbookmarked)
-                .finish_non_exhaustive(),
-            Self::Unconfirmed { peer, error, .. } => f
-                .debug_struct("Unconfirmed")
-                .field("peer", peer)
-                .field("error", error)
-                .finish_non_exhaustive(),
+                .field("connection", connection)
+                .finish(),
             Self::Failed { error, bootstrap } => f
                 .debug_struct("Failed")
                 .field("error", error)

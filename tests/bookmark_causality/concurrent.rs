@@ -59,7 +59,10 @@ impl Attempt {
             assert_not_codec_bug("interleaved bootstrap provider", &error);
         }
         match joined {
-            rumors::Joined::Joined { peer, .. } => {
+            rumors::Joined::Joined {
+                peer,
+                connection: rumors::Connection::Reusable { .. },
+            } => {
                 let label = world.n();
                 let store = DurableStore::default();
                 let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));

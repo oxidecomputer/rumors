@@ -472,7 +472,7 @@ proptest! {
                 provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
             },
             |mut end| async move {
-                assert!(matches!(bootstrap.join(&mut end.read, &mut end.write).await, rumors::Joined::Joined { .. }));
+                assert!(matches!(bootstrap.join(&mut end.read, &mut end.write).await, rumors::Joined::Joined { connection: rumors::Connection::Reusable { .. }, .. }));
             },
         );
         assert_pair(

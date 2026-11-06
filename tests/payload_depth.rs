@@ -183,7 +183,7 @@ divided_proptest! {
             );
             served.expect("the seed serves the bootstrap");
             (match joined {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the seed is established"),
             })
             .sync_memory_budget(0)
@@ -391,7 +391,7 @@ divided_proptest! {
             );
             served.expect("the seed serves the bootstrap (no payloads to decode yet)");
             (match joined {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the seed is established"),
             })
             .sync_memory_budget(0)

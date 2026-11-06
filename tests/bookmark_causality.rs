@@ -873,11 +873,10 @@ impl World {
                         .join(&mut end.read, &mut end.write)
                         .await
                     {
-                        // A joiner that received its whole party keeps it, as a
-                        // joined one does, whether or not completion was
-                        // confirmed.
-                        rumors::Joined::Joined { peer, .. }
-                        | rumors::Joined::Unconfirmed { peer, .. } => peer,
+                        // A joiner that received its whole party keeps it,
+                        // whether or not its connection survived to confirm
+                        // completion.
+                        rumors::Joined::Joined { peer, .. } => peer,
                         rumors::Joined::Bailed { .. } => return Err(BootFailure::NoPeer),
                         rumors::Joined::Failed { error, .. } => {
                             return Err(BootFailure::Join(error));
@@ -1683,7 +1682,10 @@ async fn boot_from_async(
                 .join(&mut end.read, &mut end.write)
                 .await
             {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined {
+                    peer,
+                    connection: rumors::Connection::Reusable { .. },
+                } => peer,
                 _ => panic!("got a peer"),
             })
             .sync_memory_budget(0);

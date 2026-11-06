@@ -244,14 +244,17 @@
 //! - **Success:** both sides confirmed completion. The returned halves rest
 //!   exactly at the session boundary, ready for another session. Gossip
 //!   returns [`Gossiped`]; bootstrap and retirement report their results
-//!   through [`Joined`] and [`Retire`].
+//!   through [`Joined`] and [`Retire`]. A bootstrap that joined returns the
+//!   halves in a [`Connection::Reusable`].
 //! - **Failure:** the connection's position is unknown: discard it and
 //!   reconnect. A later session on it gets no typed warning; it can fail in
 //!   any way, or misread the stale bytes. Failure does not always mean that
 //!   nothing changed: a failure in
 //!   [`Phase::Completion`](crate::error::Phase::Completion) can follow a
 //!   local commit. Accepting a retirement can also commit content before a
-//!   bookmark write fails; see [`Error::Bookmark`].
+//!   bookmark write fails; see [`Error::Bookmark`]. A bootstrap that fails
+//!   after this side has joined reports the failure as a
+//!   [`Connection::Lost`] beside the new peer.
 //! - **Cancellation:** dropping an active session future also leaves the
 //!   connection at an unknown position; discard it. No partial
 //!   reconciliation is published, but a completed local commit is not
@@ -259,11 +262,13 @@
 //!   peer it consumed; no outcome is returned for retry. See [`Bookmark`]
 //!   for the effects on restart bookkeeping.
 //!
-//! Bootstrap attaches a selected bookmark after its wire session completes.
-//! Failing or cancelling that attachment leaves the connection at the
-//! session boundary; [`Joined::Unbookmarked`] preserves the joined peer
-//! after an attachment failure. A bootstrap whose session fails after its
-//! whole identity arrived keeps its live peer, in [`Joined::Unconfirmed`].
+//! A bootstrap whose session fails after its whole identity arrived keeps
+//! its live peer, beside a [`Connection::Lost`]. Bootstrap attaches a
+//! selected bookmark once its wire session has ended with this side holding
+//! its identity, whether or not the session completed. Failing or
+//! cancelling that attachment leaves the connection where the session left
+//! it; [`Joined::Unbookmarked`] preserves the joined peer after an
+//! attachment failure.
 //!
 //! Configure [`Peer::session_deadline`] to bound gossip, bootstrap, and
 //! retirement exchanges while leaving idle waits untimed. Post-join bookmark
@@ -425,8 +430,9 @@ pub use message::EncodeError;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    Bootstrap, Gossip, Gossiped, Joined, Led, MAX_BUDGETED_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
-    MIN_SYNC_MEMORY_BUDGET, Peer, Retire, SynchronizationSettings, Unbookmarked,
+    Bootstrap, Connection, Gossip, Gossiped, Joined, Led, MAX_BUDGETED_MESSAGE_SIZE,
+    MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET, Peer, Retire, SynchronizationSettings,
+    Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

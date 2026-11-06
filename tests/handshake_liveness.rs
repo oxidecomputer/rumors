@@ -268,7 +268,10 @@ async fn bootstrap_session(network: NetworkSeed) {
     );
     served.expect("the serving session completes");
     let newcomer = (match joined {
-        rumors::Joined::Joined { peer, .. } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("the provider serves the bootstrap"),
     })
     .into_rumors();
@@ -352,7 +355,10 @@ async fn retire_into_bootstrapper_session(network: NetworkSeed) {
         "the bootstrapper absorbs the retiree, got {retired:?}"
     );
     let successor = (match joined {
-        rumors::Joined::Joined { peer, .. } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("the retiree serves the bootstrap"),
     })
     .into_rumors();

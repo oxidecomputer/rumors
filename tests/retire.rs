@@ -160,7 +160,11 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Outcome<u64>, Rumors<u64>) {
             Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
         );
         let retire_out = released(retire_out);
-        let rumors::Joined::Joined { peer, .. } = boot_out else {
+        let rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } = boot_out
+        else {
             panic!("the retiree must serve the bootstrap");
         };
         assert_connection_drained(a_end, b_end);

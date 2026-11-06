@@ -287,11 +287,13 @@ impl Default for MemoryBudget {
 
 mod bookmark;
 mod bootstrap;
+mod connection;
 mod gossip;
 mod policy;
 
 pub use bookmark::Unbookmarked;
 pub use bootstrap::{Bootstrap, Joined};
+pub use connection::Connection;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use gossip::COMPLETION_MARKER;
 pub use gossip::{Gossip, Gossiped, Led, Retire};

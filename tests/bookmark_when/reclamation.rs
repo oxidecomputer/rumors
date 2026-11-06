@@ -200,7 +200,7 @@ proptest! {
                 if complete {
                     let (joined, served) = futures::join!(joining, serving);
                     served.unwrap();
-                    let rumors::Joined::Joined { peer, .. } = joined else {
+                    let rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } = joined else {
                         panic!("reliable bootstrap must complete");
                     };
                     newcomers.push(peer);

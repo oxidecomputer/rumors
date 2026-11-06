@@ -352,7 +352,7 @@ divided_proptest! {
             );
             provider_out.expect("the provider serves the newborn claimant");
             match witness_out {
-                crate::Joined::Joined { peer, .. } => peer,
+                crate::Joined::Joined { peer, connection: crate::Connection::Reusable { .. } } => peer,
                 _ => panic!("the provider donates"),
             }
         });
@@ -560,7 +560,7 @@ divided_proptest! {
         })
         .unwrap();
         served.unwrap();
-        let crate::Joined::Joined { peer, .. } = joined else {
+        let crate::Joined::Joined { peer, connection: crate::Connection::Reusable { .. } } = joined else {
             panic!("bootstrap succeeds")
         };
         let b = peer.into_rumors();

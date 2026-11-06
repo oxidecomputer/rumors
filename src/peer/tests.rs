@@ -24,7 +24,7 @@ use crate::tree::mirror::streaming::Local;
 use crate::tree::mirror::streaming::materialized::Allowances;
 use crate::tree::mirror::streaming::remote::{RunBudget, WRITE_BUFFER_BYTES};
 use crate::tree::{Action, Tree};
-use crate::{Joined, Version};
+use crate::{Connection, Joined, Version};
 
 /// Add one event to a tree using its owner's current identity.
 fn insert(tree: &mut Tree<u64>, party: &Party, value: u64) {
@@ -832,7 +832,10 @@ fn joined(provider: &Peer<u64>) -> Peer<u64> {
         );
         served.expect("the provider serves the bootstrap");
         match joined {
-            Joined::Joined { peer, .. } => peer,
+            Joined::Joined {
+                peer,
+                connection: Connection::Reusable { .. },
+            } => peer,
             _ => panic!("the provider serves the bootstrap"),
         }
     })

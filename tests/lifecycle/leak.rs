@@ -13,7 +13,7 @@ use futures::future::join_all;
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
-use rumors::{Bookmark, Joined, Peer, Rumors};
+use rumors::{Bookmark, Connection, Joined, Peer, Rumors};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::common::sim::assert_parties_partition;
@@ -90,7 +90,11 @@ async fn join_from(server: &Rumors<u64, StallingBookmark>) -> Rumors<u64> {
         Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write),
     );
     served.expect("serving a reliable bootstrap succeeds");
-    let Joined::Joined { peer, .. } = joined else {
+    let Joined::Joined {
+        peer,
+        connection: Connection::Reusable { .. },
+    } = joined
+    else {
         panic!("a reliable bootstrap joins")
     };
     peer.into_rumors()

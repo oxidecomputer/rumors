@@ -255,7 +255,10 @@ where
     );
     server_out.expect("bootstrap server gossip");
     let forked = configure(match boot_out {
-        rumors::Joined::Joined { peer, .. } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("parent served the bootstrap"),
     })
     .into_rumors();

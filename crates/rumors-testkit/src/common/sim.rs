@@ -537,15 +537,17 @@ async fn run_boot(
     };
     assert_honest_gossip(&served);
     let newcomer = match joined {
-        rumors::Joined::Joined { peer, .. } => Some(budget.apply(peer)),
+        // A lost connection means the whole party arrived before the session
+        // failed, so the joiner keeps it, and the server gave it up: nothing
+        // is lost.
+        rumors::Joined::Joined { peer, connection } => {
+            if let rumors::Connection::Lost { error } = &connection {
+                assert_honest_error(error);
+            }
+            Some(budget.apply(peer))
+        }
         rumors::Joined::Bailed { .. } => {
             unreachable!("the serving peer is never itself bootstrapping")
-        }
-        // The whole party arrived before the session failed, so the joiner
-        // keeps it, and the server gave it up: nothing is lost.
-        rumors::Joined::Unconfirmed { peer, error, .. } => {
-            assert_honest_error(&error);
-            Some(budget.apply(peer))
         }
         rumors::Joined::Failed { error, .. } => {
             assert_honest_error(&error);

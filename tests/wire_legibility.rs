@@ -141,7 +141,7 @@ proptest! {
                 provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
             },
             move |mut end| async move {
-                let rumors::Joined::Joined { .. } =
+                let rumors::Joined::Joined { connection: rumors::Connection::Reusable { .. }, .. } =
                     Peer::<Vec<u8>>::bootstrap().join(&mut end.read, &mut end.write).await
                 else {
                     panic!("provider must serve the bootstrap");

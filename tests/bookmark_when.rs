@@ -96,7 +96,10 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
     );
     s.expect("subject serve bootstrap");
     (match n {
-        rumors::Joined::Joined { peer, .. } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("subject served the bootstrap"),
     })
     .sync_memory_budget(0)
@@ -112,7 +115,10 @@ async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     );
     o.expect("origin serves the bootstrap");
     (match n {
-        rumors::Joined::Joined { peer, .. } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("origin served the bootstrap"),
     })
     .sync_memory_budget(0)

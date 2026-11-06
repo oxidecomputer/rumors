@@ -195,7 +195,7 @@ divided_proptest! {
     #[test]
     fn bootstrap_attachment_is_outside_the_session_deadline(network in network_seed()) {
         use futures::channel::oneshot;
-        use rumors::Joined;
+        use rumors::{Connection, Joined};
 
         block_on(async {
             let provider = network.peer::<Msg>().into_rumors();
@@ -228,7 +228,7 @@ divided_proptest! {
             let (served, joined) =
                 tokio::join!(provider.gossip_once(&mut a.read, &mut a.write), joining);
             served.unwrap();
-            let Joined::Joined { peer, .. } = joined else {
+            let Joined::Joined { peer, connection: Connection::Reusable { .. } } = joined else {
                 panic!("attachment succeeds")
             };
             assert_eq!(
@@ -255,7 +255,10 @@ async fn boot_from(
                 .join(&mut end.read, &mut end.write)
                 .await
             {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined {
+                    peer,
+                    connection: rumors::Connection::Reusable { .. },
+                } => peer,
                 _ => panic!("the server is established"),
             };
             peer.bookmark(bm).await.expect("in-memory persist")

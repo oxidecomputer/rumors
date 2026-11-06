@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use proptest::prelude::*;
 
 use super::{Bootstrap, Joined};
+use crate::Connection;
 use crate::Peer;
 use crate::bookmark::Bookmark;
 use crate::default;
@@ -130,7 +131,11 @@ fn retry_then_join<B: Bookmark>(
             provider.gossip_once(&mut far.read, &mut far.write)
         );
         served.unwrap();
-        let Joined::Joined { peer, .. } = joined else {
+        let Joined::Joined {
+            peer,
+            connection: Connection::Reusable { .. },
+        } = joined
+        else {
             panic!("the returned builder must remain usable with an established provider");
         };
         assert_eq!(peer.settings.sizing.sync_memory_budget, budget);

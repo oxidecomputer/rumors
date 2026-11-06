@@ -210,7 +210,7 @@ divided_proptest! {
                 );
                 served.expect("provider session");
                 let bob = (match joined {
-                    rumors::Joined::Joined { peer, .. } => peer,
+                    rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                     _ => panic!("alice is established, not herself bootstrapping"),
                 })
                 .into_rumors();
@@ -362,7 +362,7 @@ divided_proptest! {
                 );
                 served.expect("provider session");
                 let bob = (match joined {
-                    rumors::Joined::Joined { peer, .. } => peer,
+                    rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                     _ => panic!("alice is established, not herself bootstrapping"),
                 })
                 .observe(Arc::new(TracingObserver::new()))
@@ -375,7 +375,7 @@ divided_proptest! {
                 );
                 served.expect("provider session");
                 let carol = (match joined {
-                    rumors::Joined::Joined { peer, .. } => peer,
+                    rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                     _ => panic!("alice is established, not herself bootstrapping"),
                 })
                 .into_rumors();

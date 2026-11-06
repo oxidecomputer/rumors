@@ -334,7 +334,13 @@ fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
                 .join(&mut end.read, &mut end.write)
                 .await;
             assert!(
-                matches!(outcome, rumors::Joined::Joined { .. }),
+                matches!(
+                    outcome,
+                    rumors::Joined::Joined {
+                        connection: rumors::Connection::Reusable { .. },
+                        ..
+                    }
+                ),
                 "the provider serves the bootstrap"
             );
         },

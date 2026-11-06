@@ -198,7 +198,7 @@ divided_proptest! {
             );
             provider_out.expect("provider gossip");
             let joined = match bootstrap_out {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("provider served the bootstrap"),
             };
             assert_connection_drained(a_end, b_end);

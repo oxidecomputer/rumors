@@ -25,10 +25,10 @@ pub enum Phase {
     /// not undo local changes.
     ///
     /// A bootstrap served by a provider has received its whole identity
-    /// before this phase, so a failure here returns its live peer in
-    /// [`Joined::Unconfirmed`](crate::Joined::Unconfirmed). Two
-    /// bootstrappers exchange no identity, so a failure here returns each
-    /// one's builder in [`Joined::Failed`](crate::Joined::Failed).
+    /// before this phase, so a failure here returns its live peer, beside a
+    /// [`Connection::Lost`](crate::Connection::Lost) carrying this error.
+    /// Two bootstrappers exchange no identity, so a failure here returns
+    /// each one's builder in [`Joined::Failed`](crate::Joined::Failed).
     Completion,
 }
 

@@ -71,7 +71,10 @@ fn pair(
         served.expect("serve bootstrap");
         budget
             .apply(match joined {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined {
+                    peer,
+                    connection: rumors::Connection::Reusable { .. },
+                } => peer,
                 _ => panic!("provider is established"),
             })
             .into_rumors()

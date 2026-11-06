@@ -234,7 +234,7 @@ proptest! {
     #[test]
     fn bootstrap_retries_preserve_policy(attempts in 1usize..5, network in network_seed()) {
         use common::flaky::{FaultFeed, FlakyInMemoryBookmark};
-        use rumors::Joined;
+        use rumors::{Connection, Joined};
 
         block_on(async {
             let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
@@ -263,7 +263,7 @@ proptest! {
             let (mut near, mut far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (served, joined) = futures::join!(a.gossip_once(&mut near.read, &mut near.write), builder.join(&mut far.read, &mut far.write));
             served.unwrap();
-            let Joined::Joined { peer, .. } = joined else { panic!("join succeeds") };
+            let Joined::Joined { peer, connection: Connection::Reusable { .. } } = joined else { panic!("join succeeds") };
             assert_eq!(deadlines.count(), attempts + 1);
             assert!(deadlines.dropped(attempts));
             assert!(store.lock().unwrap().is_some());

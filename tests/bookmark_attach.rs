@@ -35,7 +35,10 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
     );
     serve_out.expect("serve the bootstrap");
     (match boot_out {
-        rumors::Joined::Joined { peer, .. } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("got a peer"),
     })
     .sync_memory_budget(0)

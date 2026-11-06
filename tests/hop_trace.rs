@@ -504,7 +504,10 @@ where
         );
         served.expect("serve bootstrap");
         (match newcomer {
-            rumors::Joined::Joined { peer, .. } => peer,
+            rumors::Joined::Joined {
+                peer,
+                connection: rumors::Connection::Reusable { .. },
+            } => peer,
             _ => panic!("provider is established"),
         })
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)

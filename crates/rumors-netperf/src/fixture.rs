@@ -276,13 +276,14 @@ where
     W: AsyncWrite + Unpin + Send,
 {
     match Peer::<Payload>::bootstrap().join(read, write).await {
-        Joined::Joined { peer, .. } => Ok(peer.into_rumors()),
-        Joined::Failed { error, .. } => Err(error).context("a join failed"),
         // The fixture's own connection failed after the identity arrived;
         // a measurement never runs on a session that did not complete.
-        Joined::Unconfirmed { error, .. } => {
-            Err(error).context("a join's completion was not confirmed")
-        }
+        Joined::Joined {
+            connection: rumors::Connection::Lost { error },
+            ..
+        } => Err(error).context("a join's completion was not confirmed"),
+        Joined::Joined { peer, .. } => Ok(peer.into_rumors()),
+        Joined::Failed { error, .. } => Err(error).context("a join failed"),
         Joined::Bailed { .. } => bail!("a join ended without joining: the server bailed"),
         Joined::Unbookmarked { .. } => {
             bail!("a join without a bookmark reported a bookmark failure")

@@ -217,22 +217,6 @@ impl From<()> for Gossip {
     }
 }
 
-/// What a bootstrap session produced.
-pub(crate) enum Bootstrapped<T: Send + Sync + 'static> {
-    /// The session completed, and the provider confirmed it.
-    Joined(Peer<T>),
-    /// Both endpoints were bootstrapping, so neither could provide.
-    Bailed,
-    /// The joiner received its whole party, then the session failed before
-    /// the provider confirmed completion. The peer is live all the same.
-    Unconfirmed {
-        /// The new peer.
-        peer: Peer<T>,
-        /// The failure after the party arrived.
-        error: Error,
-    },
-}
-
 /// What a joiner holds once its whole party has arrived: everything it
 /// needs to become a peer, whether or not the completion exchange that
 /// follows succeeds.
@@ -247,7 +231,12 @@ struct Received {
 
 /// Create joined peers and attach bookmark storage.
 impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
-    /// Run bootstrap over any connection.
+    /// Run bootstrap over any connection, returning the new peer, if this
+    /// side received its whole identity, beside the session's result.
+    ///
+    /// The peer is independent of the result: once the whole identity has
+    /// arrived, this side keeps it however the session ends. No peer with
+    /// `Ok` means the counterparty was bootstrapping too.
     ///
     /// A thin generic funnel: the only monomorphized-per-transport code is
     /// the erasure of the two halves here.
@@ -255,7 +244,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         config: Bootstrap<T>,
         read: &'a mut R,
         write: &'a mut W,
-    ) -> BoxFuture<'a, Result<Bootstrapped<T>, Error>>
+    ) -> BoxFuture<'a, (Option<Self>, Result<(), Error>)>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         R: AsyncBufRead + Unpin + Send,
@@ -293,35 +282,22 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // the session ends: the provider removed it before sending it and
             // never restores it, so exactly one side holds it (see
             // `bootstrap_erased`).
-            let outcome = match (result, received) {
-                (Ok(()), Some(received)) => {
-                    let peer = Self::joined(config, codec, received);
+            let peer = received.map(|received| Self::joined(config, codec, received));
+            match &result {
+                Ok(()) => {
+                    // Two bootstrappers converge on nothing.
+                    let nothing = Version::new();
+                    let replica = peer.as_ref().map(|peer| peer.inner.borrow());
                     completion.finish(SessionOutcome::Completed {
-                        converged: peer.inner.borrow().tree.latest(),
+                        converged: replica
+                            .as_ref()
+                            .map_or(&nothing, |inner| inner.tree.latest()),
                         stats: measured,
                     });
-                    Bootstrapped::Joined(peer)
                 }
-                (Ok(()), None) => {
-                    completion.finish(SessionOutcome::Completed {
-                        converged: &Version::new(),
-                        stats: measured,
-                    });
-                    Bootstrapped::Bailed
-                }
-                (Err(error), Some(received)) => {
-                    completion.finish(SessionOutcome::Failed(error.session_error_kind()));
-                    Bootstrapped::Unconfirmed {
-                        peer: Self::joined(config, codec, received),
-                        error,
-                    }
-                }
-                (Err(error), None) => {
-                    completion.finish(SessionOutcome::Failed(error.session_error_kind()));
-                    return Err(error);
-                }
-            };
-            Ok(outcome)
+                Err(error) => completion.finish(SessionOutcome::Failed(error.session_error_kind())),
+            }
+            (peer, result)
         })
     }
 

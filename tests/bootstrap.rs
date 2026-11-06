@@ -6,7 +6,7 @@ use rumors_testkit::common::wire::ROOMY_CAPACITY;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Bookmark, Joined, Peer, Rumors};
+use rumors::{Bookmark, Connection, Joined, Peer, Rumors};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
@@ -26,31 +26,34 @@ type Outcome<B> = Joined<u64, (), (), B>;
 /// Release a join outcome's connection halves, keeping the outcome.
 fn released<B: Bookmark, R, W>(joined: Joined<u64, R, W, B>) -> Outcome<B> {
     match joined {
-        Joined::Joined { peer, .. } => Joined::Joined {
+        Joined::Joined { peer, connection } => Joined::Joined {
             peer,
-            read: (),
-            write: (),
+            connection: released_connection(connection),
         },
         Joined::Bailed { bootstrap, .. } => Joined::Bailed {
             bootstrap,
             read: (),
             write: (),
         },
-        Joined::Unbookmarked { unbookmarked, .. } => Joined::Unbookmarked {
+        Joined::Unbookmarked {
             unbookmarked,
+            connection,
+        } => Joined::Unbookmarked {
+            unbookmarked,
+            connection: released_connection(connection),
+        },
+        Joined::Failed { error, bootstrap } => Joined::Failed { error, bootstrap },
+    }
+}
+
+/// Release a connection's halves, keeping whether it was lost and why.
+fn released_connection<R, W>(connection: Connection<R, W>) -> Connection<(), ()> {
+    match connection {
+        Connection::Reusable { .. } => Connection::Reusable {
             read: (),
             write: (),
         },
-        Joined::Unconfirmed {
-            peer,
-            bookmark,
-            error,
-        } => Joined::Unconfirmed {
-            peer,
-            bookmark,
-            error,
-        },
-        Joined::Failed { error, bootstrap } => Joined::Failed { error, bootstrap },
+        Connection::Lost { error } => Connection::Lost { error },
     }
 }
 
@@ -67,7 +70,11 @@ where
             Peer::<T>::bootstrap().join(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("provider gossip");
-        let Joined::Joined { peer, .. } = bootstrap_out else {
+        let Joined::Joined {
+            peer,
+            connection: Connection::Reusable { .. },
+        } = bootstrap_out
+        else {
             panic!("an established provider must serve the bootstrap");
         };
         let joined = peer.sync_memory_budget(0).into_rumors();
@@ -234,7 +241,7 @@ divided_proptest! {
             );
             served.expect("the provider serves the zero-budget bootstrap");
             let newcomer = (match joined {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the provider is established"),
             })
             .into_rumors();
@@ -326,7 +333,7 @@ divided_proptest! {
             "the store must start empty for the persist to be attributable",
         );
 
-        let Joined::Joined { peer, .. } = wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
+        let Joined::Joined { peer, connection: Connection::Reusable { .. } } = wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
         else {
             panic!("an established provider and healthy storage must produce a joined peer");
         };
@@ -384,7 +391,7 @@ divided_proptest! {
 
         // The retry the bail recommends, with the builder it handed back.
         let provider = populated_provider(network);
-        let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
+        let Joined::Joined { peer, connection: Connection::Reusable { .. } } = wire_join(&provider, bootstrap) else {
             panic!("the returned builder must serve the retry against a provider");
         };
         assert!(
@@ -421,7 +428,7 @@ divided_proptest! {
 
         // The retry the failure permits, with the builder it handed back.
         let provider = populated_provider(network);
-        let Joined::Joined { peer, .. } = wire_join(&provider, bootstrap) else {
+        let Joined::Joined { peer, connection: Connection::Reusable { .. } } = wire_join(&provider, bootstrap) else {
             panic!("the returned builder must serve the retry against a provider");
         };
         assert!(
@@ -442,14 +449,17 @@ divided_proptest! {
         assert!(
             matches!(
                 wire_join(&provider, Peer::bootstrap().bookmark(control_bookmark)),
-                Joined::Joined { .. }
+                Joined::Joined { connection: Connection::Reusable { .. }, .. }
             ),
             "with healthy storage the identical join must take the Joined arm",
         );
 
         // The first (and only) write fails: the eager attach-time persist.
         let (store, bookmark) = durable_bookmark(vec![true]);
-        let Joined::Unbookmarked { unbookmarked, .. } =
+        let Joined::Unbookmarked {
+            unbookmarked,
+            connection: Connection::Reusable { .. },
+        } =
             wire_join(&provider, Peer::bootstrap().bookmark(bookmark))
         else {
             panic!("a failed persist must surface the live peer as Unbookmarked");

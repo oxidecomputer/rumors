@@ -83,7 +83,10 @@ where
         .join(&mut near.read, &mut near.write)
         .await
     {
-        rumors::Joined::Joined { peer, .. } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("the sender is established"),
     })
     .into_rumors();
@@ -222,7 +225,7 @@ divided_proptest! {
                 .join(&mut near.read, &mut near.write)
                 .await
             {
-                rumors::Joined::Joined { peer, .. } => peer,
+                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the sender is established"),
             })
             .into_rumors();
