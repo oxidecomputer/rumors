@@ -126,14 +126,15 @@ impl Drop for Dishonest {
 }
 
 impl Measure for Local {
-    fn measure<H: Height>(node: &Self::Node<H>) -> usize {
-        // A `Local` node is an `Arc` handle into the session-resident
-        // tree: its shallow size is everything it keeps resident.
-        std::mem::size_of_val(node)
+    fn measure<H: Height>(_node: &Self::Node<H>) -> usize {
+        // A `Local` node is an `Arc` handle into the replica's own tree:
+        // what the handle reaches is the replica's storage at rest, and the
+        // handle itself is inline in whatever holds it.
+        0
     }
 
-    fn measure_erased(node: &Self::Erased) -> usize {
-        std::mem::size_of_val(node)
+    fn measure_erased(_node: &Self::Erased) -> usize {
+        0
     }
 }
 
@@ -527,12 +528,14 @@ impl Backend for Materializing {
 }
 
 impl Measure for Materializing {
+    // The row is what the handle keeps resident behind it; the handle's
+    // own bytes are inline in whatever holds it.
     fn measure<H: Height>(node: &Self::Node<H>) -> usize {
-        std::mem::size_of_val(node) + node.row.len()
+        node.row.len()
     }
 
     fn measure_erased(node: &Self::Erased) -> usize {
-        std::mem::size_of_val(node) + node.row.len()
+        node.row.len()
     }
 }
 
@@ -760,13 +763,11 @@ fn a_symmetric_loss_fails_the_completeness_check() {
 /// A listing that allocates beyond the rows it yields is convicted by
 /// name at the listing's allocation check.
 ///
-/// The census counts each listed child at its handle's inline bytes beside
-/// its row, though listing allocates only the row; so each child listed
-/// allocates scratch one byte wider than a handle.
+/// Each child listed allocates one scratch byte beyond its row.
 #[test]
 #[should_panic(expected = "allocating listing")]
 fn an_allocating_listing_fails_the_listing_check() {
-    let _dishonest = LISTING_SCRATCH.set(size_of::<MaterializedNode<typed::View<Z>>>() + 1);
+    let _dishonest = LISTING_SCRATCH.set(1);
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
@@ -778,9 +779,7 @@ where
     H: Height,
     S<H>: Height,
 {
-    let view = typed::View::from(node);
-    let measured = Local::measure(&view);
-    let parent = super::ChargedNode::wrap(view, measured);
+    let parent = super::ChargedNode::wrap(typed::View::from(node), 0);
     let listed = pollster::block_on(
         super::Charged::new(Local)
             .children(prefix, parent)
@@ -857,10 +856,10 @@ fn a_providing_prune_lists_without_allocating() {
     let root = act(None, actions, &mut |_, _| ()).expect("three leaves build a root");
     let replica = root.clone();
     let charged = super::Charged::new(Local);
-    let view = typed::View::from(root);
-    let measured = Local::measure(&view);
-    let erased =
-        <super::Charged<Local> as Backend>::erase(super::ChargedNode::wrap(view, measured));
+    let erased = <super::Charged<Local> as Backend>::erase(super::ChargedNode::wrap(
+        typed::View::from(root),
+        0,
+    ));
     let (survivor, _) = pollster::block_on(unknown_providing(
         &charged,
         &known,
@@ -972,19 +971,23 @@ fn a_residency_changing_erase_fails_the_re_tag_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Leaf construction and cloning charge both handles; dropping them restores
-/// the live balance while preserving the peak until it is reset.
+/// Leaf construction and cloning charge both node values, each its measured
+/// size; dropping them restores the live balance while preserving the peak
+/// until it is reset.
 #[test]
 fn ledger_settles_over_clone_and_drop() {
     let _serial = serialized();
     ledger::reset_peak();
     let before = ledger::peak();
-    let leaf = pollster::block_on(<super::ChargedNode<typed::View<Z>> as Leaf>::leaf(
-        Version::new(),
-        Message::new(7),
-    ))
-    .expect("a local leaf constructs infallibly");
-    let handle = std::mem::size_of::<typed::View<Z>>();
+    let leaf = pollster::block_on(
+        <super::ChargedNode<MaterializedNode<typed::View<Z>>> as Leaf>::leaf(
+            Version::new(),
+            Message::new(7),
+        ),
+    )
+    .expect("the reference backend constructs leaves infallibly");
+    let handle = ledger::peak() - before;
+    assert!(handle > 0, "constructing a leaf charges its row");
     let clone = leaf.clone();
     assert_eq!(ledger::peak(), before + 2 * handle);
     drop(leaf);

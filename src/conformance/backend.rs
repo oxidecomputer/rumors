@@ -19,10 +19,13 @@
 //!
 //! # What the census measures
 //!
-//! The ledger counts each live node value at its measured size. For a leaf,
-//! this is what remains resident after [`Leaf::leaf`] has had the opportunity
-//! to persist its payload. Corpus handles still alive during reconciliation
-//! are included; shared tree storage and wire buffers are not.
+//! The ledger counts each live node value at its measured size: what it
+//! keeps resident beyond its own inline bytes and the replica's storage at
+//! rest. For a leaf, this is what remains resident after [`Leaf::leaf`] has
+//! had the opportunity to persist its payload. Corpus nodes still alive
+//! during reconciliation are included; the inline handles themselves, which
+//! the ledger charges with the queue items that hold them, shared tree
+//! storage, and wire buffers are not.
 //!
 //! The peak comparison is fixture-specific. Changing the budget can change
 //! when nodes are created and released, so subtracting the zero-budget run's
@@ -67,10 +70,10 @@ use crate::{
 
 /// The measurement oracle a backend brings to its conformance run.
 ///
-/// `measure` reports the actual bytes one node value keeps resident
-/// beyond the replica's shared storage — everything the handle owns or
-/// keeps alive per session reference. The census counts every node at
-/// it, and the re-tag clause is checked against it.
+/// `measure` reports the actual bytes one node value keeps resident beyond
+/// its own inline bytes and the replica's storage at rest: everything the
+/// handle owns or keeps alive while the session holds it. The census counts
+/// every node at it, and the re-tag clause is checked against it.
 pub(crate) trait Measure: Backend<Node<Z>: Leaf> {
     /// The actual resident bytes of one node value, measured.
     fn measure<H: Height>(node: &Self::Node<H>) -> usize;
