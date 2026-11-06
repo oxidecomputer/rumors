@@ -144,25 +144,26 @@ pub struct ModelLedger {
     pub side: Option<String>,
     /// Whether the side initiated: it asks the question about the root.
     pub initiator: bool,
-    /// The most it held outside its floor slots: `Λ` for this side.
+    /// Its largest excess, what its kinds and depths of unit held beyond
+    /// their bounds at once: `Λ` for this side.
     pub budget_peak: u64,
-    /// The link time it first held that much, in byte-times.
+    /// The link time its excess first reached that much, in byte-times.
     pub budget_peak_at: u64,
-    /// What each holder outside floor slots held then.
+    /// What each holder held then.
     pub budget_peak_holders: Vec<HolderBytes>,
     /// The largest sum a share check weighed: the share peak for this side.
     pub share_peak: u64,
     /// The check that weighed it, dated.
     pub share_peak_check: Option<CheckRecord>,
-    /// The sum over floor slots of the largest grant each admitted.
-    pub floor_bound: u64,
+    /// The most its kinds and depths held within their bounds at once.
+    pub within_bounds_peak: u64,
     /// Its question grants at each depth that had any.
     pub questions: Vec<DepthGrants>,
     /// Its answer grants at each depth that had any.
     pub answers: Vec<DepthGrants>,
 }
 
-/// What one holder outside floor slots held at a moment.
+/// What one holder held at a moment.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HolderBytes {
     /// The place, by name.
@@ -196,7 +197,7 @@ impl ModelLedger {
                 .collect(),
             share_peak: reading.share_peak as u64,
             share_peak_check: reading.share_peak_check.as_ref().map(CheckRecord::of),
-            floor_bound: reading.floor_bound as u64,
+            within_bounds_peak: reading.within_bounds_peak as u64,
             questions: depths(&reading.questions),
             answers: depths(&reading.answers),
         }

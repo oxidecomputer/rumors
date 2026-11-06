@@ -24,15 +24,16 @@
 //! memory: what the session built to ask it, and room set aside for the
 //! answer it invites.
 //!
-//! - **Every budget sets aside** room for one question and one answer at
-//!   each level of the session's comparison, so that it always makes
-//!   progress: about 26.5 MiB, the most that work can hold, though it
-//!   realistically holds a megabyte or two. Every budget also sets aside
-//!   room for the session's fixed state, which it holds whatever the
-//!   budget, about 7 MiB, and for the messages on their way through the
-//!   connection, about two messages' worth at the message-size target in
-//!   each direction, about 1 MiB at the default target. The setter's
-//!   documentation says more.
+//! - **Every budget sets aside** room for the questions and answers at
+//!   each level of the session's comparison, up to a bound for each kind of
+//!   work at each level, of which the first piece is always admitted, so
+//!   that it always makes progress: about 26.5 MiB, the most that work can
+//!   hold, though it realistically holds a few mebibytes at most. Every
+//!   budget also sets aside room for the session's fixed state, which it
+//!   holds whatever the budget, about 7 MiB, and for the messages on their
+//!   way through the connection, about two messages' worth at the
+//!   message-size target in each direction, about 1 MiB at the default
+//!   target. The setter's documentation says more.
 //! - **The smallest budget,**
 //!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
 //!   default message-size target or a larger one, adds room for the
@@ -40,10 +41,10 @@
 //!   aside. A session raises any smaller budget, zero included, to it; a
 //!   smaller target sets less room aside for its messages, and lowers the
 //!   smallest budget with it. At the smallest budget a session pipelines
-//!   little: beyond one question and one answer at each level of its
-//!   comparison, it keeps in flight only what the added room holds, and
-//!   otherwise waits for answers before it asks its next questions. This
-//!   is the declared
+//!   little: beyond the questions and answers at each level of its
+//!   comparison that fit within that level's bounds, it keeps in flight
+//!   only what the added room holds, and otherwise waits for answers
+//!   before it asks its next questions. This is the declared
 //!   behavior of such a budget, not a failure; the session completes,
 //!   counting at most the smallest budget.
 //! - **A larger budget** keeps more questions in flight at once, up to the

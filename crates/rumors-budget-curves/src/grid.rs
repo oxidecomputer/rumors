@@ -49,7 +49,7 @@ pub fn pairs(sizes: &[u64], overlaps: &[u64], links: &[u64]) -> Vec<Pair> {
 
 /// The budgets below `Λ` a pair runs at.
 ///
-/// `Λ` is what a ledger holds outside its floor slots, so each rung the
+/// `Λ` is a ledger's largest excess, what the budget counts, so each rung the
 /// ladder derives from it, from `Λ` itself down, is a budget for the ledger
 /// to admit work against: the pair runs it at the memory budget that sets
 /// that much aside beside the floor and session allowances ([`admitting`]),

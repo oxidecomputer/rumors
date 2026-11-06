@@ -54,8 +54,8 @@
 //! - **Below the total the responder's questions about the root's children
 //!   keep,** those questions cannot all be outstanding together. Admission
 //!   takes deeper units first, so once deeper work fills the budget the
-//!   rest pass through their depth's floor slot one at a time, each costing
-//!   the round trips of the descent beneath it. The slowdown rises steeply
+//!   rest are admitted only within their kind and depth's bound, a few at a
+//!   time, each costing the round trips of the descent beneath it. The slowdown rises steeply
 //!   there, on every link.
 //! - **On a link whose bandwidth dominates the session,** grants stay
 //!   charged for as long as the replies ahead of theirs take to cross, not
@@ -72,8 +72,8 @@
 //! the larger of the two sides' budget-counted bytes at time `t` of that
 //! session ([`LedgerReading::profile`]). Under a budget `B`, the ledger's:
 //! what a memory budget leaves its ledger beside the floor allowance, which
-//! the floor slots hold outside the budget, and the session allowance, its
-//! fixed state and wire pools. Every budget the public setter reaches gives
+//! its kinds and depths of unit hold within their bounds outside the
+//! budget, and the session allowance, its fixed state and wire pools. Every budget the public setter reaches gives
 //! the ledger at least the largest grant, so `B` is positive and the
 //! estimate finite wherever a user can run a session. Suppose
 //!
@@ -173,8 +173,9 @@ impl Unlimited {
 
     /// The estimated least duration at `budget` bytes, in byte-times.
     ///
-    /// A budget of zero has no finite estimate: there each depth's floor
-    /// slot, not the budget, sets the pace.
+    /// A budget of zero has no finite estimate: there each kind and depth's
+    /// bound, not the budget, sets the pace, which the estimate does not
+    /// model.
     pub fn duration_at(&self, budget: u64) -> f64 {
         let paced = self.question_bytes as f64 * self.rtt as f64 / budget as f64;
         paced.max(self.duration as f64)
@@ -283,8 +284,9 @@ impl Profile {
     /// The estimated duration at `budget` bytes, in byte-times:
     /// `T∞ + ∫ (m(t) − B)⁺ dt / B`.
     ///
-    /// A budget of zero has no finite estimate: there each depth's floor
-    /// slot, not the budget, sets the pace.
+    /// A budget of zero has no finite estimate: there each kind and depth's
+    /// bound, not the budget, sets the pace, which the estimate does not
+    /// model.
     pub fn duration_at(&self, budget: u64) -> f64 {
         if budget == 0 {
             return f64::INFINITY;

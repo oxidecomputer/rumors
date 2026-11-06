@@ -108,7 +108,8 @@
 //! the ledger: at every allocation event their live bytes may exceed what
 //! the ledger holds by at most the scratch its stages fill before they
 //! charge what they built, and the ledger holds at most its budget beside
-//! its floor slots' largest grants ([the ledger](#the-ledger)).
+//! what its kinds and depths of unit hold within their bounds
+//! ([the ledger](#the-ledger)).
 //!
 //! The scratch is what a stage, encoder, or decoder fills for a place while
 //! it builds items it charges only once built: an answer's plan, a chunk's
@@ -155,8 +156,9 @@
 //!   the standard library boxes on some platforms (illumos among them),
 //!   and the clone of its task's waker, which allocates under some
 //!   executors. Its meaning is understood. A unit admitted as it asks
-//!   allocates nothing, and a floor slot is a count in the ledger's own
-//!   account, so admission allocates only for units that wait: each a
+//!   allocates nothing, and what each kind and depth holds is a count in
+//!   the ledger's own account, so admission allocates only for units that
+//!   wait: each a
 //!   waiter, its lock, its waker's clone, and a place in the queue's
 //!   buffer. Each walk stage waits on one unit at a time, so at most one
 //!   unit per stage, of the [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS), waits at once, whatever the
@@ -167,8 +169,9 @@
 //!
 //! # The ledger
 //!
-//! A peer's memory budget sets aside the floor allowance for its ledger's
-//! floor slots, the most they can hold at once, and the session allowance
+//! A peer's memory budget sets aside the floor allowance, the most its
+//! ledger's kinds and depths of unit can hold within their bounds at once,
+//! which the budget never counts, and the session allowance
 //! for the session's fixed state and wire pools: the bounds above on the
 //! decode fans, assembly, hashing, and the wire, and every place's scratch.
 //! The ledger admits work beyond both against the rest. Every budget this
@@ -217,9 +220,11 @@
 //!   share is derived, and the floor is not asserted for the redacting
 //!   fixture.
 //!
-//! It also holds each ledger to its bound: at most the budget outside its
-//! floor slots, at most the peer's memory budget in all, and every item
-//! built within its unit's grant. Each ledger must also have
+//! It also holds each ledger to its bound, as two checks: its excess, what
+//! its kinds and depths hold beyond their bounds, at most the budget, and
+//! what they hold within their bounds at most the floor allowance, so at
+//! most the peer's memory budget, less the session allowance, in all; and
+//! every item built within its unit's grant. Each ledger must also have
 //! counted, some reply must have finished, and some unit must have waited
 //! for admission, so that none of the checks passes vacuously. The ledgers'
 //! peaks in the fixed fixtures are committed as baselines: what each side
@@ -232,11 +237,14 @@
 //! # The reference session
 //!
 //! Before its fixture, each test measures a session between two disjoint
-//! replicas of [`REFERENCE_MESSAGES`] messages each at a budget of zero.
-//! Its root's fan is full and it sets up every logical stream, so its
+//! replicas of [`REFERENCE_MESSAGES`] messages each in the serial
+//! configuration, a ledger budget of zero with every kind and depth's bound
+//! zero. Its root's fan is full and it sets up every logical stream, so its
 //! setup is the setup of any larger session, and its transient peak, that
-//! setup and its one-question-at-a-time work together, bounds the setup of the
-//! session under test. Its peers also show what a session leaves in the
+//! setup and its work of one unit of each kind and depth at a time
+//! together, bounds the setup of the session under test. A ledger budget of
+//! zero beside the walk's bounds would pipeline within them instead, and
+//! its larger peak would loosen that bound by what its work held. Its peers also show what a session leaves in the
 //! peer beyond the replica.
 //!
 //! # Upper bounds only
@@ -295,6 +303,7 @@ use rumors::testing::{
     observe_ledgers, wire_allowance, with_leaf_paths,
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
+use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::divided_cases;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
@@ -365,10 +374,10 @@ const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001)
 /// Builds two forks of the network `network` names, holding `messages`
 /// messages, in [`Side::BOTH`] order, that the other lacks.
 ///
-/// Each fork runs on the suite's run target and on a memory budget whose
-/// ledger admits work against `budget`
-/// ([`admitting`](rumors_testkit::bench::session::admitting)), set through
-/// the test path so that it reaches below the public minimum.
+/// Each fork runs on the suite's run target, with the ledger `ledger`
+/// chooses, set through the test path: a ledger budget beside the walk's
+/// bounds ([`BudgetChoice::Ledger`]), which reaches below the public
+/// minimum, or the serial configuration ([`BudgetChoice::Serial`]).
 ///
 /// The network first holds `redacted` messages both forks receive, which
 /// side `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with
@@ -378,9 +387,16 @@ const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001)
 /// message's value names its side and its place among that side's sends.
 /// The seed makes the network reproducible, and with it every message's
 /// version, since forking and sending are deterministic.
-fn fixture(network: NetworkSeed, messages: [u64; 2], redacted: u64, budget: usize) -> Fixture<u64> {
+fn fixture(
+    network: NetworkSeed,
+    messages: [u64; 2],
+    redacted: u64,
+    ledger: BudgetChoice,
+) -> Fixture<u64> {
     let configure = |peer: Peer<u64>| {
-        rumors::testing::ledger_budget(peer, budget).target_message_size(COMPARISON_FRAME_BYTES)
+        ledger
+            .apply(peer)
+            .target_message_size(COMPARISON_FRAME_BYTES)
     };
     let (built, [a, b]) = measure(|| {
         block_on(async {
@@ -468,20 +484,18 @@ struct LedgerReport {
     charged: [usize; CHARGED.len()],
     /// The most the ledger held at once.
     peak: usize,
-    /// The most the ledger held outside its floor slots at once: what its
-    /// budget bounds.
-    normal_peak: usize,
-    /// The most the ledger held beyond its bound ([`ledger_bound`]) at any
-    /// change: zero when the ledger holds at most that throughout.
-    over_bound: usize,
+    /// The ledger's largest excess, what its kinds and depths held beyond
+    /// their bounds at once: what its budget bounds.
+    excess_peak: usize,
+    /// The most the ledger's kinds and depths held within their bounds at
+    /// once, what it held less its excess: what the floor allowance bounds.
+    within_peak: usize,
     /// What the ledger held when the session ended.
     left: usize,
     /// Bytes the side's items needed beyond their grants.
     short: u64,
     /// Units that waited for admission.
     waited: u64,
-    /// The sum of the floor slots' largest grants, at the session's end.
-    floor_bound: usize,
     /// The most the charged places' live transient bytes exceeded the
     /// ledger, at any allocation event.
     uncovered: usize,
@@ -506,17 +520,6 @@ struct Fits {
     /// Those that held more than their reservation allowed, or whose
     /// questions derived records beyond its records part.
     over: Vec<ReplyFit>,
-}
-
-/// The most a side's ledger may hold in all when it admits work against
-/// `budget`.
-///
-/// That is the budget beside the floor allowance, the most the floor slots
-/// hold: the side's memory budget
-/// ([`ledger_budget`](rumors::testing::ledger_budget)) less the session
-/// allowance, which the ledger never holds.
-fn ledger_bound(budget: usize) -> usize {
-    FLOOR_ALLOWANCE.saturating_add(budget)
 }
 
 /// The most the charged places' transient heap may exceed a side's ledger
@@ -555,13 +558,9 @@ struct LedgerEvent {
     /// What it held for each place after the change, in [`Holding::ALL`]
     /// order.
     places: [usize; PLACES],
-    /// What charges built out of floor grants held after the change.
-    floor: usize,
-    /// What its floor slots carried for charges admitted against the
-    /// budget after the change.
-    carried: usize,
-    /// Its floor slots' largest grants so far, summed.
-    floor_bound: usize,
+    /// Its excess after the change: what its kinds and depths held beyond
+    /// their bounds.
+    excess: usize,
     /// Bytes its items have needed beyond their grants.
     short: u64,
     /// Units that have waited for its admission.
@@ -592,9 +591,7 @@ fn ledger_change(change: LedgerChange) {
         ledger: change.ledger,
         held: change.held,
         places: change.places,
-        floor: change.floor,
-        carried: change.carried,
-        floor_bound: change.floor_bound,
+        excess: change.excess,
         short: change.short,
         waited: change.waited,
         side: polling(),
@@ -620,12 +617,8 @@ fn reply_fit(fit: ReplyFit) {
 }
 
 /// Each side's ledger report from a session's ledger changes and its
-/// trace, each side's ledger admitting against `budget`.
-fn ledger_reports(
-    events: &[LedgerEvent],
-    session: &alloc_meter::Trace,
-    budget: usize,
-) -> [LedgerReport; 2] {
+/// trace.
+fn ledger_reports(events: &[LedgerEvent], session: &alloc_meter::Trace) -> [LedgerReport; 2] {
     Side::BOTH.map(|side| {
         // A ledger belongs to the side that was polled when it first
         // changed: every charge is made by a poll of its own side.
@@ -693,20 +686,15 @@ fn ledger_reports(
             changes: mine.len(),
             charged,
             peak: mine.iter().map(|event| event.held).max().unwrap_or(0),
-            normal_peak: mine
+            excess_peak: mine.iter().map(|event| event.excess).max().unwrap_or(0),
+            within_peak: mine
                 .iter()
-                .map(|event| event.held - event.floor - event.carried)
-                .max()
-                .unwrap_or(0),
-            over_bound: mine
-                .iter()
-                .map(|event| event.held.saturating_sub(ledger_bound(budget)))
+                .map(|event| event.held - event.excess)
                 .max()
                 .unwrap_or(0),
             left: last.map_or(0, |event| event.held),
             short: last.map_or(0, |event| event.short),
             waited: last.map_or(0, |event| event.waited),
-            floor_bound: last.map_or(0, |event| event.floor_bound),
             uncovered,
             uncovered_by_place,
             tightest,
@@ -733,9 +721,8 @@ fn run_session(
     schedule: impl FnMut([usize; 2]) -> Release,
 ) -> Run {
     run_fixture(
-        || fixture(network, messages, redacted, budget),
+        || fixture(network, messages, redacted, BudgetChoice::Ledger(budget)),
         messages,
-        budget,
         schedule,
     )
 }
@@ -750,7 +737,6 @@ fn run_session(
 fn run_fixture<T>(
     build: impl FnOnce() -> Fixture<T>,
     messages: [u64; 2],
-    budget: usize,
     schedule: impl FnMut([usize; 2]) -> Release,
 ) -> Run
 where
@@ -804,7 +790,7 @@ where
         "no other thread frees the session's blocks"
     );
     let survivors = session.survivors().expect("the trace is complete");
-    let ledgers = LEDGER_EVENTS.with(|events| ledger_reports(&events.borrow(), &session, budget));
+    let ledgers = LEDGER_EVENTS.with(|events| ledger_reports(&events.borrow(), &session));
     let fits = FITS.with(|fits| std::mem::take(&mut *fits.borrow_mut()));
     let by_side = session
         .lifetimes_grouped(Side::of_label)
@@ -878,9 +864,18 @@ where
 fn reference() -> &'static Run {
     static REFERENCE: OnceLock<Run> = OnceLock::new();
     REFERENCE.get_or_init(|| {
-        run_session(BUDGET_NETWORK_SEED, [REFERENCE_MESSAGES; 2], 0, 0, |_| {
-            Release::bytes([Portion::All; 2])
-        })
+        run_fixture(
+            || {
+                fixture(
+                    BUDGET_NETWORK_SEED,
+                    [REFERENCE_MESSAGES; 2],
+                    0,
+                    BudgetChoice::Serial,
+                )
+            },
+            [REFERENCE_MESSAGES; 2],
+            |_| Release::bytes([Portion::All; 2]),
+        )
     })
 }
 
@@ -982,12 +977,12 @@ impl Measured {
     /// The highest transient peak `side`'s charged places may reach
     /// together.
     ///
-    /// That is its ledger's bound, the budget and its floor slots' largest
-    /// grants, beside the scratch its stages fill before they charge what
+    /// That is its ledger's bound, the budget and the most its kinds and
+    /// depths held within their bounds, beside the scratch its stages fill before they charge what
     /// they built ([`ledger_slack`]).
     fn charged_bound(&self, side: Side) -> u128 {
         let ledger = self.run.ledgers[side.index()];
-        (self.budget as u128) + (ledger.floor_bound as u128) + (ledger_slack() as u128)
+        (self.budget as u128) + (ledger.within_peak as u128) + (ledger_slack() as u128)
     }
 
     /// The highest transient peak `side`'s allocations may reach in all:
@@ -1265,11 +1260,11 @@ fn bound_violation(measured: &Measured) -> Option<String> {
 /// event, and must return to zero once the session ends; every reply the
 /// session's stages finished must fit the room its question reserved for
 /// it, records part included, with at least one reply finished. And each
-/// side's ledger, admitting against `budget`, must hold at most the budget
-/// outside its floor slots and at most the budget beside the floor
-/// allowance in all ([`ledger_bound`]), what its peer's memory budget
-/// leaves it beside the session allowance, with every item built within its
-/// unit's grant.
+/// side's ledger, admitting against `budget`, must keep its excess within
+/// the budget and what its kinds and depths hold within their bounds within
+/// the floor allowance, so that it holds at most what its peer's memory
+/// budget leaves it beside the session allowance, with every item built
+/// within its unit's grant.
 fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
     for side in Side::BOTH {
         let ledger = run.ledgers[side.index()];
@@ -1278,19 +1273,18 @@ fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
                 "{side:?}'s ledger never changed, so it stopped counting"
             ));
         }
-        if ledger.normal_peak > budget {
+        if ledger.excess_peak > budget {
             return Some(format!(
-                "{side:?}'s ledger held {} B outside its floor slots, over its {budget} B \
-                 budget: {ledger:?}",
-                ledger.normal_peak,
+                "{side:?}'s ledger's excess reached {} B, over its {budget} B budget: \
+                 {ledger:?}",
+                ledger.excess_peak,
             ));
         }
-        if ledger.over_bound > 0 {
+        if ledger.within_peak > FLOOR_ALLOWANCE {
             return Some(format!(
-                "{side:?}'s ledger exceeded the {} B its memory budget leaves it by {} B: \
-                 {ledger:?}",
-                ledger_bound(budget),
-                ledger.over_bound,
+                "{side:?}'s kinds and depths held {} B within their bounds, over the \
+                 {FLOOR_ALLOWANCE} B floor allowance: {ledger:?}",
+                ledger.within_peak,
             ));
         }
         if ledger.short > 0 {
@@ -1362,19 +1356,20 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// 8 MiB.
 ///
-/// Admission fills each side's budget with work, as far as each depth's
-/// claims under the invitation share let its questions take it, and the
-/// floor slots hold one more unit per depth and kind beside it: each peak
-/// is at most the 8 MiB budget plus its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_878_940, 8_493_500];
+/// Admission fills each side's budget with work beyond the bounds of its
+/// kinds and depths, as far as each depth's claims under the invitation
+/// share let its questions take it, and each kind and depth holds up to its
+/// bound beside it: each peak is at most the 8 MiB budget plus what its
+/// kinds and depths hold within their bounds.
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [10_453_812, 11_821_620];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
-/// beside the floor slots' grants.
+/// beside what its kinds and depths hold within their bounds.
 ///
 /// A claim reserves room for processing still to come, so a side's peak
 /// can stay below its budget.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [31_618_136, 33_643_516];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [33_255_888, 36_981_288];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.
@@ -1738,7 +1733,7 @@ divided_proptest! {
         // The reference session's leaves are hashed, so it runs outside the
         // placement.
         reference();
-        let dry = fixture(network, messages, 0, PLACED_BUDGET);
+        let dry = fixture(network, messages, 0, BudgetChoice::Ledger(PLACED_BUDGET));
         let paths: Vec<(Version, [u8; 32])> = dry
             .peers
             .iter()
@@ -1752,9 +1747,8 @@ divided_proptest! {
         drop(dry);
         let run = with_leaf_paths(paths, || {
             run_fixture(
-                || fixture(network, messages, 0, PLACED_BUDGET),
+                || fixture(network, messages, 0, BudgetChoice::Ledger(PLACED_BUDGET)),
                 messages,
-                PLACED_BUDGET,
                 release_everything,
             )
         });
@@ -1921,7 +1915,12 @@ fn sweep_budgets() -> Vec<usize> {
 /// names, on `budget`. The seed makes the fixture reproducible, so every
 /// budget's session runs between the same two replicas.
 fn sweep_session(network: NetworkSeed, budget: usize) -> (usize, u64) {
-    let Fixture { peers: [a, b], .. } = fixture(network, [SWEEP_MESSAGES; 2], 0, budget);
+    let Fixture { peers: [a, b], .. } = fixture(
+        network,
+        [SWEEP_MESSAGES; 2],
+        0,
+        BudgetChoice::Ledger(budget),
+    );
     let link = Link::new();
     prepare_pacing();
     let (mut a_read, mut a_write) = (BufReader::new(link.reader(Side::A)), link.writer(Side::A));
@@ -2144,7 +2143,6 @@ fn large_byte_vectors_keep_the_bound() {
         let run = run_fixture(
             || payload_fixture(BUDGET_NETWORK_SEED, payload, count, 0),
             [count; 2],
-            0,
             release_everything,
         );
         let mut measured = Measured::of(count, 0, 0, run);

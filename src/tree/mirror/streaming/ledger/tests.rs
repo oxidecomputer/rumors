@@ -42,10 +42,10 @@ proptest! {
     /// Its peak is the most it has held, and it holds nothing once every
     /// charge is dropped.
     ///
-    /// The charges are made outside admission and outside floor slots, so
-    /// the budget counts every byte they hold, whatever an item needed
-    /// beyond the charge it was built out of; the bytes items needed beyond
-    /// their charges add up to the ledger's shortfall.
+    /// The charges are made outside admission, for no unit, so every byte
+    /// they hold is excess, which the budget counts, whatever an item
+    /// needed beyond the charge it was built out of; the bytes items needed
+    /// beyond their charges add up to the ledger's shortfall.
     #[test]
     fn a_ledger_holds_exactly_its_live_charges(ops in vec(arb_op(), 0..64)) {
         let ledger = Ledger::default();
@@ -81,7 +81,7 @@ proptest! {
             let held: usize = live.iter().map(|(_, charge)| charge.bytes()).sum();
             peak = peak.max(held);
             prop_assert_eq!(ledger.held(), held);
-            prop_assert_eq!(ledger.normal(), held);
+            prop_assert_eq!(ledger.excess(), held);
             prop_assert_eq!(ledger.short(), counter::widen(short));
             for place in Holding::ALL {
                 let expected: usize = live
@@ -94,7 +94,7 @@ proptest! {
         }
         prop_assert!(ledger.peak() >= peak);
         drop(live);
-        prop_assert_eq!((ledger.held(), ledger.normal()), (0, 0));
+        prop_assert_eq!((ledger.held(), ledger.excess()), (0, 0));
     }
 }
 

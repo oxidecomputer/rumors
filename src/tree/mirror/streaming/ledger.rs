@@ -56,7 +56,9 @@
 use std::mem::size_of;
 #[cfg(any(test, feature = "test-internals"))]
 use std::sync::PoisonError;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+#[cfg(any(test, feature = "test-internals"))]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use super::FAN;
@@ -66,7 +68,7 @@ use crate::counter;
 
 #[cfg(any(test, feature = "test-internals"))]
 pub use self::admission::{Admission, AdmissionHook, observe_admissions};
-pub(crate) use self::admission::{Admit, Unit};
+pub(crate) use self::admission::{Admit, Bounds, Unit};
 
 mod admission;
 #[cfg(any(test, feature = "test-internals"))]
@@ -173,17 +175,15 @@ pub(crate) struct Ledger {
 
 /// The bytes one ledger holds and the admission state against its budget.
 ///
-/// In builds that observe ledgers, it counts the bytes held in all,
-/// through floor slots, carried by them, and per place, and the most held
-/// at once. The bytes the budget counts, what each kind and depth of unit
-/// holds against the budget, what floor slots carry, and the invitation
-/// share's claims and pace live in the admission queue, under its lock
-/// ([`admission`]).
+/// In builds that observe ledgers, it counts the bytes held in all and per
+/// place, and the most held at once. What each kind and depth of unit
+/// holds, the excess the budget counts, and the invitation share's claims
+/// and pace live in the admission queue, under its lock ([`admission`]).
 ///
-/// Of the bytes held, admission reads only what the budget counts and what
-/// each kind and depth holds against it, so builds that observe nothing
-/// keep only those, in the queue: every charge, split, and release would
-/// otherwise update counters nothing reads.
+/// Of the bytes held, admission reads only what each kind and depth holds
+/// and the excess, so builds that observe nothing keep only those, in the
+/// queue: every charge, split, and release would otherwise update counters
+/// nothing reads.
 struct Account {
     /// Bytes every live charge holds together.
     #[cfg(any(test, feature = "test-internals"))]
@@ -194,18 +194,12 @@ struct Account {
     /// Bytes held per place, indexed by [`place_index`].
     #[cfg(any(test, feature = "test-internals"))]
     places: [AtomicUsize; PLACES],
-    /// Bytes held by charges built out of floor grants, which the budget
-    /// does not count.
+    /// The excess the budget counts, as the admission queue's count of it
+    /// stood after its latest change ([`admission::Counts`]): a copy for
+    /// the observation hook, which reports it beside changes made outside
+    /// the queue's lock.
     #[cfg(any(test, feature = "test-internals"))]
-    floor: AtomicUsize,
-    /// Bytes floor slots carry for charges built out of grants admitted
-    /// against the budget, which the budget then no longer counts
-    /// ([`admission`], "Carrying").
-    ///
-    /// With `floor`, it makes the ledger's floor part. Admission changes it
-    /// only under its queue's lock, where each slot's share is kept.
-    #[cfg(any(test, feature = "test-internals"))]
-    carried: AtomicUsize,
+    excess: AtomicUsize,
     /// Bytes answers have kept out of their grants, by the depth of the
     /// scope each answers.
     ///
@@ -218,38 +212,37 @@ struct Account {
     short: AtomicU64,
     /// Units that waited for admission, over the ledger's life.
     waited: AtomicU64,
-    /// How many live charges share each floor slot, indexed by
-    /// [`Slot::index`](admission::Slot::index): a slot is taken exactly
-    /// while its count is above zero.
-    ///
-    /// A count moves to or from zero only under the admission queue's lock
-    /// ([`admission::Slot`]).
-    sharing: [AtomicUsize; admission::SLOTS],
     /// The share peak, with the terms of the check that weighed it: the
     /// largest sum any invitation share check has weighed, so the least
     /// budget at which every check made so far would pass ([`admission`]).
     ///
-    /// Read from a session with no budget, it and the ledger's peak outside
-    /// its floor slots give the session's no-cost point. Every check is made
-    /// under the admission queue's lock, which orders the updates.
+    /// Read from a session with no budget, it and the ledger's peak excess
+    /// give the session's no-cost point. Every check is made under the
+    /// admission queue's lock, which orders the updates.
     #[cfg(any(test, feature = "test-internals"))]
     share_peak: Mutex<SharePeak>,
-    /// The largest grant each floor slot has admitted or carried, by kind
-    /// and depth: each slot's `F`.
+    /// Questions under the invitation share, about scopes below the root
+    /// and above the leaves, admitted without exemption, over the ledger's
+    /// life: each was weighed by its depth's share check before its grant.
     #[cfg(any(test, feature = "test-internals"))]
-    slot_peaks: [[AtomicUsize; admission::DEPTHS]; 2],
-    /// The most the ledger may hold outside its floor slots: for a
-    /// session, its memory budget less the floor and session allowances
-    /// ([`admission`]).
+    invited: AtomicU64,
+    /// The most the ledger's excess may reach: for a session, its memory
+    /// budget less the floor and session allowances ([`admission`]).
     budget: usize,
+    /// Each kind and depth's bound, which the bytes it holds within never
+    /// count against the budget ([`admission`]).
+    bounds: Bounds,
     /// The units waiting for admission.
     admission: Mutex<admission::Queue>,
 }
 
 impl Default for Account {
     /// Returns an empty account with an unlimited budget.
+    ///
+    /// Its bounds are zero, which changes no decision's outcome: against an
+    /// unlimited budget no unit waits, whatever its kind and depth hold.
     fn default() -> Self {
-        Self::new(usize::MAX)
+        Self::new(usize::MAX, Bounds::ZERO)
     }
 }
 
@@ -271,10 +264,15 @@ fn place_index(place: Holding) -> usize {
 }
 
 impl Ledger {
-    /// Begin an empty ledger whose units are admitted against `budget`.
-    pub(crate) fn new(budget: usize) -> Self {
+    /// Begin an empty ledger whose units are admitted against `budget`,
+    /// beside each kind and depth's bound in `bounds` ([`admission`]).
+    ///
+    /// A session passes the walk's bounds; a budget of zero with
+    /// [`Bounds::ZERO`] is the serial configuration tests use, admitting
+    /// one unit of each kind and depth at a time.
+    pub(crate) fn new(budget: usize, bounds: Bounds) -> Self {
         Self {
-            account: Arc::new(Account::new(budget)),
+            account: Arc::new(Account::new(budget, bounds)),
         }
     }
 
@@ -321,13 +319,13 @@ impl Ledger {
 
     /// Note that this side's stage has finished processing a reply to a
     /// question about a scope `depth` bytes deep, whose need was `need`, and
-    /// which took its depth's floor slot if `floor` ([`admission`]).
+    /// which claimed that need if `claimed` ([`Charge::claimed`]).
     ///
-    /// A question the invitation share admitted against the budget claimed
-    /// its need as it was admitted, and withdraws it here; one on its floor
-    /// slot claimed nothing. The need must be the one the question was
-    /// admitted with, which the stage recomputes from the bound the
-    /// question's query carries.
+    /// A question the invitation share granted against the budget claimed
+    /// its need as it was admitted, and withdraws it here; an exempt one
+    /// claimed nothing. The need must be the one the question was admitted
+    /// with, which the stage recomputes from the bound the question's query
+    /// carries.
     ///
     /// The finish also moves the depth's pace. One stage processes the
     /// replies at each depth, one at a time, and only that processing builds
@@ -340,8 +338,8 @@ impl Ledger {
     /// The claims and the pace change together under the admission queue's
     /// lock, where every invitation share check reads them, so no check
     /// sees a finish half applied ([`admission::processed`]).
-    pub(crate) fn processed(&self, depth: usize, need: usize, floor: bool) {
-        admission::processed(&self.account, depth, need, floor);
+    pub(crate) fn processed(&self, depth: usize, need: usize, claimed: bool) {
+        admission::processed(&self.account, depth, need, claimed);
     }
 
     /// Units that have waited for admission, over the ledger's life: those
@@ -383,39 +381,17 @@ impl Ledger {
         self.account.places[place_index(place)].load(Ordering::Relaxed)
     }
 
-    /// Bytes the live charges built out of floor grants hold together, not
-    /// counting what floor slots carry for others.
-    #[cfg(test)]
-    pub(crate) fn floor(&self) -> usize {
-        self.account.floor.load(Ordering::Relaxed)
-    }
-
     /// The invitation share's pace at `depth` ([`admission`]).
     #[cfg(test)]
     fn pace(&self, depth: usize) -> admission::Pace {
         admission::pace(&self.account, depth)
     }
 
-    /// Bytes held by charges built out of grants of `unit` kind admitted
-    /// against the budget, concerning scopes at `depth`, the bytes their
-    /// slot carries for them included.
+    /// Bytes held by charges built out of grants to units of `unit` kind
+    /// concerning scopes at `depth`: that kind and depth's `held[k]`.
     #[cfg(test)]
-    pub(crate) fn budgeted(&self, unit: Unit, depth: usize) -> usize {
-        admission::budgeted(&self.account, unit, depth)
-    }
-
-    /// Bytes the floor slot of `unit` kind at `depth` carries for charges
-    /// admitted against the budget ([`admission`], "Carrying").
-    #[cfg(test)]
-    pub(crate) fn carried(&self, unit: Unit, depth: usize) -> usize {
-        admission::carried(&self.account, unit, depth)
-    }
-
-    /// The largest grant the ledger has admitted to a unit of `unit` kind
-    /// at `depth`, through its floor slot or against the budget.
-    #[cfg(test)]
-    pub(crate) fn largest(&self, unit: Unit, depth: usize) -> usize {
-        admission::largest(&self.account, unit, depth)
+    pub(crate) fn held_at(&self, unit: Unit, depth: usize) -> usize {
+        admission::held(&self.account, unit, depth)
     }
 
     /// The outstanding claims of the questions about scopes at `depth`.
@@ -430,16 +406,31 @@ impl Ledger {
         self.account.share_peak().sum
     }
 
-    /// Bytes held outside floor slots: what the budget counts.
+    /// The questions under the invitation share admitted without exemption,
+    /// counted from each grant's kind, depth and exemption rather than from
+    /// the share's checks.
+    ///
+    /// The share weighs each of them before granting it, so the share peak
+    /// is above zero whenever this is. The converse does not hold: a
+    /// question the share weighs and refuses raises the peak, and may later
+    /// be admitted exempt without counting here.
     #[cfg(test)]
-    fn normal(&self) -> usize {
-        admission::normal(&self.account)
+    pub(crate) fn invited(&self) -> u64 {
+        self.account.invited.load(Ordering::Relaxed)
+    }
+
+    /// The excess: the bytes each kind and depth holds beyond its bound,
+    /// summed, which is what the budget counts.
+    #[cfg(test)]
+    fn excess(&self) -> usize {
+        admission::excess(&self.account)
     }
 }
 
 impl Account {
-    /// Begin an empty account whose units are admitted against `budget`.
-    fn new(budget: usize) -> Self {
+    /// Begin an empty account whose units are admitted against `budget`,
+    /// beside each kind and depth's bound in `bounds`.
+    fn new(budget: usize, bounds: Bounds) -> Self {
         Self {
             #[cfg(any(test, feature = "test-internals"))]
             held: AtomicUsize::new(0),
@@ -448,123 +439,78 @@ impl Account {
             #[cfg(any(test, feature = "test-internals"))]
             places: Default::default(),
             #[cfg(any(test, feature = "test-internals"))]
-            floor: AtomicUsize::new(0),
-            #[cfg(any(test, feature = "test-internals"))]
-            carried: AtomicUsize::new(0),
+            excess: AtomicUsize::new(0),
             kept: std::array::from_fn(|_| AtomicU64::new(0)),
             short: AtomicU64::new(0),
             waited: AtomicU64::new(0),
-            sharing: std::array::from_fn(|_| AtomicUsize::new(0)),
             #[cfg(any(test, feature = "test-internals"))]
             share_peak: Mutex::default(),
             #[cfg(any(test, feature = "test-internals"))]
-            slot_peaks: std::array::from_fn(|_| std::array::from_fn(|_| AtomicUsize::new(0))),
+            invited: AtomicU64::new(0),
             budget,
+            bounds,
             admission: Mutex::default(),
         }
     }
 
-    /// Add `bytes` to the account of `place`, and to the floor part if
-    /// `floor`, for a charge of `unit` ([`Charge::unit`]).
+    /// Add `bytes` to the account of `place`, for a charge of `unit`
+    /// ([`Charge::unit`]): a grant, or an item's shortfall.
     ///
-    /// The caller holds the admission queue's lock: `slots`, which only the
-    /// lock reaches, counts what each kind and depth holds against the
-    /// budget.
+    /// The caller holds the admission queue's lock: `counts`, which only
+    /// the lock reaches, keeps what each kind and depth holds and the
+    /// excess.
     fn add(
         &self,
-        slots: &mut admission::Slots,
+        counts: &mut admission::Counts,
         place: Holding,
         bytes: usize,
-        floor: bool,
         unit: Option<(Unit, usize)>,
     ) {
-        if !floor {
-            slots.normal += bytes;
-            if let Some((unit, depth)) = unit {
-                *slots.budgeted(unit, depth) += bytes;
-            }
-        }
-        self.tally((None, Some(place)), bytes, floor, unit);
+        counts.add(&self.bounds, unit, bytes);
+        #[cfg(any(test, feature = "test-internals"))]
+        self.excess.store(counts.excess(), Ordering::Relaxed);
+        self.tally((None, Some(place)), bytes, unit);
     }
 
-    /// Return `bytes` from the account of `place`, and from the floor part
-    /// if `floor`, for a charge of `unit` ([`Charge::unit`]), `carried` of
-    /// them to what its kind and depth's floor slot carries.
+    /// Return `bytes` from the account of `place`, for a charge of `unit`
+    /// ([`Charge::unit`]).
     ///
-    /// The caller holds the admission queue's lock, as `slots` proves
-    /// ([`admission::release`]). A charge outside the floor that has a unit
-    /// returns its bytes first to what its slot carries, at most all of
-    /// them. The budget stopped counting those `carried` bytes when the slot
-    /// took them, so only the rest leave its count, in one change. `carried`
-    /// is zero for every other charge.
+    /// The caller holds the admission queue's lock, as `counts` proves
+    /// ([`admission::release`]).
     fn sub(
         &self,
-        slots: &mut admission::Slots,
+        counts: &mut admission::Counts,
         place: Holding,
         bytes: usize,
-        floor: bool,
         unit: Option<(Unit, usize)>,
-        carried: usize,
     ) {
-        if !floor {
-            slots.normal -= bytes - carried;
-            if let Some((unit, depth)) = unit {
-                *slots.budgeted(unit, depth) -= bytes;
-            }
-        }
+        counts.sub(&self.bounds, unit, bytes);
         #[cfg(any(test, feature = "test-internals"))]
-        self.carried.fetch_sub(carried, Ordering::Relaxed);
-        self.tally((Some(place), None), bytes, floor, unit);
-    }
-
-    /// Count `bytes` of the charges of `unit` kind at `depth` admitted
-    /// against the budget as carried by their floor slot, which admission
-    /// has taken for them ([`admission`], "Carrying").
-    ///
-    /// The caller holds the admission queue's lock, as `slots` proves, and
-    /// keeps the slot's share of the carried bytes, which are at most what
-    /// the kind and depth hold against the budget.
-    fn carry(&self, slots: &mut admission::Slots, bytes: usize, unit: Unit, depth: usize) {
-        slots.normal -= bytes;
-        #[cfg(any(test, feature = "test-internals"))]
-        {
-            self.carried.fetch_add(bytes, Ordering::Relaxed);
-            self.slot_peaks[unit.row()][depth].fetch_max(bytes, Ordering::Relaxed);
-        }
-        self.tally((None, None), bytes, false, Some((unit, depth)));
+        self.excess.store(counts.excess(), Ordering::Relaxed);
+        self.tally((Some(place), None), bytes, unit);
     }
 
     /// Count one change in the totals only observation reads, and report it
     /// to the observation hook ([`observe`]).
     ///
-    /// The change moves `bytes` of a charge of `unit`, through a floor slot
-    /// if `floor`, out of the first place of `(from, to)` and into the
-    /// second. A change with only `to` builds a charge, one with only `from` drops
-    /// one, one with both moves bytes between places, and one with neither
-    /// moves no charge's bytes, as a slot starting to carry does.
+    /// The change moves `bytes` of a charge of `unit` out of the first
+    /// place of `(from, to)` and into the second. A change with only `to`
+    /// builds a charge, one with only `from` drops one, and one with both
+    /// moves bytes between places.
     #[cfg(any(test, feature = "test-internals"))]
     fn tally(
         &self,
         (from, to): (Option<Holding>, Option<Holding>),
         bytes: usize,
-        floor: bool,
         unit: Option<(Unit, usize)>,
     ) {
         let held = match (from, to) {
             (None, Some(_)) => {
-                if floor {
-                    self.floor.fetch_add(bytes, Ordering::Relaxed);
-                }
                 let held = self.held.fetch_add(bytes, Ordering::Relaxed) + bytes;
                 self.peak.fetch_max(held, Ordering::Relaxed);
                 held
             }
-            (Some(_), None) => {
-                if floor {
-                    self.floor.fetch_sub(bytes, Ordering::Relaxed);
-                }
-                self.held.fetch_sub(bytes, Ordering::Relaxed) - bytes
-            }
+            (Some(_), None) => self.held.fetch_sub(bytes, Ordering::Relaxed) - bytes,
             _ => self.held.load(Ordering::Relaxed),
         };
         if let Some(from) = from {
@@ -573,21 +519,14 @@ impl Account {
         if let Some(to) = to {
             self.places[place_index(to)].fetch_add(bytes, Ordering::Relaxed);
         }
-        observe(self, (from, to), bytes, floor, unit, held);
+        observe(self, (from, to), bytes, unit, held);
     }
 
     /// Count one change in the totals only observation reads: nothing in
     /// builds that observe nothing.
     #[cfg(not(any(test, feature = "test-internals")))]
     #[inline(always)]
-    fn tally(
-        &self,
-        _: (Option<Holding>, Option<Holding>),
-        _: usize,
-        _: bool,
-        _: Option<(Unit, usize)>,
-    ) {
-    }
+    fn tally(&self, _: (Option<Holding>, Option<Holding>), _: usize, _: Option<(Unit, usize)>) {}
 
     /// The bytes units of `unit` kind concerning scopes at `depth` have
     /// kept out of their grants, if the pace reads them: answers' only.
@@ -629,9 +568,9 @@ impl Account {
 ///
 /// Every item carries its charges and is priced at its in-memory size,
 /// charges included, so a charge is kept to 16 bytes on 64-bit targets: its
-/// account's pointer, its bytes in four, its place, its floor slot, named in
-/// one byte by kind and depth, and the kind and depth of its unit in the
-/// two bytes of padding left.
+/// account's pointer, its bytes in four, its place, the kind and depth of
+/// its unit in two bytes, and whether its unit claimed under the invitation
+/// share in the one byte left.
 pub(crate) struct Charge {
     /// The account the bytes are charged to, if any.
     account: Option<Arc<Account>>,
@@ -646,18 +585,21 @@ pub(crate) struct Charge {
     bytes: u32,
     /// The place the bytes are for.
     place: Holding,
-    /// The floor slot the charge's unit took, if it was admitted through
-    /// one; the charge's bytes are then the ledger's floor part, and the
-    /// charge counts among the slot's sharers until it drops.
-    slot: Option<admission::Slot>,
     /// The unit this charge was built out of, if admission granted it,
     /// and whether it is that unit's grant itself, whose drop returns what
     /// its unit did not use.
     ///
     /// This field must not grow a charge, since a charge prices every item
-    /// that carries it: it fits in the padding beside `place` and `slot`,
-    /// which the assertion below the type keeps.
+    /// that carries it: it fits in the padding beside `place`, which the
+    /// assertion below the type keeps.
     origin: Option<Origin>,
+    /// Whether the charge's unit is a question the invitation share granted
+    /// against the budget, which claimed its need ([`admission`], the
+    /// rule's step 4): its reply's finish withdraws that claim.
+    ///
+    /// Every part split off a charge keeps it, so the stage reads it from
+    /// the part the question's query carries.
+    claimed: bool,
 }
 
 /// The unit a charge was built out of.
@@ -728,8 +670,8 @@ impl Origin {
 }
 
 /// A charge takes 16 bytes on 64-bit targets, where the session-budget pins
-/// are measured, its unit's tag included: so the tag changes no price the
-/// ledger charges.
+/// are measured, its unit's tag and claimed bit included: so neither changes
+/// any price the ledger charges.
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(
     size_of::<Charge>() == 16,
@@ -751,36 +693,60 @@ impl Charge {
         widen(self.bytes)
     }
 
-    /// Whether this charge was built out of a floor grant.
-    pub(crate) fn is_floor(&self) -> bool {
-        self.slot.is_some()
+    /// Whether this charge's unit is a question that claimed its need under
+    /// the invitation share: granted against the budget at the rule's step 4
+    /// ([`admission`]).
+    ///
+    /// An exempt question, the opening, and a leaf request claim nothing.
+    pub(crate) fn claimed(&self) -> bool {
+        self.claimed
     }
 
-    /// Charge `bytes` for `place` on `account`, as a grant through `slot`
-    /// if one is given, and as the grant of a unit of `unit` kind at its
-    /// depth if one is given.
+    /// Charge `bytes` for `place` on `account`, as the grant of a unit of
+    /// `unit` kind at its depth, which claimed under the invitation share if
+    /// `claimed`.
     ///
-    /// A charge through `slot` must already be counted among the slot's
-    /// sharers. The caller holds the admission queue's lock, as `slots`
-    /// proves ([`Account::add`]).
+    /// The caller holds the admission queue's lock, as `counts` proves
+    /// ([`Account::add`]).
     fn granted(
         account: &Arc<Account>,
-        slots: &mut admission::Slots,
+        counts: &mut admission::Counts,
         place: Holding,
         bytes: u32,
-        slot: Option<admission::Slot>,
-        unit: Option<(Unit, usize)>,
+        (unit, depth): (Unit, usize),
+        claimed: bool,
     ) -> Charge {
-        account.add(slots, place, widen(bytes), slot.is_some(), unit);
-        if let Some(kept) = unit.and_then(|(unit, depth)| account.kept(unit, depth)) {
+        account.add(counts, place, widen(bytes), Some((unit, depth)));
+        if let Some(kept) = account.kept(unit, depth) {
             kept.fetch_add(u64::from(bytes), Ordering::Relaxed);
         }
         Charge {
             account: Some(account.clone()),
             place,
             bytes,
-            slot,
-            origin: unit.map(|(unit, depth)| Origin::grant(unit, depth)),
+            origin: Some(Origin::grant(unit, depth)),
+            claimed,
+        }
+    }
+
+    /// Charge `bytes` for `place` on `account` for no unit, as only tests
+    /// do: every byte of it is excess ([`admission`], premise (P4)).
+    ///
+    /// The caller holds the admission queue's lock, as `counts` proves.
+    #[cfg(test)]
+    fn loose(
+        account: &Arc<Account>,
+        counts: &mut admission::Counts,
+        place: Holding,
+        bytes: u32,
+    ) -> Charge {
+        account.add(counts, place, widen(bytes), None);
+        Charge {
+            account: Some(account.clone()),
+            place,
+            bytes,
+            origin: None,
+            claimed: false,
         }
     }
 
@@ -794,28 +760,22 @@ impl Charge {
     /// Move `bytes` of this charge, at most all of it, into a charge of its
     /// own for `place`, so the two parts return separately.
     ///
-    /// The part shares this charge's floor slot, if any.
+    /// The part keeps this charge's unit and claimed bit, so its bytes stay
+    /// with their kind and depth ([`admission`], premise (P3)), and the
+    /// split changes nothing admission counts.
     pub(crate) fn split(&mut self, place: Holding, bytes: usize) -> Charge {
         let bytes = u32::try_from(bytes).map_or(self.bytes, |bytes| bytes.min(self.bytes));
         let Some(account) = &self.account else {
             return Charge::default();
         };
-        if let Some(slot) = self.slot {
-            slot.share(account);
-        }
-        account.tally(
-            (Some(self.place), Some(place)),
-            widen(bytes),
-            self.slot.is_some(),
-            self.unit(),
-        );
+        account.tally((Some(self.place), Some(place)), widen(bytes), self.unit());
         self.bytes -= bytes;
         Charge {
             account: Some(account.clone()),
             place,
             bytes,
-            slot: self.slot,
             origin: self.origin.map(Origin::part),
+            claimed: self.claimed,
         }
     }
 
@@ -825,10 +785,8 @@ impl Charge {
     /// before its unit is built ([`Admission::partial`]), and the rest as
     /// usual when it drops.
     ///
-    /// The returned part is split off and dropped, so a floor grant keeps
-    /// its slot: the part leaves the slot's sharers as it drops, while this
-    /// charge still shares it. The drop reconsiders the waiters, so the
-    /// returned bytes may admit a waiting unit at once.
+    /// The returned part is split off and dropped. The drop reconsiders the
+    /// waiters, so the returned bytes may admit a waiting unit at once.
     pub(crate) fn keep(&mut self, bytes: usize) {
         let returned = self.bytes().saturating_sub(bytes);
         if let (Some(account), Some((unit, depth))) =
@@ -838,7 +796,7 @@ impl Charge {
                 kept.fetch_sub(counter::widen(returned), Ordering::Relaxed);
             }
             #[cfg(any(test, feature = "test-internals"))]
-            admission::settled(account, unit, depth, returned, self.slot.is_some(), true);
+            admission::settled(account, unit, depth, returned, true);
         }
         drop(self.split(self.place, returned));
     }
@@ -846,12 +804,12 @@ impl Charge {
     /// Build an item's charge of `bytes` for `place` out of this grant.
     ///
     /// A grant bounds what its unit builds, so it always has the bytes; if
-    /// it falls short, the item is still charged in full, through the
-    /// grant's slot if any, and the shortfall is counted for the
-    /// session-budget suite to report. The shortfall joins the ledger under
-    /// the admission queue's lock, as every byte admitted against the budget
-    /// does ([`admission::shortfall`]). A grant on no ledger builds charges
-    /// on none.
+    /// it falls short, the item is still charged in full, to the grant's
+    /// kind and depth, and the shortfall is counted for the session-budget
+    /// suite to report. The shortfall joins the ledger under the admission
+    /// queue's lock, as every change to what a kind and depth holds does
+    /// ([`admission::shortfall`]). A grant on no ledger builds charges on
+    /// none.
     ///
     /// # Panics
     ///
@@ -871,7 +829,7 @@ impl Charge {
             account
                 .short
                 .fetch_add(counter::widen(short), Ordering::Relaxed);
-            admission::shortfall(account, place, short, taken.slot.is_some(), taken.unit());
+            admission::shortfall(account, place, short, taken.unit());
             taken.bytes = whole;
         }
         taken
@@ -886,8 +844,8 @@ impl Default for Charge {
             account: None,
             place: Holding::Questions,
             bytes: 0,
-            slot: None,
             origin: None,
+            claimed: false,
         }
     }
 }
@@ -896,16 +854,11 @@ impl Default for Charge {
 impl Drop for Charge {
     /// Subtracts the charge from its place and from the ledger's total.
     ///
-    /// Releasing bytes may admit a waiting unit; a charge's floor slot, if
-    /// this was the last charge sharing it, frees after the bytes return.
-    /// The waiters are reconsidered after both, so a unit waiting for the
-    /// bytes or for the slot is admitted here if nothing else admits it
-    /// first.
-    ///
-    /// All three happen in one critical section of the admission queue's
-    /// lock, where a charge admitted against the budget returns first
-    /// whatever bytes its slot carries for its kind and depth
-    /// ([`admission::release`]).
+    /// Releasing bytes may admit a waiting unit, so the waiters are
+    /// reconsidered once the bytes have returned, in the same critical
+    /// section of the admission queue's lock ([`admission::release`]): a
+    /// unit waiting at a kind and depth this empties is admitted here if
+    /// nothing else admits it first.
     fn drop(&mut self) {
         let Some(account) = self.account.take() else {
             return;
@@ -916,9 +869,9 @@ impl Drop for Charge {
                 kept.fetch_sub(counter::widen(bytes), Ordering::Relaxed);
             }
             #[cfg(any(test, feature = "test-internals"))]
-            admission::settled(&account, unit, depth, bytes, self.slot.is_some(), false);
+            admission::settled(&account, unit, depth, bytes, false);
         }
-        admission::release(&account, self.place, bytes, self.slot, self.unit());
+        admission::release(&account, self.place, bytes, self.unit());
     }
 }
 
@@ -935,17 +888,22 @@ impl std::fmt::Debug for Charge {
 
 /// One change to a ledger, as the process's observation hook sees it.
 ///
-/// Every change to what the ledger holds in all, through its floor slots,
-/// or carried by them is made, and reported, under the ledger's admission
-/// queue lock, as is every invitation share check, so a report's `held`,
-/// `floor`, `carried`, `floor_bound` and `share_peak` agree with one
-/// another. A split moves bytes between places outside that
-/// lock, so its report's `places` can include another thread's change made
-/// as it reports. `short` and `waited` are counted outside the
-/// lock: when the tasks that change the ledger run on several threads, a
-/// report can include a shortfall whose bytes it does not yet show as held,
-/// or miss a wait another thread has just counted. Both are exact when
-/// every task that changes the ledger runs on one thread.
+/// A ledger changes what it holds in all, and what each kind and depth
+/// holds, only under its admission queue's lock, where it also makes every
+/// invitation share check, and it reports each such change (a charge, a
+/// shortfall or a release) under that lock too. So such a report's `held`,
+/// `excess` and `share_peak` are exactly the ledger's state after the
+/// change, even when the tasks that change the ledger run on several
+/// threads. A split moves bytes between places outside that lock, one
+/// place at a time, and reports outside it. So when those tasks run on
+/// several threads, any report's `places` can include part of another
+/// thread's change, and a split's own report can read `held`, `excess` and
+/// `share_peak` partway through another thread's change or check, so that
+/// they need not agree with one another. `short` and `waited` are counted
+/// outside the lock too: a report can include a shortfall whose bytes it
+/// does not yet show as held, or miss a wait another thread has just
+/// counted. Every total is exact when every task that changes the ledger
+/// runs on one thread.
 #[cfg(any(test, feature = "test-internals"))]
 #[derive(Clone, Copy, Debug)]
 pub struct LedgerChange {
@@ -959,9 +917,6 @@ pub struct LedgerChange {
     pub to: Option<Holding>,
     /// The bytes the change moved.
     pub bytes: usize,
-    /// Whether they are bytes of a charge built out of a floor grant, which
-    /// the budget does not count.
-    pub through_floor: bool,
     /// The unit whose charge changed, if admission granted it: every charge
     /// a session makes, since each is a grant or a part of one.
     pub unit: Option<ChargeUnit>,
@@ -970,22 +925,18 @@ pub struct LedgerChange {
     /// Bytes the ledger holds for each place after the change, in
     /// [`Holding::ALL`] order.
     pub places: [usize; PLACES],
-    /// Bytes of `held` that charges built out of floor grants hold.
-    pub floor: usize,
-    /// Bytes of `held` that floor slots carry for charges admitted against
-    /// the budget, which the budget does not count either: with `floor`,
-    /// the ledger's floor part.
+    /// The ledger's excess after the change: the bytes each kind and depth
+    /// of unit holds beyond its bound, summed, which is all the budget
+    /// counts.
     ///
-    /// A change that only moves bytes onto a slot names neither place, and
-    /// the unit whose bytes the slot carries.
-    pub carried: usize,
+    /// `held − excess` is what the kinds and depths hold within
+    /// their bounds: at most the floor allowance while every grant is within
+    /// its bound and the ledger holds one side's kinds and depths.
+    pub excess: usize,
     /// Bytes items have needed beyond their grants, over the ledger's life.
     pub short: u64,
     /// Units that have waited for admission, over the ledger's life.
     pub waited: u64,
-    /// The sum over floor slots of the largest grant each has admitted or
-    /// carried: the `Σ F` the ledger's bound adds to its budget.
-    pub floor_bound: usize,
     /// The largest sum any invitation share check has weighed so far, the
     /// least budget at which every check made so far would pass, with the
     /// terms of the check that weighed it.
@@ -1009,8 +960,8 @@ pub struct SharePeak {
     /// The depth of the scope the question asks about: the root's 0
     /// through the leaves' 32.
     pub depth: usize,
-    /// The bytes that depth's questions held against the budget: the room
-    /// its invitations held, `I_d`.
+    /// The excess of that depth's questions: the room its invitations held
+    /// against the budget, `I_d`.
     pub invited: usize,
     /// The question's grant, `c`.
     pub grant: usize,
@@ -1025,9 +976,8 @@ pub struct SharePeak {
     /// The needs the depth's pace counted as predicted: its denominator,
     /// never zero.
     pub pace_predicted: u64,
-    /// The bytes the ledger held outside its floor slots as it made the
-    /// check, `L − F`.
-    pub normal: usize,
+    /// The ledger's excess as it made the check, `E`.
+    pub excess: usize,
 }
 
 /// The unit a charge was built out of, as [`LedgerChange::unit`] reports
@@ -1063,15 +1013,13 @@ pub fn observe_ledgers(hook: LedgerHook) -> bool {
 }
 
 /// Report one change to `account` to the installed hook: `bytes` of a
-/// charge of `unit`, through a floor slot if `floor`, moved out of the
-/// first place of `(from, to)` and into the second, after which the ledger
-/// holds `held`.
+/// charge of `unit` moved out of the first place of `(from, to)` and into
+/// the second, after which the ledger holds `held`.
 #[cfg(any(test, feature = "test-internals"))]
 fn observe(
     account: &Account,
     (from, to): (Option<Holding>, Option<Holding>),
     bytes: usize,
-    floor: bool,
     unit: Option<(Unit, usize)>,
     held: usize,
 ) {
@@ -1081,7 +1029,6 @@ fn observe(
             from,
             to,
             bytes,
-            through_floor: floor,
             unit: unit.map(|(unit, depth)| ChargeUnit {
                 question: unit == Unit::Question,
                 depth,
@@ -1089,16 +1036,9 @@ fn observe(
             held,
             places: Holding::ALL
                 .map(|place| account.places[place_index(place)].load(Ordering::Relaxed)),
-            floor: account.floor.load(Ordering::Relaxed),
-            carried: account.carried.load(Ordering::Relaxed),
+            excess: account.excess.load(Ordering::Relaxed),
             short: account.short.load(Ordering::Relaxed),
             waited: account.waited.load(Ordering::Relaxed),
-            floor_bound: account
-                .slot_peaks
-                .iter()
-                .flatten()
-                .map(|peak| peak.load(Ordering::Relaxed))
-                .sum(),
             share_peak: account.share_peak(),
         });
     }

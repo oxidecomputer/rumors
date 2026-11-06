@@ -40,15 +40,17 @@ use serde::{Serialize, de::DeserializeOwned};
 ///
 /// A smaller budget, zero included, is raised to at most this, whatever the
 /// target, so a session counts at most the larger of its budget and this
-/// minimum. It covers the room every session keeps for one piece of work in
-/// flight at each level of its comparison, which is how a session always
-/// makes progress, room beside it for the largest single piece of work, the
-/// fixed state every session holds whatever its budget, and the room for
-/// messages on their way through the connection, which grows with the
-/// target ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)
-/// lists each). That room never raises the budget: a session clamps a
-/// larger target to the largest one whose room fits the larger of its
-/// budget and this minimum
+/// minimum. It covers the room every session keeps for the work in flight
+/// at each level of its comparison, up to a bound for each kind of work at
+/// each level, of which the first piece is always admitted, which is how a
+/// session always makes progress; room beside it for the largest single
+/// piece of work; the fixed state every session holds whatever its budget;
+/// and the room for messages on their way through the connection, which
+/// grows with the target
+/// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) lists
+/// each). That room never raises the budget: a session clamps a larger
+/// target to the largest one whose room fits the larger of its budget and
+/// this minimum
 /// ([`Peer::target_message_size`](crate::Peer::target_message_size)). A
 /// smaller target sets less room aside, and lowers the minimum by about
 /// twice the target's decrease in each direction. At or above this minimum,
@@ -98,9 +100,9 @@ pub(crate) enum MemoryBudget {
     /// ([`serial_budget`](crate::testing::serial_budget)): one unit of each
     /// kind and depth at a time.
     ///
-    /// Sessions run their ledgers at a budget of zero, every unit through
-    /// its kind and depth's floor slot, on the memory budget a ledger budget
-    /// of zero gives.
+    /// Sessions run their ledgers at a budget of zero with every kind and
+    /// depth's bound zero, on the memory budget a ledger budget of zero
+    /// gives.
     #[cfg(any(test, feature = "test-internals"))]
     Serial,
 }
@@ -160,7 +162,7 @@ impl MemoryBudget {
     /// gives it when its peer's own message-size target is `target`.
     ///
     /// That is the session's ledger budget ([`session`](Self::session))
-    /// beside the walk's floor slots, or the serial configuration for
+    /// beside the walk's bounds, or the serial configuration for
     /// [`Serial`](Self::Serial).
     pub(crate) fn apply(
         self,
@@ -908,12 +910,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [Accuracy](#accuracy) describes. Within it, a session keeps in flight as much as it can
     /// put to use.
     ///
-    /// Part of every budget is set aside for one piece of work in flight at
-    /// each level of the session's comparison, which a session can always
-    /// keep, whatever else waits, and which is how it always makes
-    /// progress: the most that work can hold at once, about 26.5 MiB, of
-    /// which a session realistically uses a megabyte or two. Part is set
-    /// aside for the session's fixed state, which it holds whatever its
+    /// Part of every budget is set aside for the work in flight at each
+    /// level of the session's comparison, up to a bound for each kind of
+    /// work at each level, which a session can always keep, whatever else
+    /// waits: the first piece of work at each level is always admitted,
+    /// which is how a session always makes progress. The bounds together
+    /// come to about 26.5 MiB, of which a session realistically uses a few
+    /// mebibytes: about 5 MiB between replicas of millions of messages that
+    /// differ throughout, and less between replicas that mostly agree. Part
+    /// is set aside for the session's fixed state, which it holds whatever its
     /// budget and the sets' sizes: about 7 MiB on the in-memory replica,
     /// as [the session's fixed state](#the-sessions-fixed-state) lists.
     /// Part is set aside for the messages on their way through the
@@ -935,8 +940,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// reports the budget and the target it runs on. Both read the two
     /// settings when a session starts, so the order in which you set them
     /// doesn't matter. A smaller budget therefore makes a
-    /// session slower, never failed: one piece of work at each level still
-    /// completes.
+    /// session slower, never failed: the first piece of work at each level is
+    /// still always admitted.
     ///
     /// More budget keeps more in flight, up to the point where nothing
     /// waits; at or beyond it, a session runs exactly as it would with an

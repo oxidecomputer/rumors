@@ -41,8 +41,8 @@ pub struct Record {
     pub sent: [u64; 2],
     /// Each side's ledger, in the order of its first report.
     pub ledgers: Vec<LedgerRecord>,
-    /// The most bytes both ledgers held together at once, floor slots
-    /// included: what the session counted as held or reserved.
+    /// The most bytes both ledgers held together at once: what the session
+    /// counted as held or reserved.
     pub joint_held_peak: u64,
     /// The most heap the session allocated beyond what was live when it
     /// began, both sides together: everything it actually held, its fixed
@@ -60,14 +60,13 @@ pub struct LedgerRecord {
     /// lacks it reads it as unknown.
     #[serde(default)]
     pub side: Option<String>,
-    /// The most it held outside its floor slots.
+    /// Its largest excess: the most its kinds and depths of unit held
+    /// beyond their bounds at once, the part its budget counts.
     pub budget_peak: u64,
     /// The most it held in all.
     pub held_peak: u64,
-    /// The most its floor slots held at once.
-    pub floor_peak: u64,
-    /// The sum over floor slots of the largest grant each admitted.
-    pub floor_bound: u64,
+    /// The most its kinds and depths held within their bounds at once.
+    pub within_bounds_peak: u64,
     /// The largest sum any invitation share check weighed: the share peak.
     ///
     /// With `budget_peak`, it gives the session's no-cost point, the least
@@ -81,17 +80,12 @@ pub struct LedgerRecord {
     pub share_peak_check: Option<CheckRecord>,
     /// Units that waited for admission.
     pub waited: u64,
-    /// The bytes it held outside its floor slots, integrated over the
-    /// session's byte-times.
+    /// Its excess, integrated over the session's byte-times.
     pub budget_area: u128,
-    /// The bytes it held for each place, floor slots included, integrated
-    /// over the session's byte-times, by the place's name.
+    /// The bytes it held for each place, integrated over the session's
+    /// byte-times, by the place's name.
     #[serde(default)]
     pub place_area: BTreeMap<String, u128>,
-    /// The bytes its floor slots held, integrated over the session's
-    /// byte-times.
-    #[serde(default)]
-    pub floor_area: u128,
     /// Its question grants at each depth that had any.
     pub questions: Vec<DepthGrants>,
     /// Its answer grants at each depth that had any.
@@ -100,8 +94,8 @@ pub struct LedgerRecord {
     /// order ([`LedgerReading::dated`]).
     #[serde(default)]
     pub dated: Vec<DatedRecord>,
-    /// The bytes it held outside its floor slots over the session, as
-    /// `[at, bytes]` steps ([`LedgerReading::profile`]).
+    /// Its excess over the session, as `[at, bytes]` steps
+    /// ([`LedgerReading::profile`]).
     ///
     /// Every unlimited session records it, since the profile estimate reads
     /// it; a budgeted one records it only in a detailed record.
@@ -114,19 +108,18 @@ pub struct LedgerRecord {
     #[serde(default)]
     pub holders: Vec<HolderRecord>,
     /// Every unit that waited, as `[queued, admitted, depth, question,
-    /// bytes, floor]` ([`LedgerReading::waits`]): in a detailed record
+    /// bytes, exempt]` ([`LedgerReading::waits`]): in a detailed record
     /// only.
     #[serde(default)]
     pub waits: Vec<(u64, u64, usize, bool, u64, bool)>,
-    /// Every admission, as `[at, depth, question, floor, waited]`
+    /// Every admission, as `[at, depth, question, exempt, waited]`
     /// ([`LedgerReading::dated`]): in a detailed record only.
     #[serde(default)]
     pub admissions: Vec<(u64, usize, bool, bool, bool)>,
 }
 
 /// What one holder of a ledger's bytes held: one place's charges for units
-/// of one kind at one depth, through floor slots or against the budget
-/// ([`Holder`], [`Held`]).
+/// of one kind at one depth ([`Holder`], [`Held`]).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HolderRecord {
     /// The place, by name.
@@ -136,8 +129,6 @@ pub struct HolderRecord {
     /// The depth of the scope the units concern, if admission granted the
     /// charges.
     pub depth: Option<usize>,
-    /// Whether the charges were built out of floor grants.
-    pub floor: bool,
     /// The bytes it held, integrated over the session's byte-times.
     pub area: u128,
     /// The bytes it held while some unit waited for admission, integrated
@@ -156,8 +147,8 @@ pub struct DatedRecord {
     pub depth: usize,
     /// Whether the unit is a question rather than an answer's own items.
     pub question: bool,
-    /// Whether it took its depth's floor slot.
-    pub floor: bool,
+    /// Whether it was admitted exempt rather than against the budget.
+    pub exempt: bool,
     /// Whether it waited for admission.
     pub waited: bool,
     /// Its grant's bytes.
@@ -176,7 +167,7 @@ pub struct CheckRecord {
     pub sum: u64,
     /// The depth of the scope the question asks about.
     pub depth: usize,
-    /// The bytes that depth's questions held against the budget, `I_d`.
+    /// The excess of that depth's questions, `I_d`.
     pub invited: u64,
     /// The question's grant, `c`.
     pub grant: u64,
@@ -188,8 +179,8 @@ pub struct CheckRecord {
     pub pace_actual: u64,
     /// The depth's pace's denominator: the needs it predicted.
     pub pace_predicted: u64,
-    /// The bytes the ledger held outside its floor slots then, `L − F`.
-    pub normal: u64,
+    /// The ledger's excess then, `E`.
+    pub excess: u64,
 }
 
 impl CheckRecord {
@@ -206,7 +197,7 @@ impl CheckRecord {
             need: check.need as u64,
             pace_actual: check.pace_actual,
             pace_predicted: check.pace_predicted,
-            normal: check.normal as u64,
+            excess: check.excess as u64,
         }
     }
 }
@@ -236,8 +227,8 @@ pub struct DepthGrants {
     pub bytes: u64,
     /// Units that waited.
     pub waited: u64,
-    /// Units admitted through the floor slot.
-    pub floor: u64,
+    /// Units admitted exempt.
+    pub exempt: u64,
     /// Bytes the grants returned unused once their units were built.
     pub returned: u64,
 }
@@ -287,8 +278,8 @@ impl Record {
         self.sent[0].max(self.sent[1])
     }
 
-    /// The most either ledger held outside its floor slots: `Λ` when the
-    /// budget is unlimited.
+    /// The largest excess of either ledger: `Λ` when the budget is
+    /// unlimited.
     pub fn budget_peak(&self) -> u64 {
         self.ledgers
             .iter()
@@ -336,8 +327,7 @@ impl LedgerRecord {
             side: reading.side.map(side_name),
             budget_peak: reading.budget_peak as u64,
             held_peak: reading.held_peak as u64,
-            floor_peak: reading.floor_peak as u64,
-            floor_bound: reading.floor_bound as u64,
+            within_bounds_peak: reading.within_bounds_peak as u64,
             share_peak: reading.share_peak as u64,
             share_peak_check: reading.share_peak_check.as_ref().map(CheckRecord::of),
             waited: reading.waited,
@@ -347,7 +337,6 @@ impl LedgerRecord {
                 .zip(reading.place_area)
                 .map(|(place, area)| (format!("{place:?}"), area))
                 .collect(),
-            floor_area: reading.floor_area,
             questions: depths(&reading.questions),
             answers: depths(&reading.answers),
             dated: reading
@@ -382,7 +371,7 @@ impl LedgerRecord {
                             wait.depth,
                             wait.question,
                             wait.bytes as u64,
-                            wait.floor,
+                            wait.exempt,
                         )
                     })
                     .collect()
@@ -398,7 +387,7 @@ impl LedgerRecord {
                             admission.at,
                             admission.depth,
                             admission.question,
-                            admission.floor,
+                            admission.exempt,
                             admission.waited,
                         )
                     })
@@ -428,7 +417,6 @@ impl HolderRecord {
             place: format!("{:?}", holder.place),
             question: holder.unit.map(|unit| unit.question),
             depth: holder.unit.map(|unit| unit.depth),
-            floor: holder.through_floor,
             area: held.area,
             area_waiting: held.area_waiting,
             inflow: held.inflow,
@@ -443,7 +431,7 @@ impl DatedRecord {
             at: admission.at,
             depth: admission.depth,
             question: admission.question,
-            floor: admission.floor,
+            exempt: admission.exempt,
             waited: admission.waited,
             bytes: admission.bytes as u64,
         }
@@ -461,7 +449,7 @@ pub fn depths(grants: &[Grants]) -> Vec<DepthGrants> {
             units: grants.units,
             bytes: grants.bytes,
             waited: grants.waited,
-            floor: grants.floor,
+            exempt: grants.exempt,
             returned: grants.returned,
         })
         .collect()

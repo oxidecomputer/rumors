@@ -66,10 +66,11 @@
 //!
 //! What can hold the walk is admission: before it builds an answer's own
 //! items, and before each question, a stage waits until the endpoint's ledger
-//! admits the work against its budget. Each depth always has a floor slot
-//! for one unit of each kind, which frees once deeper work completes, so
-//! every admission is granted; the ledger's
-//! [`admission`](super::ledger) module gives the induction.
+//! admits the work against its budget. A unit whose kind and depth hold
+//! nothing is always admitted, and the units ahead of it at its kind and
+//! depth release once deeper work completes, so every admission is
+//! granted; the ledger's [`admission`](super::ledger) module gives the
+//! induction.
 //!
 //! This argument assumes each edge is *independent*: a full edge stalls only
 //! its own producer, never delivery on another edge. Within one process that
@@ -98,8 +99,9 @@
 //! charged on the endpoint's ledger out of the grant that admitted it, and
 //! every question carries the room set aside for the peer's reply; on the
 //! wire, a decoded reply waits for its stage chunk by chunk, within that
-//! room. The ledger holds at most the endpoint's budget plus one grant per
-//! floor slot ([`ledger`](super::ledger)).
+//! room. The ledger holds at most the endpoint's budget beside what its
+//! kinds and depths of unit hold within their bounds
+//! ([`ledger`](super::ledger)).
 
 use std::marker::PhantomData;
 use std::pin::pin;
@@ -124,7 +126,11 @@ use crate::tree::{
     },
 };
 use before::Version;
+
 use futures::{Stream, StreamExt, future::BoxFuture};
+
+#[cfg(any(test, feature = "test-internals"))]
+use crate::tree::mirror::streaming::ledger::Bounds;
 
 mod error;
 mod fixed;
@@ -147,13 +153,14 @@ pub(crate) use fixed::session_allowance;
 pub(crate) use work::covered_set_price;
 pub(crate) use work::largest_grant;
 pub(crate) use work::{
-    Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, derived_bytes, floor_allowance, parked_bytes,
+    Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, derived_bytes, floor_allowance, grant_bounds,
+    parked_bytes,
 };
 use work::{LeafRequest, OpeningAdvance, Resolver, Work};
 #[cfg(test)]
 pub(crate) use work::{Left, Ready, parked_price, parked_room};
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) use work::{scratch, slot_bound};
+pub(crate) use work::{grant_bound, scratch};
 
 pub use error::{Error, Violation};
 
@@ -167,11 +174,12 @@ fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
 /// ([`Allowances::requested`]).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SessionBudget {
-    /// The most the session holds in all: what its ledger admits, what its
-    /// floor slots hold, its fixed state, and its wire pools together.
+    /// The most the session holds in all: what its ledger admits against
+    /// its budget, what its kinds and depths of unit hold within their
+    /// bounds, its fixed state, and its wire pools together.
     pub(crate) memory: usize,
-    /// The budget its ledger admits work against beside its floor slots
-    /// ([`Handshaking::budget`]).
+    /// The budget its ledger admits work against beside the bounds of its
+    /// kinds and depths ([`Handshaking::budget`]).
     pub(crate) ledger: usize,
 }
 
@@ -192,8 +200,8 @@ pub(crate) struct Allowances {
     /// saturating at `usize::MAX`.
     set_aside: usize,
     /// The largest grant: the least ledger budget a requested memory
-    /// budget gets, so that its ledger can always admit any one unit beside
-    /// the floor slots.
+    /// budget gets, so that its ledger can always admit any one unit
+    /// against the budget, whatever its kinds and depths hold.
     largest_grant: usize,
 }
 
@@ -226,7 +234,8 @@ impl Allowances {
     /// allowance, saturating at `usize::MAX`.
     ///
     /// At this budget its ledger admits exactly the largest grant, so it
-    /// can always admit any one unit beside the floor slots. Below it, a
+    /// can always admit any one unit against the budget while every kind
+    /// and depth holds within its bound. Below it, a
     /// session would run in a starved regime where units race for room,
     /// and a larger budget can slow a session by more than a round trip;
     /// a peer raises every requested budget to this
@@ -613,30 +622,34 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
             root,
             target_message_size,
             stats: Recorder::default(),
-            ledger: Ledger::new(budget.ledger),
+            ledger: Ledger::new(budget.ledger, grant_bounds::<B::Erased, B::Error>()),
             keys,
         }
     }
 
     /// Select the budget this session's ledger admits its work against
-    /// ([`ledger`](super::ledger)): the most it holds outside its floor
-    /// slots, which hold the floor allowance at most beside it.
+    /// ([`ledger`](super::ledger)).
+    ///
+    /// The budget is the most the ledger counts of what each kind and depth
+    /// of unit holds beyond its bound; within their bounds they hold the
+    /// floor allowance at most.
     pub fn budget(mut self, budget: usize) -> Self {
-        self.ledger = Ledger::new(budget);
+        self.ledger = Ledger::new(budget, grant_bounds::<B::Erased, B::Error>());
         self
     }
 
     /// Run this session's ledger in the serial configuration: a budget of
-    /// zero ([`ledger`](super::ledger)).
+    /// zero with every bound zero ([`ledger`](super::ledger)).
     ///
-    /// Every unit then takes its kind and depth's floor slot, one unit of
-    /// each kind and depth at a time: the configuration the liveness
-    /// argument rests on, for tests. It admits as [`budget`](Self::budget)
-    /// at zero does; tests name it apart, so that each states the
-    /// configuration it relies on.
+    /// It admits a unit only while its kind and depth hold nothing, one
+    /// unit of each kind and depth at a time.
+    ///
+    /// It is the configuration the liveness argument rests on at its most
+    /// serial, for tests; a budget of zero alone still pipelines within each
+    /// kind and depth's bound.
     #[cfg(any(test, feature = "test-internals"))]
     pub fn serial(mut self) -> Self {
-        self.ledger = Ledger::new(0);
+        self.ledger = Ledger::new(0, Bounds::ZERO);
         self
     }
 

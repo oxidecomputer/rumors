@@ -757,11 +757,11 @@ where
     B: Measure,
     B::Error: std::fmt::Debug,
 {
-    let floor_peak = run(backend.clone(), 0, 0).await;
+    let zero_peak = run(backend.clone(), 0, 0).await;
     let budget_peak = run(backend, budget_bytes, 0).await;
     eprintln!(
         "conformance census at budget {budget_bytes} B: the zero-budget run peaked at \
-         {floor_peak} B, the budgeted run at {budget_peak} B",
+         {zero_peak} B, the budgeted run at {budget_peak} B",
     );
 
     let violations = ledger::take_violations();
@@ -771,7 +771,7 @@ where
         violations.join("\n"),
     );
 
-    let increase = budget_peak.saturating_sub(floor_peak);
+    let increase = budget_peak.saturating_sub(zero_peak);
     assert!(
         increase <= budget_bytes,
         "the measured peak increased by {increase} bytes; the stated budget is {budget_bytes}",

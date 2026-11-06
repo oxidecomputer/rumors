@@ -24,18 +24,19 @@ const UNLIMITED: SessionLedger = SessionLedger::Budget(usize::MAX);
 /// The serial configuration: one unit of each kind and depth at a time.
 const SERIAL: SessionLedger = SessionLedger::Serial;
 
-/// A budget of `bytes` beside the walk's floor slots.
+/// A budget of `bytes` beside the walk's bounds.
 const fn budget(bytes: usize) -> SessionLedger {
     SessionLedger::Budget(bytes)
 }
 
 /// The ledger pairs every grid cell runs.
 ///
-/// Both sides serial, where every unit takes a floor slot; one side serial
-/// against an unlimited peer, in both orders; tiny and mismatched budgets,
-/// which admit a few units beside the floor; both at the largest grant, the
-/// least ledger budget the public API leaves a session, which disjoint
-/// forks of 30,000 messages a side outgrow; and both unlimited.
+/// Both sides serial, where a unit is admitted only while its kind and
+/// depth hold nothing; one side serial against an unlimited peer, in both
+/// orders; tiny and mismatched budgets, which admit a few units beyond the
+/// walk's bounds; both at the largest grant, the least ledger budget the
+/// public API leaves a session, which disjoint forks of 30,000 messages a
+/// side outgrow; and both unlimited.
 const BUDGETS: [[SessionLedger; 2]; 7] = [
     [SERIAL, SERIAL],
     [SERIAL, UNLIMITED],

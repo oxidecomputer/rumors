@@ -23,8 +23,8 @@ const CURRENT_DEFAULT: u64 = rumors::default::SYNC_MEMORY_BUDGET as u64;
 /// `budget`: what it leaves beside the floor and session allowances
 /// ([`ledger_budget_within`](rumors::testing::ledger_budget_within)).
 ///
-/// The estimates read what ledgers hold outside their floor slots, so they
-/// take this budget; the measured curves and the candidates are memory
+/// The estimates read the ledgers' excess, what their kinds and depths hold
+/// beyond their bounds, so they take this budget; the measured curves and the candidates are memory
 /// budgets.
 fn admitted(budget: u64) -> u64 {
     let budget = usize::try_from(budget).unwrap_or(usize::MAX);
@@ -49,8 +49,8 @@ struct Curve {
 }
 
 impl Curve {
-    /// `Λ`: the most either side's ledger held outside its floor slots with
-    /// an unlimited budget.
+    /// `Λ`: the largest excess either side's ledger held with an unlimited
+    /// budget.
     fn peak(&self) -> u64 {
         self.unlimited.budget_peak()
     }
@@ -261,7 +261,7 @@ fn curve_table(out: &mut String, curve: &Curve) {
         out,
         "Unlimited: {} byte-times ({:.2} round trips; {:.3} s at 1 Gb/s), busier direction {} B; \
          Λ = {} B ({}, {:.0} B per message); question grants {} B, of which kept R* = {} B, over {} questions; \
-         estimate's knee from grants R·D/T∞ = {:.0} B, from kept bytes R*·D/T∞ = {:.0} B ({}); floor slots held at most {} B (Σ F = {} B).\n",
+         estimate's knee from grants R·D/T∞ = {:.0} B, from kept bytes R*·D/T∞ = {:.0} B ({}); kinds and depths held at most {} B within their bounds.\n",
         unlimited.duration,
         unlimited.duration as f64 / pair.bdp as f64,
         unlimited.duration as f64 / 125e6,
@@ -287,13 +287,7 @@ fn curve_table(out: &mut String, curve: &Curve) {
         unlimited
             .ledgers
             .iter()
-            .map(|ledger| ledger.floor_peak)
-            .max()
-            .unwrap_or(0),
-        unlimited
-            .ledgers
-            .iter()
-            .map(|ledger| ledger.floor_bound)
+            .map(|ledger| ledger.within_bounds_peak)
             .max()
             .unwrap_or(0),
     );
@@ -346,7 +340,7 @@ fn curve_table(out: &mut String, curve: &Curve) {
     );
     let _ = writeln!(
         out,
-        "| budget | bytes | slowdown | lower estimate | area estimate | profile estimate | slowdown / profile | extra round trips | units waited | waits by depth | peak outside floor | ledgers' joint peak | heap peak |\n\
+        "| budget | bytes | slowdown | lower estimate | area estimate | profile estimate | slowdown / profile | extra round trips | units waited | waits by depth | peak excess | ledgers' joint peak | heap peak |\n\
          |---|---|---|---|---|---|---|---|---|---|---|---|---|"
     );
     for point in &curve.points {
@@ -424,7 +418,7 @@ fn curve_table(out: &mut String, curve: &Curve) {
             .join(", ");
         let _ = writeln!(
             out,
-            "- ledger {index}: {questions}; {answers}; Λ_side = {} B; mean outside floor {:.0} B",
+            "- ledger {index}: {questions}; {answers}; Λ_side = {} B; mean excess {:.0} B",
             ledger.budget_peak,
             ledger.budget_area as f64 / unlimited.duration as f64,
         );

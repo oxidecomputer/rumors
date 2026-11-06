@@ -13,7 +13,8 @@
 //! - `simulate` runs the grid and appends one JSON document per session to
 //!   its output file. For each pair and link it first runs the session
 //!   with an unlimited budget, which reads the budget no smaller one beats
-//!   (`Λ`, the most either side's ledger holds outside its floor slots),
+//!   (`Λ`, the largest excess either side's ledger holds: what its kinds
+//!   and depths of unit hold beyond their bounds),
 //!   then a ladder of budgets from `Λ` down to
 //!   [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), the least
 //!   budget the public setter runs a session on, each run beside the floor

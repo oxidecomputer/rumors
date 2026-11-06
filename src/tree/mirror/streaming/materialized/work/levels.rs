@@ -120,7 +120,7 @@ macro_rules! yield_ready {
 }
 
 /// The depth of the scope `prefix` names, the root's 0 through a leaf's 32:
-/// the depth admission slots a unit concerning that scope by.
+/// the depth admission counts a unit concerning that scope at.
 fn depth(prefix: ErasedPrefix) -> usize {
     prefix.as_bytes().len()
 }
@@ -155,8 +155,9 @@ impl OpeningAdvance {
     /// # Panics
     ///
     /// Panics if the grant is not admitted at once: a programmer error,
-    /// since the opening is its depth's only question, so it takes the
-    /// floor slot for questions at depth 0, which nothing else holds.
+    /// since the opening is the first and only question about the root, so
+    /// it finds its kind and depth holding nothing, and admission grants
+    /// such a unit at once whatever the budget or the queue.
     pub(crate) fn admit<E, Err>(ledger: &Ledger, listed: usize, responder: Grandchildren) -> Self {
         let root = Prefix::new().erase();
         let bytes =
@@ -164,7 +165,7 @@ impl OpeningAdvance {
         let mut grant = ledger
             .admit(Unit::Question, depth(root), bytes)
             .now_or_never()
-            .expect("the opening takes the depth-0 question slot, which nothing else holds");
+            .expect("the opening is the first question about the root, so its kind and depth hold nothing and it is exempt");
         let bound = ReplyBound::of(root.height(), listed, responder);
         let room = charges::room::<E>(&mut grant, bound, listed);
         Self { grant, room }
@@ -686,9 +687,9 @@ where
                 let mut chunk = next_chunk(&mut requests).await?;
                 // The reply's need, recomputed from the bound its query
                 // carries as its question computed it when admitted: the
-                // question withdraws its claim, if it took no floor slot,
-                // and the pace weighs the need, once the reply is finished.
-                let floor = query.charge.is_floor();
+                // question withdraws its claim, if it claimed, and the pace
+                // weighs the need, once the reply is finished.
+                let claimed = query.charge.claimed();
                 let (reply_depth, need) = (
                     depth(query.prefix),
                     charges::processing_need::<B::Erased, B::Error>(query.bound),
@@ -814,7 +815,7 @@ where
                 // Launch every `Pending` slot's work before publishing its
                 // enclosing parent resolution.
                 let resolution = resolver.finish()?;
-                account.processed(reply_depth, need, floor);
+                account.processed(reply_depth, need, claimed);
                 progress.parent_resolution(&resolution);
                 if upper.send(resolution).await.is_err() {
                     return;

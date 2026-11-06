@@ -40,7 +40,7 @@ proptest! {
     }
 }
 
-/// The bytes `ledger`'s profile held outside floor slots, integrated from
+/// The excess `ledger`'s profile records, integrated from
 /// its first step to its last.
 fn profile_area(ledger: &LedgerReading) -> u128 {
     ledger
@@ -53,20 +53,26 @@ fn profile_area(ledger: &LedgerReading) -> u128 {
 /// A session's records over time agree with the totals its ledgers keep
 /// by other means, with and without a budget that holds units back.
 ///
-/// Each side's profile integrates to its budget area and ends at zero, as
-/// the session releases every charge. Its holders, built from the moves the
-/// ledger reports, partition what it holds: their areas outside floor
-/// slots add up to the budget area and the area of what floor slots carried
-/// for them, those through floor slots to the floor area. Its waits number the units the ledger counted as waiting, each
-/// admitted no earlier than it was queued and no wait longer than the time
-/// some unit waited. The check it dates as its share peak weighed exactly
-/// the peak the ledger kept, its terms add up to that sum as the share's
-/// rule computes it, and it falls within the session. What the holders
-/// outside floor slots held at the budget peak adds up to that peak and
-/// what floor slots carried then, at a moment within the session. The two ledgers are read as the two sides'.
+/// Each side's profile of its excess integrates to its budget area and ends
+/// at zero, as the session releases every charge. Its holders, built from
+/// the moves the ledger reports, partition what it holds: their areas add
+/// up to the places' areas, which the ledger's own per-place totals give.
+/// Its waits number the units the ledger counted as waiting, each admitted
+/// no earlier than it was queued and no wait longer than the time some unit
+/// waited. Where a side made a share check, as some side does, the check
+/// it dates as its share peak weighed exactly the peak the ledger kept, its
+/// terms add up to that sum as the share's rule computes it, and it falls
+/// within the session; where it made none, since every question it asked
+/// was exempt, its share peak reads zero. What the holders held at
+/// the budget peak adds up to what the ledger held then, which is at least
+/// that peak excess, at a moment within the session. The two ledgers are
+/// read as the two sides'.
+///
+/// The pair holds 10,000 messages a side, enough that some of its questions
+/// overflow their kinds and depths' bounds and meet the share.
 #[test]
 fn records_over_time_agree_with_the_ledger_totals() {
-    let shape = Shape::overlapping(3_000, 0);
+    let shape = Shape::overlapping(10_000, 0);
     let link = LinkConfig::with_bdp(LAN_BDP);
     let unlimited = run(Case {
         shape,
@@ -92,38 +98,42 @@ fn records_over_time_agree_with_the_ledger_totals() {
             .collect();
         sides.sort_by_key(|side| side.map(Side::index));
         assert_eq!(sides, [Some(Side::A), Some(Side::B)]);
+        assert!(
+            session
+                .admitted
+                .ledgers
+                .iter()
+                .any(|ledger| ledger.share_peak_check.is_some()),
+            "some side asks a question the share checks"
+        );
         for ledger in &session.admitted.ledgers {
-            let dated = ledger
-                .share_peak_check
-                .expect("every side asks some question the share checks");
-            let check = dated.check;
-            assert_eq!(check.sum, ledger.share_peak);
-            let scaled = u128::from(check.pace_actual) * (check.claimed + check.need) as u128
-                / u128::from(check.pace_predicted);
-            assert_eq!(
-                (check.invited + check.grant) as u128 + scaled,
-                check.sum as u128,
-            );
-            assert!(dated.at <= session.duration());
+            match ledger.share_peak_check {
+                Some(dated) => {
+                    let check = dated.check;
+                    assert_eq!(check.sum, ledger.share_peak);
+                    let scaled = u128::from(check.pace_actual)
+                        * (check.claimed + check.need) as u128
+                        / u128::from(check.pace_predicted);
+                    assert_eq!(
+                        (check.invited + check.grant) as u128 + scaled,
+                        check.sum as u128,
+                    );
+                    assert!(dated.at <= session.duration());
+                }
+                None => assert_eq!(ledger.share_peak, 0),
+            }
             let at_peak: usize = ledger
                 .budget_peak_holders
                 .iter()
                 .map(|(_, bytes)| bytes)
                 .sum();
-            assert_eq!(at_peak, ledger.budget_peak + ledger.budget_peak_carried);
+            assert_eq!(at_peak, ledger.budget_peak_held);
+            assert!(ledger.budget_peak <= ledger.budget_peak_held);
             assert!(ledger.budget_peak_at <= session.duration());
             assert_eq!(profile_area(ledger), ledger.budget_area);
             assert_eq!(ledger.profile.last().map(|step| step.bytes), Some(0));
-            let area = |through_floor: bool| -> u128 {
-                ledger
-                    .holders
-                    .iter()
-                    .filter(|(holder, _)| holder.through_floor == through_floor)
-                    .map(|(_, held)| held.area)
-                    .sum()
-            };
-            assert_eq!(area(false), ledger.budget_area + ledger.carried_area);
-            assert_eq!(area(true), ledger.floor_area);
+            let holders: u128 = ledger.holders.values().map(|held| held.area).sum();
+            assert_eq!(holders, ledger.place_area.iter().sum::<u128>());
             assert_eq!(u64::try_from(ledger.waits.len()), Ok(ledger.waited));
             assert!(ledger.waiting_time <= session.duration());
             for wait in &ledger.waits {

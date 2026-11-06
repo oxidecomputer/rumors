@@ -317,7 +317,7 @@ where
         let scope = Scope::unbounded(parent.erase(), &case.listing());
         let nested = Self::nested(&case);
         let reply = || mixed_reply(&case, nested, supply_at, supply_radix, Self::node(leaf));
-        let ledger = Ledger::new(0);
+        let ledger = Ledger::default();
         let (whole, chunked, charged) = runtime.block_on(async {
             let whole = Self::encode(scope.clone(), reply())
                 .map_ok(|encoded| encoded.into_parts())

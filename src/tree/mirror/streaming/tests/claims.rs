@@ -16,7 +16,10 @@ use proptest::prelude::*;
 
 use super::grid::forks;
 use super::join_oracle;
+use crate::testing::LARGEST_GRANT;
 use crate::testing::property::SESSION_DIVISOR;
+use crate::tree::Root;
+use crate::tree::mirror::streaming::ledger::Ledger;
 use crate::tree::mirror::streaming::testing::session::{
     AMPLE, SessionLedger, over_pipe_keeping_ledgers,
 };
@@ -43,6 +46,52 @@ fn budget() -> impl Strategy<Value = usize> {
     ]
 }
 
+/// Reconcile `pair` at `budgets` over a `pipe`-byte pipe, check its join,
+/// share and claims, and return both sides' ledgers, in the pair's order.
+///
+/// Both sides must hold the join; each side that admitted some question
+/// under the share without exemption must show a share peak above zero,
+/// since the share weighed every such question before granting it; and
+/// every depth's claims must be zero on both sides once the session
+/// completes.
+///
+/// The converse does not hold: a question the share weighed and refused
+/// raises the peak, and may later be admitted exempt, claiming nothing
+/// ([`claims_return_to_zero_where_the_share_refuses_every_check`]).
+///
+/// # Panics
+///
+/// Panics if any of those checks fails.
+fn check_session(pair: (Root, Root), budgets: [usize; 2], pipe: usize) -> [Ledger; 2] {
+    let expected = join_oracle(pair.0.clone(), pair.1.clone());
+    let (outcome, ledgers) =
+        over_pipe_keeping_ledgers::<()>(pair, budgets.map(SessionLedger::Budget), pipe);
+    let (a, b) = outcome.unwrap_or_else(|stopped| {
+        panic!("the session at budgets {budgets:?} over a {pipe}-byte pipe stopped: {stopped:?}")
+    });
+    assert_eq!(a.expect("the first endpoint's session completes"), expected);
+    assert_eq!(
+        b.expect("the second endpoint's session completes"),
+        expected
+    );
+    for (side, ledger) in ledgers.iter().enumerate() {
+        assert!(
+            ledger.invited() == 0 || ledger.share_peak() > 0,
+            "side {side} admitted {} questions under the share without exemption, but its share \
+             peak is zero, at budgets {budgets:?}",
+            ledger.invited(),
+        );
+        for depth in 0..=PATH_LEN {
+            assert_eq!(
+                ledger.claimed(depth),
+                0,
+                "side {side}'s claims at depth {depth} outlive the session at budgets {budgets:?}",
+            );
+        }
+    }
+    ledgers
+}
+
 crate::divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
@@ -57,11 +106,14 @@ crate::divided_proptest! {
     /// and so when claims are withdrawn. Each session must complete with
     /// both sides holding the join.
     ///
-    /// The zeros must judge claims that existed, so each case requires
-    /// some share check to have weighed a question on one side or the
-    /// other: a share peak above zero. A question that passes the check
-    /// claims, as every checked question at an unlimited budget does, and
-    /// [`budget`] often draws that budget.
+    /// A question within its kind and depth's bound is exempt and never
+    /// meets the share, so a small pair can complete with no claim made.
+    /// Each case therefore checks the share's peak against its claims
+    /// instead of requiring a claim: a side that admitted some question
+    /// under the share without exemption has a share peak above zero
+    /// ([`check_session`]).
+    /// [`claims_return_to_zero_where_the_share_is_exercised`] holds the
+    /// suite to sessions in which questions claim.
     #[test]
     fn every_depths_claims_return_to_zero(
         shared in 0..=MAX_SHARED,
@@ -69,31 +121,60 @@ crate::divided_proptest! {
         budgets in [budget(), budget()],
         pipe in prop::sample::select(vec![1usize, 64, AMPLE]),
     ) {
-        let pair = forks(shared, own);
-        let expected = join_oracle(pair.0.clone(), pair.1.clone());
-        let (outcome, ledgers) =
-            over_pipe_keeping_ledgers::<()>(pair, budgets.map(SessionLedger::Budget), pipe);
-        let (a, b) = outcome.unwrap_or_else(|stopped| {
-            panic!("the session at budgets {budgets:?} over a {pipe}-byte pipe stopped: {stopped:?}")
-        });
-        prop_assert_eq!(a.expect("the first endpoint's session completes"), expected.clone());
-        prop_assert_eq!(b.expect("the second endpoint's session completes"), expected);
-        prop_assert!(
-            ledgers.iter().any(|ledger| ledger.share_peak() > 0),
-            "no share check weighed a question at budgets {budgets:?}, so the zeros below \
-             judge no claim",
-        );
-        for (side, ledger) in ledgers.iter().enumerate() {
-            for depth in 0..=PATH_LEN {
-                prop_assert_eq!(
-                    ledger.claimed(depth),
-                    0,
-                    "side {}'s claims at depth {} outlive the session at budgets {:?}",
-                    side,
-                    depth,
-                    budgets,
-                );
-            }
-        }
+        check_session(forks(shared, own), budgets, pipe);
     }
+}
+
+/// Messages each side of the floor case holds that the other lacks: enough
+/// that some questions overflow their kinds and depths' bounds and meet the
+/// share.
+const FLOOR_OWN: usize = 10_000;
+
+/// In a disjoint pair of [`FLOOR_OWN`] messages a side, at an unlimited
+/// budget and at twice the largest grant, some question meets the share
+/// and claims, and every depth's claims still return to zero.
+///
+/// This is the suite's floor: the property above passes vacuously on
+/// sessions in which no question claims, and here some question must be
+/// admitted under the share, and so claim, at each budget.
+#[test]
+fn claims_return_to_zero_where_the_share_is_exercised() {
+    for budget in [UNLIMITED, 2 * LARGEST_GRANT] {
+        assert!(
+            check_session(forks(0, FLOOR_OWN), [budget; 2], AMPLE)
+                .iter()
+                .any(|ledger| ledger.invited() > 0),
+            "no question was admitted under the share at a budget of {budget} B",
+        );
+    }
+}
+
+/// The ledger budget both sides of
+/// [`claims_return_to_zero_where_the_share_refuses_every_check`] run at: so
+/// small that, in that pair, one side's share refuses every question it
+/// weighs.
+const REFUSING_BUDGET: usize = 1 << 10;
+
+/// In a disjoint pair of [`FLOOR_OWN`] messages a side at ledger budgets of
+/// [`REFUSING_BUDGET`], one side's share weighs questions and admits none
+/// of them under the share, and every depth's claims still return to zero.
+///
+/// A question whose excess fits the budget but whose share check does not
+/// waits, and is admitted exempt once its kind and depth hold little
+/// enough, so its check raised the share peak while it claimed nothing.
+/// The test requires that state on some side, a share peak above zero with
+/// no question admitted under the share, so the session judges it.
+#[test]
+fn claims_return_to_zero_where_the_share_refuses_every_check() {
+    let ledgers = check_session(forks(0, FLOOR_OWN), [REFUSING_BUDGET; 2], AMPLE);
+    assert!(
+        ledgers
+            .iter()
+            .any(|ledger| ledger.share_peak() > 0 && ledger.invited() == 0),
+        "no side's share weighed a question it then admitted only exempt: {:?}",
+        ledgers
+            .iter()
+            .map(|ledger| (ledger.share_peak(), ledger.invited()))
+            .collect::<Vec<_>>(),
+    );
 }

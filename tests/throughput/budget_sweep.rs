@@ -5,9 +5,9 @@
 //!
 //! For one pair on one link, write `T∞` for the session's duration with an
 //! unlimited budget, `F` for the floor allowance every budget sets aside
-//! for the floor slots, `X` for the session allowance it sets aside for the
-//! session's fixed state and wire pools, beyond both of which a ledger admits work against
-//! the rest, `M` for [`MIN_SYNC_MEMORY_BUDGET`], the least budget the public
+//! for what each kind and depth of unit holds within its bound, `X` for the
+//! session allowance it sets aside for the session's fixed state and wire
+//! pools, beyond both of which a ledger admits work against the rest, `M` for [`MIN_SYNC_MEMORY_BUDGET`], the least budget the public
 //! setter lets a session run on, `N*` for the session's no-cost point, the ledger budget defined
 //! in [`no_slowdown`](super::no_slowdown), `W` for the bytes the busier
 //! direction carries, `δ` for the link's one-way delay, and `h` for the
@@ -35,11 +35,11 @@
 //!    admission only lengthens.
 //! 4. Each side's ledger is exact: no item needs more than its unit's
 //!    grant, which a reply's parked chunks would if their room were priced
-//!    below what the reply delivers; the ledger holds at most `B' − F − X`
-//!    outside its floor slots, and its floor slots at most `F`, so it holds
-//!    at most `B' − X` in all; and it asks questions only about scopes at
-//!    depths of one parity and answers only at the other, the premise `F`
-//!    is derived on.
+//!    below what the reply delivers; its excess, what its kinds and depths
+//!    hold beyond their bounds, is at most `B' − F − X`, and what they hold
+//!    within their bounds at most `F`, so it holds at most `B' − X` in all;
+//!    and it asks questions only about scopes at depths of one parity and
+//!    answers only at the other, the premise `F` is derived on.
 //! 5. A budget below `M` runs the session as `M` does, event for event:
 //!    the sessions at `F / 2`, at `F + X`, and at every rung below `M` are
 //!    the session at `M`.
@@ -135,8 +135,8 @@ const PAIRS: [(Shape, u64); 5] = [
 const SIXTEENTHS: usize = 16;
 
 /// The budgets each pair runs at beside the floor and session allowances, in
-/// sixteenths of its `N*`: from none, where only the floor slots admit
-/// work, through `N*` itself, to twice it.
+/// sixteenths of its `N*`: from none, where only exempt units would be
+/// admitted, through `N*` itself, to twice it.
 const LADDER: [usize; 9] = [0, 1, 4, 8, 12, 15, 16, 20, 32];
 
 /// The rung below the ladder, half the floor allowance: a budget a
@@ -278,15 +278,15 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
         );
         assert!(
             ledger.budget_peak <= admitted,
-            "a ledger held {} B outside its floor slots, over the {admitted} B the budget \
-             admits beside the floor and session allowances: {case:?}",
+            "a ledger's excess reached {} B, over the {admitted} B the budget admits \
+             beside the floor and session allowances: {case:?}",
             ledger.budget_peak,
         );
         assert!(
-            ledger.floor_peak <= FLOOR_ALLOWANCE,
-            "a ledger's floor slots held {} B, over the floor allowance of \
-             {FLOOR_ALLOWANCE} B: {case:?}",
-            ledger.floor_peak,
+            ledger.within_bounds_peak <= FLOOR_ALLOWANCE,
+            "a ledger's kinds and depths held {} B within their bounds, over the floor \
+             allowance of {FLOOR_ALLOWANCE} B: {case:?}",
+            ledger.within_bounds_peak,
         );
         assert!(
             ledger.held_peak <= runs_on,

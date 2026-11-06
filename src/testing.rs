@@ -64,14 +64,15 @@ pub use crate::tree::mirror::streaming::remote::{
 };
 
 /// The floor allowance of a session over the in-memory replica: the most
-/// its floor slots can hold at once.
+/// its kinds and depths of unit can hold within their bounds at once
+/// ([`grant_bound`]), which the budget never counts.
 ///
 /// Its memory budget sets this aside for them beside the session allowance
 /// ([`SESSION_ALLOWANCE`] at the default target), so its ledger admits
 /// work against the budget less both.
 ///
 /// A memory budget at or below the two together, which only
-/// [`ledger_budget`] reaches, admits work through the floor slots alone.
+/// [`ledger_budget`] reaches, admits work within the bounds alone.
 pub const FLOOR_ALLOWANCE: usize =
     floor_allowance::<<Local as Backend>::Erased, <Local as Backend>::Error>();
 
@@ -141,10 +142,10 @@ pub const fn ledger_budget_within(budget: usize) -> usize {
 /// ([`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
 /// default target), this one sessions run on as given, at the peer's
 /// target as given. So it reaches ledger budgets below the largest grant,
-/// zero included: the floor-only
-/// configuration the liveness argument rests on, and the starved regime
-/// the budget analyses probe. Suites that rely on the floor-only
-/// configuration name it with [`serial_budget`].
+/// zero included, where sessions pipeline within each kind and depth's
+/// bound alone, and the starved regime the budget analyses probe. The
+/// serial configuration, one unit of each kind and depth at a time, is
+/// [`serial_budget`]'s.
 pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
     bytes: usize,
@@ -154,14 +155,14 @@ pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
 }
 
 /// Run `peer`'s sessions' ledgers in the serial configuration: a budget of
-/// zero, at which every unit takes its kind and depth's floor slot.
+/// zero with every kind and depth's bound zero.
 ///
-/// Admission then grants a unit only while its kind and depth's floor slot
-/// is free, so each walk has at most one unit of each kind and depth
-/// admitted at a time: the floor-only configuration the liveness argument
-/// rests on. It admits as a ledger budget of zero ([`ledger_budget`])
-/// does; suites name it apart, so that each states the configuration it
-/// relies on.
+/// Admission then grants a unit only while its kind and depth hold
+/// nothing, so each walk has at most one unit of each kind and depth
+/// admitted at a time: the configuration the liveness argument rests on at
+/// its most serial. A ledger budget of zero alone
+/// ([`ledger_budget`]) still lets each kind and depth hold up to its bound
+/// ([`grant_bound`]).
 pub fn serial_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,
 ) -> crate::Peer<T, B> {
@@ -178,19 +179,20 @@ pub const LARGEST_GRANT: usize =
     largest_grant::<<Local as Backend>::Erased, <Local as Backend>::Error>();
 
 /// The most the grant of a unit of `unit`'s kind and depth can hold in a
-/// session over the in-memory replica: a bound on what that kind and
-/// depth's floor slot holds, its own unit's grant or what it carries.
+/// session over the in-memory replica: that kind and depth's bound, within
+/// which the bytes it holds never count against the budget.
 ///
 /// The floor allowance ([`FLOOR_ALLOWANCE`]) is the larger of two sums of
 /// these bounds, one per side of a session: the initiator asks about scopes
 /// at even depths and answers at odd ones, and the responder the reverse.
-/// A ledger's floor slots stay within it while every grant is within its
-/// bound and the ledger admits only one side's kinds and depths.
+/// What a ledger's kinds and depths hold within their bounds stays within
+/// it while every grant is within its bound and the ledger admits only one
+/// side's kinds and depths.
 ///
 /// # Panics
 ///
 /// Panics if `unit.depth` exceeds 32, the depth of a leaf.
-pub const fn slot_bound(unit: ChargeUnit) -> usize {
+pub const fn grant_bound(unit: ChargeUnit) -> usize {
     assert!(
         unit.depth <= Root::HEIGHT,
         "a scope sits at most 32 bytes deep"
@@ -200,7 +202,7 @@ pub const fn slot_bound(unit: ChargeUnit) -> usize {
     } else {
         Unit::Answer
     };
-    materialized::slot_bound::<<Local as Backend>::Erased, <Local as Backend>::Error>(
+    materialized::grant_bound::<<Local as Backend>::Erased, <Local as Backend>::Error>(
         kind, unit.depth,
     )
 }

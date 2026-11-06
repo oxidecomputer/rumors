@@ -36,19 +36,19 @@ pub const AMPLE: usize = 1 << 20;
 
 /// What one endpoint's ledger admits its work against in a test session.
 ///
-/// Suites name the configuration at every session they drive, so that a
-/// session relying on one unit of each kind and depth at a time says so
-/// rather than passing a budget of zero.
+/// Suites name the configuration at every session they drive, since a
+/// budget of zero with the walk's bounds and the serial configuration admit
+/// differently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionLedger {
-    /// This budget, beside the walk's floor slots
-    /// ([`Handshaking::budget`]).
+    /// This budget, beside the walk's bound for each kind and depth of unit
+    /// ([`Handshaking::budget`]): a budget of zero still pipelines within
+    /// the bounds.
     Budget(usize),
-    /// The serial configuration ([`Handshaking::serial`]): a budget of zero,
-    /// admitting one unit of each kind and depth at a time.
-    ///
-    /// Every unit takes its kind and depth's floor slot: the configuration
-    /// the liveness argument rests on.
+    /// The serial configuration ([`Handshaking::serial`]): a budget of zero
+    /// with every bound zero, admitting one unit of each kind and depth at
+    /// a time, the configuration the liveness argument rests on at its most
+    /// serial.
     Serial,
 }
 

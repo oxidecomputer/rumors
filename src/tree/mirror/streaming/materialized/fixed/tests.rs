@@ -67,7 +67,7 @@ proptest! {
     ///
     /// A memory budget at the minimum for the target leaves its ledger
     /// exactly the largest grant, so the ledger can always admit any one
-    /// unit beside the floor slots, and every byte of budget above the
+    /// unit against the budget, and every byte of budget above the
     /// minimum goes to the ledger. The session allowance is the fixed
     /// allowance beside the two wire pools at the target. Where the minimum
     /// saturates, `M − A − X` stands for nothing a `usize` counts, and only

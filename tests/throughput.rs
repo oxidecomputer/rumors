@@ -25,10 +25,6 @@ mod budget_sweep;
 #[path = "throughput/budget_criterion.rs"]
 mod budget_criterion;
 
-/// The floor/budget substitution and the carry that undoes it.
-#[path = "throughput/carrying.rs"]
-mod carrying;
-
 /// Unsent bytes in the sending kernel against a session's duration.
 #[path = "throughput/send_buffer.rs"]
 mod send_buffer;

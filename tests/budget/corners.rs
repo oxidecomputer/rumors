@@ -1,13 +1,14 @@
 //! The sync budget's boundary cases.
 //!
 //! `sync_memory_budget` promises that a smaller budget costs a session
-//! time, never completion. The liveness argument behind that promise rests
-//! on the floor slots alone: in the serial configuration, a ledger budget
-//! of zero, a session admits one unit of each kind and depth at a time, by
-//! declaration, and still finishes and converges. The public setter keeps
-//! every session far above that, at
-//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so these
-//! tests set the serial configuration through the test path
+//! time, never completion. The liveness argument behind that promise uses
+//! no budget at all: it rests on admission granting a unit whose kind and
+//! depth hold nothing. In the serial configuration, a ledger budget of zero
+//! with every kind and depth's bound zero, that is the only grant there is,
+//! so a session admits one unit of each kind and depth at a time, and still
+//! finishes and converges. The public setter keeps every session far above
+//! that, at [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so
+//! these tests set the serial configuration through the test path
 //! ([`BudgetChoice::Serial`]) and probe the corners where the argument is
 //! easiest to break: asymmetric catch-up and wide mutual divergence,
 //! compounded backpressure (one-byte pipe buffers), sets that grow while a

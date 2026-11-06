@@ -79,8 +79,8 @@ pub enum Holding {
     ///
     /// The charge leaves it out, as a fixed amount whatever the budget and
     /// the sets' sizes, like the session's setup. A unit admitted as it
-    /// asks allocates nothing, and a floor slot is a count in the ledger's
-    /// own account, so only a unit that waits allocates: its waiter, the
+    /// asks allocates nothing, and what each kind and depth holds is a count
+    /// in the ledger's own account, so only a unit that waits allocates: its waiter, the
     /// lock inside it where the standard library boxes locks, a clone of
     /// its task's waker where the executor's waker allocates one, and its
     /// place in the queue's buffer. Each walk stage waits on one unit at a

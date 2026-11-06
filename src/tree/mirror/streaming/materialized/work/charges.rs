@@ -31,7 +31,7 @@ use crate::tree::mirror::streaming::{
     byte_set::ByteSet,
     erased::{Reaction, Reply},
     holding::Holding,
-    ledger::{Charge, ReplyBound, Unit, buffer, max, queued, shared},
+    ledger::{Bounds, Charge, ReplyBound, Unit, buffer, max, queued, shared},
     materialized::{Error, Query, Reserved, Resolution, Resolve},
     message::{Carried, Grandchildren, LATER_MATCHES_HEAP_BYTES, Listed},
     remote::{Derived, Outbound, Outstanding, Parked, RecordedChild, Scope},
@@ -591,11 +591,14 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
 
 /// The most the grant of a unit of `unit` kind concerning a scope `depth`
 /// bytes deep holds, in a walk over nodes `E` whose backend fails with
-/// `Err`: a bound on what that depth's floor slot for the kind holds.
+/// `Err`: that kind and depth's bound, `F[k]`.
 ///
-/// Each bound grows with each of its arguments, so each slot is bounded at
-/// the largest arguments the walk passes a unit of its kind at its depth,
-/// as [`largest_grant`] argues them:
+/// The bytes a kind and depth holds within its bound never count against
+/// the budget ([`grant_bounds`]).
+///
+/// Each grant formula grows with each of its arguments, so each kind and
+/// depth is bounded at the largest arguments the walk passes a unit of its
+/// kind at its depth, as [`largest_grant`] argues them:
 ///
 /// - The one question about the root is the opening question, which no
 ///   reaction leads in its chunk.
@@ -608,7 +611,7 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
 /// - An answer explores its scope, at most a fan of children either side
 ///   holds, or supplies at most a fan of them; an answer about a leaf
 ///   supplies that one leaf.
-pub(crate) const fn slot_bound<E, Err>(unit: Unit, depth: usize) -> usize {
+pub(crate) const fn grant_bound<E, Err>(unit: Unit, depth: usize) -> usize {
     let leading = Held::LEADING_MAX;
     let height = height::Root::HEIGHT - depth;
     match unit {
@@ -629,40 +632,74 @@ pub(crate) const fn slot_bound<E, Err>(unit: Unit, depth: usize) -> usize {
     }
 }
 
-/// The *floor allowance*: the most a session's floor slots can hold at
-/// once, in a walk over nodes `E` whose backend fails with `Err`, which a
-/// session sets aside out of its memory budget for them.
+/// Every kind and depth's bound ([`grant_bound`]), in a walk over nodes
+/// `E` whose backend fails with `Err`.
 ///
-/// A floor slot holds one grant of its kind and depth at a time, its own
-/// unit's or what it carries for units admitted against the budget, and
-/// frees only once every charge built out of that grant is released, as
-/// the ledger admits units
-/// ([`Ledger::admit`](crate::tree::mirror::streaming::ledger::Ledger::admit)),
-/// so a set of slots holds at most the sum of their largest grants
-/// ([`slot_bound`]).
+/// A session's ledger admits against this table beside its budget
+/// ([`Ledger::new`](crate::tree::mirror::streaming::ledger::Ledger::new)).
+pub(crate) const fn grant_bounds<E, Err>() -> Bounds {
+    let mut bounds = Bounds::ZERO;
+    let mut depth = 0;
+    while depth <= height::Root::HEIGHT {
+        bounds = bounds
+            .with(
+                Unit::Answer,
+                depth,
+                grant_bound::<E, Err>(Unit::Answer, depth),
+            )
+            .with(
+                Unit::Question,
+                depth,
+                grant_bound::<E, Err>(Unit::Question, depth),
+            );
+        depth += 1;
+    }
+    bounds
+}
+
+/// The *floor allowance*, `A`: the most a session's kinds and depths can
+/// hold within their bounds at once, in a walk over nodes `E` whose backend
+/// fails with `Err`.
 ///
-/// Each side of a session uses half its slots. A question about a scope is
-/// asked by an answer about the scope's parent, on the same side, and
-/// answered on the other side, whose answers about the scope's children
-/// ask its next questions. The initiator asks the opening question, about
-/// the root at depth 0, so it asks only about scopes at even depths and
-/// answers only at odd ones; the responder asks at odd depths and answers
-/// at even ones. A ledger is built before its session's handshake settles
-/// which side it is, so the allowance is the larger of the two sides'
-/// sums.
+/// A session sets it aside out of its memory budget.
+///
+/// Admission counts against the budget only what each kind and depth holds
+/// beyond its bound ([`grant_bound`]), so what they hold within their bounds
+/// is at most the sum of the bounds of the kinds and depths a ledger uses
+/// ([`Ledger::admit`](crate::tree::mirror::streaming::ledger::Ledger::admit)).
+/// Each kind and depth admits its first unit whatever the budget, and more
+/// while they fit within its bound.
+///
+/// Each side of a session uses half the kinds and depths. A question about
+/// a scope is asked by an answer about the scope's parent, on the same
+/// side, and answered on the other side, whose answers about the scope's
+/// children ask its next questions. The initiator asks the opening
+/// question, about the root at depth 0, so it asks only about scopes at
+/// even depths and answers only at odd ones; the responder asks at odd
+/// depths and answers at even ones. A ledger is built before its session's
+/// handshake settles which side it is, so the allowance is the larger of
+/// the two sides' sums.
 ///
 /// On the in-memory backend on 64-bit targets that is about 26.5 MiB,
 /// almost all of it the listings of the replies one question per depth can
-/// invite, a fan of fans of entries each; a session's floor slots
-/// realistically hold a megabyte or two.
+/// invite, a fan of fans of entries each. A session fills few of those
+/// bounds: a question kind and depth reaches its bound only where its
+/// questions together list a bound's worth of entries, which happens only
+/// within a few levels of the root. So between replicas that differ
+/// throughout, each side fills two or three question bounds of about
+/// 1.6 MiB, the initiator's opening question among them, and little else.
+/// Measured sessions of up to three million messages a side held at most
+/// about 5 MiB within their bounds, and about 1.6 MiB between replicas of
+/// a million messages that differ by a few hundred, whose opening question
+/// alone fills its bound.
 pub(crate) const fn floor_allowance<E, Err>() -> usize {
     // Indexed by side: the initiator's sum, then the responder's.
     let mut sides = [0, 0];
     let mut depth = 0;
     while depth <= height::Root::HEIGHT {
         let asker = depth % 2;
-        sides[asker] += slot_bound::<E, Err>(Unit::Question, depth);
-        sides[1 - asker] += slot_bound::<E, Err>(Unit::Answer, depth);
+        sides[asker] += grant_bound::<E, Err>(Unit::Question, depth);
+        sides[1 - asker] += grant_bound::<E, Err>(Unit::Answer, depth);
         depth += 1;
     }
     max(sides[0], sides[1])

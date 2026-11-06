@@ -1,8 +1,9 @@
+use std::cmp::Reverse;
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::task::{Context, Poll, Wake, Waker};
 use std::thread::{self, Thread};
 use std::time::{Duration, Instant};
@@ -10,8 +11,11 @@ use std::time::{Duration, Instant};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use super::super::{Charge, Ledger};
-use super::{Admit, DEPTHS, Pace, SLOTS, Slot, Unit};
+use super::super::{Account, Charge, Ledger};
+use super::{
+    Admit, Bounds, DEPTHS, KIND_DEPTHS, Pace, Request, Unit, Waiter, admit_waiting, excess_beyond,
+    lock,
+};
 use crate::counter;
 use crate::tree::mirror::streaming::holding::Holding;
 
@@ -28,256 +32,323 @@ fn arb_unit() -> impl Strategy<Value = Unit> {
     prop_oneof![Just(Unit::Answer), Just(Unit::Question)]
 }
 
-/// Every kind and depth names its own floor slot, within the ledger's
-/// counts: no two slots share a count, so taking one never takes another,
-/// and each slot names back the kind and depth it serves.
+/// Bounds of zero but for the kinds and depths `entries` names, each
+/// `(unit, depth, bound)`.
+fn bounds(entries: &[(Unit, usize, usize)]) -> Bounds {
+    entries
+        .iter()
+        .fold(Bounds::ZERO, |bounds, &(unit, depth, bound)| {
+            bounds.with(unit, depth, bound)
+        })
+}
+
+/// A ledger in the serial configuration: a budget of zero with every bound
+/// zero.
+fn serial() -> Ledger {
+    Ledger::new(0, Bounds::ZERO)
+}
+
+/// Every kind and depth has its own index within the ledger's counts: no
+/// two share one, so a change to one kind and depth's `held` never moves
+/// another's.
 #[test]
-fn every_slot_has_its_own_index() {
+fn every_kind_and_depth_has_its_own_index() {
     let mut indices = BTreeSet::new();
     for unit in [Unit::Answer, Unit::Question] {
         for depth in 0..DEPTHS {
-            let slot = Slot::new(unit, depth);
-            let index = slot.index();
-            assert!(index < SLOTS, "{unit:?} at {depth} indexes past the counts");
+            let index = unit.index(depth);
+            assert!(
+                index < KIND_DEPTHS,
+                "{unit:?} at {depth} indexes past the counts"
+            );
             assert!(indices.insert(index), "{unit:?} at {depth} shares an index");
-            assert_eq!(slot.serves(), (unit, depth));
         }
     }
 }
 
-/// A unit at a free floor slot takes it, and its bytes join the floor part,
-/// even when the budget has room for it.
+/// A unit that fits within its kind and depth's bound, beside what it
+/// already holds, is exempt: admitted at a budget of zero, adding nothing
+/// to the excess.
+///
+/// One byte beyond the bound needs room, and the kind and depth admits
+/// again once a release makes the unit fit.
+///
+/// With a bound of 100 B at `(answer, 3)`, a 60 B unit and then a 40 B unit
+/// fit; a 1 B unit would hold 101 B and waits; dropping the 40 B unit lets
+/// it fit beside the 60 B one.
 #[test]
-fn a_free_floor_slot_comes_first() {
-    let ledger = Ledger::new(usize::MAX);
-    let mut admit = ledger.admit(Unit::Answer, 3, 100);
-    let grant = poll(&mut admit).expect("a free slot admits at once");
-    assert!(grant.is_floor());
-    assert_eq!(ledger.floor(), 100);
+fn a_unit_within_its_bound_asks_nothing_of_the_budget() {
+    let ledger = Ledger::new(0, bounds(&[(Unit::Answer, 3, 100)]));
+    let first = poll(&mut ledger.admit(Unit::Answer, 3, 60)).expect("an empty kind and depth");
+    let second = poll(&mut ledger.admit(Unit::Answer, 3, 40)).expect("60 + 40 fits the bound");
+    assert_eq!((ledger.held_at(Unit::Answer, 3), ledger.excess()), (100, 0));
+    let mut third = ledger.admit(Unit::Answer, 3, 1);
+    assert!(
+        poll(&mut third).is_none(),
+        "101 B exceed the bound, and the budget of zero has no room for 1 B"
+    );
+    drop(second);
+    let third = poll(&mut third).expect("60 + 1 fits the bound");
+    assert_eq!(ledger.excess(), 0);
+    drop((first, third));
 }
 
-/// With its slot taken, a unit is admitted against the budget exactly when
-/// it fits beside what the ledger holds outside its floor slots.
+/// A unit beyond its bound asks the budget only for what it adds to its
+/// kind and depth's excess, and waits exactly while the excess with it
+/// added exceeds the budget.
+///
+/// With a bound of 100 B at `(question, 5)` and a budget of 50 B: a 60 B
+/// unit is exempt; an 80 B unit brings the kind and depth to 140 B, an
+/// excess of 40 B, which fits; a 20 B unit would bring the excess to 60 B
+/// and waits. Dropping the 60 B unit leaves 80 B, so the 20 B unit then
+/// fits within the bound beside them and is admitted, exempt.
 #[test]
-fn a_taken_slot_leaves_the_budget() {
-    let ledger = Ledger::new(250);
-    let floor = poll(&mut ledger.admit(Unit::Question, 5, 1_000)).expect("free slot");
-    let first = poll(&mut ledger.admit(Unit::Question, 5, 200)).expect("fits the budget");
-    assert!(!first.is_floor());
-    let mut second = ledger.admit(Unit::Question, 5, 100);
+fn a_unit_beyond_its_bound_needs_room_for_its_excess() {
+    let ledger = Ledger::new(50, bounds(&[(Unit::Question, 5, 100)]));
+    let first = poll(&mut ledger.admit(Unit::Question, 5, 60)).expect("an empty kind and depth");
+    let second = poll(&mut ledger.admit(Unit::Question, 5, 80)).expect("an excess of 40 B fits");
+    assert_eq!(ledger.excess(), 40);
+    let mut third = ledger.admit(Unit::Question, 5, 20);
     assert!(
-        poll(&mut second).is_none(),
-        "200 + 100 exceeds the 250 B budget"
+        poll(&mut third).is_none(),
+        "an excess of 60 B exceeds the 50 B budget"
     );
     drop(first);
-    assert!(poll(&mut second).is_some(), "the release makes room");
-    drop(floor);
+    let third = poll(&mut third).expect("80 + 20 fits the bound");
+    assert_eq!(
+        (ledger.held_at(Unit::Question, 5), ledger.excess()),
+        (100, 0)
+    );
+    drop((second, third));
 }
 
-/// A slot frees only when the last charge built out of its grant drops,
-/// and then admits the unit waiting for it.
+/// In the serial configuration a waiting unit is admitted in the critical
+/// section that returns the last byte its kind and depth holds, and not
+/// before: a part split off a grant holds the kind and depth like the
+/// grant.
 #[test]
-fn a_slot_frees_with_its_last_charge() {
-    let ledger = Ledger::new(0);
-    let mut grant = poll(&mut ledger.admit(Unit::Answer, 7, 50)).expect("free slot");
+fn a_waiter_is_admitted_as_its_kind_and_depth_empties() {
+    let ledger = serial();
+    let mut grant = poll(&mut ledger.admit(Unit::Answer, 7, 50)).expect("an empty kind and depth");
     let part = grant.take(Holding::Resolutions, 20);
     let mut next = ledger.admit(Unit::Answer, 7, 50);
     drop(grant);
     assert!(
         poll(&mut next).is_none(),
-        "the split part still holds the slot"
+        "the split part still holds the kind and depth"
     );
     drop(part);
-    assert!(poll(&mut next).is_some(), "the last charge freed the slot");
+    assert!(
+        poll(&mut next).is_some(),
+        "the last charge emptied the kind and depth"
+    );
 }
 
-/// A slot that frees while a unit of its kind and depth holds budget
-/// carries that unit's bytes, returning the budget's room at once.
+/// An item built beyond its grant is charged in full to the grant's kind
+/// and depth, raising its excess by what falls beyond the bound, and
+/// returns in full.
 ///
-/// A unit waiting for the room is admitted, and the slot stays taken until
-/// as many bytes of its kind and depth have returned.
-///
-/// With a 100 B budget, one depth-1 answer takes its slot with 10 B and a
-/// second is admitted against the budget with 60 B. A depth-2 question of
-/// 50 B, its own slot taken, then waits, since `60 + 50` exceeds the budget.
-/// The first answer's release frees the depth-1 answer slot, which carries
-/// the second answer's 60 B: the budget counts none of them, and the
-/// question is admitted against it. A third depth-1 answer finds the slot
-/// taken and goes to the budget. Its 10 B return to the carry first, since
-/// every byte of the slot's kind and depth does, and the slot frees once the
-/// second answer has returned 50 B more, for a fourth answer waiting for it,
-/// with nothing of its kind and depth left against the budget.
-#[test]
-fn a_freed_slot_carries_what_its_kind_holds_against_the_budget() {
-    let ledger = Ledger::new(100);
-    let first = poll(&mut ledger.admit(Unit::Answer, 1, 10)).expect("free slot");
-    let mut second = poll(&mut ledger.admit(Unit::Answer, 1, 60)).expect("fits the budget");
-    assert!(!second.is_floor());
-    let question_slot = poll(&mut ledger.admit(Unit::Question, 2, 10)).expect("free slot");
-    let mut question = ledger.admit(Unit::Question, 2, 50);
-    assert!(
-        poll(&mut question).is_none(),
-        "60 + 50 exceeds the 100 B budget"
-    );
-    drop(first);
-    assert_eq!(ledger.carried(Unit::Answer, 1), 60);
-    let question = poll(&mut question).expect("the carry returned the budget's room");
-    assert!(!question.is_floor());
-    assert_eq!(ledger.normal(), 50);
-    let third = poll(&mut ledger.admit(Unit::Answer, 1, 10)).expect("fits the budget");
-    assert!(!third.is_floor(), "a carrying slot is taken");
-    assert_eq!(ledger.normal(), 60);
-    drop(third);
-    assert_eq!(
-        (ledger.carried(Unit::Answer, 1), ledger.normal()),
-        (50, 60),
-        "the third answer's bytes returned to the carry"
-    );
-    let part = second.split(Holding::Resolutions, 20);
-    drop(second);
-    assert_eq!(ledger.carried(Unit::Answer, 1), 10);
-    let mut next = ledger.admit(Unit::Answer, 1, 200);
-    assert!(
-        poll(&mut next).is_none(),
-        "the slot still carries, and 200 B exceed the budget"
-    );
-    drop(part);
-    assert_eq!(ledger.carried(Unit::Answer, 1), 0);
-    let next = poll(&mut next).expect("the carry's last bytes freed the slot");
-    assert!(next.is_floor());
-    assert_eq!(ledger.budgeted(Unit::Answer, 1), 0);
-    drop((question_slot, question, next));
-    assert_eq!(ledger.held(), 0);
-}
-
-/// An item built beyond its grant is charged in full where its grant is
-/// counted.
-///
-/// A floor grant's shortfall joins the floor part, and a budget grant's
-/// joins the budget's count and its kind and depth's bytes against the
-/// budget, which a slot can then carry and which return in full.
-///
-/// A depth-1 answer takes its slot with 10 B and builds a 15 B item out of
-/// it, so the budget counts nothing. A second one, admitted against a 100 B
-/// budget with 30 B, builds a 50 B item: the budget counts 50 B, all of them
-/// its kind and depth's, and 25 B fell short in all. The first answer's
-/// charges drop, so its slot frees and carries 30 B, the largest grant of
-/// its kind and depth, leaving 20 B to the budget. The 50 B item's drop
-/// returns 30 B to the carry and the other 20 B to the budget, which then
-/// counts nothing, and the slot frees.
+/// With a bound of 10 B at `(answer, 1)` and a budget of 100 B: a 10 B
+/// grant builds a 15 B item, so the kind and depth holds 15 B, 5 B beyond
+/// its bound, and 5 B fell short. A 30 B grant, admitted against the budget,
+/// builds a 50 B item: 65 B held, an excess of 55 B, and 25 B short in all.
 #[test]
 fn an_item_beyond_its_grant_is_counted_in_full() {
-    let ledger = Ledger::new(100);
-    let mut floor = poll(&mut ledger.admit(Unit::Answer, 1, 10)).expect("free slot");
-    let floor_item = floor.take(Holding::Resolutions, 15);
-    assert_eq!((ledger.floor(), ledger.normal()), (15, 0));
+    let ledger = Ledger::new(100, bounds(&[(Unit::Answer, 1, 10)]));
+    let mut exempt = poll(&mut ledger.admit(Unit::Answer, 1, 10)).expect("an empty kind and depth");
+    let exempt_item = exempt.take(Holding::Resolutions, 15);
+    assert_eq!(
+        (
+            ledger.held_at(Unit::Answer, 1),
+            ledger.excess(),
+            ledger.short()
+        ),
+        (15, 5, 5)
+    );
     let mut budgeted = poll(&mut ledger.admit(Unit::Answer, 1, 30)).expect("fits the budget");
-    assert!(!budgeted.is_floor());
     let item = budgeted.take(Holding::Resolutions, 50);
     assert_eq!(
         (
-            ledger.normal(),
-            ledger.budgeted(Unit::Answer, 1),
+            ledger.held_at(Unit::Answer, 1),
+            ledger.excess(),
             ledger.short()
         ),
-        (50, 50, 25)
+        (65, 55, 25)
     );
-    drop((floor, floor_item));
-    assert_eq!(
-        (ledger.carried(Unit::Answer, 1), ledger.normal()),
-        (30, 20),
-        "the freed slot carries the largest grant's worth"
-    );
-    drop((budgeted, item));
+    drop((exempt, exempt_item, budgeted, item));
     assert_eq!(
         (
-            ledger.carried(Unit::Answer, 1),
-            ledger.normal(),
-            ledger.budgeted(Unit::Answer, 1),
+            ledger.held_at(Unit::Answer, 1),
+            ledger.excess(),
             ledger.held()
         ),
-        (0, 0, 0, 0)
+        (0, 0, 0)
     );
-    let next = poll(&mut ledger.admit(Unit::Answer, 1, 10)).expect("free slot");
-    assert!(next.is_floor(), "the carry's last bytes freed the slot");
 }
 
-/// A slot that frees while a unit of its kind and depth waits for it goes
-/// to that unit, and carries nothing, whatever its kind and depth hold
-/// against the budget.
-#[test]
-fn a_waiting_unit_takes_a_freed_slot_before_any_carry() {
-    let ledger = Ledger::new(100);
-    let first = poll(&mut ledger.admit(Unit::Question, 3, 10)).expect("free slot");
-    let budgeted = poll(&mut ledger.admit(Unit::Question, 3, 60)).expect("fits the budget");
-    let mut waiting = ledger.admit(Unit::Question, 3, 80);
-    assert!(
-        poll(&mut waiting).is_none(),
-        "60 + 80 exceeds the 100 B budget"
-    );
-    drop(first);
-    let waiting = poll(&mut waiting).expect("the freed slot admits the waiting unit");
-    assert!(waiting.is_floor());
-    assert_eq!(ledger.carried(Unit::Question, 3), 0);
-    assert_eq!(ledger.normal(), 60);
-    drop((budgeted, waiting));
-}
-
-/// A waiting deeper unit closes the budget to shallower ones, but never a
-/// shallower unit's own free floor slot.
+/// A deeper unit waiting for room closes the budget to every shallower unit
+/// that needs room, but never to an exempt one, and a withdrawal reopens
+/// it.
+///
+/// Bounds of 10 B at `(question, 9)`, `(question, 2)` and `(answer, 2)`,
+/// and a budget of 100 B: a second depth-9 question of 500 B waits for room;
+/// a second depth-2 question of 10 B would fit the budget but waits behind
+/// it; a depth-2 answer at an empty kind and depth is admitted past both.
 #[test]
 fn deeper_work_comes_first_for_the_budget() {
-    let ledger = Ledger::new(100);
-    let deep_floor = poll(&mut ledger.admit(Unit::Question, 9, 10)).expect("free slot");
+    let ledger = Ledger::new(
+        100,
+        bounds(&[
+            (Unit::Question, 9, 10),
+            (Unit::Question, 2, 10),
+            (Unit::Answer, 2, 10),
+        ]),
+    );
+    let deep_first = poll(&mut ledger.admit(Unit::Question, 9, 10)).expect("exempt");
     let mut deep = ledger.admit(Unit::Question, 9, 500);
-    assert!(poll(&mut deep).is_none(), "over the budget, its slot taken");
-    let shallow_floor = poll(&mut ledger.admit(Unit::Question, 2, 10)).expect("free slot");
+    assert!(poll(&mut deep).is_none(), "an excess of 500 B");
+    let shallow_first = poll(&mut ledger.admit(Unit::Question, 2, 10)).expect("exempt");
     let mut shallow = ledger.admit(Unit::Question, 2, 10);
     assert!(
         poll(&mut shallow).is_none(),
-        "the waiting deeper unit holds the budget"
+        "the waiting deeper unit closes the budget"
     );
-    let mut own_slot = ledger.admit(Unit::Answer, 2, 10);
+    let mut exempt = ledger.admit(Unit::Answer, 2, 10);
     assert!(
-        poll(&mut own_slot).is_some(),
-        "a free floor slot admits whatever waits deeper"
+        poll(&mut exempt).is_some(),
+        "an exempt unit is admitted whatever waits deeper"
     );
     drop(deep);
     assert!(poll(&mut shallow).is_some(), "the deeper unit withdrew");
-    drop((deep_floor, shallow_floor));
+    drop((deep_first, shallow_first));
+}
+
+/// A deeper unit that waits for room needs none of it: once the earlier
+/// units of its own kind and depth release theirs, it is exempt, whatever
+/// holds the budget.
+///
+/// With a bound of 500 B at `(question, 9)` and a budget of 100 B, a second
+/// 500 B depth-9 question waits for room and closes the budget to a depth-2
+/// question that needs 60 B of it. Releasing the first depth-9 question
+/// empties its kind and depth, so the waiting one is admitted at step 1,
+/// adding no excess, and the depth-2 question is then admitted against the
+/// budget in the same critical section.
+#[test]
+fn a_deeper_waiter_is_admitted_by_its_own_kind_and_depth() {
+    let ledger = Ledger::new(
+        100,
+        bounds(&[(Unit::Question, 9, 500), (Unit::Question, 2, 50)]),
+    );
+    let deep_first = poll(&mut ledger.admit(Unit::Question, 9, 500)).expect("exempt");
+    let mut deep = ledger.admit(Unit::Question, 9, 500);
+    assert!(poll(&mut deep).is_none(), "an excess of 500 B");
+    let shallow_first = poll(&mut ledger.admit(Unit::Question, 2, 50)).expect("exempt");
+    let mut shallow = ledger.admit(Unit::Question, 2, 60);
+    assert!(
+        poll(&mut shallow).is_none(),
+        "the waiting deeper unit closes the budget"
+    );
+    drop(deep_first);
+    let deep = poll(&mut deep).expect("its kind and depth emptied");
+    assert_eq!(ledger.excess(), 60, "the depth-2 question's excess alone");
+    assert!(poll(&mut shallow).is_some(), "the budget reopened");
+    drop((deep, shallow_first));
+}
+
+/// An answer's own bytes never hold back its questions.
+///
+/// At a budget of zero with zero bounds, a question at an empty kind and
+/// depth is admitted beside an answer holding any amount, and a later
+/// question waits only for the earlier questions of its kind and depth.
+#[test]
+fn an_answer_never_holds_back_its_questions() {
+    let ledger = serial();
+    let answer =
+        poll(&mut ledger.admit(Unit::Answer, 1, 100_000)).expect("an empty kind and depth");
+    let first = poll(&mut ledger.admit(Unit::Question, 2, 1_000)).expect("an empty kind and depth");
+    let mut second = ledger.admit(Unit::Question, 2, 1_000);
+    assert!(
+        poll(&mut second).is_none(),
+        "the first question holds its kind and depth"
+    );
+    drop(first);
+    assert!(
+        poll(&mut second).is_some(),
+        "the earlier question released, while the answer still holds its bytes"
+    );
+    drop(answer);
+}
+
+/// The invitation share never refuses an exempt question, however its
+/// depth's pace prices the claim, and a question it refuses becomes exempt
+/// once its depth's earlier questions release theirs.
+///
+/// An answer at depth 4 keeps 1,000,000 B for a finished depth-3 reply
+/// predicted to need 1 B, a pace of a million. With a budget of 100 B and
+/// zero bounds for questions, a depth-3 question needing 50 B is admitted at
+/// its empty kind and depth; a second one passes the room check but its
+/// claim, `10 + 10 + 1,000,000 · 50`, does not fit, so it waits for the
+/// depth's replies, until the first question's release makes it exempt.
+#[test]
+fn a_lone_question_is_never_held_back_by_its_share() {
+    let ledger = Ledger::new(100, bounds(&[(Unit::Answer, 4, 1_000_000)]));
+    let answer = poll(&mut ledger.admit(Unit::Answer, 4, 1_000_000)).expect("exempt");
+    ledger.processed(3, 1, false);
+    assert_eq!(
+        ledger.pace(3),
+        Pace {
+            actual: 1_000_000,
+            predicted: 1
+        }
+    );
+    let first = poll(&mut ledger.invite(3, 10, 50)).expect("exempt at an empty kind and depth");
+    assert!(!first.claimed(), "an exempt question claims nothing");
+    let mut second = ledger.invite(3, 10, 50);
+    assert!(poll(&mut second).is_none(), "its claim does not fit");
+    assert_eq!(ledger.excess(), 10, "only the first question's excess");
+    drop(first);
+    let second = poll(&mut second).expect("exempt once its kind and depth emptied");
+    assert!(!second.claimed());
+    assert_eq!(ledger.claimed(3), 0);
+    drop((answer, second));
 }
 
 /// A question under the invitation share waits while its claim does not
-/// fit beside its depth's outstanding claims, though its grant fits the
+/// fit beside its depth's outstanding claims, though its excess fits the
 /// budget.
 ///
 /// Its depth's claims shrink only as its stage finishes their replies, not
 /// as their room returns, and a shallower unit still takes the budget past
 /// the waiting question.
 ///
-/// With a budget of 1,000 B and the pace at one, a 100 B question whose
-/// reply needs 900 B claims the whole budget: `100 + 900 = 1,000`. A second
-/// such question would bring the depth's claims to 2,000 B, and still to
-/// 1,900 B once the first one's room returns, since the first reply is
-/// unfinished. Once it finishes, having built a 900 B answer one level
-/// down, the pace is `900 / 900`, one, and the second question's claim fits
-/// alone.
+/// With a budget of 1,000 B, bounds of 10 B for depth-3 and depth-1
+/// questions and 900 B for depth-4 answers, and the pace at one: beside an
+/// exempt 10 B question, a 100 B question whose reply needs 900 B claims the
+/// whole budget, `100 + 900 = 1,000`. A second such question would bring the
+/// depth's claims to 2,000 B, and still to 1,900 B once the first one's room
+/// returns, since the first reply is unfinished. Once it finishes, having
+/// built a 900 B answer one level down, the pace is `900 / 900`, one, and
+/// the second question's claim fits alone.
 #[test]
 fn a_claim_holds_until_its_reply_finishes() {
-    let ledger = Ledger::new(1_000);
-    let slot = poll(&mut ledger.admit(Unit::Question, 3, 10)).expect("free slot");
-    let first = poll(&mut ledger.invite(3, 100, 900)).expect("its claim fits the budget");
-    assert!(!first.is_floor());
-    assert_eq!(
-        (ledger.budgeted(Unit::Question, 3), ledger.claimed(3)),
-        (100, 900)
+    let ledger = Ledger::new(
+        1_000,
+        bounds(&[
+            (Unit::Question, 3, 10),
+            (Unit::Question, 1, 10),
+            (Unit::Answer, 4, 900),
+        ]),
     );
+    let exempt = poll(&mut ledger.admit(Unit::Question, 3, 10)).expect("exempt");
+    let first = poll(&mut ledger.invite(3, 100, 900)).expect("its claim fits the budget");
+    assert!(first.claimed());
+    assert_eq!((ledger.excess(), ledger.claimed(3)), (100, 900));
     let mut second = ledger.invite(3, 100, 900);
     assert!(
         poll(&mut second).is_none(),
         "2,000 B of depth-3 claims exceed the 1,000 B budget"
     );
-    let shallow_slot = poll(&mut ledger.admit(Unit::Question, 1, 10)).expect("free slot");
+    let shallow_exempt = poll(&mut ledger.admit(Unit::Question, 1, 10)).expect("exempt");
     let shallow = poll(&mut ledger.admit(Unit::Question, 1, 500));
     assert!(
         shallow.is_some(),
@@ -288,15 +359,15 @@ fn a_claim_holds_until_its_reply_finishes() {
         poll(&mut second).is_none(),
         "the first reply is unfinished, so its 900 B need still stands"
     );
-    let answer = poll(&mut ledger.admit(Unit::Answer, 4, 900)).expect("free slot");
-    ledger.processed(3, 900, false);
+    let answer = poll(&mut ledger.admit(Unit::Answer, 4, 900)).expect("exempt");
+    ledger.processed(3, 900, true);
     let second = poll(&mut second).expect("the second claim fits alone once the first withdrew");
     assert_eq!(
-        (ledger.budgeted(Unit::Question, 3), ledger.claimed(3)),
-        (100, 900),
-        "the second question's room and need alone"
+        (ledger.held_at(Unit::Question, 3), ledger.claimed(3)),
+        (110, 900),
+        "the exempt question and the second one, and the second one's need alone"
     );
-    drop((slot, second, shallow_slot, shallow, answer));
+    drop((exempt, second, shallow_exempt, shallow, answer));
 }
 
 /// The pace starts at one and can exceed it, and above one it holds back a
@@ -309,11 +380,14 @@ fn a_claim_holds_until_its_reply_finishes() {
 /// `100 + 500` would fit.
 #[test]
 fn a_pace_above_one_holds_back_what_one_admits() {
-    let ledger = Ledger::new(1_000);
+    let ledger = Ledger::new(
+        1_000,
+        bounds(&[(Unit::Question, 3, 10), (Unit::Answer, 4, 600)]),
+    );
     assert_eq!(ledger.pace(3), Pace::PREDICTED);
-    let slot = poll(&mut ledger.admit(Unit::Question, 3, 10)).expect("free slot");
-    let answer = poll(&mut ledger.admit(Unit::Answer, 4, 600)).expect("free slot");
-    ledger.processed(3, 300, true);
+    let exempt = poll(&mut ledger.admit(Unit::Question, 3, 10)).expect("exempt");
+    let answer = poll(&mut ledger.admit(Unit::Answer, 4, 600)).expect("exempt");
+    ledger.processed(3, 300, false);
     assert_eq!(
         ledger.pace(3),
         Pace {
@@ -326,35 +400,35 @@ fn a_pace_above_one_holds_back_what_one_admits() {
         poll(&mut question).is_none(),
         "at a pace of two the claim is 1,100 B"
     );
-    drop((slot, answer, question));
+    drop((exempt, answer, question));
 }
 
 /// Questions whose replies are predicted to need nothing claim only their
-/// room, which the budget already counts: the invitation share then admits
-/// exactly what the budget alone would.
+/// excess, which the room check already weighs: the invitation share then
+/// admits exactly what the budget alone would.
 #[test]
 fn a_reply_that_needs_nothing_leaves_the_whole_budget() {
-    let ledger = Ledger::new(300);
-    let slot = poll(&mut ledger.admit(Unit::Question, 4, 10)).expect("free slot");
+    let ledger = Ledger::new(300, bounds(&[(Unit::Question, 4, 10)]));
+    let exempt = poll(&mut ledger.admit(Unit::Question, 4, 10)).expect("exempt");
     let first = poll(&mut ledger.invite(4, 200, 0)).expect("within the budget");
     let mut second = ledger.invite(4, 200, 0);
     assert!(
         poll(&mut second).is_none(),
-        "400 B exceeds the 300 B budget"
+        "an excess of 400 B exceeds the 300 B budget"
     );
     let third = poll(&mut ledger.invite(4, 100, 0));
     assert!(
         third.is_none(),
         "the older unit waiting for room keeps the budget from it"
     );
-    drop((slot, first, second, third));
+    drop((exempt, first, second, third));
 }
 
 /// A unit no longer awaited withdraws, and a grant it never took returns.
 #[test]
 fn a_withdrawn_unit_returns_its_grant() {
-    let ledger = Ledger::new(0);
-    let held = poll(&mut ledger.admit(Unit::Answer, 1, 40)).expect("free slot");
+    let ledger = serial();
+    let held = poll(&mut ledger.admit(Unit::Answer, 1, 40)).expect("an empty kind and depth");
     let waiting = ledger.admit(Unit::Answer, 1, 40);
     drop(held);
     drop(waiting);
@@ -362,7 +436,7 @@ fn a_withdrawn_unit_returns_its_grant() {
     let mut again = ledger.admit(Unit::Answer, 1, 40);
     assert!(
         poll(&mut again).is_some(),
-        "the withdrawn grant freed the slot"
+        "the withdrawn grant emptied the kind and depth"
     );
 }
 
@@ -377,6 +451,25 @@ const SHARED: std::ops::Range<usize> = 2..5;
 
 /// The depths the admission proptests admit units at.
 const TESTED: std::ops::Range<usize> = 0..SHARED.end;
+
+/// Every kind and depth the admission proptests admit units at.
+fn tested() -> impl Iterator<Item = (Unit, usize)> {
+    [Unit::Answer, Unit::Question]
+        .into_iter()
+        .flat_map(|unit| TESTED.map(move |depth| (unit, depth)))
+}
+
+/// A table of bounds for the kinds and depths the proptests admit at, each
+/// below the largest grant they ask for, zero included.
+fn arb_bounds() -> impl Strategy<Value = Bounds> {
+    vec(0..500usize, 2 * TESTED.end).prop_map(|drawn| {
+        tested()
+            .zip(drawn)
+            .fold(Bounds::ZERO, |bounds, ((unit, depth), bound)| {
+                bounds.with(unit, depth, bound)
+            })
+    })
+}
 
 /// One operation on a ledger's admissions.
 #[derive(Clone, Debug)]
@@ -418,6 +511,17 @@ fn arb_op() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// The bytes a unit of `unit` kind at `depth` asks for: `bytes`, or at most
+/// its bound when grants keep `within` their bounds, as the walk's do
+/// (premise (P1)).
+fn asked(bounds: &Bounds, within: bool, unit: Unit, depth: usize, bytes: usize) -> usize {
+    if within {
+        bytes.min(bounds.of(unit, depth))
+    } else {
+        bytes
+    }
+}
+
 /// A waiting unit, with what the checks need to know of it.
 struct Waiting {
     /// Its admission, polled after every operation.
@@ -440,65 +544,63 @@ struct Waiting {
 struct Invitation {
     /// The depth of the scope it asks about.
     depth: usize,
-    /// Its need, which it claims unless it took its floor slot.
+    /// Its need, which it claimed if `claimed`.
     need: usize,
-    /// Whether it took its depth's floor slot, and so claims nothing.
-    floor: bool,
+    /// Whether it claimed its need: granted against the budget, not
+    /// exempt.
+    claimed: bool,
 }
 
 proptest! {
     /// Through any sequence of admissions, some under the invitation share,
-    /// finished replies, splits, drops, and withdrawals, admission
-    /// keeps its bound and its rule.
+    /// finished replies, splits, drops, and withdrawals, admission keeps its
+    /// counts, its bound, and its rule, for any table of bounds.
     ///
-    /// - The ledger holds at most its budget outside its floor slots, the
-    ///   bytes its slots carry for others excepted, and each floor slot
-    ///   serves at most one unit at a time, its carry counting as one.
-    /// - The count the budget is checked against, a location of its own,
-    ///   equals the bytes the live charges outside floor slots hold, less
-    ///   what the slots carry: the difference of the totals it is part of.
-    /// - Each kind and depth's bytes held against the budget agree with the
-    ///   live charges, and each depth's outstanding claims with the needs of
-    ///   the unfinished invitations admitted against the budget.
-    /// - A slot carries no more than its kind and depth hold against the
-    ///   budget, nor more than the largest grant admitted to one of their
-    ///   units, and a free slot leaves nothing of its kind and depth held
-    ///   against the budget: a slot freeing while its kind and depth hold
-    ///   budget carries their bytes.
-    /// - The banker's invariant: at each depth, the room its questions hold
-    ///   against the budget, less what their slot carries, and its
-    ///   outstanding claims, scaled by the pace its latest
-    ///   admission under the share read, fit the budget together. Each such
-    ///   admission establishes it; releases and finished replies only
-    ///   shrink both sums, and only a finished reply moves the pace, so it
-    ///   holds after every operation.
-    /// - No unit waits that the rule would admit: every waiting unit's slot
-    ///   is taken or carrying, and one that would fit the budget, and its
-    ///   depth's claims
-    ///   if the share governs it, waits behind a deeper or older waiting
-    ///   unit that does not fit the budget, the only kind that keeps others
-    ///   from it.
+    /// An independent tally, from the live charges and the kind and depth
+    /// each was granted to, checks after every operation:
+    ///
+    /// - The ledger's `held[k]` for every kind and depth, its total, and its
+    ///   excess, `E = Σ_k max(0, held[k] − F[k])`, equal the tally's.
+    /// - Each depth's outstanding claims equal the needs of the unfinished
+    ///   invitations whose grants claimed, and only a question under the
+    ///   share claims.
+    /// - No unit waits at an empty kind and depth, nor fits within its
+    ///   bound; and one that would pass the room check, and its depth's
+    ///   share check if the share governs it, waits behind a deeper or older
+    ///   waiting unit that fails the room check, the only kind that closes
+    ///   the budget.
+    ///
+    /// When every grant keeps within its bound (premise (P1)), it also
+    /// checks the memory bound as two checks, `E ≤ B` and
+    /// `L − E ≤ Σ F[k]` over the kinds and depths holding bytes, and the
+    /// banker's invariant: at each depth, the excess its questions hold and
+    /// its outstanding claims, scaled by the pace its latest claiming
+    /// admission read, fit the budget together. Each claiming admission
+    /// establishes it; exempt grants add no excess, releases and finished
+    /// replies only shrink both sums, and only a finished reply moves the
+    /// pace, so it holds after every operation.
     ///
     /// Once everything is dropped, the ledger holds nothing.
     #[test]
-    fn admission_keeps_its_rule_and_its_bound(
+    fn admission_keeps_its_counts_its_bound_and_its_rule(
         budget in 0..1_000usize,
+        bounds in arb_bounds(),
+        within in any::<bool>(),
         ops in vec(arb_op(), 0..80),
     ) {
-        let ledger = Ledger::new(budget);
-        // Each live charge with the unit it was granted to, by order, and
-        // its place.
-        let mut live: Vec<(usize, Unit, usize, Holding, Charge)> = Vec::new();
+        let ledger = Ledger::new(budget, bounds);
+        // Each live charge with the kind and depth of the unit it was
+        // granted to.
+        let mut live: Vec<(Unit, usize, Charge)> = Vec::new();
         let mut waiting: Vec<Waiting> = Vec::new();
         let mut unfinished: Vec<Invitation> = Vec::new();
-        // The pace each depth's latest admission under the share read.
+        // The pace each depth's latest claiming admission read.
         let mut admitted_at: [Option<Pace>; DEPTHS] = [None; DEPTHS];
-        // The largest grant admitted to each kind and depth.
-        let mut largest = std::collections::BTreeMap::<(Unit, usize), usize>::new();
         let mut next = 0;
         for op in ops {
             match op {
                 Op::Admit(unit, depth, bytes) => {
+                    let bytes = asked(&bounds, within, unit, depth, bytes);
                     waiting.push(Waiting {
                         admit: ledger.admit(unit, depth, bytes),
                         unit,
@@ -510,6 +612,7 @@ proptest! {
                     next += 1;
                 }
                 Op::Invite(depth, bytes, need) => {
+                    let bytes = asked(&bounds, within, Unit::Question, depth, bytes);
                     waiting.push(Waiting {
                         admit: ledger.invite(depth, bytes, need),
                         unit: Unit::Question,
@@ -521,15 +624,15 @@ proptest! {
                     next += 1;
                 }
                 Op::Finish(at) if !unfinished.is_empty() => {
-                    let Invitation { depth, need, floor } =
+                    let Invitation { depth, need, claimed } =
                         unfinished.swap_remove(at % unfinished.len());
-                    ledger.processed(depth, need, floor);
+                    ledger.processed(depth, need, claimed);
                 }
                 Op::Split(at, bytes) if !live.is_empty() => {
                     let at = at % live.len();
-                    let (order, unit, depth, _, charge) = &mut live[at];
+                    let (unit, depth, charge) = &mut live[at];
                     let part = charge.split(Holding::Questions, bytes);
-                    let entry = (*order, *unit, *depth, Holding::Questions, part);
+                    let entry = (*unit, *depth, part);
                     live.push(entry);
                 }
                 Op::Drop(at) if !live.is_empty() => {
@@ -540,118 +643,109 @@ proptest! {
                 }
                 _ => {}
             }
-            // Every grant this operation made is waiting to be polled, and
-            // one under the share was decided at the pace it leaves, since
-            // only `Finish` moves a pace, before it reconsiders.
             let mut still = Vec::new();
             for mut unit in waiting.drain(..) {
                 match poll(&mut unit.admit) {
                     Some(grant) => {
                         if let Some(need) = unit.need {
-                            let floor = grant.is_floor();
-                            unfinished.push(Invitation { depth: unit.depth, need, floor });
-                            if !floor {
+                            unfinished.push(Invitation {
+                                depth: unit.depth,
+                                need,
+                                claimed: grant.claimed(),
+                            });
+                            if grant.claimed() {
                                 admitted_at[unit.depth] = Some(ledger.pace(unit.depth));
                             }
+                        } else {
+                            prop_assert!(!grant.claimed(), "a unit outside the share claimed");
                         }
-                        let most = largest.entry((unit.unit, unit.depth)).or_default();
-                        *most = (*most).max(grant.bytes());
-                        live.push((unit.order, unit.unit, unit.depth, unit.unit.place(), grant));
+                        live.push((unit.unit, unit.depth, grant));
                     }
                     None => still.push(unit),
                 }
             }
             waiting = still;
 
-            let normal: usize = live
-                .iter()
-                .filter(|(.., charge)| !charge.is_floor())
-                .map(|(.., charge)| charge.bytes())
-                .sum();
-            prop_assert_eq!(ledger.held() - ledger.floor(), normal);
-            let kinds = || [Unit::Answer, Unit::Question].into_iter().flat_map(|unit| TESTED.map(move |depth| (unit, depth)));
-            let carried: usize = kinds().map(|(unit, depth)| ledger.carried(unit, depth)).sum();
-            prop_assert_eq!(ledger.normal(), normal - carried);
-            prop_assert!(
-                normal - carried <= budget,
-                "{} B outside the floor over {} B",
-                normal - carried,
-                budget
-            );
-            let budgeted = |unit: Unit, depth: usize| -> usize {
+            let tally = |unit: Unit, depth: usize| -> usize {
                 live.iter()
-                    .filter(|(_, kind, at, _, charge)| {
-                        *kind == unit && *at == depth && !charge.is_floor()
-                    })
+                    .filter(|(kind, at, _)| (*kind, *at) == (unit, depth))
                     .map(|(.., charge)| charge.bytes())
                     .sum()
             };
-            let mut serving = std::collections::BTreeMap::new();
-            for (order, unit, depth, _, charge) in &live {
-                if charge.is_floor() {
-                    let holder = serving.entry((*unit, *depth)).or_insert(*order);
-                    prop_assert_eq!(*holder, *order, "two units share one floor slot");
-                }
+            let excess: usize = tested()
+                .map(|(unit, depth)| excess_beyond(tally(unit, depth), bounds.of(unit, depth)))
+                .sum();
+            let within_bounds: usize = tested()
+                .map(|(unit, depth)| tally(unit, depth).min(bounds.of(unit, depth)))
+                .sum();
+            for (unit, depth) in tested() {
+                prop_assert_eq!(ledger.held_at(unit, depth), tally(unit, depth));
             }
-            for (unit, depth) in kinds() {
-                let (held, carry) = (budgeted(unit, depth), ledger.carried(unit, depth));
-                prop_assert_eq!(ledger.budgeted(unit, depth), held);
-                prop_assert!(carry <= held, "a slot carries {} B of {} B held", carry, held);
-                let most = largest.get(&(unit, depth)).copied().unwrap_or(0);
-                prop_assert_eq!(ledger.largest(unit, depth), most);
-                prop_assert!(carry <= most, "a slot carries {} B, over the largest grant {} B", carry, most);
-                let taken = serving.contains_key(&(unit, depth));
-                prop_assert!(!(taken && carry > 0), "a slot serves a unit while it carries");
-                prop_assert!(
-                    taken || carry > 0 || held == 0,
-                    "{:?} at depth {} holds {} B against the budget beside its free slot",
-                    unit,
-                    depth,
-                    held
-                );
-            }
-            let invited = |depth: usize| -> usize {
-                budgeted(Unit::Question, depth) - ledger.carried(Unit::Question, depth)
-            };
+            let held: usize = live.iter().map(|(.., charge)| charge.bytes()).sum();
+            prop_assert_eq!(ledger.held(), held);
+            prop_assert_eq!(ledger.excess(), excess);
+            prop_assert_eq!(held - excess, within_bounds);
             let claimed = |depth: usize| -> usize {
                 unfinished
                     .iter()
-                    .filter(|invitation| invitation.depth == depth && !invitation.floor)
+                    .filter(|invitation| invitation.depth == depth && invitation.claimed)
                     .map(|invitation| invitation.need)
                     .sum()
             };
             for depth in TESTED {
                 prop_assert_eq!(ledger.claimed(depth), claimed(depth));
-                if let Some(pace) = admitted_at[depth] {
-                    let sum = invited(depth) as u128 + pace.scale(claimed(depth));
-                    prop_assert!(
-                        sum <= budget as u128,
-                        "depth {}'s claims of {} B exceed the {} B budget",
-                        depth,
-                        sum,
-                        budget
-                    );
+            }
+            if within {
+                prop_assert!(excess <= budget, "an excess of {} B over {} B", excess, budget);
+                let in_use: usize = tested()
+                    .filter(|&(unit, depth)| tally(unit, depth) > 0)
+                    .map(|(unit, depth)| bounds.of(unit, depth))
+                    .sum();
+                prop_assert!(
+                    within_bounds <= in_use,
+                    "{} B within bounds summing to {} B",
+                    within_bounds,
+                    in_use
+                );
+                for depth in TESTED {
+                    if let Some(pace) = admitted_at[depth] {
+                        let invited = excess_beyond(
+                            tally(Unit::Question, depth),
+                            bounds.of(Unit::Question, depth),
+                        );
+                        let sum = invited as u128 + pace.scale(claimed(depth));
+                        prop_assert!(
+                            sum <= budget as u128,
+                            "depth {}'s claims of {} B exceed the {} B budget",
+                            depth,
+                            sum,
+                            budget
+                        );
+                    }
                 }
             }
-            let normal = normal - carried;
+            // The excess with a waiting unit added, `E′`, which the room
+            // check compares with the budget.
+            let with_unit = |unit: &Waiting| -> usize {
+                let (held, bound) = (tally(unit.unit, unit.depth), bounds.of(unit.unit, unit.depth));
+                excess - excess_beyond(held, bound) + excess_beyond(held + unit.bytes, bound)
+            };
             for unit in &waiting {
-                prop_assert!(
-                    serving.contains_key(&(unit.unit, unit.depth))
-                        || ledger.carried(unit.unit, unit.depth) > 0,
-                    "a unit waits at a free floor slot"
-                );
+                let (held, bound) = (tally(unit.unit, unit.depth), bounds.of(unit.unit, unit.depth));
+                prop_assert!(held > 0, "a unit waits at an empty kind and depth");
+                prop_assert!(held + unit.bytes > bound, "a unit within its bound waits");
                 let claims_fit = unit.need.is_none_or(|need| {
                     let pace = ledger.pace(unit.depth);
-                    invited(unit.depth) as u128
+                    excess_beyond(held, bound) as u128
                         + unit.bytes as u128
                         + pace.scale(claimed(unit.depth) + need)
                         <= budget as u128
                 });
-                if normal + unit.bytes <= budget && claims_fit {
+                if with_unit(unit) <= budget && claims_fit {
                     prop_assert!(
-                        waiting.iter().any(|other| (other.depth, std::cmp::Reverse(other.order))
-                            > (unit.depth, std::cmp::Reverse(unit.order))
-                            && normal + other.bytes > budget),
+                        waiting.iter().any(|other| (other.depth, Reverse(other.order))
+                            > (unit.depth, Reverse(unit.order))
+                            && with_unit(other) > budget),
                         "a unit that fits waits behind no deeper or older unit that does not"
                     );
                 }
@@ -660,6 +754,125 @@ proptest! {
         drop(waiting);
         drop(live);
         prop_assert_eq!(ledger.held(), 0);
+        prop_assert_eq!(ledger.excess(), 0);
+    }
+}
+
+/// One waiting unit of a generated critical section: its kind, depth,
+/// grant, and its need if the invitation share governs it.
+type Asking = (Unit, usize, u32, Option<usize>);
+
+/// For each unit of `asking`, in the order a critical section decides them,
+/// whether one critical section at `budget` grants it, starting from the
+/// state the other arguments give.
+///
+/// The ledger has `bounds`; each kind and depth in `holding` holds its
+/// bytes, and each depth's outstanding claims and pace sums are those
+/// `share` gives, as `(claimed, predicted, actual)`. The units of `asking`
+/// asked in their order. The critical section is the one every release
+/// runs ([`admit_waiting`]).
+fn decided(
+    budget: usize,
+    bounds: Bounds,
+    holding: &[(Unit, usize, usize)],
+    share: &[(usize, u64, u64)],
+    asking: &[Asking],
+) -> Vec<bool> {
+    let account = Arc::new(Account::new(budget, bounds));
+    let mut queue = lock(&account.admission);
+    for &(unit, depth, bytes) in holding {
+        queue.counts.add(&bounds, Some((unit, depth)), bytes);
+    }
+    for (depth, &(claimed, predicted, actual)) in share.iter().enumerate() {
+        queue.share.claimed[depth] = claimed;
+        queue.share.predicted[depth] = predicted;
+        queue.share.actual[depth] = actual;
+    }
+    let waiters: Vec<Arc<Waiter>> = asking
+        .iter()
+        .zip(0..)
+        .map(|(&(unit, depth, bytes, need), order)| {
+            Arc::new(Waiter {
+                request: Request {
+                    unit,
+                    depth,
+                    bytes,
+                    need,
+                },
+                order,
+                state: Mutex::default(),
+            })
+        })
+        .collect();
+    queue.waiting.extend(waiters.iter().cloned());
+    admit_waiting(&account, queue);
+    let mut in_order = waiters;
+    in_order.sort_by_key(|waiter| (Reverse(waiter.request.depth), waiter.order));
+    let granted = in_order
+        .iter()
+        .map(|waiter| lock(&waiter.state).grant.is_some())
+        .collect();
+    // The queue gives up its waiters while this still holds each of them,
+    // as an `Admit` does as it withdraws: a waiter dropped inside a later
+    // critical section would drop its grant there, under the lock its
+    // release takes.
+    lock(&account.admission).waiting.clear();
+    granted
+}
+
+/// A generated unit of a critical section: an answer or a question outside
+/// the share at any tested depth, or a question under the share at
+/// [`SHARED`].
+fn arb_asking() -> impl Strategy<Value = Asking> {
+    prop_oneof![
+        (TESTED, 0..600u32).prop_map(|(depth, bytes)| (Unit::Answer, depth, bytes, None)),
+        (0..SHARED.start, 0..600u32).prop_map(|(depth, bytes)| (
+            Unit::Question,
+            depth,
+            bytes,
+            None
+        )),
+        (SHARED, 0..600u32, 0..2_000usize).prop_map(|(depth, bytes, need)| (
+            Unit::Question,
+            depth,
+            bytes,
+            Some(need)
+        )),
+    ]
+}
+
+proptest! {
+    /// Admission is monotone in the budget in the sense the budget
+    /// criterion uses (claim (M)): a larger budget is the first to grant.
+    ///
+    /// One critical section, started in one state with the same waiters at
+    /// two budgets `B ≤ B′`, makes the same grants up to the first unit, in
+    /// decision order, granted at one budget and not the other, and that
+    /// unit is granted at `B′`.
+    ///
+    /// The state is generated directly: a table of bounds, what each kind
+    /// and depth holds, each depth's outstanding claims and pace, and up to
+    /// a dozen waiting units of every kind the walk asks, under the share
+    /// and outside it. A difference in which `B′` waits for the share where
+    /// `B` waits for room changes no grant, so the first difference in
+    /// grants is the larger budget's whatever outcomes precede it.
+    #[test]
+    fn a_larger_budget_first_differs_by_a_grant(
+        budget in 0..1_500usize,
+        more in 0..1_500usize,
+        bounds in arb_bounds(),
+        holding in vec((arb_unit(), TESTED, 0..800usize), 0..10),
+        share in vec((0..2_000usize, 0..1_000u64, 0..2_000u64), TESTED.end),
+        asking in vec(arb_asking(), 0..12),
+    ) {
+        let smaller = decided(budget, bounds, &holding, &share, &asking);
+        let larger = decided(budget + more, bounds, &holding, &share, &asking);
+        if let Some(first) = smaller.iter().zip(&larger).position(|(a, b)| a != b) {
+            prop_assert!(
+                larger[first] && !smaller[first],
+                "the first unit granted at one budget alone is granted at the smaller one"
+            );
+        }
     }
 }
 
@@ -668,31 +881,35 @@ proptest! {
 struct Run {
     /// Units that waited for admission.
     waited: u64,
-    /// For each unit admitted, in order, whether it took its floor slot.
-    floors: Vec<bool>,
-    /// The most the ledger held outside its floor slots after any
-    /// operation: every rise is one admission, so this is the ledger's peak
-    /// there.
-    normal_peak: usize,
+    /// For each unit admitted, in order, its place among the units asked
+    /// for and whether it claimed under the invitation share.
+    grants: Vec<(usize, bool)>,
+    /// The ledger's largest excess after any operation: with every grant
+    /// within its bound, only grants against the budget raise the excess,
+    /// so this is the largest `E′` any room check that admitted weighed.
+    excess_peak: usize,
     /// The largest sum any invitation share check weighed.
     share_peak: usize,
 }
 
-/// Runs `ops` on a ledger with `budget`, as the admission proptest does,
-/// leaving any unit it does not admit waiting to the end.
-fn run(budget: usize, ops: &[Op]) -> Run {
-    let ledger = Ledger::new(budget);
-    let mut live: Vec<(usize, Charge)> = Vec::new();
+/// Runs `ops` on a ledger with `budget` and `bounds`, as the admission
+/// proptest does with every grant kept within its bound, leaving any unit
+/// it does not admit waiting to the end.
+fn run(budget: usize, bounds: Bounds, ops: &[Op]) -> Run {
+    let ledger = Ledger::new(budget, bounds);
+    let mut live: Vec<Charge> = Vec::new();
     let mut waiting: Vec<(usize, Option<(usize, usize)>, Admit)> = Vec::new();
     let mut unfinished: Vec<(usize, usize, bool)> = Vec::new();
-    let mut floors = Vec::new();
-    let mut normal_peak = 0;
+    let mut grants = Vec::new();
+    let mut excess_peak = 0;
     for (order, op) in ops.iter().cloned().enumerate() {
         match op {
             Op::Admit(unit, depth, bytes) => {
+                let bytes = asked(&bounds, true, unit, depth, bytes);
                 waiting.push((order, None, ledger.admit(unit, depth, bytes)));
             }
             Op::Invite(depth, bytes, need) => {
+                let bytes = asked(&bounds, true, Unit::Question, depth, bytes);
                 waiting.push((
                     order,
                     Some((depth, need)),
@@ -700,13 +917,13 @@ fn run(budget: usize, ops: &[Op]) -> Run {
                 ));
             }
             Op::Finish(at) if !unfinished.is_empty() => {
-                let (depth, need, floor) = unfinished.swap_remove(at % unfinished.len());
-                ledger.processed(depth, need, floor);
+                let (depth, need, claimed) = unfinished.swap_remove(at % unfinished.len());
+                ledger.processed(depth, need, claimed);
             }
             Op::Split(at, bytes) if !live.is_empty() => {
                 let at = at % live.len();
-                let part = live[at].1.split(Holding::Questions, bytes);
-                live.push((live[at].0, part));
+                let part = live[at].split(Holding::Questions, bytes);
+                live.push(part);
             }
             Op::Drop(at) if !live.is_empty() => {
                 live.swap_remove(at % live.len());
@@ -720,22 +937,22 @@ fn run(budget: usize, ops: &[Op]) -> Run {
         for (order, invitation, mut admit) in waiting.drain(..) {
             match poll(&mut admit) {
                 Some(grant) => {
-                    floors.push(grant.is_floor());
+                    grants.push((order, grant.claimed()));
                     if let Some((depth, need)) = invitation {
-                        unfinished.push((depth, need, grant.is_floor()));
+                        unfinished.push((depth, need, grant.claimed()));
                     }
-                    live.push((order, grant));
+                    live.push(grant);
                 }
                 None => still.push((order, invitation, admit)),
             }
         }
         waiting = still;
-        normal_peak = normal_peak.max(ledger.normal());
+        excess_peak = excess_peak.max(ledger.excess());
     }
     Run {
         waited: ledger.waited(),
-        floors,
-        normal_peak,
+        grants,
+        excess_peak,
         share_peak: ledger.share_peak(),
     }
 }
@@ -745,51 +962,58 @@ proptest! {
     /// of that schedule exactly as an unlimited ledger does, and one byte
     /// less makes some unit wait.
     ///
-    /// The no-cost point is the larger of the unlimited run's peak outside
-    /// its floor slots, `Λ`, and its share peak, the largest sum any of its
-    /// share checks weighed. At that budget, every check the unlimited run
-    /// makes passes in the same state, so by induction along the schedule
-    /// no unit waits and every unit takes the floor slot or the budget it
-    /// took unlimited. One byte below it, the first check of the unlimited
-    /// run that weighed that much fails.
+    /// The no-cost point is the larger of the unlimited run's peak excess,
+    /// `Λ`, and its share peak, the largest sum any of its share checks
+    /// weighed. With every grant within its bound, exempt grants add no
+    /// excess, so every rise of the excess is a room check's `E′`. At that
+    /// budget, every check the unlimited run makes passes in the same state,
+    /// so by induction along the schedule no unit waits and every unit is
+    /// admitted when, and claims as, it did unlimited. One byte below it, the
+    /// first check of the unlimited run that weighed that much fails.
     #[test]
-    fn the_no_cost_point_admits_as_an_unlimited_ledger(ops in vec(arb_op(), 0..80)) {
-        let unlimited = run(usize::MAX, &ops);
+    fn the_no_cost_point_admits_as_an_unlimited_ledger(
+        bounds in arb_bounds(),
+        ops in vec(arb_op(), 0..80),
+    ) {
+        let unlimited = run(usize::MAX, bounds, &ops);
         prop_assert_eq!(unlimited.waited, 0);
-        let point = unlimited.normal_peak.max(unlimited.share_peak);
-        let at_point = run(point, &ops);
-        prop_assert_eq!(&at_point.floors, &unlimited.floors);
+        let point = unlimited.excess_peak.max(unlimited.share_peak);
+        let at_point = run(point, bounds, &ops);
+        prop_assert_eq!(&at_point.grants, &unlimited.grants);
         prop_assert_eq!(at_point.waited, 0);
-        prop_assert_eq!(at_point.normal_peak, unlimited.normal_peak);
+        prop_assert_eq!(at_point.excess_peak, unlimited.excess_peak);
         if point > 0 {
-            prop_assert!(run(point - 1, &ops).waited > 0, "nothing waits below the no-cost point");
+            prop_assert!(
+                run(point - 1, bounds, &ops).waited > 0,
+                "nothing waits below the no-cost point"
+            );
         }
     }
 }
 
 /// No unit counts toward two depths' invitation share checks: a question's
-/// bytes count toward its own depth's invited room, an answer's toward the
-/// pace of the depth above it, and nothing else.
+/// bytes count toward its own depth's excess, an answer's toward the pace of
+/// the depth above it, and nothing else.
 ///
 /// That is what keeps the claims nested. A need prices only the answers one
 /// level down, so a question's room and an answer's bytes each enter one
 /// depth's sum at most; the root's answers enter none, since no question
-/// asks about a scope above the root. Every kind and depth is tried: a unit
-/// admitted through its floor slot and one against the budget, then a
-/// finished reply at every depth, after which each depth's invited room and
-/// pace show which depths saw the unit.
+/// asks about a scope above the root. Every kind and depth is tried with two
+/// units on an unlimited ledger, then a finished reply at every depth, after
+/// which what each depth's questions hold and each depth's pace show which
+/// depths saw the units.
 #[test]
 fn no_unit_counts_toward_two_depths_checks() {
     for unit in [Unit::Answer, Unit::Question] {
         for depth in 0..DEPTHS {
-            let ledger = Ledger::new(usize::MAX);
-            let floor = poll(&mut ledger.admit(unit, depth, 10)).expect("free slot");
-            let budget = poll(&mut ledger.admit(unit, depth, 100)).expect("unlimited");
+            let ledger = Ledger::new(usize::MAX, Bounds::ZERO);
+            let first = poll(&mut ledger.admit(unit, depth, 10)).expect("exempt");
+            let second = poll(&mut ledger.admit(unit, depth, 100)).expect("unlimited");
             for at in 0..DEPTHS {
-                ledger.processed(at, 1, true);
+                ledger.processed(at, 1, false);
             }
             let seen: Vec<usize> = (0..DEPTHS)
-                .filter(|&at| ledger.budgeted(Unit::Question, at) > 0 || ledger.pace(at).actual > 0)
+                .filter(|&at| ledger.held_at(Unit::Question, at) > 0 || ledger.pace(at).actual > 0)
                 .collect();
             let expected = match unit {
                 Unit::Question => vec![depth],
@@ -799,14 +1023,14 @@ fn no_unit_counts_toward_two_depths_checks() {
                 seen, expected,
                 "{unit:?} at depth {depth} counts at depths {seen:?}"
             );
-            drop((floor, budget));
+            drop((first, second));
         }
     }
 }
 
-/// How long a unit may wait for a slot that other threads keep freeing
-/// before the handoff test calls the wait lost: far beyond the microseconds
-/// each holder keeps the slot.
+/// How long a unit may wait for its kind and depth, which other threads
+/// keep emptying, before the handoff test calls the wait lost: far beyond
+/// the microseconds each holder keeps it.
 const HANDOFF_PATIENCE: Duration = Duration::from_secs(30);
 
 /// A waker that unparks the thread awaiting an admission.
@@ -835,34 +1059,36 @@ fn await_admission(mut admit: Admit) -> Charge {
         let now = Instant::now();
         assert!(
             now < deadline,
-            "a unit waited at a slot that kept freeing: a lost wakeup"
+            "a unit waited at a kind and depth that kept emptying: a lost wakeup"
         );
         thread::park_timeout(deadline - now);
     }
 }
 
-/// A floor slot passes between threads without a lost wakeup, and frees
-/// only in the critical section that returns its last charge's bytes.
+/// In the serial configuration, units of one kind and depth on several
+/// threads hold it in turn, without a lost wakeup.
 ///
-/// At a zero budget every unit is admitted through its slot, so units of
-/// one kind and depth hold it in turn. Each holder splits its grant, drops
-/// one part itself and sends the other to a thread that drops it, so the
-/// slot frees on whichever thread releases its last charge. No two holders
-/// overlap, and every unit is admitted.
+/// Each is admitted only in the critical section that returns the last
+/// byte its predecessor's charges held.
+///
+/// Each holder splits its grant, drops one part itself and sends the other
+/// to a thread that drops it, so the kind and depth empties on whichever
+/// thread releases its last charge. No two holders overlap, and every unit
+/// is admitted.
 ///
 /// Each holder finds the ledger holding exactly its own grant. A drop
-/// returns its bytes and leaves its slot under the admission queue's lock,
-/// and the next grant is made under that lock and reaches its holder
+/// returns its bytes and decides the waiters under the admission queue's
+/// lock, and the next grant is made under that lock and reaches its holder
 /// through it, so the total the holder reads is ordered by the lock alone:
-/// had a slot freed outside the critical section that returned its last
-/// charge's bytes, the next holder could find them still held.
+/// had a unit been admitted outside the critical section that returned its
+/// predecessor's last bytes, it could find them still held.
 #[test]
-fn a_slot_passes_between_threads_and_frees_after_its_bytes() {
+fn units_pass_between_threads_and_wait_for_the_last_byte() {
     const THREADS: usize = 8;
     const ROUNDS: usize = 2_000;
     const GRANT: usize = 64;
     const PART: usize = 16;
-    let ledger = Ledger::new(0);
+    let ledger = serial();
     let holders = AtomicUsize::new(0);
     let (parts, dropper) = mpsc::channel::<Charge>();
     thread::scope(|scope| {
@@ -934,7 +1160,7 @@ proptest! {
     /// at their own depth.
     #[test]
     fn the_pace_is_the_ratio_of_kept_to_predicted(ops in vec(arb_pace_op(), 0..80)) {
-        let ledger = Ledger::new(usize::MAX);
+        let ledger = Ledger::new(usize::MAX, Bounds::ZERO);
         let mut grants: Vec<(Unit, usize, Charge)> = Vec::new();
         let mut items = Vec::new();
         let mut kept = [0usize; DEPTHS];
@@ -966,7 +1192,7 @@ proptest! {
                     kept[depth] -= answers(unit, grant.bytes());
                 }
                 PaceOp::Processed(depth, need) => {
-                    ledger.processed(depth, need, true);
+                    ledger.processed(depth, need, false);
                     predicted[depth] += need;
                     actual[depth] = kept.get(depth + 1).copied().unwrap_or(0);
                 }

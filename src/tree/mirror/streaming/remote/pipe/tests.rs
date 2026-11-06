@@ -1009,7 +1009,7 @@ proptest! {
         .expect("a record within the run cap fits a fresh run");
         let frame = ReplyFrame::reaction(Reaction::Supply(run), Flow::Continue);
         let len = encoded_len(stream, &frame);
-        let ledger = Ledger::new(0);
+        let ledger = Ledger::default();
         let items: Vec<(ReplyFrame, Charge)> = charges
             .iter()
             .map(|&bytes| (frame.clone(), ledger.charge(Holding::OutgoingReplies, bytes)))

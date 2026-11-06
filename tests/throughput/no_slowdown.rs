@@ -4,26 +4,29 @@
 //! # The claim
 //!
 //! Each side's ledger admits the work its session builds in units. A unit
-//! first takes its depth's floor slot if that slot is free, whatever the
-//! budget, and otherwise is admitted against the budget if the bytes the
-//! ledger holds outside its floor slots, with the unit's grant added, fit
+//! is exempt, admitted whatever the budget, when its kind and depth (its
+//! kind of unit and the depth of the scope it concerns) hold nothing, or
+//! when it fits beside what they hold within their bound. Otherwise it is
+//! admitted against the budget if the ledger's *excess*, the bytes its
+//! kinds and depths hold beyond their bounds, with the unit's added, fits
 //! within it. A question under the invitation share must also keep its
-//! depth's claims within the budget: the room the depth's questions hold,
-//! with its own grant, beside the predicted needs of their unfinished
+//! depth's claims within the budget: the excess the depth's questions
+//! hold, with its own grant, beside the predicted needs of their unfinished
 //! replies and its own, scaled by the depth's pace,
 //! `I_d + c + α · (N_d + n) ≤ B`. Here `B` is the ledger's budget: the
-//! peer's memory budget less the floor allowance it sets aside for the
-//! floor slots and the session allowance it sets aside for the session's
-//! fixed state and wire pools, so the session at the no-cost point runs on that point
-//! beside the two allowances.
+//! peer's memory budget less the floor allowance it sets aside for what
+//! the kinds and depths hold within their bounds and the session allowance
+//! it sets aside for the session's fixed state and wire pools, so the
+//! session at the no-cost point runs on that point beside the two
+//! allowances.
 //!
-//! Let `Λ` be the most bytes either side's ledger holds outside its floor
-//! slots when the budget is unlimited, and the *share peak* the largest sum
-//! any share check of that session weighs. The session's *no-cost point* is
-//! the larger of the two. At a budget at least that, every admission the
-//! unlimited session makes against the budget fits within it, every share
-//! check it makes passes, and the floor slots' use does not depend on the
-//! budget, so no unit waits that did not wait there. Every admission
+//! Let `Λ` be the largest excess either side's ledger holds when the budget
+//! is unlimited, and the *share peak* the largest sum any share check of
+//! that session weighs. The session's *no-cost point* is the larger of the
+//! two. At a budget at least that, every admission the unlimited session
+//! makes against the budget fits within it, every share check it makes
+//! passes, and no exemption depends on the budget, so no unit waits that
+//! did not wait there. Every admission
 //! decision, and with them the session, is then the unlimited session's,
 //! event for event: an induction along the unlimited session's schedule.
 //! The share peak exceeds `Λ` wherever a depth asks more questions at once
@@ -88,6 +91,31 @@ fn cases(
     })
 }
 
+/// The questions under the invitation share: those about scopes below the
+/// root and above the leaves. The opening question, about the root, and
+/// the leaf requests are admitted outside it.
+const SHARED_DEPTHS: std::ops::Range<usize> = 1..32;
+
+/// Whether some unit of `session` was admitted against the budget, not
+/// exempt, as the ledgers' admission counts report.
+fn admitted_against_the_budget(session: &Session) -> bool {
+    session.admitted.ledgers.iter().any(|ledger| {
+        let mut grants = ledger.questions.iter().chain(&ledger.answers);
+        grants.any(|grants| grants.units > grants.exempt)
+    })
+}
+
+/// Whether some question under the invitation share in `session` was not
+/// exempt: at an unlimited budget, each such question is weighed by its
+/// depth's share check.
+fn invited_against_the_budget(session: &Session) -> bool {
+    session.admitted.ledgers.iter().any(|ledger| {
+        ledger.questions[SHARED_DEPTHS]
+            .iter()
+            .any(|grants| grants.units > grants.exempt)
+    })
+}
+
 /// Prints one pair's oracle beside its session at the no-cost point.
 fn report(oracle: &Session, at_peak: &Session) {
     let Case { shape, link, .. } = oracle.case;
@@ -96,12 +124,11 @@ fn report(oracle: &Session, at_peak: &Session) {
     let no_cost = oracle.admitted.no_cost_point();
     println!(
         "{messages} messages a side, {} shared, BDP {} B: Λ = {peak} B ({:.1} B per \
-         message), no-cost point {no_cost} B ({:.3} Λ) beside the allowances, {} \
+         message), no-cost point {no_cost} B beside the allowances, {} \
          units waited there; {} byte-times unlimited, {} there",
         shape.shared,
         link.bdp(),
         peak as f64 / messages as f64,
-        no_cost as f64 / peak as f64,
         at_peak.admitted.waited(),
         oracle.duration(),
         at_peak.duration(),
@@ -116,10 +143,16 @@ fn report(oracle: &Session, at_peak: &Session) {
 /// larger of `Λ` and the share peak, beside the floor and session allowances
 /// every budget sets aside, carries the same segments at the same instants
 /// as the same session with an unlimited budget, and like it keeps every
-/// unit from waiting. Each
-/// oracle must have admitted work against the budget and made a share
-/// check, so that neither term of the no-cost point reads zero because its
-/// counter stopped counting.
+/// unit from waiting.
+///
+/// Neither term of the no-cost point may read zero because its counter
+/// stopped counting. Each is zero exactly when every unit it covers was
+/// exempt, which a small, mostly shared pair can be: `Λ` is positive
+/// exactly when some unit was admitted against the budget, and the share
+/// peak exactly when some question under the share was not exempt, as the
+/// ledgers' admission counts report. And some pair must have both
+/// positive, so that the suite judges sessions the no-cost point
+/// constrains.
 #[test]
 fn a_budget_of_the_no_cost_point_is_identical_to_no_budget() {
     let oracles = fixture::run_all(cases(|_| BudgetChoice::Bytes(ORACLE_BUDGET)));
@@ -130,6 +163,13 @@ fn a_budget_of_the_no_cost_point_is_identical_to_no_budget() {
     for (oracle, at_peak) in oracles.iter().zip(&at_peaks) {
         report(oracle, at_peak);
     }
+    assert!(
+        oracles
+            .iter()
+            .any(|oracle| oracle.admitted.budget_peak() > 0 && oracle.admitted.share_peak() > 0),
+        "some pair must admit work against the budget and check a question against its \
+         depth's claims, or the suite judges no session the no-cost point constrains",
+    );
     for (oracle, at_peak) in oracles.iter().zip(&at_peaks) {
         let peak = oracle.admitted.budget_peak();
         assert_eq!(
@@ -139,16 +179,18 @@ fn a_budget_of_the_no_cost_point_is_identical_to_no_budget() {
              session: {:?}",
             oracle.case,
         );
-        assert!(
+        assert_eq!(
             peak > 0,
-            "the ledgers must admit some work against the budget, or Λ reads \
-             nothing: {:?}",
+            admitted_against_the_budget(oracle),
+            "Λ must be positive exactly when some unit was admitted against the budget \
+             rather than exempt: {:?}",
             oracle.case,
         );
-        assert!(
+        assert_eq!(
             oracle.admitted.share_peak() > 0,
-            "some question must be checked against its depth's claims, or the \
-             share peak reads nothing: {:?}",
+            invited_against_the_budget(oracle),
+            "the share peak must be positive exactly when some question under the share \
+             was not exempt: {:?}",
             oracle.case,
         );
         assert_eq!(

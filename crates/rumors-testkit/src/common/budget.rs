@@ -3,20 +3,20 @@
 //! alongside the serial configuration.
 //!
 //! The serial configuration stays in the population deliberately: each
-//! walk then admits every unit through its kind and depth's floor slot, one
+//! walk then admits a unit only while its kind and depth hold nothing, one
 //! unit of each kind and depth at a time, the configuration the liveness
-//! argument rests on, and suites must keep it exercised.
+//! argument rests on at its most serial, and suites must keep it exercised.
 //! A session raises every public budget to
 //! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so this
 //! choice is set through the test path
 //! ([`serial_budget`](rumors::testing::serial_budget)). The sweep adds
 //! explicit byte budgets and the production default on top. Every budget
 //! sets aside the floor allowance
-//! ([`FLOOR_ALLOWANCE`](rumors::testing::FLOOR_ALLOWANCE)) for the floor
-//! slots and the session allowance
-//! ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE)) for the
-//! session's fixed state and wire pools, and admits work beyond them against the rest, so
-//! the explicit budgets are drawn beyond both. Peers draw choices independently, so
+//! ([`FLOOR_ALLOWANCE`](rumors::testing::FLOOR_ALLOWANCE)) for what each
+//! kind and depth of unit holds within its bound, and the session
+//! allowance ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE))
+//! for the session's fixed state and wire pools, and admits work beyond
+//! them against the rest, so the explicit budgets are drawn beyond both. Peers draw choices independently, so
 //! sessions between differently-configured endpoints arise throughout the
 //! population; each side of such a session admits its work against its
 //! own budget.
@@ -41,7 +41,8 @@ pub enum BudgetChoice {
     Bytes(usize),
     /// An explicit ledger budget in bytes, set through the test path
     /// ([`ledger_budget`](rumors::testing::ledger_budget)), below the
-    /// public minimum included.
+    /// public minimum included: at zero, sessions pipeline within the
+    /// walk's bounds alone.
     Ledger(usize),
     /// The production default: no configuration call at all.
     Default,

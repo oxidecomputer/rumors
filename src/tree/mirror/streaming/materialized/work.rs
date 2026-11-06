@@ -32,8 +32,10 @@ pub(crate) use allowance::{Left, Ready, parked_price, parked_room};
 #[cfg(doc)]
 pub(crate) use charges::covered_set_price;
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) use charges::slot_bound;
-pub(crate) use charges::{derived_bytes, floor_allowance, largest_grant, parked_bytes, scratch};
+pub(crate) use charges::grant_bound;
+pub(crate) use charges::{
+    derived_bytes, floor_allowance, grant_bounds, largest_grant, parked_bytes, scratch,
+};
 pub(crate) use levels::OpeningAdvance;
 pub(crate) use queues::OUTGOING_REPLY_CHUNKS;
 pub(super) use resolver::Resolver;

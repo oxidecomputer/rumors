@@ -469,7 +469,7 @@ proptest! {
     /// [`answer::Held::LEADING_MAX`]: a fan of reactions less one, or less
     /// two beside the answer's one covered set.
     ///
-    /// The walk's largest grant and floor slots are priced at that lead.
+    /// The walk's largest grant and its bounds are priced at that lead.
     /// The reactions are counted as admission counts them
     /// ([`charges::held`]), over both builders of an answer's plan, a leaf
     /// parent's and an internal scope's, across scopes where questions are

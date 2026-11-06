@@ -40,8 +40,8 @@ use std::thread;
 
 use rumors::Rumors;
 use rumors::testing::{
-    Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, memory_budget_admitting,
-    observe_admissions, observe_ledgers, slot_bound,
+    Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, grant_bound,
+    memory_budget_admitting, observe_admissions, observe_ledgers,
 };
 
 use crate::bench::link::{Link, LinkConfig, Report, SEGMENT_BYTES, Side, drive};
@@ -368,8 +368,9 @@ pub struct Grants {
     pub bytes: u64,
     /// Units that waited for admission.
     pub waited: u64,
-    /// Units admitted through their depth's floor slot.
-    pub floor: u64,
+    /// Units admitted exempt: their kind and depth held nothing, or they
+    /// fit within its bound, so they asked nothing of the budget.
+    pub exempt: u64,
     /// Bytes the grants returned unused once their units were built.
     pub returned: u64,
 }
@@ -385,7 +386,7 @@ impl Grants {
         self.units += 1;
         self.bytes += admission.bytes as u64;
         self.waited += u64::from(admission.waited);
-        self.floor += u64::from(admission.floor);
+        self.exempt += u64::from(admission.exempt);
     }
 
     /// Bytes the units kept out of their grants: what they built.
@@ -403,8 +404,8 @@ pub struct DatedAdmission {
     pub depth: usize,
     /// Whether the unit is a question rather than an answer's own items.
     pub question: bool,
-    /// Whether it took its depth's floor slot rather than budget.
-    pub floor: bool,
+    /// Whether it was admitted exempt rather than against the budget.
+    pub exempt: bool,
     /// Whether it waited for admission.
     pub waited: bool,
     /// Its grant's bytes.
@@ -424,38 +425,34 @@ pub struct Wait {
     pub depth: usize,
     /// Its grant's bytes.
     pub bytes: usize,
-    /// Whether it was admitted through its depth's floor slot.
-    pub floor: bool,
+    /// Whether it was admitted exempt, once its kind and depth emptied or
+    /// it fit within their bound, rather than against the budget.
+    pub exempt: bool,
 }
 
 /// One step of a ledger's profile: from `at` until the next step's time,
-/// the ledger held `bytes` outside its floor slots.
+/// the ledger's excess, what its budget counts, was `bytes`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Step {
     /// The link time the step starts, in byte-times.
     pub at: u64,
-    /// The bytes held outside floor slots from then on.
+    /// The excess from then on.
     pub bytes: usize,
 }
 
 /// One holder of a ledger's bytes: one place's charges for units of one
-/// kind at one depth, through floor slots or against the budget.
+/// kind at one depth.
 ///
 /// Every charge belongs to one holder at a time, and moves between holders
 /// only when the session moves its bytes from one place to another, so the
-/// holders partition what the ledger holds: those not through floor slots
-/// add up, at every moment, to the budget-counted bytes and the bytes floor
-/// slots carry for charges admitted against the budget
-/// ([`LedgerReading::carries`]).
+/// holders partition what the ledger holds: they add up, at every moment,
+/// to the bytes it holds in all.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Holder {
     /// The place.
     pub place: Holding,
     /// The unit kind and depth, if admission granted the charges.
     pub unit: Option<ChargeUnit>,
-    /// Whether the charges were built out of floor grants, which the
-    /// budget does not count.
-    pub through_floor: bool,
 }
 
 /// What one holder held over a session.
@@ -489,18 +486,6 @@ pub struct DatedCheck {
     pub check: SharePeak,
 }
 
-/// A freed floor slot beginning to carry the bytes its kind and depth held
-/// against the budget, dated by the link's clock.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Carry {
-    /// The link time it began, in byte-times.
-    pub at: u64,
-    /// The slot's kind and depth.
-    pub unit: ChargeUnit,
-    /// The bytes it carried.
-    pub bytes: usize,
-}
-
 /// What one side's ledger held and admitted over a session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LedgerReading {
@@ -508,26 +493,23 @@ pub struct LedgerReading {
     /// while the runner polled one side's session: every ledger [`run`]
     /// reads.
     pub side: Option<Side>,
-    /// The most bytes it held outside its floor slots: the part its budget
-    /// counts.
+    /// Its largest excess: the most its kinds and depths of unit held
+    /// beyond their bounds at once, the part its budget counts.
     pub budget_peak: usize,
-    /// The link time it first held `budget_peak`, in byte-times.
+    /// The link time its excess first reached `budget_peak`, in
+    /// byte-times.
     pub budget_peak_at: u64,
-    /// What each holder outside floor slots held at that moment, every
-    /// holder that held anything, in holder order: they add up to
-    /// `budget_peak` and `budget_peak_carried`.
+    /// What each holder held at that moment, every holder that held
+    /// anything, in holder order: they add up to `budget_peak_held`.
     pub budget_peak_holders: Vec<(Holder, usize)>,
-    /// The bytes its floor slots carried for charges admitted against the
-    /// budget at that moment.
-    pub budget_peak_carried: usize,
+    /// The bytes it held in all at that moment.
+    pub budget_peak_held: usize,
     /// The most bytes it held in all.
     pub held_peak: usize,
-    /// The most bytes its floor slots held at once, what they carried for
-    /// charges admitted against the budget included.
-    pub floor_peak: usize,
-    /// The sum over floor slots of the largest grant each admitted: the
-    /// `Σ F` its bound adds to its budget.
-    pub floor_bound: usize,
+    /// The most bytes its kinds and depths held within their bounds at
+    /// once, what it held less its excess: at most the floor allowance
+    /// while every grant is within its bound.
+    pub within_bounds_peak: usize,
     /// The largest sum any of its invitation share checks weighed: the
     /// share peak.
     pub share_peak: usize,
@@ -545,29 +527,19 @@ pub struct LedgerReading {
     pub share_peaks: [usize; DEPTHS],
     /// Units that waited for admission, as the ledger counts them.
     pub waited: u64,
-    /// The bytes it held outside its floor slots, integrated over the
-    /// link's clock: byte-times times bytes.
+    /// Its excess, integrated over the link's clock: byte-times times
+    /// bytes.
     pub budget_area: u128,
     /// The bytes it charged over the session: the sum of every rise in
     /// what it holds.
     pub charged: u64,
     /// The bytes its items needed beyond their grants, over the session.
     pub short: u64,
-    /// The bytes it held for each place, floor slots included, integrated
-    /// over the link's clock, in
+    /// The bytes it held for each place, integrated over the link's clock,
+    /// in
     /// [`Holding::ALL`](rumors::testing::Holding::ALL) order: which places
     /// held the budget, and for how long.
     pub place_area: [u128; PLACES],
-    /// The bytes charges built out of floor grants held, integrated over
-    /// the link's clock.
-    pub floor_area: u128,
-    /// The bytes its floor slots carried for charges admitted against the
-    /// budget, integrated over the link's clock: with `budget_area`, what
-    /// the holders outside floor slots held.
-    pub carried_area: u128,
-    /// Each time a freed floor slot began to carry bytes of its kind and
-    /// depth held against the budget, in order.
-    pub carries: Vec<Carry>,
     /// Its grants to questions, by the depth of the scope each asks about.
     pub questions: [Grants; DEPTHS],
     /// Its grants to answers' own items, by the depth of the scope each
@@ -577,8 +549,8 @@ pub struct LedgerReading {
     /// one, whether the root's answer opens its subtrees at once or one
     /// after another.
     pub dated: Vec<DatedAdmission>,
-    /// The bytes it held outside its floor slots over the session, as
-    /// steps in time order, one per link time at which they changed.
+    /// Its excess over the session, as steps in time order, one per link
+    /// time at which it changed.
     ///
     /// The value a step records is the one in force once every change at
     /// its time is made, which is all an integral over time can see. Before
@@ -602,10 +574,9 @@ impl Default for LedgerReading {
             budget_peak: 0,
             budget_peak_at: 0,
             budget_peak_holders: Vec::new(),
-            budget_peak_carried: 0,
+            budget_peak_held: 0,
             held_peak: 0,
-            floor_peak: 0,
-            floor_bound: 0,
+            within_bounds_peak: 0,
             share_peak: 0,
             share_peak_check: None,
             share_peaks: [0; DEPTHS],
@@ -614,9 +585,6 @@ impl Default for LedgerReading {
             charged: 0,
             short: 0,
             place_area: [0; PLACES],
-            floor_area: 0,
-            carried_area: 0,
-            carries: Vec::new(),
             questions: [Grants::default(); DEPTHS],
             answers: [Grants::default(); DEPTHS],
             dated: Vec::new(),
@@ -648,7 +616,7 @@ fn sum(grants: &[Grants]) -> Grants {
             units: total.units + depth.units,
             bytes: total.bytes + depth.bytes,
             waited: total.waited + depth.waited,
-            floor: total.floor + depth.floor,
+            exempt: total.exempt + depth.exempt,
             returned: total.returned + depth.returned,
         })
 }
@@ -658,14 +626,12 @@ fn sum(grants: &[Grants]) -> Grants {
 pub struct Admitted {
     /// Each ledger that reported, in the order of its first report.
     pub ledgers: Vec<LedgerReading>,
-    /// The most bytes the ledgers held together at once, floor slots
-    /// included.
+    /// The most bytes the ledgers held together at once.
     pub joint_held_peak: usize,
 }
 
 impl Admitted {
-    /// The most bytes any one ledger held outside its floor slots: the part
-    /// its budget counts.
+    /// The largest excess of any one ledger: the part its budget counts.
     pub fn budget_peak(&self) -> usize {
         self.ledgers
             .iter()
@@ -688,8 +654,8 @@ impl Admitted {
     /// least budget its ledgers can admit work against at which it runs as
     /// the unlimited session does.
     ///
-    /// That is the larger of `Λ`, every ledger's peak outside its floor
-    /// slots, and the [`share_peak`](Self::share_peak).
+    /// That is the larger of `Λ`, every ledger's peak excess, and the
+    /// [`share_peak`](Self::share_peak).
     ///
     /// Below `Λ` some admission the unlimited session made would not fit,
     /// and below the share peak some question it asked would not fit beside
@@ -713,26 +679,20 @@ impl Admitted {
 }
 
 /// One ledger's reading while its session runs: the reading so far, and
-/// what integrating its budget-counted bytes over time needs.
+/// what integrating its excess over time needs.
 #[derive(Default)]
 struct Reading {
     /// The order of the ledger's first report among this thread's ledgers.
     order: usize,
     /// The reading so far.
     reading: LedgerReading,
-    /// The bytes held outside floor slots after the last change, and the
-    /// link time of that change.
+    /// The excess after the last change, and the link time of that change.
     last: (usize, u64),
     /// The bytes held in all after the last change.
     held: usize,
     /// The bytes held for each place after the last change, in
     /// [`Holding::ALL`](rumors::testing::Holding::ALL) order.
     places: [usize; PLACES],
-    /// The bytes charges built out of floor grants held after the last
-    /// change.
-    floor: usize,
-    /// The bytes floor slots carried after the last change.
-    carried: usize,
     /// Each holder's bytes now, the link time they last changed, and the
     /// waiting clock's reading then.
     holders: BTreeMap<Holder, (usize, u64, u64)>,
@@ -845,7 +805,6 @@ fn record_change(change: LedgerChange) {
                 let holder = Holder {
                     place,
                     unit: change.unit,
-                    through_floor: change.through_floor,
                 };
                 ledger.hold(holder, now, delta);
             }
@@ -855,55 +814,39 @@ fn record_change(change: LedgerChange) {
             last,
             held,
             places,
-            floor,
-            carried,
             holders,
             ..
         } = ledger;
         let before_held = std::mem::replace(held, change.held);
-        let normal = change.held - change.floor - change.carried;
+        let excess = change.excess;
         let (before, since) = *last;
         let elapsed = u128::from(now - since);
         reading.budget_area += before as u128 * elapsed;
         for (area, bytes) in reading.place_area.iter_mut().zip(*places) {
             *area += bytes as u128 * elapsed;
         }
-        reading.floor_area += *floor as u128 * elapsed;
-        reading.carried_area += *carried as u128 * elapsed;
-        if change.carried > *carried
-            && let Some(unit) = change.unit
-        {
-            reading.carries.push(Carry {
-                at: now,
-                unit,
-                bytes: change.carried - *carried,
-            });
-        }
         *places = change.places;
-        *floor = change.floor;
-        *carried = change.carried;
-        *last = (normal, now);
+        *last = (excess, now);
         match reading.profile.last_mut() {
-            Some(step) if step.at == now => step.bytes = normal,
-            Some(step) if step.bytes == normal => {}
+            Some(step) if step.at == now => step.bytes = excess,
+            Some(step) if step.bytes == excess => {}
             _ => reading.profile.push(Step {
                 at: now,
-                bytes: normal,
+                bytes: excess,
             }),
         }
-        if normal > reading.budget_peak {
-            reading.budget_peak = normal;
+        if excess > reading.budget_peak {
+            reading.budget_peak = excess;
             reading.budget_peak_at = now;
-            reading.budget_peak_carried = change.carried;
+            reading.budget_peak_held = change.held;
             reading.budget_peak_holders = holders
                 .iter()
-                .filter(|(holder, (bytes, ..))| !holder.through_floor && *bytes > 0)
+                .filter(|(_, (bytes, ..))| *bytes > 0)
                 .map(|(holder, (bytes, ..))| (*holder, *bytes))
                 .collect();
         }
         reading.held_peak = reading.held_peak.max(change.held);
-        reading.floor_peak = reading.floor_peak.max(change.floor + change.carried);
-        reading.floor_bound = reading.floor_bound.max(change.floor_bound);
+        reading.within_bounds_peak = reading.within_bounds_peak.max(change.held - excess);
         if change.share_peak.sum > reading.share_peak {
             reading.share_peak = change.share_peak.sum;
             reading.share_peaks[change.share_peak.depth] = change.share_peak.sum;
@@ -955,7 +898,7 @@ fn record_admission(admission: Admission) {
                     question: admission.question,
                     depth: admission.depth,
                     bytes: admission.bytes,
-                    floor: admission.floor,
+                    exempt: admission.exempt,
                 });
             }
         }
@@ -965,7 +908,7 @@ fn record_admission(admission: Admission) {
                 at: now,
                 depth: admission.depth,
                 question: admission.question,
-                floor: admission.floor,
+                exempt: admission.exempt,
                 waited: admission.waited,
                 bytes: admission.bytes,
             });
@@ -1009,8 +952,8 @@ fn start_reading(link: &Link) {
 /// the rises in what it holds: two computations of one quantity must
 /// agree.
 ///
-/// If a ledger granted a unit more than its kind and depth's slot bound
-/// ([`slot_bound`]), or admitted units of both sides' kinds and depths: the
+/// If a ledger granted a unit more than its kind and depth's bound
+/// ([`grant_bound`]), or admitted units of both sides' kinds and depths: the
 /// floor allowance a session sets aside rests on neither happening.
 fn admitted() -> Admitted {
     READINGS.with(|readings| {
@@ -1053,10 +996,10 @@ fn admitted() -> Admitted {
                     depth: admission.depth,
                 };
                 assert!(
-                    admission.bytes <= slot_bound(unit),
-                    "a grant of {} B to {unit:?} exceeds its slot bound of {} B",
+                    admission.bytes <= grant_bound(unit),
+                    "a grant of {} B to {unit:?} exceeds its bound of {} B",
                     admission.bytes,
-                    slot_bound(unit),
+                    grant_bound(unit),
                 );
             }
             // A side asks about scopes at the depths of one parity and
