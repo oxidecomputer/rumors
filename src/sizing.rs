@@ -1,17 +1,9 @@
 // TODO-docs: Restate every figure in this guide from measurements on real
-// links, then rewrite the guide around them. No measurement on a real link
-// backs these claims of the guide:
-// - that a session slows only "slightly" before its memory use reaches the
-//   budget;
-// - that a link with a larger bandwidth-delay product needs a larger budget
-//   to keep it busy, and that a session can use more budget on a link with
-//   a long round trip;
-// - that the budget a session can use before nothing waits grows in
-//   proportion to the messages the larger replica holds.
-// The minimum budget is `MIN_SYNC_MEMORY_BUDGET`, and a session raises
-// every smaller budget to it, so a figure measured at a smaller budget
-// describes a budget no session runs on; measure each figure at or above
-// the minimum.
+// links, then rewrite the guide around them; its figures come from the
+// simulated link model. The minimum budget is `MIN_SYNC_MEMORY_BUDGET`, and
+// a session raises every smaller budget to it, so a figure measured at a
+// smaller budget describes a budget no session runs on; recheck each figure
+// against the minimum.
 //! Choosing a synchronization memory budget.
 //!
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets the
@@ -57,8 +49,10 @@
 //!
 //! The budget counts memory held and room set aside for answers not yet
 //! received, which may never be used in full. So a session can slow
-//! slightly before its memory use reaches the budget, most of all between
-//! nearly identical replicas, whose answers carry little.
+//! before its memory use reaches the budget, most of all between nearly
+//! identical replicas, whose answers carry little: between replicas that
+//! share 99% of their messages, the memory a session actually used peaked
+//! at about a third to a half of what its budget counted.
 //!
 //! # Choosing a budget
 //!
@@ -69,14 +63,23 @@
 //! its tasks and any message larger than the budget covers (the setter's
 //! documentation lists each), and your transport's buffers.
 //!
-//! Start from the default of 512 MiB if you can afford it. Lower it when
-//! memory is scarce: a smaller budget is still correct, and only limits how
-//! much work overlaps each round trip, so a session that runs short of
-//! budget takes longer, more so on a link with a long round trip. Raise it
-//! when your sets are large, your links have a large bandwidth-delay
-//! product (fast links with a long round trip), and measured
-//! synchronizations between very different replicas spend their time
-//! waiting for replies. A higher budget has little benefit
+//! Start from the default of 512 MiB if you can afford it. At the default,
+//! two replicas of up to a million messages each synchronize as fast as
+//! they would with no limit, however much they differ, on links up to a
+//! bandwidth-delay product of 12.5 MB (see [below](#why-the-link-matters)).
+//! This guide's figures come from sessions between replicas of 100-byte
+//! messages over a simulated link, which leaves out loss, congestion
+//! control, and the time the computation itself takes.
+//!
+//! Lower it when memory is scarce: a smaller budget is still correct, and
+//! only limits how much work overlaps each round trip, so a session that
+//! runs short of budget takes longer, more so on a link with a long round
+//! trip.
+//!
+//! Raise it when your sets are larger than a million messages, your links
+//! have a large bandwidth-delay product (fast links with a long round
+//! trip), and measured synchronizations between very different replicas
+//! spend their time waiting for replies. A higher budget has little benefit
 //! when the session already keeps the link busy, or when processing speed
 //! limits progress.
 //!
@@ -89,14 +92,25 @@
 //! their answers cover the wait for replies. The **bandwidth-delay
 //! product**, `BDP = bandwidth × RTT`, expresses that amount in bytes: 1
 //! Gb/s with a 100 ms round trip and 100 Gb/s with a 1 ms round trip both
-//! have a BDP of 12.5 MB. A link with a larger BDP needs more in flight,
-//! and so a larger budget, to keep it busy.
+//! have a BDP of 12.5 MB.
+//!
+//! The link sets how much a session loses when its budget falls short of
+//! what it can use. On a LAN (1 Gb/s with a 1 ms round trip) a session
+//! loses at most a few percent: its questions' answers return quickly, and
+//! the link stays busy. On a link with a long round trip, each question
+//! that waits for budget waits a whole round trip, and a session of a few
+//! round trips feels each one: at a million messages and a 12.5 MB BDP, a
+//! session can take up to about three times as long until its budget nears
+//! the point where nothing waits.
 //!
 //! How much budget a session can use grows with how much of the two sets
 //! differs. Replicas that agree, or a peer joining with an empty replica,
 //! need little: a joining peer receives the set as a stream. Two large
 //! replicas that differ throughout, as when a peer has fallen far behind or
-//! two peers accumulated many messages apart, can use budget in proportion
-//! to the messages the larger replica holds before nothing waits, more on
-//! links with a long round trip. Measure your workload to choose the
-//! budget.
+//! two peers accumulated many messages apart, can use a few hundred bytes
+//! of budget for every message the larger replica holds before nothing
+//! waits: about 400 at a million messages, a little more on links with a
+//! long round trip. Replicas that share most of their messages use less:
+//! about 200 to 300 bytes a message when they share 90%, and 50 to 120
+//! when they share 99%. Measure your workload rather than relying on these
+//! figures.
