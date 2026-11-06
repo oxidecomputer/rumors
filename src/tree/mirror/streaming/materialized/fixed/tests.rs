@@ -1,12 +1,13 @@
 //! The fixed allowance's figure, and how the minimum budget and the
-//! ledger's budget divide a memory budget around it.
+//! ledger's budget divide a memory budget around the session allowance.
 
 use proptest::prelude::*;
 
-use super::fixed_allowance;
+use super::{fixed_allowance, session_allowance};
 use crate::tree::mirror::streaming::{
     Backend, Local,
-    materialized::{admission_budget, floor_allowance, largest_grant, min_memory_budget},
+    materialized::{Allowances, floor_allowance, largest_grant},
+    remote::wire_pools_bytes,
 };
 
 /// The in-memory backend's floor allowance.
@@ -29,31 +30,103 @@ fn the_fixed_allowance_is_the_documented_figure() {
     );
 }
 
-/// Budgets around the floor and fixed allowances, where the ledger's budget
-/// leaves zero, and across the whole range.
-fn budgets() -> impl Strategy<Value = usize> {
-    let set_aside = FLOOR + fixed_allowance::<Local>();
+/// Message-size targets around zero, around the run's frame overhead, and
+/// across the whole range.
+fn targets() -> impl Strategy<Value = usize> {
+    prop_oneof![0usize..1 << 12, 0usize..1 << 24, any::<usize>()]
+}
+
+/// Budgets around the floor and session allowances at `target`, where the
+/// ledger's budget leaves zero, and across the whole range.
+fn budgets(target: usize) -> impl Strategy<Value = usize> {
+    let set_aside = FLOOR.saturating_add(session_allowance::<Local>(target));
     prop_oneof![
-        0..=2 * set_aside,
-        set_aside - 1..=set_aside + 1,
+        0..=set_aside.saturating_mul(2),
+        set_aside.saturating_sub(1)..=set_aside.saturating_add(1),
+        any::<usize>(),
+    ]
+}
+
+/// Allowance parts and memory or ledger budgets from the small values
+/// real allowances take to `usize::MAX`, the saturated session allowance a
+/// `usize` narrower than 64 bits gives at the largest targets included.
+fn bytes() -> impl Strategy<Value = usize> {
+    prop_oneof![
+        0usize..1 << 12,
+        0usize..1 << 32,
+        usize::MAX - (1 << 12)..=usize::MAX,
+        Just(usize::MAX),
         any::<usize>(),
     ]
 }
 
 proptest! {
-    /// At every message-size target, a memory budget at the minimum for
-    /// that target leaves its ledger exactly the largest grant.
+    /// At every message-size target, a ledger gets what its memory budget
+    /// leaves beside the floor and session allowances, `B = M − A − X`.
     ///
-    /// So the ledger can always admit any one unit beside the floor slots.
-    /// And every byte of budget above the floor and fixed allowances goes to
-    /// the ledger, while a budget at or below them leaves it nothing.
+    /// A memory budget at the minimum for the target leaves its ledger
+    /// exactly the largest grant, so the ledger can always admit any one
+    /// unit beside the floor slots, and every byte of budget above the
+    /// minimum goes to the ledger. The session allowance is the fixed
+    /// allowance beside the two wire pools at the target. Where the minimum
+    /// saturates, `M − A − X` stands for nothing a `usize` counts, and only
+    /// the largest grant is claimed
+    /// (`requested_budgets_cover_the_largest_grant`). A test-path ledger
+    /// budget sits beside both allowances, and `B = M − A − X` gives it
+    /// back wherever its memory budget does not saturate.
     #[test]
     fn the_ledger_admits_against_what_the_allowances_leave(
-        target in any::<usize>(),
-        budget in budgets(),
+        (target, budget) in targets().prop_flat_map(|target| (Just(target), budgets(target))),
     ) {
-        let set_aside = FLOOR + fixed_allowance::<Local>();
-        prop_assert_eq!(admission_budget::<Local>(min_memory_budget::<Local>(target)), LARGEST);
-        prop_assert_eq!(admission_budget::<Local>(budget), budget.saturating_sub(set_aside));
+        let allowance = session_allowance::<Local>(target);
+        prop_assert_eq!(allowance, fixed_allowance::<Local>().saturating_add(wire_pools_bytes(target)));
+        let allowances = Allowances::of::<Local>(target);
+        let minimum = allowances.minimum();
+        prop_assert_eq!(minimum, (FLOOR + LARGEST).saturating_add(allowance));
+        prop_assert_eq!(allowances.requested(minimum).ledger, LARGEST);
+        let leaves = |memory: usize| memory.saturating_sub(FLOOR).saturating_sub(allowance);
+
+        let requested = allowances.requested(budget);
+        prop_assert_eq!(requested.memory, budget.max(minimum));
+        if minimum < usize::MAX {
+            prop_assert_eq!(requested.ledger, leaves(requested.memory));
+        }
+
+        let exact = allowances.ledger(budget);
+        prop_assert_eq!(exact.ledger, budget);
+        prop_assert_eq!(exact.memory, FLOOR.saturating_add(allowance).saturating_add(budget));
+        if exact.memory < usize::MAX {
+            prop_assert_eq!(leaves(exact.memory), budget);
+        }
+    }
+
+    /// Whatever the allowances, saturated ones included, a requested memory
+    /// budget gives its ledger at least the largest grant.
+    ///
+    /// It holds the session to the larger of the request and the minimum,
+    /// and below saturation, that memory budget is exactly the ledger's
+    /// beside the floor and session allowances.
+    ///
+    /// On a 32-bit target the wire pools at a target of about 1 GiB or more
+    /// saturate the session allowance and with it the minimum, a regime no
+    /// 64-bit target reaches through the types. A request of `usize::MAX`
+    /// there must still leave the ledger the largest grant, never the zero
+    /// that subtracting a saturated allowance from it leaves.
+    #[test]
+    fn requested_budgets_cover_the_largest_grant(
+        floor in bytes(),
+        largest in bytes(),
+        session in bytes(),
+        memory in bytes(),
+    ) {
+        let allowances = Allowances::new(floor, largest, session);
+        let minimum = allowances.minimum();
+        prop_assert_eq!(minimum, floor.saturating_add(session).saturating_add(largest));
+        let requested = allowances.requested(memory);
+        prop_assert!(requested.ledger >= largest);
+        prop_assert_eq!(requested.memory, memory.max(minimum));
+        if minimum < usize::MAX {
+            prop_assert_eq!(requested.memory, floor + session + requested.ledger);
+        }
     }
 }

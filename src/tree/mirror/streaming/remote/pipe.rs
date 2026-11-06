@@ -177,7 +177,7 @@ use crate::tree::mirror::streaming::{
     FAN,
     channel::{QueueKind, QueueRole, Receiver, Sender, channel},
     holding::{Holding, holding},
-    ledger::Charge,
+    ledger::{Charge, queued, shared},
     stats::{CountedRead, CountedWrite, Recorder},
     tasks::cancelled,
 };
@@ -186,7 +186,7 @@ mod pool;
 
 #[cfg(test)]
 pub(crate) use pool::{PERMIT_BYTES, receive_waits};
-pub(crate) use pool::{WIRE_POOL_RUNS, WirePermit, WirePool, WirePools};
+pub(crate) use pool::{WIRE_POOL_RUNS, WirePermit, WirePool, WirePools, wire_pools_bytes};
 
 use super::codec::{
     DecodeError, DecodeErrorKind, EncodeError, End, FULL_FAN_QUERY_FRAME_LEN, Frame, FrameRead,
@@ -1117,6 +1117,34 @@ pub(crate) const WRITE_BUFFER_BYTES: usize =
 /// limit, takes more rounds of encryption and socket writes, never a wrong
 /// byte.
 const TLS_SEND_LIMIT: usize = 64 * 1024;
+
+/// The most bytes one side's pipe holds at once beside its runs and the
+/// frames its chunks and its replies' rooms price: its *fixed wire state*.
+///
+/// That is, on the in-memory backend and every other, since none of it
+/// depends on the replicas:
+///
+/// - the multiplexer's write buffer ([`WRITE_BUFFER_BYTES`]);
+/// - the frame reader's scratch for a listing's bulk reads, which holds one
+///   listing's entries at a time, at most a full-fan query frame's bytes,
+///   in a vector at most twice its length;
+/// - each lane's channel node that no frame's charge or permit prices: the
+///   node of the last frame taken, which a channel keeps as its queue's
+///   stub, in each of the [`STREAM_COUNT`](super::STREAM_COUNT) lanes each
+///   way, and the end of each sending stream, which no chunk carries;
+/// - the pipe's own state, set up once per session: the multiplexer's
+///   lanes, in vectors at most twice their length, their wakers and the
+///   state the wakers share, and the demultiplexer's routes.
+pub(crate) const fn fixed_wire_bytes() -> usize {
+    let streams = super::STREAM_COUNT;
+    let listing = 2 * FULL_FAN_QUERY_FRAME_LEN;
+    let shells = streams * (2 * queued::<Outbound>() + queued::<Inbound>());
+    let lanes = 2 * streams * (size_of::<OutgoingLane>() + size_of::<bool>())
+        + streams * shared::<LaneWaker>()
+        + shared::<Mutex<Wakes>>();
+    let routes = streams * size_of::<IncomingLane>();
+    WRITE_BUFFER_BYTES + listing + shells + lanes + routes
+}
 
 const _: () = assert!(
     FULL_FAN_QUERY_FRAME_LEN < WRITE_BUFFER_BYTES

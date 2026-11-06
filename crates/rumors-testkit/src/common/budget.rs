@@ -12,13 +12,13 @@
 //! explicit byte budgets and the production default on top. Every budget
 //! sets aside the floor allowance
 //! ([`floor_allowance`](rumors::testing::floor_allowance)) for the floor
-//! slots and the fixed allowance
-//! ([`FIXED_ALLOWANCE`](rumors::testing::FIXED_ALLOWANCE)) for the
-//! session's fixed state, and admits work beyond them against the rest, so
-//! the explicit budgets are drawn beyond both. Peers draw choices
-//! independently, so sessions between differently-configured endpoints
-//! arise throughout the population; each side of such a session admits its
-//! work against its own budget.
+//! slots and the session allowance
+//! ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE)) for the
+//! session's fixed state and wire pools, and admits work beyond them
+//! against the rest, so the explicit budgets are drawn beyond both. Peers
+//! draw choices independently, so sessions between differently-configured
+//! endpoints arise throughout the population; each side of such a session
+//! admits its work against its own budget.
 
 use crate::bench::session::admitting;
 use proptest::prelude::*;
@@ -97,17 +97,17 @@ impl BudgetAssignment {
 
 /// Smallest power-of-two exponent the budget arm draws: budgets admitting
 /// from `2^MIN_BUDGET_EXPONENT` bytes, 4 KiB, upward beside the floor and
-/// fixed allowances.
+/// session allowances.
 pub const MIN_BUDGET_EXPONENT: u32 = 12;
 
 /// Largest power-of-two exponent the budget arm draws: budgets admitting
-/// up to `2^MAX_BUDGET_EXPONENT` bytes, 16 MiB, beside the floor and fixed
+/// up to `2^MAX_BUDGET_EXPONENT` bytes, 16 MiB, beside the floor and session
 /// allowances.
 pub const MAX_BUDGET_EXPONENT: u32 = 24;
 
 /// Strategy for one peer's budget choice.
 ///
-/// The budget arm draws the floor and fixed allowances and `2^e + jitter`
+/// The budget arm draws the floor and session allowances and `2^e + jitter`
 /// beside them, for `e` across
 /// [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`] ([`admitting`]),
 /// through the public setter: the draws below

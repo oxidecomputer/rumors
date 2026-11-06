@@ -56,7 +56,13 @@ pub enum Holding {
     /// included, before they are encoded: the charge's outgoing-replies
     /// term.
     OutgoingReplies,
-    /// Encoding, multiplexing, demultiplexing, and decoding wire frames.
+    /// Encoding, multiplexing, demultiplexing, and decoding wire frames,
+    /// which the session allowance covers.
+    ///
+    /// That is the supply runs on their way through the pipe, which the
+    /// wire pools bound, and the pipe's fixed state, which the fixed
+    /// allowance sets aside. Every other frame is the state of the place
+    /// whose charge prices it.
     Wire,
     /// Assembling resolved scopes into the merged tree, with the queues of
     /// fixed capacity around it: the level return queues between

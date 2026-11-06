@@ -113,7 +113,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Node as _, Root,
         erased::{self, Reaction, Reply},
-        ledger::{Charge, Ledger, ReplyBound},
+        ledger::{Charge, Ledger, ReplyBound, max},
         message::{CountError, Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
@@ -138,7 +138,9 @@ mod work;
 use super::channel::{Receiver, Sender};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use fixed::assembly_allowance;
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) use fixed::fixed_allowance;
+pub(crate) use fixed::session_allowance;
 /// Named for the documentation of `LaterMatches`, which links the covered
 /// set's net price.
 #[cfg(doc)]
@@ -159,47 +161,119 @@ fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
     Err(Error::Violation(violation))
 }
 
-/// The budget a session's ledger admits work against when the session may
-/// hold `budget` in all.
-///
-/// That is `budget` less what every session over `B`'s nodes sets aside:
-/// the floor allowance of its walk ([`floor_allowance`]) and the fixed
-/// allowance of its fixed state ([`fixed_allowance`]). A `budget` no
-/// more than those two leaves nothing beyond the floor slots.
-fn admission_budget<B: Backend<Node<Z>: Leaf>>(budget: usize) -> usize {
-    budget
-        .saturating_sub(floor_allowance::<B::Erased, B::Error>())
-        .saturating_sub(fixed_allowance::<B>())
+/// How a session divides what it may hold: the most it holds in all, and
+/// the budget its ledger admits work against
+/// ([`Allowances::requested`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SessionBudget {
+    /// The most the session holds in all: what its ledger admits, what its
+    /// floor slots hold, its fixed state, and its wire pools together.
+    pub(crate) memory: usize,
+    /// The budget its ledger admits work against beside its floor slots
+    /// ([`Handshaking::budget`]).
+    pub(crate) ledger: usize,
 }
 
-/// The least memory budget a session over `B`'s nodes runs on through the
-/// public API when its peer's own message-size target is
-/// `_target_message_size`.
+/// What a session sets aside out of its memory budget beside its ledger,
+/// and the least ledger budget a session the public API runs gets.
 ///
-/// It is the floor allowance ([`floor_allowance`]), the largest grant
-/// beside it ([`largest_grant`]), and the fixed allowance
-/// ([`fixed_allowance`]).
-///
-/// A memory budget of at least this gives its ledger a budget of at least
-/// the largest grant ([`admission_budget`]), exactly the largest grant at
-/// the minimum itself, so the ledger can always admit any one unit beside
-/// the floor slots. Below it, a session runs in a
-/// starved regime where units race for room, and a larger budget can slow
-/// a session by more than a round trip. Every session the public API runs
-/// has at least this, since a peer raises its budget to the minimum for its
-/// target ([`MemoryBudget::effective`](crate::peer::MemoryBudget::effective));
-/// a ledger budget below the largest grant is reachable only by setting it
-/// directly ([`Handshaking::budget`]).
-///
-/// No term depends on the target, so the minimum is the same at every
-/// target. Callers pass the target anyway, so that each computation of the
-/// minimum names the target it is the minimum for.
-pub(crate) const fn min_memory_budget<B: Backend<Node<Z>: Leaf>>(
-    _target_message_size: usize,
-) -> usize {
-    floor_allowance::<B::Erased, B::Error>()
-        + largest_grant::<B::Erased, B::Error>()
-        + fixed_allowance::<B>()
+/// Every session a peer runs takes its two budgets from here, so wherever
+/// they do not saturate, a memory budget `M` and its ledger's budget `B`
+/// keep `M = B + A + X` (admission's module docs,
+/// [`ledger`](super::ledger)), where `A` is the floor allowance
+/// ([`floor_allowance`]) and `X` the session allowance at the peer's own
+/// message-size target ([`session_allowance`]); and a requested memory
+/// budget never leaves its ledger less than the largest grant
+/// ([`largest_grant`]), saturated or not.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Allowances {
+    /// The floor allowance beside the session allowance, `A + X`,
+    /// saturating at `usize::MAX`.
+    set_aside: usize,
+    /// The largest grant: the least ledger budget a requested memory
+    /// budget gets, so that its ledger can always admit any one unit beside
+    /// the floor slots.
+    largest_grant: usize,
+}
+
+impl Allowances {
+    /// The allowances of a session over `B`'s nodes whose peer's own
+    /// message-size target is `target`.
+    pub(crate) const fn of<B: Backend<Node<Z>: Leaf>>(target: usize) -> Self {
+        Self::new(
+            floor_allowance::<B::Erased, B::Error>(),
+            largest_grant::<B::Erased, B::Error>(),
+            session_allowance::<B>(target),
+        )
+    }
+
+    /// The allowances made of the floor allowance `floor`, the largest
+    /// grant `largest_grant`, and the session allowance `session`.
+    ///
+    /// [`of`](Self::of) derives the three from types. Tests pass them
+    /// directly to reach a saturated session allowance, which only a
+    /// `usize` narrower than 64 bits gives, at the largest targets.
+    const fn new(floor: usize, largest_grant: usize, session: usize) -> Self {
+        Self {
+            set_aside: floor.saturating_add(session),
+            largest_grant,
+        }
+    }
+
+    /// The least memory budget a session runs on through the public API:
+    /// the floor allowance, the largest grant beside it, and the session
+    /// allowance, saturating at `usize::MAX`.
+    ///
+    /// At this budget its ledger admits exactly the largest grant, so it
+    /// can always admit any one unit beside the floor slots. Below it, a
+    /// session would run in a starved regime where units race for room,
+    /// and a larger budget can slow a session by more than a round trip;
+    /// a peer raises every requested budget to this
+    /// ([`requested`](Self::requested)), so only the test path's ledger
+    /// budgets reach that regime ([`ledger`](Self::ledger)).
+    ///
+    /// The wire pools grow with the target, so the minimum does too: about
+    /// two runs at the target in each direction beside a fixed part.
+    pub(crate) const fn minimum(self) -> usize {
+        self.set_aside.saturating_add(self.largest_grant)
+    }
+
+    /// What the memory budget `memory` leaves beside the floor and session
+    /// allowances, or zero.
+    pub(crate) const fn left(self, memory: usize) -> usize {
+        memory.saturating_sub(self.set_aside)
+    }
+
+    /// The budgets of a session on the memory budget its peer was given,
+    /// `memory`.
+    ///
+    /// The session holds at most the larger of `memory` and the
+    /// [`minimum`](Self::minimum), and its ledger admits what `memory`
+    /// leaves beside the two allowances, but never less than the largest
+    /// grant. Below saturation, the memory budget is exactly the ledger's
+    /// beside the two allowances. Where the allowances saturate, which only
+    /// a `usize` narrower than 64 bits allows at the largest targets, the
+    /// minimum is `usize::MAX`, which no address space holds, and the
+    /// ledger still gets the largest grant.
+    pub(crate) const fn requested(self, memory: usize) -> SessionBudget {
+        SessionBudget {
+            memory: max(memory, self.minimum()),
+            ledger: max(self.left(memory), self.largest_grant),
+        }
+    }
+
+    /// The budgets of a session whose ledger admits exactly `ledger`, below
+    /// the largest grant included: the ledger beside the two allowances,
+    /// saturating.
+    ///
+    /// This is the test path's ([`ledger_budget`](crate::testing::ledger_budget)).
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) const fn ledger(self, ledger: usize) -> SessionBudget {
+        SessionBudget {
+            memory: self.set_aside.saturating_add(ledger),
+            ledger,
+        }
+    }
 }
 
 /// Tracks supplied leaves against the peer's declared set length.
@@ -494,39 +568,27 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     /// every node caches its digest under that network's hash key. They may
     /// be `None` only when `root` is empty and its counterparty is
     /// bootstrapping too ([`hash_key`]).
+    ///
+    /// Its ledger admits what the library's default memory budget gives it
+    /// at that target ([`Allowances::requested`]) until
+    /// [`budget`](Self::budget) selects another.
     pub fn start(
         backend: B,
         root: Root<B>,
         keys: Option<Arc<NetworkKeys>>,
         target_message_size: u64,
     ) -> Self {
+        let target = usize::try_from(target_message_size).unwrap_or(usize::MAX);
+        let budget = Allowances::of::<B>(target).requested(crate::default::SYNC_MEMORY_BUDGET);
         Self {
             backend,
             state: Start,
             root,
             target_message_size,
             stats: Recorder::default(),
-            ledger: Ledger::new(admission_budget::<B>(crate::default::SYNC_MEMORY_BUDGET)),
+            ledger: Ledger::new(budget.ledger),
             keys,
         }
-    }
-
-    /// Select the most this session may hold, `budget`, as
-    /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets
-    /// it.
-    ///
-    /// Its ledger admits work against `budget` less the floor allowance
-    /// ([`floor_allowance`]) and the fixed allowance ([`fixed_allowance`]),
-    /// so that what it holds outside its floor slots, what they hold, and
-    /// its fixed state come to at most `budget` together.
-    ///
-    /// This applies `budget` as given: a peer raises its budget to
-    /// [`min_memory_budget`] for its target before it reaches here. A
-    /// budget at or below the two allowances together admits work through
-    /// the floor slots alone, as a ledger budget of zero does
-    /// ([`budget`](Self::budget)).
-    pub fn sync_memory_budget(self, budget: usize) -> Self {
-        self.budget(admission_budget::<B>(budget))
     }
 
     /// Select the budget this session's ledger admits its work against

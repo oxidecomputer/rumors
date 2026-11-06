@@ -254,11 +254,11 @@
 //! session's budget is at least
 //! [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET): that part,
 //! room beside it for the largest single question or answer, and the
-//! fixed state a session holds whatever its budget.
-//! Message bodies are governed separately: supplies stream as
-//! size-targeted runs, with at most 258 runs buffered per level sending,
-//! and 257 per level receiving plus one more for the whole receiving
-//! direction ([`Peer::target_message_size`](crate::Peer::target_message_size)).
+//! fixed state a session holds whatever its budget, and room for the
+//! messages on their way through the connection. Supplies stream as
+//! size-targeted runs, and that room holds about two runs at the peer's own
+//! target in each direction, however many levels send them
+//! ([`Peer::target_message_size`](crate::Peer::target_message_size)).
 //! The budget's contract is at
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);
 //! [the sizing guide](crate::sizing) explains how to choose it.

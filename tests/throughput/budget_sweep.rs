@@ -5,8 +5,8 @@
 //!
 //! For one pair on one link, write `T∞` for the session's duration with an
 //! unlimited budget, `F` for the floor allowance every budget sets aside
-//! for the floor slots, `X` for the fixed allowance it sets aside for the
-//! session's fixed state, beyond both of which a ledger admits work against
+//! for the floor slots, `X` for the session allowance it sets aside for the
+//! session's fixed state and wire pools, beyond both of which a ledger admits work against
 //! the rest, `M` for [`MIN_SYNC_MEMORY_BUDGET`], the least budget the public
 //! setter lets a session run on, `N*` for the session's no-cost point, the ledger budget defined
 //! in [`no_slowdown`](super::no_slowdown), `W` for the bytes the busier
@@ -91,7 +91,7 @@
 //! each.
 
 use rumors::MIN_SYNC_MEMORY_BUDGET;
-use rumors::testing::{FIXED_ALLOWANCE, floor_allowance, ledger_budget_within};
+use rumors::testing::{SESSION_ALLOWANCE, floor_allowance, ledger_budget_within};
 use rumors_testkit::bench::link::{LinkConfig, Side};
 use rumors_testkit::bench::session::{
     self as fixture, Case, DEPTHS, Grants, LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Session, Shape,
@@ -134,7 +134,7 @@ const PAIRS: [(Shape, u64); 5] = [
 /// The denominator of the ladder's fractions of `N*`.
 const SIXTEENTHS: usize = 16;
 
-/// The budgets each pair runs at beside the floor and fixed allowances, in
+/// The budgets each pair runs at beside the floor and session allowances, in
 /// sixteenths of its `N*`: from none, where only the floor slots admit
 /// work, through `N*` itself, to twice it.
 const LADDER: [usize; 9] = [0, 1, 4, 8, 12, 15, 16, 20, 32];
@@ -148,7 +148,7 @@ fn below_floor() -> usize {
 /// The budget at the ladder's rung `sixteenths`, for a pair whose no-cost
 /// point is `no_cost`.
 ///
-/// That is the floor and fixed allowances and the rung's fraction of the
+/// That is the floor and session allowances and the rung's fraction of the
 /// no-cost point beside them, at least [`admitting`] the no-cost point exactly when
 /// the rung is at least `N*`.
 fn budget(no_cost: usize, sixteenths: usize) -> usize {
@@ -178,7 +178,7 @@ const RUNGS: usize = LADDER.len() + 2;
 const MINIMUM_RUNG: usize = LADDER.len();
 
 /// Every pair at every rung, pair-major: the ladder's, each a fraction of
-/// the pair's no-cost point in `no_cost` beside the floor and fixed
+/// the pair's no-cost point in `no_cost` beside the floor and session
 /// allowances, then [`MIN_SYNC_MEMORY_BUDGET`], then [`below_floor`].
 fn ladder(no_cost: &[usize; PAIRS.len()]) -> [Case; PAIRS.len() * RUNGS] {
     std::array::from_fn(|index| {
@@ -239,7 +239,7 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
     let runs_on = requested(case).max(MIN_SYNC_MEMORY_BUDGET);
     let admitted = ledger_budget_within(runs_on);
     println!(
-        "{:?} on BDP {}: B = {}, B' = {runs_on} (F + X = {allowance} + {FIXED_ALLOWANCE} \
+        "{:?} on BDP {}: B = {}, B' = {runs_on} (F + X = {allowance} + {SESSION_ALLOWANCE} \
          + {:.4} N*), {} waited, T = {} byte-times, T∞ = {}, floor {floor}",
         case.shape,
         case.link.bdp(),
@@ -281,7 +281,7 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
         assert!(
             ledger.budget_peak <= admitted,
             "a ledger held {} B outside its floor slots, over the {admitted} B the budget \
-             admits beside the floor and fixed allowances: {case:?}",
+             admits beside the floor and session allowances: {case:?}",
             ledger.budget_peak,
         );
         assert!(
@@ -307,12 +307,12 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// Across a ladder of budgets, every session keeps the exact properties.
 ///
 /// They are identity with the unlimited session at or above the no-cost
-/// point beside the floor and fixed allowances, identity with the session at
+/// point beside the floor and session allowances, identity with the session at
 /// [`MIN_SYNC_MEMORY_BUDGET`] below it, and the bytes, the lower bound on
 /// duration, and ledger exactness at every budget.
 ///
 /// Every session whose budget, raised to the minimum, admits at least its
-/// pair's no-cost point beside the floor and fixed allowances is the
+/// pair's no-cost point beside the floor and session allowances is the
 /// unlimited session, event for event, with no unit waiting; every session
 /// below the minimum, at the two allowances and at half the floor
 /// allowance included, is the session at the minimum; every session

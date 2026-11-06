@@ -1,14 +1,20 @@
-//! The *fixed allowance*: what a session holds outside its ledger whatever
-//! its budget and the replicas' sizes, priced from types, which its memory
-//! budget sets aside beside the floor allowance.
+//! The *session allowance*: what a session holds outside its ledger
+//! whatever its budget and the replicas' sizes, which its memory budget
+//! sets aside beside the floor allowance.
+//!
+//! It is priced from types and the peer's own message-size target.
 //!
 //! The ledger charges the walk's items, which grow with the work in
 //! flight. Some state grows with neither: the decode fans that carry
 //! supplied leaves to assembly, assembly's queues and open spines, the
-//! preimages hashing builds, and the scratch the walk's stages fill before
-//! they charge what they built. Each is bounded by capacities and type
-//! sizes alone, so the budget sets the sum aside once
-//! ([`fixed_allowance`]), and the ledger admits work against what remains.
+//! preimages hashing builds, the scratch the walk's stages fill before they
+//! charge what they built, and the pipe's fixed state. Each is bounded by
+//! capacities and type sizes alone, so the budget sets the sum aside once,
+//! the *fixed allowance* ([`fixed_allowance`]). The supply runs on their
+//! way through the pipe are bounded by the wire pools, sized at the
+//! target ([`wire_pools_bytes`]). The two together are the session
+//! allowance ([`session_allowance`]), and the ledger admits work against
+//! what the budget leaves beside it and the floor allowance.
 //!
 //! Every term counts requested bytes, as the ledger's charges do, so the
 //! allocator's rounding is part of none of them.
@@ -19,7 +25,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, FAN, Leaf,
         holding::Holding,
-        remote::{STREAM_COUNT, decode_ahead_bytes},
+        remote::{STREAM_COUNT, decode_ahead_bytes, fixed_wire_bytes, wire_pools_bytes},
     },
     typed::{
         ErasedPrefix,
@@ -88,7 +94,9 @@ pub(crate) const fn working_buffers<B: Backend<Node<Z>: Leaf>>() -> usize {
 ///   tasks inside one future and hashing never yields, so a session holds
 ///   the preimages of one hashing descent at a time;
 /// - the working buffers its stages fill before they charge what they
-///   built ([`working_buffers`]).
+///   built ([`working_buffers`]);
+/// - the pipe's fixed state: its write buffer, its frame reader's scratch,
+///   its lanes' unpriced nodes, and its own setup ([`fixed_wire_bytes`]).
 ///
 /// Every term follows from capacities and type sizes, so none depends on
 /// the budget, the message-size target, or the replicas' sizes. The
@@ -102,6 +110,27 @@ pub(crate) const fn fixed_allowance<B: Backend<Node<Z>: Leaf>>() -> usize {
         + assembly_allowance::<B>()
         + HASHING_SCRATCH_BYTES
         + working_buffers::<B>()
+        + fixed_wire_bytes()
+}
+
+/// The *session allowance* of a session over `B`'s nodes whose peer's own
+/// message-size target is `target`: the most it holds outside its ledger.
+///
+/// Its memory budget sets this aside beside the floor allowance
+/// ([`floor_allowance`](super::floor_allowance)).
+///
+/// That is the fixed allowance ([`fixed_allowance`]) beside the session's
+/// two wire pools at `target` ([`wire_pools_bytes`]), saturating at
+/// `usize::MAX` on targets whose `usize` cannot count the largest pools.
+/// A record larger than its direction's pool is the one thing at the wire
+/// this leaves out: it takes the whole pool, and holds its excess over the
+/// pool beside it, at most one such record in each direction at once.
+///
+/// The tasks a session runs and what the executor allocates to run them are
+/// outside every allowance: no constant can name an async future's size,
+/// and the task set's and the executor's allocations are theirs to size.
+pub(crate) const fn session_allowance<B: Backend<Node<Z>: Leaf>>(target: usize) -> usize {
+    fixed_allowance::<B>().saturating_add(wire_pools_bytes(target))
 }
 
 #[cfg(test)]

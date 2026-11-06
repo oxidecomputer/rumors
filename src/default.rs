@@ -26,11 +26,12 @@ pub const SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 
 /// The message-size target a peer uses unless you set one
 /// ([`Peer::target_message_size`](crate::Peer::target_message_size)): the
-/// size of the maximally disputed reply.
+/// size of the largest reply that compares rather than supplies.
 ///
-/// A non-supply reply can contain one reaction per radix, each a full-fan
-/// query. Giving supply runs the same byte allowance preserves that per-reply
-/// memory ceiling.
+/// Such a reply can contain one reaction per radix, each a full-fan query.
+/// The target also sizes the room every memory budget sets aside for the
+/// messages on their way through the connection, so a larger default
+/// would raise [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET).
 pub const TARGET_MESSAGE_SIZE: usize = MAX_QUERY_CHILDREN * FULL_FAN_QUERY_FRAME_LEN;
 
 /// The payload nesting-depth limit a peer uses unless you set one

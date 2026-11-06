@@ -249,12 +249,13 @@ fn letter(side: Side) -> char {
     }
 }
 
-/// The memory budget whose sessions' ledgers admit work against `bytes`.
+/// The memory budget whose sessions at the default message-size target
+/// admit work against `bytes` in their ledgers.
 ///
 /// That is `bytes` beside the floor allowance
-/// ([`floor_allowance`](rumors::testing::floor_allowance)) and the fixed
-/// allowance ([`FIXED_ALLOWANCE`](rumors::testing::FIXED_ALLOWANCE)) every
-/// budget sets aside ([`memory_budget_admitting`]).
+/// ([`floor_allowance`](rumors::testing::floor_allowance)) and the session
+/// allowance ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE))
+/// every budget sets aside there ([`memory_budget_admitting`]).
 ///
 /// A session raises this, set through the public setter, to
 /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) when `bytes`

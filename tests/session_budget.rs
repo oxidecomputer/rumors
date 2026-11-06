@@ -72,7 +72,8 @@
 //!
 //! Both peers set their run target to [`COMPARISON_FRAME_BYTES`], the
 //! largest frame that carries one comparison, so no frame of the session is
-//! larger and the wire's allowance below is a few frames' worth.
+//! larger, unless one supplied record alone outgrows it, and the wire pools
+//! below hold a couple of such frames each way.
 //!
 //! # Attribution
 //!
@@ -108,18 +109,17 @@
 //! it builds items it charges only once built: an answer's plan, a chunk's
 //! reactions before its question is admitted, a decoder's ready reactions,
 //! a take's derived scopes. Each place is owed its own scratch for each of
-//! the [`SESSION_STREAMS`] logical streams, computed from the types it
+//! the [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS) logical streams, computed from the types it
 //! covers ([`ledger_scratch`]).
 //!
 //! The classes the ledger leaves out, the session's fixed state, are
 //! bounded by their capacities:
 //!
-//! - **Wire buffering** holds at most a lane's channel of frames and two
-//!   more for each logical stream a side sends on, a channel's and one more
-//!   for each it receives on, and one more on the receiving side
-//!   ([`WIRE_FRAMES`]), each at most
-//!   [`COMPARISON_FRAME_BYTES`] here and counted at twice that for its
-//!   vector.
+//! - **Wire buffering** holds at most the session's two wire pools at its
+//!   run target, which bound every supply run on its way through the pipe,
+//!   beside the pipe's fixed state ([`wire_allowance`] derives the bound
+//!   from the production definition). Every frame that is not a run is
+//!   charged to the place its chunk or its question's room belongs to.
 //! - **Assembly** holds the queues of fixed capacity around it and the
 //!   in-memory backend's build of each supplied subtree, which keeps only
 //!   the subtree's open right spine however large it is
@@ -154,7 +154,7 @@
 //!   account, so admission allocates only for units that wait: each a
 //!   waiter, its lock, its waker's clone, and a place in the queue's
 //!   buffer. Each walk stage waits on one unit at a time, so at most one
-//!   unit per stage, of the [`SESSION_STREAMS`], waits at once, whatever the
+//!   unit per stage, of the [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS), waits at once, whatever the
 //!   budget and the sets' sizes: a few hundred bytes a side, measured. The
 //!   reference session sets up the same streams as the session under test
 //!   and its own work beside them, so its peak exceeds that setup by far
@@ -163,13 +163,13 @@
 //! # The ledger
 //!
 //! A peer's memory budget sets aside the floor allowance for its ledger's
-//! floor slots, the most they can hold at once, and the fixed allowance
-//! for the session's fixed state: the bounds above on the decode fans,
-//! assembly, and hashing, and every place's scratch. The ledger admits work
-//! beyond both against the rest. Every budget this suite names is that
-//! rest, what the ledgers admit against: each peer's memory budget is the
-//! named budget beside the two allowances
-//! ([`admitting`](rumors_testkit::bench::session::admitting)), so that the
+//! floor slots, the most they can hold at once, and the session allowance
+//! for the session's fixed state and wire pools: the bounds above on the
+//! decode fans, assembly, hashing, and the wire, and every place's scratch.
+//! The ledger admits work beyond both against the rest. Every budget this
+//! suite names is that rest, what the ledgers admit against: each peer's
+//! memory budget is the named budget beside the two allowances at its run
+//! target ([`ledger_budget`](rumors::testing::ledger_budget)), so that the
 //! suite's fixtures admit work as their names say. Some of those budgets
 //! lie below the largest grant, which the public setter's minimum
 //! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET)) keeps
@@ -285,9 +285,9 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 use rumors::testing::{
     Admission, COMPARISON_FRAME_BYTES, DECODE_AHEAD_BYTES, HASHING_SCRATCH_BYTES, Holding,
-    LANE_CAPACITY, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, SESSION_STREAMS,
-    assembly_allowance, attribute_allocations, floor_allowance, join_snapshots, ledger_scratch,
-    observe_admissions, observe_fits, observe_ledgers, with_leaf_paths,
+    LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, assembly_allowance,
+    attribute_allocations, floor_allowance, join_snapshots, ledger_scratch, observe_admissions,
+    observe_fits, observe_ledgers, wire_allowance, with_leaf_paths,
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::common::property::divided_cases;
@@ -331,17 +331,6 @@ const EVENTS_PER_MESSAGE: usize = 128;
 
 /// Trace events reserved for a session's setup, whatever its size.
 const SETUP_EVENTS: usize = 1 << 16;
-
-/// The most frames one side's wire buffering holds at once.
-///
-/// Sending, each logical stream holds at most one its encoder is waiting to
-/// hand over, [`LANE_CAPACITY`] in its channel to the multiplexer, and one
-/// the multiplexer has staged or is writing. Receiving, each holds at most
-/// [`LANE_CAPACITY`] in its channel from the demultiplexer and one its
-/// decoder is decoding, and the demultiplexer holds one more for the whole
-/// direction while it waits for a full channel.
-const WIRE_FRAMES: usize =
-    (LANE_CAPACITY + 2) * SESSION_STREAMS + (LANE_CAPACITY + 1) * SESSION_STREAMS + 1;
 
 /// What one fixture's construction allocated, and the peers it built.
 struct Fixture {
@@ -516,8 +505,8 @@ struct Fits {
 ///
 /// That is the budget beside the floor allowance, the most the floor slots
 /// hold: the side's memory budget
-/// ([`admitting`](rumors_testkit::bench::session::admitting)) less the
-/// fixed allowance, which the ledger never holds.
+/// ([`ledger_budget`](rumors::testing::ledger_budget)) less the session
+/// allowance, which the ledger never holds.
 fn ledger_bound(budget: usize) -> usize {
     floor_allowance().saturating_add(budget)
 }
@@ -944,7 +933,7 @@ impl Measured {
         Self {
             messages,
             budget,
-            wire: (WIRE_FRAMES * 2 * COMPARISON_FRAME_BYTES) as u128,
+            wire: wire_allowance(COMPARISON_FRAME_BYTES) as u128,
             assembly: assembly_allowance() as u128,
             fixed,
             outgoing_floor: redacted == 0,
@@ -1249,7 +1238,7 @@ fn violation(measured: &Measured) -> Option<String> {
 /// side's ledger, admitting against `budget`, must hold at most the budget
 /// outside its floor slots and at most the budget beside the floor
 /// allowance in all ([`ledger_bound`]), what its peer's memory budget
-/// leaves it beside the fixed allowance, with every item built within its
+/// leaves it beside the session allowance, with every item built within its
 /// unit's grant.
 fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
     for side in Side::BOTH {
@@ -1814,7 +1803,7 @@ divided_proptest! {
 /// The peer holds [`MESSAGES`] messages, so each subtree supplied below the
 /// root holds about four hundred leaves, and the receiving side assembles
 /// every one. The bound ([`assembly_allowance`]) counts each of the
-/// [`SESSION_STREAMS`] reply decoders assembling one subtree at a time, each
+/// [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS) reply decoders assembling one subtree at a time, each
 /// holding only its open right spine.
 ///
 /// Each subtree of two or more leaves leaves at least one branch in the

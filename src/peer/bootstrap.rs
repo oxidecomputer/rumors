@@ -37,7 +37,7 @@ use super::gossip::Bootstrapped;
 pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Memory budget inherited by the joined peer, as given; sessions raise
     /// it to the minimum for `run_budget`
-    /// ([`MemoryBudget::effective`]).
+    /// ([`MemoryBudget::session`]).
     pub(crate) sync_memory_budget: MemoryBudget,
     /// Supply-run size target used during and after the join.
     pub(crate) run_budget: RunBudget,
@@ -72,7 +72,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> 
         f.debug_struct("Bootstrap")
             .field(
                 "sync_memory_budget",
-                &self.sync_memory_budget.effective(self.run_budget),
+                &self.sync_memory_budget.session(self.run_budget).memory,
             )
             .field("run_budget", &self.run_budget)
             .field("write_batch", &self.write_batch)

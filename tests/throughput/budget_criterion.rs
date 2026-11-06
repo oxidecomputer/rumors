@@ -4,7 +4,7 @@
 //! # The criterion
 //!
 //! Write `T(B)` for a session's duration at ledger budget `B` (the budget
-//! its ledgers admit work against, beside the floor and fixed allowances),
+//! its ledgers admit work against, beside the floor and session allowances),
 //! `c_max` for the largest grant any unit can take ([`LARGEST_GRANT`]),
 //! `N*` for the session's no-cost point, and `δ` for the link's one-way
 //! delay, so that one round trip is `2δ` on every link. The owner's ruling states what

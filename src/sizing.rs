@@ -36,12 +36,14 @@
 //!   about 26.5 MiB on the in-memory replica on 64-bit targets, whatever the
 //!   sets' sizes. Every budget also sets aside room for the session's fixed
 //!   state, which it holds whatever the budget: the *fixed allowance*,
-//!   about 7 MiB. A session admits the rest of its work against what
-//!   remains of the budget.
+//!   about 7 MiB; and for the messages on their way through the
+//!   connection, about two messages' worth at the message-size target in
+//!   each direction, about 5.7 MiB at the default target. A session admits
+//!   the rest of its work against what remains of the budget.
 //! - **The smallest budget,**
 //!   [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), adds room
-//!   for the largest single question or answer beside the two
-//!   allowances. A session raises any smaller budget, zero included, to
+//!   for the largest single question or answer beside what every budget
+//!   sets aside. A session raises any smaller budget, zero included, to
 //!   it. At the smallest budget a session pipelines little: beyond one
 //!   question and one answer at each level of its comparison, it keeps in
 //!   flight only what the added room holds, and otherwise waits for

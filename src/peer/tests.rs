@@ -17,7 +17,7 @@ use crate::default;
 use crate::message::Message;
 use crate::testing::property::{LOCAL_DIVISOR, divided_proptest, network_seed};
 use crate::tree::mirror::streaming::Local;
-use crate::tree::mirror::streaming::materialized::min_memory_budget;
+use crate::tree::mirror::streaming::materialized::Allowances;
 use crate::tree::mirror::streaming::remote::{RunBudget, WRITE_BUFFER_BYTES};
 use crate::tree::{Action, Tree};
 
@@ -83,7 +83,9 @@ divided_proptest! {
     #[test]
     fn synchronization_settings_report_effective_values(network in network_seed()) {
         let depth = 17;
-        let budget = MIN_SYNC_MEMORY_BUDGET + 1_234;
+        // Just above the minimum for the target it sets, so the session
+        // runs on it as given.
+        let budget = Allowances::of::<Local>(MAX_RUN_BUDGET_BYTES).minimum() + 1_234;
         let peer = network.peer::<u64>()
             .sync_memory_budget(budget)
             .target_message_size(usize::MAX)
@@ -286,7 +288,7 @@ proptest! {
                 Setting::Budget(_) => None,
             })
             .unwrap_or(default::TARGET_MESSAGE_SIZE);
-        let minimum = min_memory_budget::<Local>(RunBudget::from_bytes(target).bytes());
+        let minimum = Allowances::of::<Local>(RunBudget::from_bytes(target).bytes()).minimum();
         let expected = budget.max(minimum);
 
         let read = |peer: &Peer<u64>| peer.synchronization_settings().sync_memory_budget;
@@ -313,22 +315,22 @@ proptest! {
             Setting::Target(bytes) => builder.target_message_size(bytes),
         });
         prop_assert_eq!(
-            bootstrap.sync_memory_budget.effective(bootstrap.run_budget),
+            bootstrap.sync_memory_budget.session(bootstrap.run_budget).memory,
             expected
         );
     }
 }
 
 /// The minimum memory budget on the in-memory backend is the "about
-/// 35 MiB" its documentation states, on the 64-bit targets the
+/// 41 MiB" its documentation states, on the 64-bit targets the
 /// documentation's figures are measured on.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn the_minimum_budget_is_the_documented_figure() {
     const MIB: usize = 1 << 20;
     assert!(
-        (34 * MIB + MIB / 2..35 * MIB + MIB / 2).contains(&MIN_SYNC_MEMORY_BUDGET),
-        "the minimum budget is {MIN_SYNC_MEMORY_BUDGET} B, not about 35 MiB",
+        (40 * MIB + MIB / 2..41 * MIB + MIB / 2).contains(&MIN_SYNC_MEMORY_BUDGET),
+        "the minimum budget is {MIN_SYNC_MEMORY_BUDGET} B, not about 41 MiB",
     );
 }
 

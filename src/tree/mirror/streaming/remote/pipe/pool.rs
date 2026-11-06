@@ -111,10 +111,6 @@ const fn pool_bytes(target: usize, runs: usize, node: usize) -> usize {
 /// The bytes the two wire pools of a session at the peer's own
 /// message-size target `target` stand for together: the send pool's and
 /// the receive pool's.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "only the pool's tests sum the pools")
-)]
 pub(crate) const fn wire_pools_bytes(target: usize) -> usize {
     pool_bytes(target, WIRE_POOL_RUNS, queued::<Outbound>()).saturating_add(pool_bytes(
         target,

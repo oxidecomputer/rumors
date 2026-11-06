@@ -927,9 +927,9 @@ struct Reconciliation<'a> {
     /// compares. A bootstrapper meeting a bootstrapper holds no network
     /// secret, lists nothing, and can be supplied nothing.
     keys: Option<Arc<NetworkKeys>>,
-    /// The peer's memory budget as set, which the session raises to the
-    /// minimum for `run_budget` ([`MemoryBudget::effective`]) before its
-    /// ledger admits work against it.
+    /// The peer's memory budget as set, from which and `run_budget` the
+    /// session derives the budget its ledger admits work against
+    /// ([`MemoryBudget::session`]).
     sync_memory_budget: MemoryBudget,
     /// The supply-run sizing budget; its byte target rides the greeting.
     run_budget: RunBudget,
@@ -1019,7 +1019,7 @@ impl<'a> Reconciliation<'a> {
             keys.clone(),
             widen(run_budget.bytes()),
         )
-        .sync_memory_budget(sync_memory_budget.effective(run_budget))
+        .budget(sync_memory_budget.session(run_budget).ledger)
         .stats(stats.clone());
         let proxy: RemoteParticipant<'a> =
             streaming_remote::Handshaking::start(Local, read, write, codec, keys)
