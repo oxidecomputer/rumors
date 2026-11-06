@@ -320,15 +320,15 @@ proptest! {
 }
 
 /// The minimum memory budget on the in-memory backend is the "about
-/// 34 MiB" its documentation states, on the 64-bit targets the
+/// 35 MiB" its documentation states, on the 64-bit targets the
 /// documentation's figures are measured on.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn the_minimum_budget_is_the_documented_figure() {
     const MIB: usize = 1 << 20;
     assert!(
-        (33 * MIB + MIB / 2..34 * MIB + MIB / 2).contains(&MIN_SYNC_MEMORY_BUDGET),
-        "the minimum budget is {MIN_SYNC_MEMORY_BUDGET} B, not about 34 MiB",
+        (34 * MIB + MIB / 2..35 * MIB + MIB / 2).contains(&MIN_SYNC_MEMORY_BUDGET),
+        "the minimum budget is {MIN_SYNC_MEMORY_BUDGET} B, not about 35 MiB",
     );
 }
 

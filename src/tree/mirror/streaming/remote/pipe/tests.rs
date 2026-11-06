@@ -56,6 +56,7 @@ fn bare(frame: Frame) -> Outbound {
     Outbound {
         frame,
         charge: Charge::default(),
+        permit: WirePermit::default(),
     }
 }
 
@@ -81,7 +82,8 @@ fn decode_all(bytes: &[u8]) -> Vec<(Stream, Frame)> {
 /// Hand `frames` to one lane, then end it.
 async fn produce(mut out: Outgoing, frames: Vec<ReplyFrame>) {
     for frame in frames {
-        out.frame(frame, Charge::default()).await;
+        out.frame(frame, Charge::default(), WirePermit::default())
+            .await;
     }
     out.finish().await;
 }
@@ -397,7 +399,7 @@ proptest! {
         let producer = async move {
             for (batch, &sent) in handed.iter().zip(&flushed_after) {
                 for frame in batch {
-                    lane.frame(frame.clone(), Charge::default()).await;
+                    lane.frame(frame.clone(), Charge::default(), WirePermit::default()).await;
                 }
                 sink_ref.wait_for(sent).await;
             }
@@ -454,7 +456,8 @@ fn a_multiplexer_fed_every_pass_flushes_at_the_segment_size() {
     run_to_quiescence(async {
         let producer = async {
             while sink.bytes().is_empty() {
-                lane.frame(thin.clone(), Charge::default()).await;
+                lane.frame(thin.clone(), Charge::default(), WirePermit::default())
+                    .await;
             }
             drop(lane);
         };
@@ -643,7 +646,7 @@ proptest! {
             let producer = async move {
                 for (&frames, &end) in bursts_ref.iter().zip(ends_ref) {
                     for _ in 0..frames {
-                        lane.frame(thin.clone(), Charge::default()).await;
+                        lane.frame(thin.clone(), Charge::default(), WirePermit::default()).await;
                     }
                     sink_ref.wait_for(end).await;
                 }
@@ -767,7 +770,8 @@ fn paced(
         let mut handed = Vec::with_capacity(frames);
         for _ in 0..frames {
             handed.push(clock_ref.load(Ordering::Relaxed));
-            lane.frame(thin.clone(), Charge::default()).await;
+            lane.frame(thin.clone(), Charge::default(), WirePermit::default())
+                .await;
             for _ in 0..gap {
                 yield_to_members().await;
             }
@@ -912,8 +916,18 @@ fn a_ready_thin_frame_precedes_a_ready_supply_run() {
     let mut bulk = multiplexer.lane(interior(1), 0);
     let mut thin = multiplexer.lane(interior(2), 0);
     let written = run_to_quiescence(async move {
-        bulk.frame(frame(Kind::Supply, 1), Charge::default()).await;
-        thin.frame(frame(Kind::Match, 2), Charge::default()).await;
+        bulk.frame(
+            frame(Kind::Supply, 1),
+            Charge::default(),
+            WirePermit::default(),
+        )
+        .await;
+        thin.frame(
+            frame(Kind::Match, 2),
+            Charge::default(),
+            WirePermit::default(),
+        )
+        .await;
         drop((bulk, thin));
         let mut written = Vec::new();
         let observe = SessionHandle::default();
@@ -1012,7 +1026,7 @@ proptest! {
             // so the write half takes the charged frames alone.
             let producer = async move {
                 for (frame, charge) in items {
-                    lane.frame(frame, charge).await;
+                    lane.frame(frame, charge, WirePermit::default()).await;
                 }
             };
             let observe = SessionHandle::default();
@@ -1334,15 +1348,19 @@ fn demultiplex(bytes: &[u8], claimed: &[Stream]) -> (Option<PipeError>, Vec<Vec<
     let (failure, frames) = run_to_quiescence(async {
         let observe = SessionHandle::default();
         let mut demultiplexer = demultiplexer;
-        let mut consume = pin!(futures::future::join_all(
-            receivers
-                .into_iter()
-                .map(|receiver| receiver.collect::<Vec<Frame>>()),
-        ));
+        let mut consume = pin!(futures::future::join_all(receivers.into_iter().map(
+            |receiver| {
+                receiver
+                    .map(|inbound| inbound.frame)
+                    .collect::<Vec<Frame>>()
+            }
+        ),));
+        let pool = WirePool::receiving(usize::MAX, WIRE_POOL_RUNS);
         let run = demultiplexer.run(
             &mut read,
             SPEAKER,
             RunBudget::from_bytes(usize::MAX),
+            &pool,
             Recorder::default(),
             &observe,
         );

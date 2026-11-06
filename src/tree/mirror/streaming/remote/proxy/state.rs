@@ -19,7 +19,7 @@ use crate::tree::{
         protocol::{self, BoxResponses, Requests},
         remote::{
             codec::{RunBudget, Speaker},
-            pipe::{Demultiplexer, Multiplexer, PipeRead, WriteBatch},
+            pipe::{Demultiplexer, Multiplexer, PipeRead, WirePools, WriteBatch},
             proxy::{
                 Derived, Error,
                 work::{Ingress, Physical, Work},
@@ -45,6 +45,8 @@ where
     pub(super) remote_listing: Vec<Listed>,
     /// Supply-run size accepted by both peers.
     pub(super) budget: RunBudget,
+    /// The session's wire pools, sized at this side's own target.
+    pub(super) pools: WirePools,
     /// Counts bytes crossing the codec boundary.
     pub(super) stats: Recorder,
     /// Observes the elected role and wire traffic.
@@ -65,6 +67,7 @@ where
             write,
             remote_listing,
             budget,
+            pools,
             stats,
             observe,
             write_batch,
@@ -76,6 +79,7 @@ where
         Work::new(
             ingress,
             budget,
+            pools,
             remote_listing,
             Physical {
                 read,

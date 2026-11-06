@@ -39,6 +39,19 @@
 //! | Decoder | the storage backend, absorbing supplied leaves | Backend operations complete without waiting on other session work. |
 //! | Decoder | its assembler, finishing a group of supplies | The assembler waits only on the decoder's leaves and the backend, and the decoder takes the group's nodes back at the group's end, with room for a fan of them. |
 //! | Decoder | room in parking | Never: parking is unbounded, and every parked chunk lies within the room its question set aside. |
+//! | Demultiplexer | the receive pool, for a supply run's body | Permits are held only by runs already read: each in a lane, or in its decoder's hands. A decoder finishes the run it holds waiting only on its leaf edge, its assembler, and the backend (rows above), and returns the permit before it waits for its next frame. The pool serves requests in order, and none asks for more than the whole pool. |
+//! | Encoder | the send pool, for a run it is about to build | Permits are held only by runs already built: each in its lane, staged, or being written, and the multiplexer writes them waiting only on the write half, which drains because the peer's receive path reads every frame, waiting on its own receive pool only for runs it already holds (row above). An encoder holds at most one permit, yields its run with it before it asks for another, and never waits on the walk while it holds one. |
+//!
+//! The wire pools ([`WirePool`]) hold the bytes of the supply runs on their
+//! way through the pipe, one pool per direction, each sized at the peer's
+//! own message-size target ([`WirePools`]). Nothing that waits for a permit
+//! holds one, and nothing that holds one waits on the walk, so the argument
+//! holds at every pool of at least one run's worth, as it holds at every
+//! budget. The rest of what the pipe holds is priced elsewhere or fixed: a
+//! chunk's frames by the chunk's charge until the multiplexer has written
+//! its last frame ([`Outbound`]), a reply's frames by the room its question
+//! set aside until its decoder takes them ([`Inbound`]), and the write
+//! buffer and the lanes' own state by the session's fixed allowance.
 //!
 //! A decoder waits for a local record only when that queue is empty. If a
 //! reply to one of those questions has arrived, the encoder is already past
@@ -163,10 +176,17 @@ use crate::tree::mirror::cbor::MAJOR_ARRAY;
 use crate::tree::mirror::streaming::{
     FAN,
     channel::{QueueKind, QueueRole, Receiver, Sender, channel},
+    holding::{Holding, holding},
     ledger::Charge,
     stats::{CountedRead, CountedWrite, Recorder},
     tasks::cancelled,
 };
+
+mod pool;
+
+#[cfg(test)]
+pub(crate) use pool::{PERMIT_BYTES, receive_waits};
+pub(crate) use pool::{WIRE_POOL_RUNS, WirePermit, WirePool, WirePools};
 
 use super::codec::{
     DecodeError, DecodeErrorKind, EncodeError, End, FULL_FAN_QUERY_FRAME_LEN, Frame, FrameRead,
@@ -373,19 +393,55 @@ impl PipeError {
     }
 }
 
-/// One frame on its way to the multiplexer, and the charge it carries.
+/// One frame on its way to the multiplexer, with the charge and the permit
+/// it carries.
 ///
 /// The charge pays for what the frame's chunk holds until the frame is
 /// written: an encoder hands a chunk's charge over with the chunk's last
-/// frame, and every other frame carries no charge. The multiplexer drops
-/// the item, and so the charge, once it has written the frame, or copied
-/// it into its write buffer. A lane delivers its frames in order, so every
-/// earlier frame of the chunk is written by then.
+/// frame, and every other frame carries no charge. A lane delivers its
+/// frames in order, so every earlier frame of the chunk is written by
+/// then. That charge also pays for this item's node in the lane, for each
+/// of the chunk's frames that is not a supply run. A supply run instead
+/// holds a permit from the send pool for its bytes and its node
+/// ([`WirePool`]). The multiplexer drops the item, and so its
+/// charge and its permit, once it has written the frame, or copied it into
+/// its write buffer.
 pub struct Outbound {
     /// The frame to write.
     frame: Frame,
     /// The charge returned once `frame` is written.
     charge: Charge,
+    /// The send pool's permit for a supply run's bytes and node, returned
+    /// once `frame` is written; empty for every other frame.
+    permit: WirePermit,
+}
+
+/// One frame on its way from the demultiplexer to its logical stream's
+/// decoder, with the permit it carries.
+///
+/// A supply run holds a permit from the receive pool for its bytes and this
+/// item's node, taken before its body was read ([`WirePool`]); the decoder
+/// drops it once it has copied the run's last record into its leaf. Every
+/// other frame carries an empty permit, and the room the question it
+/// answers set aside pays for its node, as for every frame its reply can
+/// still deliver.
+pub struct Inbound {
+    /// The frame.
+    pub(crate) frame: Frame,
+    /// The receive pool's permit for a supply run; empty for every other
+    /// frame.
+    pub(crate) permit: WirePermit,
+}
+
+/// The place a frame's node in a lane is the state of, for the
+/// session-budget meter: the wire's for a supply run, whose permit prices
+/// it, and `priced`, the place whose charge prices it, for every other
+/// frame.
+fn node_place(frame: &Frame, priced: Holding) -> Holding {
+    match frame {
+        Frame::Reaction(Reaction::Supply(_), _) => Holding::Wire,
+        Frame::Reaction(..) | Frame::End(_) => priced,
+    }
 }
 
 /// One local encoder's logical stream into the multiplexer.
@@ -397,37 +453,38 @@ pub struct Outgoing {
 }
 
 impl Outgoing {
-    /// Hand one reply frame to the multiplexer, with the `charge` it
-    /// returns once written ([`Outbound`]).
+    /// Hand one reply frame to the multiplexer, with the `charge` and the
+    /// `permit` it returns once written ([`Outbound`]).
     ///
     /// Returns once the frame is in the multiplexer's channel, before it
     /// reaches the pipe, so the encoder can publish the local records of
     /// the reply's questions without waiting for the write. A multiplexer
     /// that has gone failed; the session's executor reports its error, so
     /// this awaits cancellation instead.
-    pub async fn frame(&mut self, frame: ReplyFrame, charge: Charge) {
+    pub async fn frame(&mut self, frame: ReplyFrame, charge: Charge, permit: WirePermit) {
         self.opened = true;
-        send_or_cancel(
-            &mut self.frames,
-            Outbound {
-                frame: frame.into(),
-                charge,
-            },
-        )
-        .await;
+        let frame = Frame::from(frame);
+        let place = node_place(&frame, Holding::OutgoingReplies);
+        let item = Outbound {
+            frame,
+            charge,
+            permit,
+        };
+        holding(place, send_or_cancel(&mut self.frames, item)).await;
     }
 
     /// End this logical stream after its last reply, if it carried any.
+    ///
+    /// The end's node is one of the wire's fixed frame shells, one per
+    /// logical stream.
     pub async fn finish(mut self) {
         if self.opened {
-            send_or_cancel(
-                &mut self.frames,
-                Outbound {
-                    frame: Frame::End(End::Stream),
-                    charge: Charge::default(),
-                },
-            )
-            .await;
+            let item = Outbound {
+                frame: Frame::End(End::Stream),
+                charge: Charge::default(),
+                permit: WirePermit::default(),
+            };
+            holding(Holding::Wire, send_or_cancel(&mut self.frames, item)).await;
         }
     }
 }
@@ -732,13 +789,23 @@ impl Multiplexer {
                     poll_fn(|cx| self.poll_next(cx, &mut cursors)).await
                 }
             };
-            let Some((stream, Outbound { frame, charge })) = next else {
+            let Some((
+                stream,
+                Outbound {
+                    frame,
+                    charge,
+                    permit,
+                },
+            )) = next
+            else {
                 break;
             };
             out.frame(&(stream, frame)).await?;
             // The frame is written, or copied into the write buffer, so
-            // what its chunk held is no longer needed.
+            // what its chunk held, and its run's bytes, are no longer
+            // needed.
             drop(charge);
+            drop(permit);
             stats.frame_sent();
         }
         out.flush().await
@@ -1120,7 +1187,7 @@ enum IncomingLane {
         /// The logical stream this lane routes.
         stream: Stream,
         /// The decoder's channel.
-        frames: Sender<Frame>,
+        frames: Sender<Inbound>,
         /// Whether any frame arrived, so the stream must end before the
         /// peer's closing items.
         started: bool,
@@ -1153,7 +1220,7 @@ impl Demultiplexer {
     ///
     /// The receiver yields the stream's frames and ends when its
     /// end-of-stream frame arrives.
-    pub fn lane(&mut self, stream: Stream, height: usize) -> Receiver<Frame> {
+    pub fn lane(&mut self, stream: Stream, height: usize) -> Receiver<Inbound> {
         let (frames, receiver) = channel(
             QueueRole::new(QueueKind::PipeIncoming, height),
             LANE_CAPACITY,
@@ -1169,6 +1236,10 @@ impl Demultiplexer {
     /// Route frames until the peer's first closing item, then wait to be
     /// dropped; return only on failure.
     ///
+    /// Each supply run takes a permit from `pool` for its length and its
+    /// node before its body is read ([`FrameRead::pooled_frame`]), and
+    /// carries it to its decoder ([`Inbound`]).
+    ///
     /// The read half is borrowed. Whenever this future is dropped between
     /// frames, the read half rests at an item boundary, the next item's
     /// first bytes, if any arrived, unconsumed in its buffer. The routes are
@@ -1179,6 +1250,7 @@ impl Demultiplexer {
         read: &mut PipeRead<R>,
         speaker: Speaker,
         budget: RunBudget,
+        pool: &WirePool,
         stats: Recorder,
         observe: &SessionHandle,
     ) -> PipeError {
@@ -1194,7 +1266,7 @@ impl Demultiplexer {
                 }
                 Err(source) => return PipeError::Departed(source),
             }
-            let (stream, frame) = match frames.frame().await {
+            let ((stream, frame), permit) = match frames.pooled_frame(pool).await {
                 Ok(Some(frame)) => frame,
                 // The peeked byte is the frame's first, so the reader
                 // cannot find a clean close before it.
@@ -1202,7 +1274,7 @@ impl Demultiplexer {
                 Err(error) => return PipeError::Decode(error),
             };
             stats.frame_received();
-            if let Err(error) = self.route(speaker, stream, frame).await {
+            if let Err(error) = self.route(speaker, stream, Inbound { frame, permit }).await {
                 return error;
             }
             frames.get_mut().get_mut().in_frame = false;
@@ -1219,7 +1291,7 @@ impl Demultiplexer {
         &mut self,
         speaker: Speaker,
         stream: Stream,
-        frame: Frame,
+        inbound: Inbound,
     ) -> Result<(), PipeError> {
         let unasked = || PipeError::Unasked {
             origin: Origin::stream(speaker, stream),
@@ -1231,7 +1303,7 @@ impl Demultiplexer {
         else {
             return Err(unasked());
         };
-        if matches!(frame, Frame::End(End::Stream)) {
+        if matches!(inbound.frame, Frame::End(End::Stream)) {
             if !*started {
                 return Err(unasked());
             }
@@ -1239,7 +1311,10 @@ impl Demultiplexer {
             return Ok(());
         }
         *started = true;
-        frames.send(frame).await.map_err(|_| unasked())
+        let place = node_place(&inbound.frame, Holding::ParkedReplies);
+        holding(place, frames.send(inbound))
+            .await
+            .map_err(|_| unasked())
     }
 
     /// Stop at the peer's first closing item.

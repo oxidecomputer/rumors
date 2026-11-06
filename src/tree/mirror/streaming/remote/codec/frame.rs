@@ -193,7 +193,6 @@ impl LeafRun {
     }
 
     /// The bytes this run's buffer can hold without growing.
-    #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
         self.bytes.capacity()
     }

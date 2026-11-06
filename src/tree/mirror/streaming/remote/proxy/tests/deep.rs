@@ -22,11 +22,12 @@ use crate::testing::{
     IoPlan, IoReport, IoSide, memory_connection, node_census, run_to_quiescence, wrap_io,
 };
 use crate::tree::mirror::streaming::channel::{
-    ChannelReport, QueueKind, with_observation, with_schedule,
+    ChannelReport, QueueKind, QueueRole, with_observation, with_role_hold, with_schedule,
 };
 use crate::tree::mirror::streaming::remote::codec::{
     Frame, RunBudget, Speaker, Stream, decode_exact,
 };
+use crate::tree::mirror::streaming::remote::pipe::{WIRE_POOL_RUNS, receive_waits};
 use crate::tree::mirror::streaming::remote::proxy::work::progress::with_trace;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation, Root,
@@ -461,6 +462,23 @@ struct Session {
     capacity: usize,
     /// The budget both endpoints admit their work against.
     budget: usize,
+    /// Both endpoints' message-size target.
+    target: usize,
+    /// Runs' worth at that target each endpoint's wire pools hold.
+    pool_runs: usize,
+}
+
+impl Session {
+    /// A session over pipes of `capacity` bytes at `budget`, at the default
+    /// target and wire pools.
+    fn new(capacity: usize, budget: usize) -> Self {
+        Self {
+            capacity,
+            budget,
+            target: default::TARGET_MESSAGE_SIZE,
+            pool_runs: WIRE_POOL_RUNS,
+        }
+    }
 }
 
 /// Evidence retained after both endpoints and their trees have been dropped.
@@ -499,14 +517,14 @@ impl Session {
                     Local,
                     Root::from(left),
                     Some(crate::network::NetworkKeys::fixture()),
-                    default::TARGET_MESSAGE_SIZE as u64,
+                    self.target as u64,
                 )
                 .budget(self.budget);
                 let right = Handshaking::start(
                     Local,
                     Root::from(right),
                     Some(crate::network::NetworkKeys::fixture()),
-                    default::TARGET_MESSAGE_SIZE as u64,
+                    self.target as u64,
                 )
                 .budget(self.budget);
                 let left_proxy = RemoteHandshaking::start(
@@ -516,7 +534,8 @@ impl Session {
                     codec::<Vec<u8>>(),
                     Some(crate::network::NetworkKeys::fixture()),
                 )
-                .observe(sent[0].handle());
+                .observe(sent[0].handle())
+                .wire_pool_runs(self.pool_runs);
                 let right_proxy = RemoteHandshaking::start(
                     Local,
                     right_read,
@@ -524,7 +543,8 @@ impl Session {
                     codec::<Vec<u8>>(),
                     Some(crate::network::NetworkKeys::fixture()),
                 )
-                .observe(sent[1].handle());
+                .observe(sent[1].handle())
+                .wire_pool_runs(self.pool_runs);
                 let (left, right) = join!(
                     Box::pin(mirror(left, left_proxy)),
                     Box::pin(mirror(right, right_proxy)),
@@ -564,6 +584,68 @@ fn root_prefix(child: usize, depth: usize) -> Vec<u8> {
     prefix
 }
 
+/// Run `f` with the decoders of every height held still for their first
+/// `polls` polls of their incoming lanes.
+///
+/// A held lane keeps every frame the demultiplexer routes to it, so supply
+/// runs pile up there, each holding its permit from the receive pool, while
+/// the rest of the session keeps running.
+fn with_decoders_held<R>(polls: usize, f: impl FnOnce() -> R) -> R {
+    fn hold_from<R>(height: usize, polls: usize, f: impl FnOnce() -> R) -> R {
+        if height > RootHeight::HEIGHT {
+            return f();
+        }
+        with_role_hold(
+            QueueRole::new(QueueKind::PipeIncoming, height),
+            polls,
+            || hold_from(height + 1, polls, f),
+        )
+    }
+    hold_from(0, polls, f)
+}
+
+/// Sessions whose receive pools run dry while every decoder is held still
+/// complete and converge, at one-run pools and targets of 256, 512 and
+/// 1,024 bytes.
+///
+/// Both sides supply many one-record runs on several logical streams. At
+/// these targets a pool holds a few one-record runs, so the runs routed
+/// to held lanes take every permit, and the frame reader waits for a permit
+/// with frames for every stream behind it. The pipe's argument says the wait
+/// ends anyway: each permit is held by a run already read, which its decoder
+/// finishes without waiting on any later frame, returning the permit before
+/// it waits for its next one. The count of receive-pool waits must grow in
+/// every session, so each session reaches the state it claims to test.
+#[test]
+fn sessions_complete_when_held_decoders_drain_the_receive_pool() {
+    let pair = Divergence::new(
+        [1, 9, 17, 25, 31]
+            .into_iter()
+            .enumerate()
+            .map(|(child, depth)| root_prefix(child, depth)),
+        [120, 120],
+    );
+    for target in [256, 512, 1024] {
+        for budget in [0, usize::MAX] {
+            let session = Session {
+                capacity: 37,
+                budget,
+                target,
+                pool_runs: 1,
+            };
+            let before = receive_waits();
+            let observed = with_decoders_held(5000, || {
+                pair.check(&session, [IoPlan::default(), IoPlan::default()])
+            });
+            observed.assert_reach(31);
+            assert!(
+                receive_waits() > before,
+                "the receive pools never ran dry at a target of {target} and a budget of {budget}"
+            );
+        }
+    }
+}
+
 /// Full root fans with mixed depths converge and send terminal leaf reactions
 /// at a budget of zero and at an unlimited one.
 #[test]
@@ -582,10 +664,7 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
         [1, 1],
     );
     for budget in [0, usize::MAX] {
-        let session = Session {
-            capacity: 1,
-            budget,
-        };
+        let session = Session::new(1, budget);
         let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
         observed.assert_reach(31);
         for sent in &observed.sent {
@@ -621,10 +700,7 @@ fn every_branching_depth_matches_join() {
         for novel in [[1, 3], [3, 1]] {
             let pair = Divergence::new(prefixes.clone(), novel);
             for budget in [0, usize::MAX] {
-                let session = Session {
-                    capacity: 1,
-                    budget,
-                };
+                let session = Session::new(1, budget);
                 let observed = pair.check(
                     &session,
                     std::array::from_fn(|_| IoPlan {
@@ -659,13 +735,43 @@ proptest! {
                 pair.redacted[index % 2].push(path);
             }
         }
-        let session = Session { capacity, budget };
+        let session = Session::new(capacity, budget);
         let observed = pair.check(&session, delays.map(|delays| IoPlan {
             read_delays: delays.clone(),
             write_delays: delays.clone(),
             flush_delays: delays,
             ..IoPlan::default()
         }));
+        observed.assert_reach(usize::from(*prefixes.iter().max().unwrap()));
+    }
+
+    /// Sessions whose wire pools each hold exactly one run's worth at their
+    /// target complete, and converge, across disputes at mixed depths with
+    /// supplies on both sides, at a budget of zero and an unlimited one.
+    ///
+    /// The targets reach down to zero, where every record outgrows a run and
+    /// takes its direction's whole pool, so runs cross the pipe one at a
+    /// time in each direction; a run's permit is held only by runs already
+    /// built or being read, which leave the pipe without waiting on the
+    /// walk, so the closed-world session still makes progress.
+    #[test]
+    fn one_run_pools_complete_every_session(
+        prefixes in proptest::collection::vec(1u8..=31, 1..=8),
+        novel in prop::array::uniform2(1usize..=4),
+        redact in any::<bool>(),
+        budget in prop_oneof![Just(0usize), Just(usize::MAX)],
+        capacity in prop_oneof![Just(1usize), Just(4096)],
+        target in prop_oneof![Just(0usize), Just(64), Just(512), Just(default::TARGET_MESSAGE_SIZE)],
+    ) {
+        let mut pair = Divergence::new(prefixes.iter().enumerate()
+            .map(|(child, &depth)| root_prefix(child, usize::from(depth))), novel);
+        if redact {
+            for (index, &path) in pair.shared.iter().enumerate() {
+                pair.redacted[index % 2].push(path);
+            }
+        }
+        let session = Session { capacity, budget, target, pool_runs: 1 };
+        let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
         observed.assert_reach(usize::from(*prefixes.iter().max().unwrap()));
     }
 
@@ -690,7 +796,7 @@ proptest! {
         let redacted = [leaf_path(&[254], 1), leaf_path(&[254], 2)];
         pair.shared.extend(redacted);
         pair.redacted[usize::from(!redact_left)].extend(redacted);
-        let session = Session { capacity, budget };
+        let session = Session::new(capacity, budget);
         let plans = std::array::from_fn(|_| IoPlan { hold_until_flush: true, ..IoPlan::default() });
         let baseline = pair.check(&session, plans.clone());
         // A finite delay schedule must cover the whole run, rather than

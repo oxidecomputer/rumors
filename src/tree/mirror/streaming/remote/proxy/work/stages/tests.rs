@@ -27,6 +27,7 @@ use crate::tree::mirror::streaming::{
         LANE_CAPACITY,
         adapter::{ReplyLevel, Scope},
         codec::{End, Flow, Frame, Reaction as WireReaction},
+        pipe::{Inbound, WirePermit},
         proxy::Error,
     },
 };
@@ -34,6 +35,15 @@ use crate::tree::typed::{
     Hash,
     height::{Height, UnderRoot},
 };
+
+/// `frame` from the demultiplexer, holding no permit: a frame that is not
+/// a supply run.
+fn bare(frame: Frame) -> Inbound {
+    Inbound {
+        frame,
+        permit: WirePermit::default(),
+    }
+}
 
 /// A decoder that received no question reports a frame already waiting on
 /// its stream as an unasked reply, and its closed channel refuses every
@@ -43,11 +53,11 @@ fn an_unquestioned_decoder_reports_a_waiting_frame() {
     let (mut frames, mut incoming) =
         channel(QueueRole::new(QueueKind::PipeIncoming, 0), LANE_CAPACITY);
     run_to_quiescence(async {
-        frames.send(Frame::End(End::Reply)).await.unwrap();
+        frames.send(bare(Frame::End(End::Reply))).await.unwrap();
         let result = reject_extra::<()>(false, &mut incoming).await;
         assert!(matches!(result, Err(Error::UnaskedReply)), "{result:?}");
         assert!(
-            frames.send(Frame::End(End::Reply)).await.is_err(),
+            frames.send(bare(Frame::End(End::Reply))).await.is_err(),
             "the closed channel refuses later frames"
         );
     })
@@ -64,7 +74,7 @@ fn an_unquestioned_decoder_finishes_on_an_empty_stream() {
         let result = reject_extra::<()>(false, &mut incoming).await;
         assert!(result.is_ok(), "{result:?}");
         assert!(
-            frames.send(Frame::End(End::Reply)).await.is_err(),
+            frames.send(bare(Frame::End(End::Reply))).await.is_err(),
             "the closed channel refuses a frame that arrives afterward"
         );
     })
@@ -243,7 +253,7 @@ proptest! {
             }
             let flow = if last { Flow::End } else { Flow::Continue };
             frames
-                .try_send(Frame::Reaction(wire, flow))
+                .try_send(bare(Frame::Reaction(wire, flow)))
                 .unwrap_or_else(|_| panic!("the stream has room for every frame"));
             if !(last || pause) {
                 continue;

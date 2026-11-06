@@ -34,7 +34,7 @@ use crate::tree::mirror::streaming::{
     ledger::{Charge, ReplyBound, Unit, buffer, max, queued, shared},
     materialized::{Error, Query, Reserved, Resolution, Resolve},
     message::{Carried, Grandchildren, LATER_MATCHES_HEAP_BYTES, Listed},
-    remote::{Derived, Outstanding, Parked, RecordedChild, Scope},
+    remote::{Derived, Outbound, Outstanding, Parked, RecordedChild, Scope},
 };
 use crate::tree::typed::{
     ErasedPrefix,
@@ -61,9 +61,27 @@ fn owned_bytes<E>(reactions: &[Reaction<E>]) -> usize {
         .sum()
 }
 
-/// The bytes an outgoing reply holds while it waits for its consumer: its
-/// slot in the response queue, its reactions, and what they own
-/// ([`owned_bytes`]).
+/// The frames a chunk's encoder hands the multiplexer that are not supply
+/// runs: one per match and per query, and, for an empty reply's one last
+/// chunk, its bare end.
+///
+/// A supply run's node is its permit's to price ([`Outbound`]); the chunk's
+/// charge, which rides its last frame to the multiplexer, prices the nodes
+/// of the rest, each in a lane until written.
+fn framed<E>(reactions: &[Reaction<E>], last: bool) -> usize {
+    let positional = reactions
+        .iter()
+        .filter(|reaction| !matches!(reaction, Reaction::Supply(..)))
+        .count();
+    positional + usize::from(reactions.is_empty() && last)
+}
+
+/// The bytes an outgoing reply holds while it waits for its consumer and
+/// its frames wait for the multiplexer.
+///
+/// That is its slot in the response queue, its reactions, and what they own
+/// ([`owned_bytes`]), then each of its frames that is not a supply run in a
+/// lane to the multiplexer ([`framed`]).
 fn reply_bytes<B>(reply: &Reply<B::Erased>) -> usize
 where
     B: Backend<Node<Z>: Leaf>,
@@ -71,6 +89,7 @@ where
     queued::<Result<Reply<B::Erased>, Error<B::Error>>>()
         + buffer(&reply.reactions)
         + owned_bytes(&reply.reactions)
+        + framed(&reply.reactions, reply.last) * queued::<Outbound>()
 }
 
 /// `reactions` as a whole outgoing reply, one last chunk, built out of
@@ -106,9 +125,13 @@ where
 
 /// The most a chunk holding `held` reactions and covered sets holds, its
 /// queries listing at most `listing` entries together, before it is built.
+///
+/// Its frames that are not supply runs take a node each in a lane to the
+/// multiplexer, at most one per reaction ([`framed`]); every bound passes a
+/// count of at least one, which covers an empty reply's bare end.
 const fn chunk_bound<E, Err>(held: Held, listing: usize) -> usize {
     queued::<Result<Reply<E>, Error<Err>>>()
-        + held.reactions * size_of::<Reaction<E>>()
+        + held.reactions * (size_of::<Reaction<E>>() + queued::<Outbound>())
         + held.sets * LATER_MATCHES_HEAP_BYTES
         + listing * size_of::<Listed>()
 }
@@ -628,9 +651,10 @@ const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
 /// which side it is, so the allowance is the larger of the two sides'
 /// sums.
 ///
-/// On the in-memory backend on 64-bit targets that is about 25.5 MiB, almost
-/// all of it the listings of the replies one question per depth can invite,
-/// a fan of fans of entries each.
+/// On the in-memory backend on 64-bit targets that is about 26.5 MiB,
+/// almost all of it the listings of the replies one question per depth can
+/// invite, a fan of fans of entries each; a session's floor slots
+/// realistically hold a megabyte or two.
 pub(crate) const fn floor_allowance<E: ErasedNode, Err>() -> usize {
     // Indexed by side: the initiator's sum, then the responder's.
     let mut sides = [0, 0];

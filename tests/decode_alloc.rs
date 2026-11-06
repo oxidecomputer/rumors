@@ -3,16 +3,17 @@
 //! A counting global allocator prices each decode in bytes requested from
 //! the allocator, holding decoder memory against the bytes a peer actually
 //! delivered. The metered entries are the framing layer's declared-length
-//! payload read — the policy beneath every variable body a peer-declared
-//! length stands ahead of, the party hand-off's byte string included — the
-//! streaming codec's supply read, which layers its run grammar over the
-//! same policy, and record decoding, whose allocations and reallocations
-//! per record are bounded by the decode's steps. The meter counts only the
+//! payload read — the policy beneath every variable body whose
+//! peer-declared length nothing has bounded yet, the party hand-off's byte
+//! string included — the streaming codec's supply read, which reserves a
+//! run's body whole only once the run budget has judged its length, and
+//! record decoding, whose allocations and reallocations per record are
+//! bounded by the decode's steps. The meter counts only the
 //! thread driving the decode, so test-harness work on other threads cannot
 //! perturb its bounds.
 
 use alloc_meter::measure as metered;
-use rumors::testing::{CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
+use rumors::testing::{CodecDecodeError, CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
 
 /// The payload length a corrupt stream or conformance-buggy peer declares
 /// while delivering no or few payload bytes behind it.
@@ -147,34 +148,57 @@ fn framing_zero_delivered_costs_at_most_one_chunk() {
     );
 }
 
-/// Ceiling: a supply frame declaring a 256 MiB run with zero delivered
-/// body bytes requests at most one payload chunk plus the meter's fixed slack,
-/// and the failure classifies as a truncated `SupplyRun`.
+/// A supply frame reserves its run's declared length only once the
+/// session's run budget has judged it.
 ///
-/// The typed assertion keeps this ceiling non-vacuous: a decoder that
-/// started rejecting the frame before its body read would no longer
-/// exercise the allocation path this test prices.
+/// With nothing delivered behind the frame's heads, a run within the
+/// budget reserves exactly its declared length, and a run past the budget
+/// reserves nothing; both fail as a truncated `SupplyRun`.
+///
+/// The budget bounds every length the reader reserves for a run within
+/// it, and in a session the receive pool has set that length aside before
+/// the reservation. Past the budget, the reader must read the run's
+/// first record's heads before anything else, so a garbage length there
+/// costs no reservation at all. The typed assertions keep both readings
+/// non-vacuous: a decoder that rejected the frame before its body read
+/// would no longer exercise the reservation this test prices.
 #[test]
-fn supply_zero_delivered_costs_at_most_one_chunk() {
-    let bytes = supply_frame(DECLARED_LEN, &[]);
-    let (change, result) =
-        metered(|| pollster::block_on(rumors::testing::decode_supply_frame(&bytes[..])));
-    let error = result.expect_err("a supply frame with nothing behind its header cannot complete");
-    assert!(
+fn supply_reserves_only_a_length_its_budget_judged() {
+    let truncated = |error: &CodecDecodeError| {
         matches!(
             error.kind,
             CodecDecodeErrorKind::Truncated {
                 missing: FramePart::SupplyRun,
                 ..
             }
-        ),
-        "the failure classifies as a truncated supply run, got: {error}"
-    );
-    let ceiling = rumors::testing::frame_payload_chunk_len() + METER_SLACK;
+        )
+    };
+
+    let within = supply_frame(HONEST_LEN, &[]);
+    let (change, result) =
+        metered(|| pollster::block_on(rumors::testing::decode_supply_frame(&within[..])));
+    let error = result.expect_err("a supply frame with nothing behind its heads cannot complete");
+    assert!(truncated(&error), "a truncated supply run, got: {error}");
     assert!(
-        change.bytes_allocated <= ceiling,
-        "supply read requested {} bytes with zero delivered; \
-         the ceiling is one payload chunk plus slack, {ceiling}",
+        change.bytes_allocated >= HONEST_LEN && change.bytes_allocated <= HONEST_LEN + METER_SLACK,
+        "a run of {HONEST_LEN} bytes within the budget requested {} bytes with nothing \
+         delivered; the band is its length, plus slack",
+        change.bytes_allocated
+    );
+
+    let past = supply_frame(DECLARED_LEN, &[]);
+    let (change, result) = metered(|| {
+        pollster::block_on(rumors::testing::decode_supply_frame_budgeted(
+            &past[..],
+            HONEST_LEN,
+        ))
+    });
+    let error = result.expect_err("a supply frame with nothing behind its heads cannot complete");
+    assert!(truncated(&error), "a truncated supply run, got: {error}");
+    assert!(
+        change.bytes_allocated <= METER_SLACK,
+        "a run of {DECLARED_LEN} bytes past a {HONEST_LEN}-byte budget requested {} bytes \
+         with nothing delivered; the ceiling is the slack, {METER_SLACK}",
         change.bytes_allocated
     );
 }
@@ -296,9 +320,11 @@ fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
 ///
 /// This prices the decode-memory premise itself, not merely detection: a
 /// checker that buffered the body and rejected afterward would classify
-/// identically but request the body's bytes, and reds here. The honest
-/// lone-record tests above are the complement, pinning that the admitted
-/// overhang still reaches the body read.
+/// identically but request the body's bytes, and reds here. The codec's
+/// own tests are the complement, pinning that the admitted overhang, one
+/// record past the budget, still decodes
+/// (`oversized_lone_record_still_decodes`) and holds no more than its own
+/// bytes as it is read (`receiving_a_run_holds_at_most_its_permit`).
 #[test]
 fn overbatched_supply_rejects_without_buffering_its_body() {
     let mut body = Vec::new();
@@ -322,25 +348,30 @@ fn overbatched_supply_rejects_without_buffering_its_body() {
     );
 }
 
-/// Ceiling: an honest fully-delivered supply run of non-power-of-two
-/// length N requests at most N plus one chunk in bytes, and still meters
-/// the >= N floor.
+/// An honest fully-delivered supply run of non-power-of-two length N
+/// requests at most N plus the meter's slack in bytes, at least N, and
+/// never reallocates.
 ///
-/// The supply path shares the framing growth policy; this pins that its
-/// run buffer also reaches the adapter without capacity overshoot.
+/// The supply path reserves the run's body at its exact length once the
+/// budget has judged it, so its buffer reaches the adapter as one block,
+/// without capacity overshoot and without a reallocation's two blocks.
 #[test]
-fn supply_full_delivery_costs_at_most_payload_plus_chunk() {
+fn supply_full_delivery_reserves_exactly_its_payload() {
     let body = run_body(HONEST_ODD_LEN);
     let bytes = supply_frame(HONEST_ODD_LEN, &body);
     let (change, result) =
         metered(|| pollster::block_on(rumors::testing::decode_supply_frame(&bytes[..])));
     result.expect("a fully delivered, well-framed run decodes");
-    let byte_ceiling = HONEST_ODD_LEN + rumors::testing::frame_payload_chunk_len() + METER_SLACK;
+    let byte_ceiling = HONEST_ODD_LEN + METER_SLACK;
     assert!(
         change.bytes_allocated >= HONEST_ODD_LEN && change.bytes_allocated <= byte_ceiling,
         "supply read requested {} bytes for a {HONEST_ODD_LEN}-byte body; \
          the honest band is [{HONEST_ODD_LEN}, {byte_ceiling}]",
         change.bytes_allocated
+    );
+    assert_eq!(
+        change.reallocations, 0,
+        "the run's buffer is reserved whole"
     );
 }
 

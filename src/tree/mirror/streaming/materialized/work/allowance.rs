@@ -36,7 +36,7 @@ use crate::tree::mirror::streaming::{
     holding::Holding,
     ledger::{Charge, ReplyBound, min, queued},
     message::Listed,
-    remote::Parked,
+    remote::{Inbound, Parked},
 };
 
 use super::charges::{covered_set_price, covered_sets};
@@ -65,14 +65,19 @@ pub(crate) struct Deliverable {
 }
 
 /// The bytes the parked chunks `still` describes can hold: a chunk for
-/// each question, and one more.
+/// each question, and one more, beside the frames still to arrive.
 ///
-/// Each is priced as each chunk is
+/// Each chunk is priced as each chunk is
 /// ([`parked_bytes`](super::charges::parked_bytes)), each covered set net
-/// of the slots of the children it covers ([`covered_set_price`]).
+/// of the slots of the children it covers ([`covered_set_price`]). Each
+/// frame still to arrive takes a node in its lane from the demultiplexer
+/// ([`Inbound`]) until its decoder takes it: one per reaction slot, and
+/// one more for an empty reply's bare end. A supply run's permit prices its
+/// own node as well, so a supply's slot overprices its last run by a node.
 pub(crate) const fn parked_price<E>(still: Deliverable) -> usize {
     (still.questions + 1) * queued::<Parked<E>>()
         + still.reactions * size_of::<Reaction<E>>()
+        + (still.reactions + 1) * queued::<Inbound>()
         + still.sets * covered_set_price::<E>()
         + still.listing * size_of::<Listed>()
 }

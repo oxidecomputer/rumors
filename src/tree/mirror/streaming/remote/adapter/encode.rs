@@ -20,12 +20,13 @@ use crate::tree::{
 use super::super::codec::Frame;
 use super::{
     super::codec::{Flow, LeafRun, Reaction as WireReaction, ReplyFrame, RunBudget},
+    super::pipe::{WirePermit, WirePool},
     error::{EncodeError, OpeningError},
     scope::{Replay, ReplyLevel, Scope},
 };
 
 /// A wire frame, the lower question it makes publishable once written, and
-/// the charge it carries to the multiplexer.
+/// the charge and the permit it carries to the multiplexer.
 pub struct Encoded {
     /// The reply frame ready to write.
     frame: ReplyFrame,
@@ -35,22 +36,27 @@ pub struct Encoded {
     /// every earlier frame: the multiplexer drops it once `frame` is
     /// written.
     charge: Charge,
+    /// The send pool's permit for a supply run's bytes, which the
+    /// multiplexer drops once `frame` is written; empty for every other
+    /// frame.
+    permit: WirePermit,
 }
 
 impl Encoded {
-    /// Hand this frame and its charge to `write`, and release its question
-    /// only after a successful write.
+    /// Hand this frame, its charge and its permit to `write`, and release
+    /// its question only after a successful write.
     pub async fn write_with<E, W, F>(self, write: W) -> Result<Option<Scope>, E>
     where
-        W: FnOnce(ReplyFrame, Charge) -> F,
+        W: FnOnce(ReplyFrame, Charge, WirePermit) -> F,
         F: Future<Output = Result<(), E>>,
     {
         let Self {
             frame,
             question,
             charge,
+            permit,
         } = self;
-        write(frame, charge).await?;
+        write(frame, charge, permit).await?;
         Ok(question)
     }
 
@@ -64,6 +70,12 @@ impl Encoded {
     #[cfg(test)]
     pub fn charged(&self) -> usize {
         self.charge.bytes()
+    }
+
+    /// The bytes of the permit this frame carries.
+    #[cfg(test)]
+    pub fn permitted(&self) -> usize {
+        self.permit.bytes()
     }
 }
 
@@ -112,11 +124,23 @@ pub fn opening_listing<E>(
 /// supply run included, besides the one it is yielding. Each run's buffer
 /// grows to at most the body the run budget admits, unless one record
 /// alone needs more ([`LeafRun::push`]).
+///
+/// With a send pool ([`pooled`](Self::pooled)), the encoder takes each
+/// run's permit when the run's first record arrives, before it copies any
+/// of it: a whole run's worth, the body the run budget admits, or the
+/// record's own bytes if it alone needs more, beside the run's node in the
+/// lane, at most the whole pool ([`WirePool::acquire`]). Once the run
+/// closes, it keeps only what the run's buffer holds and returns the rest,
+/// and the permit rides the run to the multiplexer. It holds at most one
+/// permit at a time: it yields each run, with its permit, before the next
+/// record can open another.
 pub struct ReplyEncoder<B> {
     /// The store whose supplied nodes are flattened into leaf runs.
     backend: B,
     /// The byte budget of each supplied run's frame.
     budget: RunBudget,
+    /// The send pool each run takes its permit from, if any.
+    pool: Option<WirePool>,
     /// The record of the question the reply answers.
     scope: Scope,
     /// How the reply's queries pair with positions.
@@ -148,11 +172,18 @@ where
         Self {
             backend,
             budget,
+            pool: None,
             scope,
             level,
             replay: Replay::default(),
             written: false,
         }
+    }
+
+    /// Take each run's permit from `pool`.
+    pub fn pooled(mut self, pool: WirePool) -> Self {
+        self.pool = Some(pool);
+        self
     }
 
     /// Encode the reply's next `chunk`, deriving the lower questions it
@@ -175,12 +206,14 @@ where
         let Self {
             backend,
             budget,
+            pool,
             scope,
             level,
             replay,
             written,
         } = self;
         let (backend, budget, level) = (backend.clone(), *budget, *level);
+        let pool = pool.clone();
         try_stream! {
             let mut positions = scope.replay(*replay);
             // The chunk's charge rides its last frame to the multiplexer,
@@ -209,6 +242,7 @@ where
                         frame: ReplyFrame::reply_end(),
                         question: None,
                         charge: mem::take(&mut charge),
+                        permit: WirePermit::default(),
                     };
                 }
             }
@@ -218,16 +252,16 @@ where
                 // chunk is. So every frame is handed over as soon as it is
                 // complete, with its flow already known.
                 let closing = reactions.len() == 0;
-                let (wire, question) = match reaction {
+                let (wire, question, permit) = match reaction {
                     ProtocolReaction::Match(later) => {
                         positions.matched(&later)?;
-                        (WireReaction::Match(later), None)
+                        (WireReaction::Match(later), None, WirePermit::default())
                     }
                     ProtocolReaction::Query(listing) => {
                         let question = held_by(Holding::QuestionRecords, || {
                             level.derive(&mut positions, &listing)
                         })?;
-                        (WireReaction::Query(listing), Some(question))
+                        (WireReaction::Query(listing), Some(question), WirePermit::default())
                     }
                     ProtocolReaction::Supply(radix, node) => {
                         let expected = scope.supplied(radix);
@@ -240,6 +274,7 @@ where
                         // is never the reply's last frame, since a record
                         // follows it.
                         let mut run = LeafRun::new();
+                        let mut permit = WirePermit::default();
                         while let Some(item) = leaves.next().await {
                             let (prefix, leaf) = item.map_err(EncodeError::Backend)?;
                             validate_leaf(expected, previous, prefix);
@@ -256,13 +291,12 @@ where
                             let bounds = leaf.span();
                             let version = bounds.hi();
                             let message = leaf.message();
-                            if !run.is_empty()
-                                && !budget.admits(
-                                    run.encoded_len(),
-                                    LeafRun::record_len(version, message),
-                                )
-                            {
+                            let record = LeafRun::record_len(version, message);
+                            if !run.is_empty() && !budget.admits(run.encoded_len(), record) {
                                 *written = true;
+                                if let Some(pool) = &pool {
+                                    pool.keep(&mut permit, run.capacity());
+                                }
                                 yield Encoded {
                                     frame: ReplyFrame::reaction(
                                         WireReaction::Supply(mem::take(&mut run)),
@@ -270,13 +304,26 @@ where
                                     ),
                                     question: None,
                                     charge: Charge::default(),
+                                    permit: mem::take(&mut permit),
                                 };
+                            }
+                            if run.is_empty()
+                                && let Some(pool) = &pool
+                            {
+                                // The record opens a run: a whole run's
+                                // worth, or the record's own bytes if it
+                                // alone needs more.
+                                let need = if budget.covers(record) { budget.body() } else { record };
+                                permit = pool.acquire(need).await;
                             }
                             run.push(version, message, budget)
                                 .map_err(EncodeError::Record)?;
                         }
                         assert!(!run.is_empty(), "a backend node contains at least one leaf");
-                        (WireReaction::Supply(run), None)
+                        if let Some(pool) = &pool {
+                            pool.keep(&mut permit, run.capacity());
+                        }
+                        (WireReaction::Supply(run), None, permit)
                     }
                 };
                 if closing {
@@ -288,6 +335,7 @@ where
                     frame: ReplyFrame::reaction(wire, flow),
                     question,
                     charge: if closing { mem::take(&mut charge) } else { Charge::default() },
+                    permit,
                 };
             }
         }

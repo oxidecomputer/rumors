@@ -321,7 +321,7 @@ pub const DECODE_AHEAD_BYTES: usize = remote::decode_ahead_bytes::<<Local as Bac
 /// growth policy, returning the payload.
 ///
 /// This is the declared-length payload read used for party hand-offs and
-/// framed codec bodies, without the surrounding session. The decoder
+/// the greeting, without the surrounding session. The decoder
 /// allocation tests use it to measure memory requested for a declared length.
 pub async fn read_declared_payload(
     mut read: impl AsyncRead + Unpin,

@@ -147,8 +147,8 @@ impl<T> Sender<T> {
     /// the place of this sender's edge when it has one.
     fn queue(&mut self, item: T) -> Result<(), mpsc::TrySendError<T>> {
         #[cfg(any(test, feature = "test-internals"))]
-        if let Some(kind) = self.kind {
-            return held_by(kind.holding(), || self.inner.try_send(item));
+        if let Some(holding) = self.kind.and_then(QueueKind::holding) {
+            return held_by(holding, || self.inner.try_send(item));
         }
         self.inner.try_send(item)
     }

@@ -25,9 +25,34 @@ use crate::{
 
 use super::{
     super::codec::{End, Flow, Frame, Reaction as WireReaction},
+    super::pipe::{Inbound, WirePermit},
     error::DecodeError,
     scope::{ReplyLevel, Scope},
 };
+
+/// What a reply decoder reads its frames as: a frame, and the permit from
+/// the receive pool it holds for a supply run's bytes.
+///
+/// The pipe's lanes carry [`Inbound`] items; tests that drive a decoder
+/// directly hand it bare frames, which hold no permit.
+pub trait IncomingFrame {
+    /// The frame and its permit.
+    fn into_parts(self) -> (Frame, WirePermit);
+}
+
+/// A bare frame holds no permit.
+impl IncomingFrame for Frame {
+    fn into_parts(self) -> (Frame, WirePermit) {
+        (self, WirePermit::default())
+    }
+}
+
+/// A frame from the pipe, with its permit.
+impl IncomingFrame for Inbound {
+    fn into_parts(self) -> (Frame, WirePermit) {
+        (self.frame, self.permit)
+    }
+}
 
 /// Leaf records each reply decoder holds at once at most: a full fan in its
 /// leaves' edge and the one in its reader's hand.
@@ -199,6 +224,11 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
 /// The reply's supplied leaves cross `edge` to assembly while the reply is
 /// read. After an error the edge may hold items of the failed reply, so a
 /// caller decodes nothing further through it.
+///
+/// A supply run's permit from the receive pool ([`IncomingFrame`]) returns
+/// as soon as the run's last record is copied into its leaf, before the
+/// decoder waits for its next frame: that frame may be a run the reader
+/// can read only once a permit returns.
 // The edge, the session's decode limits, the reply's level, scope, and
 // frames, and the chunks' destination are separate inputs; the pump
 // supplies the limits from its ingress.
@@ -218,7 +248,7 @@ pub async fn decode_reply<B, F>(
 ) -> Result<(), DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
-    F: Stream<Item = Frame> + Unpin,
+    F: Stream<Item: IncomingFrame> + Unpin,
 {
     // The reply's supplied runs group into nodes one level under the
     // scope's parent: the scope's own children height.
@@ -271,7 +301,7 @@ pub async fn decode_whole_reply<B, F>(
 ) -> Result<Reply<B::Erased>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
-    F: Stream<Item = Frame> + Unpin,
+    F: Stream<Item: IncomingFrame> + Unpin,
 {
     let mut chunks = Vec::new();
     decode_reply(
@@ -448,13 +478,14 @@ where
         deliver: &mut (impl FnMut(Reply<B::Erased>) + Send),
     ) -> Result<(), DecodeError<B::Error>>
     where
-        F: Stream<Item = Frame> + Unpin,
+        F: Stream<Item: IncomingFrame> + Unpin,
     {
         let mut positions = self.scope.positions();
         loop {
-            let Some(frame) = frames.next().await else {
+            let Some(item) = frames.next().await else {
                 return Err(DecodeError::TruncatedReply);
             };
+            let (frame, permit) = item.into_parts();
             let (reaction, flow) = match frame {
                 Frame::Reaction(reaction, flow) => (reaction, flow),
                 Frame::End(End::Reply) if self.allowance.is_untouched() => {
@@ -493,19 +524,19 @@ where
                         deliver(self.chunk(false));
                     }
                 }
-                WireReaction::Supply(records) => {
+                WireReaction::Supply(run) => {
                     // The codec rejects empty runs. Keep the assertion for
                     // frames constructed directly inside the crate.
                     debug_assert!(
-                        !records.is_empty(),
-                        "the codec never yields an empty supply run",
+                        !run.is_empty(),
+                        "the codec never yields an empty supply run"
                     );
                     // Decode records directly into assembly; retain only one
                     // placeholder for each version-derived supply run.
                     // Decoded leaves become replica content or wait in the
                     // decode fan, so the session-budget meter counts their
                     // construction there.
-                    let mut records = records.records(self.codec);
+                    let mut records = run.records(self.codec);
                     while let Some(record) = held_by(Holding::DecodedLeaves, || records.next()) {
                         let (version, message) = record.map_err(DecodeError::Record)?;
                         let (leaf_prefix, run) = self.supplies.observe::<B::Error>(
@@ -535,6 +566,11 @@ where
                             .await
                             .expect(EDGE_OPEN);
                     }
+                    // Every record is copied out of the run, so its bytes
+                    // and its permit return now.
+                    drop(records);
+                    drop(run);
+                    drop(permit);
                 }
             }
 

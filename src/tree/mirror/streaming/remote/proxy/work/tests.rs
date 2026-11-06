@@ -14,6 +14,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream,
 use tokio::sync::oneshot;
 
 use super::{Ingress, Outstanding, Physical, Work, progress::Progress};
+use crate::default;
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::{MemoryEnd, memory_connection, run_to_quiescence};
 use crate::tree::mirror::cbor;
@@ -27,7 +28,7 @@ use crate::tree::mirror::streaming::{
             self, DecodeErrorKind, EncodeErrorKind, End, Flow, Frame, FramePart, Origin, Reaction,
             RunBudget, Speaker, Stream,
         },
-        pipe::{Demultiplexer, Multiplexer, PipeError},
+        pipe::{Demultiplexer, Multiplexer, PipeError, WIRE_POOL_RUNS, WirePools},
         proxy::Error,
     },
     stats::Recorder,
@@ -74,6 +75,7 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
             Some(crate::network::NetworkKeys::fixture()),
         ),
         RunBudget::default(),
+        WirePools::new(default::TARGET_MESSAGE_SIZE, WIRE_POOL_RUNS),
         Vec::new(),
         Physical {
             read,

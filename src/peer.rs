@@ -33,7 +33,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 /// The smallest memory budget a synchronization session runs on at the
 /// default message-size target ([`default::TARGET_MESSAGE_SIZE`]): about
-/// 34 MiB on 64-bit targets.
+/// 35 MiB on 64-bit targets.
 ///
 /// A smaller budget, zero included, is raised to this, so a session holds
 /// at most the larger of its budget and this minimum. It covers the room
@@ -852,7 +852,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///   each level of its comparison, which a session can always hold,
     ///   whatever else waits, and which is how it always makes progress.
     ///   The allowance is the most that work can hold at once, about
-    ///   25.5 MiB on the in-memory replica on 64-bit targets, whatever the
+    ///   26.5 MiB on the in-memory replica on 64-bit targets, whatever the
     ///   sets' sizes.
     ///
     /// Every budget also sets aside the *fixed allowance*: room for what a
@@ -956,26 +956,24 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// # Memory
     ///
-    /// The target is the unit of wire-message buffering on both sides.
-    /// A session carries each tree level's replies separately, and buffers
-    /// at most 258 runs per level it sends at (one being built or handed
-    /// over, up to 256 queued, and one waiting for or undergoing its write)
-    /// and at most 257 per level it receives at (up to 256 queued and one
-    /// being decoded), plus one run per direction that the reader holds while a
-    /// level's queue is full. Each of those runs holds at most the target's
-    /// worth of bytes, framing aside, unless its one leaf alone outgrows the
-    /// target. A run whose frame (the run and a few bytes of framing) is
-    /// smaller than the sending side's write buffer, about 63 KiB, is copied
-    /// into it as it is written. The receiver decodes each run's encoded bytes
-    /// as it goes, handing each leaf to the storage backend as it is read
-    /// and holding a fixed number of constructed leaves per level on their
-    /// way to assembly, whatever this setting. Each session therefore runs at
-    /// the **minimum** of the two ends' targets: the greeting carries
-    /// each side's setting, and each side's *encoder* batches within
-    /// that minimum. Your setting thus bounds the frames you build and,
-    /// through the minimum, the frames a conforming peer sends you:
-    /// the more memory-constrained peer sets the pace. Peers with
-    /// different settings interoperate.
+    /// The target is the unit of wire-message buffering on both sides. It
+    /// sizes the room each direction of a session holds for the runs on
+    /// their way through the connection: about two runs' worth at this
+    /// peer's own target, however many levels of its comparison the session
+    /// carries at once. Each run holds at most the target's worth of bytes,
+    /// framing aside, unless its one leaf alone outgrows the target; such a
+    /// run takes its direction's whole room. A run whose frame (the run and
+    /// a few bytes of framing) is smaller than the sending side's write
+    /// buffer, about 63 KiB, is copied into it as it is written. The
+    /// receiver decodes each run's encoded bytes as it goes, handing each
+    /// leaf to the storage backend as it is read and holding a fixed number
+    /// of constructed leaves per level on their way to assembly, whatever
+    /// this setting. Each session therefore runs at the **minimum** of the
+    /// two ends' targets: the greeting carries each side's setting, and each
+    /// side's *encoder* batches within that minimum. Your setting thus
+    /// bounds the frames you build and, through the minimum, the frames a
+    /// conforming peer sends you: the more memory-constrained peer sets the
+    /// pace. Peers with different settings interoperate.
     ///
     /// The default, [`default::TARGET_MESSAGE_SIZE`], is the byte size of
     /// the wire's maximally disputed reply (the decode side's documented

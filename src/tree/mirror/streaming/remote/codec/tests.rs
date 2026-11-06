@@ -20,7 +20,7 @@ use crate::{
     message::Message,
     tree::{
         arb::{arb_radixes, arb_version},
-        mirror::{cbor, framing::PAYLOAD_CHUNK_LEN},
+        mirror::cbor,
         typed::{Hash, hash::MERKLE_HASH_LEN},
     },
 };
@@ -849,9 +849,9 @@ fn listing_bulk_reads(children: &[Listed]) -> usize {
 /// one read. A listing costs its map head
 /// (one read, plus one for an extension) and then its bulk reads
 /// ([`listing_bulk_reads`]). A supply costs one read for each of its two
-/// heads' initial bytes, one for each extension present, and one for a
-/// run body within one payload chunk (`async_decode_spends_its_read_plan`
-/// assumes that bound).
+/// heads' initial bytes, one for each extension present, and one for its
+/// run body, which the reader reserves whole once the run's length is
+/// judged, so a transport serving every read in full delivers it at once.
 fn read_plan(frame: &WireFrame) -> usize {
     let (_, frame) = frame;
     let mut reads = 1;
@@ -910,12 +910,6 @@ proptest! {
         speaker in arb_speaker(),
     ) {
         let (speaker, frame) = place(speaker, frame);
-        if let Frame::Reaction(Reaction::Supply(run), _) = &frame.1 {
-            // `read_plan` prices one body read because these small generated
-            // runs fit in one chunk. Keep that premise visible if the generator
-            // grows.
-            prop_assert!(run.encoded_len() <= PAYLOAD_CHUNK_LEN);
-        }
         let mut encoded = Vec::new();
         encode(speaker, &frame, &mut encoded).unwrap();
         let (decoded, reads) = decode_counting(speaker, &encoded);

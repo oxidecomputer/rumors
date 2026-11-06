@@ -28,7 +28,7 @@ use crate::tree::{
         remote::{
             adapter::{Encoded, ReplyEncoder, Scope, opening_listing},
             codec::{ReplyFrame, RunBudget},
-            pipe::Outgoing,
+            pipe::{Outgoing, WirePermit, WirePool},
             proxy::Error,
         },
         tasks::cancelled,
@@ -39,9 +39,13 @@ use crate::tree::{
 use super::{Derived, Outstanding, progress::Progress};
 
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
+// The arguments are the stage's dataflow and the session's run limits,
+// one per concern.
+#[allow(clippy::too_many_arguments)]
 pub async fn terminal<B>(
     backend: B,
     budget: RunBudget,
+    pool: WirePool,
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Derived>,
     mut outgoing: Outgoing,
@@ -56,7 +60,7 @@ where
     // admits K truly in-flight scopes (the walk's stage loops make the
     // same choice; see the materialized module docs).
     while let Some(Derived { scope, charge }) = scopes.recv().await {
-        let encoder = ReplyEncoder::leaf(backend.clone(), budget, scope);
+        let encoder = ReplyEncoder::leaf(backend.clone(), budget, scope).pooled(pool.clone());
         // Only replies which can ask questions participate in the trace.
         // The initiator's final answers have no publication dependency.
         write_reply(
@@ -85,6 +89,7 @@ where
 pub async fn replies<B>(
     backend: B,
     budget: RunBudget,
+    pool: WirePool,
     mut requests: BoxRequests<B::Erased>,
     mut scopes: Receiver<Derived>,
     mut outgoing: Outgoing,
@@ -96,7 +101,7 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     while let Some(Derived { scope, charge }) = scopes.recv().await {
-        let encoder = ReplyEncoder::branch(backend.clone(), budget, scope);
+        let encoder = ReplyEncoder::branch(backend.clone(), budget, scope).pooled(pool.clone());
         write_reply(
             &mut outgoing,
             &mut requests,
@@ -237,16 +242,18 @@ where
     Ok(())
 }
 
-/// Hand one adapter frame, with the charge it carries, to the multiplexer
-/// and release its optional question afterward.
+/// Hand one adapter frame, with the charge and the permit it carries, to
+/// the multiplexer and release its optional question afterward.
 async fn write_encoded<E>(
     outgoing: &mut Outgoing,
     encoded: Encoded,
 ) -> Result<Option<Scope>, Error<E>> {
     encoded
-        .write_with(|frame: ReplyFrame, charge: Charge| async {
-            outgoing.frame(frame, charge).await;
-            Ok(())
-        })
+        .write_with(
+            |frame: ReplyFrame, charge: Charge, permit: WirePermit| async {
+                outgoing.frame(frame, charge, permit).await;
+                Ok(())
+            },
+        )
         .await
 }

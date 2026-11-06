@@ -16,7 +16,7 @@ use crate::{
             protocol::{self, Accept, CompleteConnect, Connect},
             remote::{
                 codec::{RunBudget, greeting as greeting_codec},
-                pipe::{PipeRead, WriteBatch},
+                pipe::{PipeRead, WIRE_POOL_RUNS, WirePools, WriteBatch},
                 proxy::{Connected, Error, work::Ingress},
             },
             stats::Recorder,
@@ -56,6 +56,9 @@ where
     /// How many bytes of frames one flush of the session's multiplexer may
     /// carry.
     write_batch: WriteBatch,
+    /// Runs' worth of bytes each of the session's wire pools holds at this
+    /// side's own target ([`WIRE_POOL_RUNS`] but in tests).
+    pool_runs: usize,
 }
 
 impl<B, R, W> Handshaking<B, R, W>
@@ -85,6 +88,7 @@ where
             keys,
             observe: SessionHandle::default(),
             write_batch: WriteBatch::default(),
+            pool_runs: WIRE_POOL_RUNS,
         }
     }
 
@@ -114,6 +118,15 @@ where
     /// [`WriteBatch`].
     pub fn write_batch(mut self, write_batch: WriteBatch) -> Self {
         self.write_batch = write_batch;
+        self
+    }
+
+    /// Size each of the session's wire pools at `runs` runs' worth of bytes
+    /// at this side's own target, rather than [`WIRE_POOL_RUNS`], for the
+    /// tests that establish progress at the smallest pools.
+    #[cfg(test)]
+    pub fn wire_pool_runs(mut self, runs: usize) -> Self {
+        self.pool_runs = runs;
         self
     }
 }
@@ -157,6 +170,11 @@ where
         // shortcut, so agreement on content cannot hide incompatible peers.
         payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
         let budget = run_budget(&local, &remote);
+        // The pools are sized at this side's own target, which bounds every
+        // run of the session in either direction, as the memory budget set
+        // them aside ([`WirePools::new`]).
+        let target = usize::try_from(local.target_message_size).unwrap_or(usize::MAX);
+        let pools = WirePools::new(target, self.pool_runs);
         let Greeting {
             max_version_bytes: remote_version_bytes,
             set_len: remote_set_len,
@@ -182,6 +200,7 @@ where
             write: self.write,
             remote_listing,
             budget,
+            pools,
             stats: self.stats,
             observe: self.observe,
             write_batch: self.write_batch,
@@ -214,6 +233,7 @@ where
             keys: self.keys,
             observe: self.observe,
             write_batch: self.write_batch,
+            pool_runs: self.pool_runs,
         };
         Ok((greeting, next))
     }

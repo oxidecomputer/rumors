@@ -1,6 +1,7 @@
 use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::Listed;
 use crate::tree::mirror::streaming::message::listed;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -10,10 +11,17 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use super::*;
 use crate::Version;
+use crate::default;
 use crate::message::Message;
 use crate::tree::arb::{arb_radixes, arb_version};
 use crate::tree::mirror::cbor::{HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, TAG_CBOR_SEQUENCE};
 use crate::tree::mirror::streaming::byte_set::{ByteSet, ByteSetError, MAX_ENCODED_LEN};
+use crate::tree::mirror::streaming::ledger::queued;
+use crate::tree::mirror::streaming::remote::{
+    Inbound,
+    codec::lone_record_run,
+    pipe::{WIRE_POOL_RUNS, WirePool},
+};
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 use super::super::{
@@ -1178,12 +1186,13 @@ fn opener_read_failures_are_reported_in_wire_order() {
 /// Supply-body truncation cuts at every seeded offset all classify as a
 /// truncated `SupplyRun` with an `UnexpectedEof` source.
 ///
-/// The seeded offsets are one byte short of, exactly on, and one byte
-/// past each payload chunk boundary, plus the zero-byte, one-byte, and
-/// one-short-of-total cuts. The chunked body read preserves the typed
-/// truncation contract at every seam, the zero- and one-byte cuts
-/// exercising the earliest possible ones — where a record's leading
-/// heads would sit.
+/// The seeded offsets are the roster the framing suites share: one byte
+/// short of, exactly on, and one byte past each payload chunk boundary,
+/// plus the zero-byte, one-byte, and one-short-of-total cuts. The supply
+/// body is read into a buffer reserved whole, so none of them is a seam
+/// of its own read; the roster spreads the cuts over a body of several
+/// chunks, and the zero- and one-byte cuts exercise the earliest ones,
+/// where a record's leading heads would sit.
 #[test]
 fn supply_truncation_at_chunk_boundaries_is_typed() {
     use crate::tree::mirror::framing::{PAYLOAD_CHUNK_LEN, chunk_boundary_cuts};
@@ -1537,6 +1546,63 @@ fn record_iteration_enforces_payload_depth() {
         .next()
         .unwrap()
         .expect("a payload at exactly the limit decodes");
+}
+
+/// Reading a supply run through the receive pool never holds more than
+/// the run's own bytes at once.
+///
+/// For a run within the budget, its permit covers those bytes and the
+/// run's node in its lane, so no moment of receiving the run holds more
+/// than its permit covers. A record larger than the pool takes the whole
+/// pool, and holds beside it only its own excess over the pool.
+///
+/// The read completes in one poll from an in-memory transport, so the
+/// poll's peak covers the run's buffer at its largest, both blocks of any
+/// reallocation counted. The runs fill the body the default target admits,
+/// and a target four times as large, and outgrow each one's pool by a
+/// lone record of three times its body.
+#[test]
+fn receiving_a_run_holds_at_most_its_permit() {
+    let node = queued::<Inbound>();
+    for target in [
+        default::TARGET_MESSAGE_SIZE,
+        4 * default::TARGET_MESSAGE_SIZE,
+    ] {
+        let budget = RunBudget::from_bytes(target);
+        let pool = WirePool::receiving(target, WIRE_POOL_RUNS);
+        for len in [budget.body(), 3 * budget.body()] {
+            let bytes = supply(stream(1), Flow::End, &lone_record_run(len));
+            let mut reader = FrameRead::new(Speaker::Initiator, budget, bytes.as_slice());
+            let mut read = std::pin::pin!(reader.pooled_frame(&pool));
+            let mut cx = Context::from_waker(std::task::Waker::noop());
+            let (received, polled) = alloc_meter::measure(|| read.as_mut().poll(&mut cx));
+            let Poll::Ready(frame) = polled else {
+                panic!("an in-memory transport and a pool with room never wait");
+            };
+            let (_, permit) = frame
+                .expect("a well-framed run decodes")
+                .expect("the transport holds a frame");
+            assert!(
+                received.peak_bytes <= len,
+                "receiving a run of {len} bytes at target {target} peaked at {} bytes",
+                received.peak_bytes,
+            );
+            if budget.covers(len) {
+                assert!(
+                    len + node <= permit.bytes(),
+                    "a {permit_bytes}-byte permit for a run of {len} bytes beside its \
+                     {node}-byte node",
+                    permit_bytes = permit.bytes(),
+                );
+            } else {
+                assert_eq!(
+                    permit.bytes(),
+                    pool.bytes(),
+                    "a lone record takes the whole pool"
+                );
+            }
+        }
+    }
 }
 
 mod transport;

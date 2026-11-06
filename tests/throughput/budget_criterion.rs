@@ -17,8 +17,9 @@
 //! - **(b)** On the latency-only link, none occur above a threshold the
 //!   session sets: `T(B′) ≤ T(B)` whenever `B ≥ B*`.
 //!
-//! On links with bandwidth, inversions remain above `B*`, each within
-//! about one message's serialization. They are observed, not asserted.
+//! On links with bandwidth, a larger budget can still reorder the bytes a
+//! direction writes above `B*`, which shifts its serialization by up to
+//! about a message, so (b) is not asserted there.
 //!
 //! At `B ≥ N*` the session is the unlimited session, event for event
 //! ([`no_slowdown`](super::no_slowdown)), so the pairs that matter have `B <
@@ -78,15 +79,24 @@ const PARTS: u32 = 1 << 16;
 /// The pairs a case draws: messages on each side, and the percent of them
 /// both sides hold.
 ///
-/// The sizes give a no-cost point of 2–4 `c_max` and a depth-1 claims'
-/// total above `c_max`, while keeping a case's sessions inside the suite's
-/// time. Sharing is capped because the no-cost point falls toward `D₁` as
-/// it grows: the initiator's depth-2 claims shrink with the messages in
-/// dispute, while `D₁` follows every child the peer lists. At these sizes
-/// and up to a fifth shared, `D₁` stays below 0.86 of the no-cost point;
-/// from about two fifths it reaches it, leaving nothing above `D₁` to judge.
+/// The sizes give a no-cost point of about 4–5 `c_max` and a depth-1
+/// claims' total above `c_max`, while keeping a case's sessions inside the
+/// suite's time.
+///
+/// The sizes start high and sharing is capped so that `D₁` stays below the
+/// no-cost point. On the latency-only link that point is then the
+/// initiator's depth-2 share peak: the depth-2 questions its answers ask at
+/// once, about as many as the messages each side holds alone, with their
+/// rooms and their replies' needs. `D₁` weighs a fixed fan of questions,
+/// one per child of the root, whose rooms and needs follow every child the
+/// peer lists, shared or not. So sharing removes depth-2 questions without
+/// shrinking `D₁`, and fewer messages shrink the depth-2 peak toward `D₁`'s
+/// fixed fan. From 10,000 messages and up to a twentieth shared, `D₁` stays
+/// below 0.97 of the no-cost point; it reaches it from about three
+/// twentieths shared at 10,000 messages and from about a tenth at 8,000,
+/// leaving nothing above `D₁` to judge.
 fn shapes() -> impl Strategy<Value = Shape> {
-    (8_000_u64..=12_000, 0_u64..=20)
+    (10_000_u64..=12_000, 0_u64..=5)
         .prop_map(|(messages, shared)| Shape::overlapping(messages, shared))
 }
 
@@ -266,7 +276,7 @@ fn check_case(
 /// This is the criterion the module docs state, measured rather than proven:
 /// (a) on every link, and (b) on the latency-only link alone, since on a link
 /// with bandwidth a larger budget can reorder a direction's writes and
-/// lengthen the session by a message's serialization or a few segments'.
+/// lengthen the session by about one message's serialization.
 ///
 /// Neither half may pass vacuously. Each case premises a constrained
 /// session: its no-cost point exceeds `c_max` on both links, its depth-1

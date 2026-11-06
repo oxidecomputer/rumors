@@ -12,10 +12,13 @@
 //! example, by announcing a body and withholding some of it—and leave the
 //! session waiting; applications impose deadlines on that wait. Under the
 //! trusted-counterparty model (see the crate docs), validation detects
-//! implementation defects rather than enforcing a security boundary. No
-//! declared-length body read allocates by the declared length up front:
-//! each grows its buffer only as bytes arrive (see [`framing`]). Every
-//! ingress has malformed-input tests beside its parser.
+//! implementation defects rather than enforcing a security boundary. A
+//! declared-length body read allocates by the declared length up front
+//! only once that length is judged and its bytes set aside: a supply run's
+//! body, once the run budget admits its length, or its heads show one
+//! record spanning it, and the receive pool has granted its permit. Every
+//! other body read grows its buffer only as bytes arrive (see
+//! [`framing`]). Every ingress has malformed-input tests beside its parser.
 
 pub mod streaming;
 

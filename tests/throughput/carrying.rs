@@ -1,5 +1,5 @@
 //! The floor/budget substitution in admission, and the carry that undoes
-//! it, at the cells where a budget one step larger made a session slower.
+//! it, at pairs of budgets either side of a depth-1 answer's grant.
 //!
 //! # The mechanism
 //!
@@ -33,7 +33,13 @@
 //!    for any time; and at `B′` some answer is, so the cell exercises the
 //!    substitution.
 //!
-//! And the session at `B′` takes no longer than at `B`.
+//! And the session at `B′` takes at most one round trip longer than at `B`,
+//! the bound the budget criterion holds every pair of budgets to. Without
+//! the carry, the substituted answers double their subtrees' time, which
+//! costs thousands of one-way delays, so the bound detects a substitution
+//! the carry misses. With it, a larger budget can still repack the units
+//! after the first difference by less than a round trip, as the budget
+//! criterion's module docs describe.
 
 use rumors_testkit::bench::link::LinkConfig;
 use rumors_testkit::bench::session::{
@@ -51,20 +57,24 @@ struct Cell {
     budgets: [usize; 2],
 }
 
-/// The cells: the smallest pair whose larger budget ran slower through the
-/// substitution, and the smallest size probed around the saturated depth-1
-/// answer's grant that did.
+/// The cells, each a pair of budgets that some of the initiator's depth-1
+/// answers' grants fall between:
 ///
-/// That grant is 18,648 B, and the sizes probed were 100,000, 150,000,
-/// 200,000 and 300,000 messages per side.
+/// - 3,000 messages per side at 2,560 B and 3,072 B. The depth-1 answers'
+///   grants here rise from 2,112 B in steps of 152 B, one step per
+///   reaction, so these budgets bracket the answers of several consecutive
+///   reaction counts.
+/// - 200,000 messages per side, one byte either side of the saturated
+///   depth-1 answer's grant, 39,208 B: the grant of an answer with a full
+///   fan of reactions, which some answers at this size carry.
 const CELLS: [Cell; 2] = [
     Cell {
         messages: 3_000,
-        budgets: [1_280, 1_536],
+        budgets: [2_560, 3_072],
     },
     Cell {
         messages: 200_000,
-        budgets: [18_647, 18_648],
+        budgets: [39_207, 39_208],
     },
 ];
 
@@ -135,7 +145,7 @@ fn check(cell: Cell, session: &Session) -> (Vec<usize>, usize) {
 }
 
 /// At each cell's two budgets, the substitution happens and is carried at
-/// once, and the larger budget's session is no slower.
+/// once, and the larger budget's session is at most one round trip slower.
 ///
 /// See the module docs for the mechanism and the claims. Each cell's
 /// budgets straddle some grant of the initiator's depth-1 answers, which is
@@ -159,9 +169,11 @@ fn the_substitution_is_carried_and_the_inversion_is_gone() {
             "no depth-1 answer entered the budget at the larger budget, so the cell does \
              not exercise the substitution: {cell:?}",
         );
+        let round_trip = 2 * smaller.case.link.one_way_delay();
         assert!(
-            larger.duration() <= smaller.duration(),
-            "the session at {b_prime} B lasts {} byte-times, longer than {} at {b} B: {cell:?}",
+            larger.duration() <= smaller.duration() + round_trip,
+            "the session at {b_prime} B lasts {} byte-times, more than one round trip \
+             ({round_trip}) beyond {} at {b} B: {cell:?}",
             larger.duration(),
             smaller.duration(),
         );

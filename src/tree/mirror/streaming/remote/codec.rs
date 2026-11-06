@@ -81,7 +81,6 @@ pub(crate) mod greeting;
 mod signal;
 
 pub(crate) use budget::FULL_FAN_QUERY_FRAME_LEN;
-#[cfg(test)]
 pub use budget::SUPPLY_FRAME_OVERHEAD;
 pub use budget::{MAX_RUN_BUDGET_BYTES, RunBudget};
 pub(crate) use frame::MAX_QUERY_CHILDREN;

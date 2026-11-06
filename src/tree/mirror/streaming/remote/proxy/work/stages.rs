@@ -42,8 +42,7 @@ use crate::tree::{
         protocol::{BoxResponses, Requests},
         remote::{
             adapter::{LeafEdge, ReplyLevel, decode_reply, opening_reply},
-            codec::Frame,
-            pipe::PipeRead,
+            pipe::{Inbound, PipeRead},
             proxy::{Error, send_or_cancel},
         },
         tasks::{TaskRole, cancelled},
@@ -81,7 +80,7 @@ where
         self,
         level: ReplyLevel,
         mut questions: Receiver<Outstanding>,
-        mut incoming: Receiver<Frame>,
+        mut incoming: Receiver<Inbound>,
         mut parking: Sender<Parked<B::Erased>>,
     ) -> Result<(), Error<B::Error>> {
         let mut asked = false;
@@ -215,6 +214,7 @@ where
             encode::replies(
                 self.backend(),
                 self.budget,
+                self.pools.sending.clone(),
                 requests,
                 scopes,
                 outgoing,
@@ -242,6 +242,7 @@ where
             encode::replies(
                 self.backend(),
                 self.budget,
+                self.pools.sending.clone(),
                 requests,
                 scopes,
                 outgoing,
@@ -272,6 +273,7 @@ where
             encode::terminal(
                 self.backend(),
                 self.budget,
+                self.pools.sending.clone(),
                 requests,
                 scopes,
                 outgoing,
@@ -304,6 +306,7 @@ where
             encode::terminal(
                 self.backend(),
                 self.budget,
+                self.pools.sending.clone(),
                 requests,
                 scopes,
                 outgoing,
@@ -328,7 +331,7 @@ where
 /// closes the stream's channel, which refuses later frames at the
 /// demultiplexer, and reports a frame already waiting. A level that asked
 /// must find its stream ended with no reply to spare.
-async fn reject_extra<E>(asked: bool, incoming: &mut Receiver<Frame>) -> Result<(), Error<E>> {
+async fn reject_extra<E>(asked: bool, incoming: &mut Receiver<Inbound>) -> Result<(), Error<E>> {
     if !asked {
         return match incoming.close_and_try_recv() {
             None => Ok(()),

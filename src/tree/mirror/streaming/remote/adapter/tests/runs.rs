@@ -9,6 +9,8 @@
 //! decode → re-encode path the session uses, with the decode side fed
 //! deliberately unbatched input to prove batching is the encoder's choice.
 
+use std::pin::pin;
+
 use futures::{StreamExt, TryStreamExt, stream};
 use proptest::prelude::*;
 
@@ -19,8 +21,14 @@ use crate::{
         mirror::streaming::{
             Backend, Failing, FailingNode, Local,
             erased::{Reaction, Reply},
-            remote::codec::{
-                Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget, SUPPLY_FRAME_OVERHEAD,
+            ledger::queued,
+            remote::{
+                Outbound,
+                codec::{
+                    Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget,
+                    SUPPLY_FRAME_OVERHEAD,
+                },
+                pipe::{PERMIT_BYTES, WirePool},
             },
         },
         typed::{Prefix, height::UnderRoot},
@@ -28,7 +36,7 @@ use crate::{
 };
 
 use super::{
-    super::{LeafEdge, ReplyLevel, Scope, decode_whole_reply, encode_reply},
+    super::{LeafEdge, ReplyEncoder, ReplyLevel, Scope, decode_whole_reply, encode_reply},
     LeafCase, codec, colliding_leaves, leaf_run, reply_frames, runtime, separated_leaves,
     unbounded,
 };
@@ -232,6 +240,75 @@ proptest! {
                 );
             }
             prop_assert_eq!(yielded, count);
+            Ok(())
+        })?;
+    }
+}
+
+/// The supply-only reply of `count` colliding leaves, over `backend`'s
+/// nodes: one supply reaction per leaf's subtree.
+fn supply_reply(count: usize) -> Reply<FailingNode<<Local as Backend>::Erased>> {
+    let decoded = decode_opening(unbatched_frames(&colliding_leaves(count)));
+    Reply {
+        reactions: decoded
+            .reactions
+            .into_iter()
+            .map(|reaction| match reaction {
+                Reaction::Supply(radix, node) => Reaction::Supply(radix, FailingNode::new(node)),
+                _ => panic!("a pure-supply reply decodes to supplies alone"),
+            })
+            .collect(),
+        charge: Default::default(),
+        last: true,
+        carried: Default::default(),
+    }
+}
+
+proptest! {
+    /// With a send pool, each run the encoder yields holds a permit for
+    /// exactly its buffer and its node in the lane, and the encoder holds no
+    /// other permit.
+    ///
+    /// The permit is whole permits, or the whole pool if that is less; at
+    /// each yield the pool holds back nothing but the run in hand.
+    ///
+    /// The pool holds one or two runs' worth at the run budget, and the
+    /// budget ranges over every size the fixture's records can fill, zero
+    /// included, where every record outgrows the pool's runs and takes the
+    /// whole pool. The test drops each run as the multiplexer would once it
+    /// is written, so the encoder never waits on a run the test holds.
+    #[test]
+    fn each_run_holds_a_permit_for_exactly_its_bytes(
+        (count, budget) in run_case(),
+        runs in 1usize..=2,
+    ) {
+        let pool = WirePool::sending(budget, runs);
+        let node = queued::<Outbound>();
+        let mut encoder = ReplyEncoder::branch(
+            Failing::after(Local, usize::MAX),
+            RunBudget::from_bytes(budget),
+            Scope::opening_unbounded(&[]),
+        )
+        .pooled(pool.clone());
+        let reply = supply_reply(count);
+        runtime().block_on(async {
+            let mut frames = pin!(encoder.chunk(reply));
+            while let Some(encoded) = frames.next().await {
+                let encoded = encoded.expect("the wrapped local backend never fails");
+                let permitted = encoded.permitted();
+                prop_assert_eq!(
+                    pool.available() + permitted,
+                    pool.bytes(),
+                    "the encoder holds only the permit it yields"
+                );
+                let (frame, _) = encoded.into_parts();
+                let Frame::Reaction(WireReaction::Supply(run), _) = frame else {
+                    panic!("a pure-supply reply emitted {frame:?}");
+                };
+                let whole = (run.capacity() + node).div_ceil(PERMIT_BYTES) * PERMIT_BYTES;
+                prop_assert_eq!(permitted, whole.min(pool.bytes()));
+            }
+            prop_assert_eq!(pool.available(), pool.bytes(), "every permit returned");
             Ok(())
         })?;
     }

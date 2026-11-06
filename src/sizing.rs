@@ -33,7 +33,7 @@
 //! - **Every budget sets aside** room for one question and one answer at
 //!   each level of the session's comparison, so that the session always
 //!   makes progress: the *floor allowance*, the most that work can hold,
-//!   about 25.5 MiB on the in-memory replica on 64-bit targets, whatever the
+//!   about 26.5 MiB on the in-memory replica on 64-bit targets, whatever the
 //!   sets' sizes. Every budget also sets aside room for the session's fixed
 //!   state, which it holds whatever the budget: the *fixed allowance*,
 //!   about 7 MiB. A session admits the rest of its work against what

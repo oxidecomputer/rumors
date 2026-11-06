@@ -1347,7 +1347,7 @@ fn release_everything(_: [usize; 2]) -> Release {
 /// claims under the invitation share let its questions take it, and the
 /// floor slots hold one more unit per depth and kind beside it: each peak
 /// is at most the 8 MiB budget plus its slots' largest grants.
-const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_649_352, 8_468_736];
+const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_878_940, 8_493_500];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
 /// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
@@ -1355,7 +1355,7 @@ const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [8_649_352, 8_468_736];
 ///
 /// A claim reserves room for processing still to come, so a side's peak
 /// can stay below its budget.
-const WIDE_LEDGER_PEAKS: [usize; 2] = [30_995_796, 33_626_412];
+const WIDE_LEDGER_PEAKS: [usize; 2] = [31_618_136, 33_643_516];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
 /// from empty.
@@ -1363,7 +1363,7 @@ const WIDE_LEDGER_PEAKS: [usize; 2] = [30_995_796, 33_626_412];
 /// It asks one question, about the root, and the responder answers it with
 /// supplies alone, so neither side holds more than that one question and
 /// that one answer.
-const JOINING_LEDGER_PEAKS: [usize; 2] = [12_840, 18_640];
+const JOINING_LEDGER_PEAKS: [usize; 2] = [29_368, 39_200];
 
 /// Targets a session whose ledgers peak at exactly `expected`, the
 /// fixture's committed baseline.

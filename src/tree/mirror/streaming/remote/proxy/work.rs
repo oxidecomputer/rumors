@@ -28,8 +28,8 @@ use crate::{
             protocol::BoxResponses,
             remote::{
                 adapter::{Replay, ReplyLevel, Scope, derive_questions},
-                codec::{Frame, RunBudget, Speaker, Stream as LogicalStream},
-                pipe::{self, Demultiplexer, Multiplexer, Outgoing, PipeRead},
+                codec::{RunBudget, Speaker, Stream as LogicalStream},
+                pipe::{self, Demultiplexer, Inbound, Multiplexer, Outgoing, PipeRead, WirePools},
                 proxy::{Error, send_or_cancel},
             },
             stats::Recorder,
@@ -107,6 +107,9 @@ where
     /// Byte budget for each outgoing supply run, also enforced on every
     /// incoming one.
     budget: RunBudget,
+    /// The session's wire pools: each run's bytes, in either direction,
+    /// from before they exist until they are gone.
+    pools: WirePools,
     /// The remote greeting's root-fan listing, which
     /// [`initiator`](Self::initiator) replays as the remote's opening
     /// question when the remote initiates.
@@ -149,6 +152,7 @@ where
     pub fn new(
         ingress: Ingress<B>,
         budget: RunBudget,
+        pools: WirePools,
         remote_listing: Vec<Listed>,
         physical: Physical<R, W>,
         stats: Recorder,
@@ -157,6 +161,7 @@ where
         Self {
             ingress,
             budget,
+            pools,
             remote_listing,
             physical,
             tasks: Vec::new(),
@@ -182,7 +187,7 @@ where
     }
 
     /// Bind the remote logical stream carrying replies at height `H`.
-    fn incoming<H: Height>(&mut self) -> Receiver<Frame> {
+    fn incoming<H: Height>(&mut self) -> Receiver<Inbound> {
         let remote = self.physical.remote;
         self.physical
             .demultiplexer
@@ -311,6 +316,7 @@ where
         let Self {
             ingress: _,
             budget,
+            pools,
             remote_listing: _,
             physical,
             tasks,
@@ -334,7 +340,7 @@ where
             .map_err(|error| Error::Pipe(error.into()));
             let receive = holding(
                 Holding::Wire,
-                demultiplexer.run(&mut read, remote, budget, stats, &observe),
+                demultiplexer.run(&mut read, remote, budget, &pools.receiving, stats, &observe),
             );
             let (output, departure) =
                 drive::drive(tasks, finish, Box::pin(send), Box::pin(receive)).await?;
