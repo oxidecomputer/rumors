@@ -145,11 +145,12 @@ pub(crate) use fixed::session_allowance;
 /// set's net price.
 #[cfg(doc)]
 pub(crate) use work::covered_set_price;
-pub(crate) use work::floor_allowance;
 pub(crate) use work::largest_grant;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use work::scratch;
-pub(crate) use work::{Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, derived_bytes, parked_bytes};
+pub(crate) use work::{
+    Allowance, OUTGOING_REPLY_CHUNKS, Overdraft, derived_bytes, floor_allowance, parked_bytes,
+};
 use work::{LeafRequest, OpeningAdvance, Resolver, Work};
 #[cfg(test)]
 pub(crate) use work::{Left, Ready, parked_price, parked_room};

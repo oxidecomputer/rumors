@@ -253,7 +253,7 @@ fn letter(side: Side) -> char {
 /// admit work against `bytes` in their ledgers.
 ///
 /// That is `bytes` beside the floor allowance
-/// ([`floor_allowance`](rumors::testing::floor_allowance)) and the session
+/// ([`FLOOR_ALLOWANCE`](rumors::testing::FLOOR_ALLOWANCE)) and the session
 /// allowance ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE))
 /// every budget sets aside there ([`memory_budget_admitting`]).
 ///
@@ -685,7 +685,8 @@ impl Admitted {
     }
 
     /// The session's no-cost point, read from an unlimited session: the
-    /// least budget at which it runs as the unlimited session does.
+    /// least budget its ledgers can admit work against at which it runs as
+    /// the unlimited session does.
     ///
     /// That is the larger of `Λ`, every ledger's peak outside its floor
     /// slots, and the [`share_peak`](Self::share_peak).
@@ -694,8 +695,15 @@ impl Admitted {
     /// and below the share peak some question it asked would not fit beside
     /// its depth's claims, so some unit waits. At or above both, every check
     /// the unlimited session made passes, by induction along its schedule.
-    pub fn no_cost_budget(&self) -> usize {
+    pub fn no_cost_point(&self) -> usize {
         self.budget_peak().max(self.share_peak())
+    }
+
+    /// The least memory budget at which the session runs as the unlimited
+    /// session does: the one whose ledgers admit work against the
+    /// [no-cost point](Self::no_cost_point) ([`admitting`]).
+    pub fn no_cost_budget(&self) -> usize {
+        admitting(self.no_cost_point())
     }
 
     /// Units that waited for admission, over every ledger.

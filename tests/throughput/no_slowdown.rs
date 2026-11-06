@@ -11,7 +11,11 @@
 //! depth's claims within the budget: the room the depth's questions hold,
 //! with its own grant, beside the predicted needs of their unfinished
 //! replies and its own, scaled by the depth's pace,
-//! `I_d + c + α · (N_d + n) ≤ B`.
+//! `I_d + c + α · (N_d + n) ≤ B`. Here `B` is the ledger's budget: the
+//! peer's memory budget less the floor allowance it sets aside for the
+//! floor slots and the session allowance it sets aside for the session's
+//! fixed state and wire pools, so the session at the no-cost point runs on that point
+//! beside the two allowances.
 //!
 //! Let `Λ` be the most bytes either side's ledger holds outside its floor
 //! slots when the budget is unlimited, and the *share peak* the largest sum
@@ -26,13 +30,6 @@
 //! than the budget could also process their replies with; between the two,
 //! the share holds questions back, and identity is promised only at the
 //! no-cost point.
-//!
-//! The budget here is the ledger's: a peer's memory budget less the floor
-//! allowance it sets aside for the floor slots and the session allowance
-//! it sets aside for the session's fixed state and wire pools, so the suite
-//! sets each budget it states as the ledger's directly
-//! ([`BudgetChoice::Ledger`]), reaching budgets below those the public
-//! setter allows.
 //!
 //! # The measurement
 //!
@@ -96,11 +93,11 @@ fn report(oracle: &Session, at_peak: &Session) {
     let Case { shape, link, .. } = oracle.case;
     let messages = shape.shared + shape.a;
     let peak = oracle.admitted.budget_peak();
-    let no_cost = oracle.admitted.no_cost_budget();
+    let no_cost = oracle.admitted.no_cost_point();
     println!(
         "{messages} messages a side, {} shared, BDP {} B: Λ = {peak} B ({:.1} B per \
-         message), no-cost point {no_cost} B ({:.3} Λ), {} units waited there; {} \
-         byte-times unlimited, {} there",
+         message), no-cost point {no_cost} B ({:.3} Λ) beside the allowances, {} \
+         units waited there; {} byte-times unlimited, {} there",
         shape.shared,
         link.bdp(),
         peak as f64 / messages as f64,
@@ -115,10 +112,11 @@ fn report(oracle: &Session, at_peak: &Session) {
 /// unchanged, event for event.
 ///
 /// Across sizes, disjoint and mostly shared pairs, and a LAN and a
-/// long-haul link, a session with both budgets at the larger of `Λ` and the
-/// share peak carries the same segments at the same instants as the same
-/// session with an unlimited budget, and like it keeps every unit from
-/// waiting. Each
+/// long-haul link, a session with both ledgers admitting work against the
+/// larger of `Λ` and the share peak, beside the floor and session allowances
+/// every budget sets aside, carries the same segments at the same instants
+/// as the same session with an unlimited budget, and like it keeps every
+/// unit from waiting. Each
 /// oracle must have admitted work against the budget and made a share
 /// check, so that neither term of the no-cost point reads zero because its
 /// counter stopped counting.
@@ -127,7 +125,7 @@ fn a_budget_of_the_no_cost_point_is_identical_to_no_budget() {
     let oracles = fixture::run_all(cases(|_| BudgetChoice::Bytes(ORACLE_BUDGET)));
     let peaks = oracles
         .each_ref()
-        .map(|oracle| oracle.admitted.no_cost_budget());
+        .map(|oracle| oracle.admitted.no_cost_point());
     let at_peaks = fixture::run_all(cases(|index| BudgetChoice::Ledger(peaks[index])));
     for (oracle, at_peak) in oracles.iter().zip(&at_peaks) {
         report(oracle, at_peak);
@@ -157,14 +155,14 @@ fn a_budget_of_the_no_cost_point_is_identical_to_no_budget() {
             at_peak.admitted.waited(),
             0,
             "a unit waited under a budget admitting the no-cost point {}: {:?}",
-            oracle.admitted.no_cost_budget(),
+            oracle.admitted.no_cost_point(),
             oracle.case,
         );
         assert_eq!(
             at_peak.report,
             oracle.report,
-            "a budget at the no-cost point {} (Λ = {peak}) changes the session: {:?}",
-            oracle.admitted.no_cost_budget(),
+            "a budget admitting the no-cost point {} (Λ = {peak}) changes the session: {:?}",
+            oracle.admitted.no_cost_point(),
             oracle.case,
         );
     }

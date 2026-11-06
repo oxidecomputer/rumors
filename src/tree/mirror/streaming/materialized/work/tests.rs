@@ -337,20 +337,6 @@ fn level_error_passes_through() {
     ));
 }
 
-/// The floor allowance of a walk over the in-memory backend is the "about
-/// 26.5 MiB" its documentation states, on the 64-bit targets the figure is
-/// measured on.
-#[cfg(target_pointer_width = "64")]
-#[test]
-fn the_floor_allowance_is_the_documented_figure() {
-    const MIB: usize = 1 << 20;
-    let allowance = super::floor_allowance::<Erased, Infallible>();
-    assert!(
-        (26 * MIB + MIB / 4..26 * MIB + 3 * MIB / 4).contains(&allowance),
-        "the floor allowance is {allowance} B, not about 26.5 MiB",
-    );
-}
-
 proptest! {
     /// An answer's resolution has a slot per child either side holds, and
     /// exactly the capacity its unit's grant prices: the union of this side's
@@ -805,4 +791,19 @@ proptest! {
             .collect();
         prop_assert_eq!(need, answers_cost(&answers));
     }
+}
+
+/// The floor allowance of a walk over the in-memory backend is the "about
+/// 26.5 MiB" the memory budget's documentation sets aside out of every
+/// budget, on the 64-bit targets the documentation's figures are measured
+/// on.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn the_floor_allowance_is_the_documented_figure() {
+    const MIB: usize = 1 << 20;
+    let allowance = charges::floor_allowance::<Erased, Infallible>();
+    assert!(
+        (26 * MIB + MIB / 4..26 * MIB + 3 * MIB / 4).contains(&allowance),
+        "the floor allowance is {allowance} B, not about 26.5 MiB",
+    );
 }

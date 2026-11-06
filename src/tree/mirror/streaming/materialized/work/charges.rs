@@ -608,7 +608,7 @@ pub(crate) const fn largest_grant<E: ErasedNode, Err>() -> usize {
 /// - An answer explores its scope, at most a fan of children either side
 ///   holds, or supplies at most a fan of them; an answer about a leaf
 ///   supplies that one leaf.
-const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
+const fn slot_bound<E, Err>(unit: Unit, depth: usize) -> usize {
     let leading = Held::LEADING_MAX;
     let height = height::Root::HEIGHT - depth;
     match unit {
@@ -655,7 +655,7 @@ const fn slot_bound<E: ErasedNode, Err>(unit: Unit, depth: usize) -> usize {
 /// almost all of it the listings of the replies one question per depth can
 /// invite, a fan of fans of entries each; a session's floor slots
 /// realistically hold a megabyte or two.
-pub(crate) const fn floor_allowance<E: ErasedNode, Err>() -> usize {
+pub(crate) const fn floor_allowance<E, Err>() -> usize {
     // Indexed by side: the initiator's sum, then the responder's.
     let mut sides = [0, 0];
     let mut depth = 0;

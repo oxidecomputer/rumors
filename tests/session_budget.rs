@@ -284,10 +284,10 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
 use rumors::testing::{
-    Admission, COMPARISON_FRAME_BYTES, DECODE_AHEAD_BYTES, HASHING_SCRATCH_BYTES, Holding,
-    LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, assembly_allowance,
-    attribute_allocations, floor_allowance, join_snapshots, ledger_scratch, observe_admissions,
-    observe_fits, observe_ledgers, wire_allowance, with_leaf_paths,
+    Admission, COMPARISON_FRAME_BYTES, DECODE_AHEAD_BYTES, FLOOR_ALLOWANCE, HASHING_SCRATCH_BYTES,
+    Holding, LedgerChange, OUTGOING_REPLIES_FLOOR_DIVISOR, PLACES, ReplyFit, assembly_allowance,
+    attribute_allocations, join_snapshots, ledger_scratch, observe_admissions, observe_fits,
+    observe_ledgers, wire_allowance, with_leaf_paths,
 };
 use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::common::property::divided_cases;
@@ -508,7 +508,7 @@ struct Fits {
 /// ([`ledger_budget`](rumors::testing::ledger_budget)) less the session
 /// allowance, which the ledger never holds.
 fn ledger_bound(budget: usize) -> usize {
-    floor_allowance().saturating_add(budget)
+    FLOOR_ALLOWANCE.saturating_add(budget)
 }
 
 /// The most the charged places' transient heap may exceed a side's ledger

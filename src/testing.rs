@@ -22,7 +22,9 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, Local,
-            materialized::{Allowances, fixed_allowance, session_allowance},
+            materialized::{
+                Allowances, fixed_allowance, floor_allowance, largest_grant, session_allowance,
+            },
             remote::{self, RunBudget, codec::LeafRun},
         },
         typed::{
@@ -58,6 +60,102 @@ pub use crate::tree::mirror::streaming::remote::{
     FrameShape, HookCapture, HookStream, MultiplexerHook, MultiplexerPoll, PipeCapture,
     PreparedFrame, observe_multiplexers,
 };
+
+/// The floor allowance of a session over the in-memory replica: the most
+/// its floor slots can hold at once.
+///
+/// Its memory budget sets this aside for them beside the session allowance
+/// ([`SESSION_ALLOWANCE`] at the default target), so its ledger admits
+/// work against the budget less both.
+///
+/// A memory budget at or below the two together, which only
+/// [`ledger_budget`] reaches, admits work through the floor slots alone.
+pub const FLOOR_ALLOWANCE: usize =
+    floor_allowance::<<Local as Backend>::Erased, <Local as Backend>::Error>();
+
+/// The fixed allowance of a session over the in-memory replica: the most
+/// the state it holds outside its ledger and its wire pools whatever its
+/// budget can hold.
+///
+/// It is the sum of the decode fans' read-ahead ([`DECODE_AHEAD_BYTES`]),
+/// assembly's bound ([`assembly_allowance`]), hashing's
+/// ([`HASHING_SCRATCH_BYTES`]), every place's working buffers
+/// ([`ledger_scratch`]), and the pipe's fixed state, part of the wire's
+/// bound ([`wire_allowance`]).
+pub const FIXED_ALLOWANCE: usize = fixed_allowance::<Local>();
+
+/// The session allowance of a session over the in-memory replica at the
+/// default message-size target: the fixed allowance ([`FIXED_ALLOWANCE`])
+/// beside the session's two wire pools at that target.
+///
+/// Its memory budget sets this aside beside the floor allowance
+/// ([`FLOOR_ALLOWANCE`]).
+pub const SESSION_ALLOWANCE: usize =
+    session_allowance::<Local>(crate::default::TARGET_MESSAGE_SIZE);
+
+/// The most bytes one side's wire buffering holds at once at the
+/// message-size target `target`, a supply record larger than a pool
+/// aside: its two wire pools beside the pipe's fixed state.
+pub const fn wire_allowance(target: usize) -> usize {
+    crate::tree::mirror::streaming::remote::fixed_wire_bytes().saturating_add(
+        crate::tree::mirror::streaming::remote::wire_pools_bytes(target),
+    )
+}
+
+/// The memory budget whose sessions at the default message-size target
+/// admit work against exactly `bytes` in their ledgers.
+///
+/// That is `bytes` beside the floor allowance ([`FLOOR_ALLOWANCE`]) and
+/// the session allowance ([`SESSION_ALLOWANCE`]), saturating at
+/// `usize::MAX`. A session at another target sets aside another session
+/// allowance.
+pub const fn memory_budget_admitting(bytes: usize) -> usize {
+    Allowances::of::<Local>(crate::default::TARGET_MESSAGE_SIZE)
+        .ledger(bytes)
+        .memory
+}
+
+/// The budget the ledgers of sessions at the default message-size target
+/// on the memory budget `budget` admit work against.
+///
+/// That is what `budget` leaves beside the floor allowance
+/// ([`FLOOR_ALLOWANCE`]) and the session allowance
+/// ([`SESSION_ALLOWANCE`]), or zero. Inverse to
+/// [`memory_budget_admitting`] wherever that does not saturate.
+pub const fn ledger_budget_within(budget: usize) -> usize {
+    Allowances::of::<Local>(crate::default::TARGET_MESSAGE_SIZE).left(budget)
+}
+
+/// Set the budget `peer`'s sessions' ledgers admit work against to exactly
+/// `bytes`, at whatever message-size target the peer runs at.
+///
+/// Its sessions run on that budget beside the floor allowance and the
+/// session allowance at the peer's target.
+///
+/// Unlike a budget set through
+/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which a
+/// session raises to the minimum for its peer's message-size target
+/// ([`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
+/// default target), this one sessions run on as given, whatever the
+/// target. So it reaches ledger budgets below the largest grant, zero
+/// included: the floor-only
+/// configuration the liveness argument rests on, and the starved regime
+/// the budget analyses probe.
+pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
+    mut peer: crate::Peer<T, B>,
+    bytes: usize,
+) -> crate::Peer<T, B> {
+    peer.sync_memory_budget = MemoryBudget::Ledger(bytes);
+    peer
+}
+
+/// The largest grant any unit of work can take in a session over the
+/// in-memory replica: a bound on every charge its ledger holds.
+///
+/// It is a type maximum, computed from sizes and capacities, and a session's
+/// own grants are usually far smaller.
+pub const LARGEST_GRANT: usize =
+    largest_grant::<<Local as Backend>::Erased, <Local as Backend>::Error>();
 
 /// The completion marker each side writes in a session's closing exchange,
 /// after all of its session work: the CBOR text item `"."`.
@@ -452,65 +550,6 @@ pub fn with_leaf_paths<R>(
     )
 }
 
-/// Why polling stopped before a closed in-memory future completed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Quiescence {
-    /// The future returned `Pending` without arranging another poll.
-    Stalled,
-    /// The future kept self-waking beyond the runaway guard.
-    PollBudget,
-}
-
-/// Records whether the subject future requested another poll.
-struct WakeFlag(AtomicBool);
-
-/// Convert wakeups into a flag the closed-world poller can inspect.
-impl Wake for WakeFlag {
-    /// Record an owned wakeup.
-    fn wake(self: Arc<Self>) {
-        self.0.store(true, Ordering::Release);
-    }
-
-    /// Record a borrowed wakeup.
-    fn wake_by_ref(self: &Arc<Self>) {
-        self.0.store(true, Ordering::Release);
-    }
-}
-
-/// Poll a closed, in-memory future until it completes or becomes quiescent.
-///
-/// Every legitimate suspension must arrange another wake. A `Pending` poll
-/// without one is therefore a deterministic deadlock witness rather than a
-/// wall-clock guess. Futures waiting on external events do not satisfy this
-/// closed-world premise and should use their real liveness mechanism instead.
-/// Tokio's cooperative budget is disabled around the subject so that invoking
-/// this detector from within a Tokio task cannot turn a scheduler yield into a
-/// false deadlock report.
-pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> {
-    // Sized for the deepest closed-world runs the suites drive, such as the
-    // capacity stress fixtures over a one-byte pipe, so a legitimate long
-    // session is not misreported as a runaway. Measure those runs before
-    // lowering this.
-    const MAX_POLLS: usize = 1_000_000;
-
-    let wake = Arc::new(WakeFlag(AtomicBool::new(true)));
-    let waker = Waker::from(wake.clone());
-    let mut cx = Context::from_waker(&waker);
-    let mut future = pin!(tokio::task::coop::unconstrained(future));
-
-    for _ in 0..MAX_POLLS {
-        wake.0.store(false, Ordering::Release);
-        match future.as_mut().poll(&mut cx) {
-            Poll::Ready(output) => return Ok(output),
-            Poll::Pending if !wake.0.swap(false, Ordering::AcqRel) => {
-                return Err(Quiescence::Stalled);
-            }
-            Poll::Pending => {}
-        }
-    }
-    Err(Quiescence::PollBudget)
-}
-
 /// The logical reply streams each direction of a session carries, one per
 /// height its speaker answers at: also the most walk stages, reply encoders,
 /// and reply decoders one side of a session runs.
@@ -675,106 +714,63 @@ impl AssembledSubtree {
     }
 }
 
-/// The largest grant any unit of work can take in a session over the
-/// in-memory replica: a bound on every charge its ledger holds.
-///
-/// It is a type maximum, computed from sizes and capacities, and a session's
-/// own grants are usually far smaller.
-pub const LARGEST_GRANT: usize = crate::tree::mirror::streaming::materialized::largest_grant::<
-    <Local as Backend>::Erased,
-    <Local as Backend>::Error,
->();
-
-/// The floor allowance of a session over the in-memory replica: the most
-/// its floor slots can hold at once.
-///
-/// Its memory budget sets this aside for them beside the session allowance
-/// ([`SESSION_ALLOWANCE`] at the default target), so its ledger admits
-/// work against the budget less both.
-///
-/// A memory budget at or below the two together, which only
-/// [`ledger_budget`] reaches, admits work through the floor slots alone.
-pub fn floor_allowance() -> usize {
-    crate::tree::mirror::streaming::materialized::floor_allowance::<
-        <Local as Backend>::Erased,
-        <Local as Backend>::Error,
-    >()
+/// Why polling stopped before a closed in-memory future completed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Quiescence {
+    /// The future returned `Pending` without arranging another poll.
+    Stalled,
+    /// The future kept self-waking beyond the runaway guard.
+    PollBudget,
 }
 
-/// The fixed allowance of a session over the in-memory replica: the most
-/// the state it holds outside its ledger and its wire pools whatever its
-/// budget can hold.
-///
-/// It is the sum of the decode fans' read-ahead ([`DECODE_AHEAD_BYTES`]),
-/// assembly's bound ([`assembly_allowance`]), hashing's
-/// ([`HASHING_SCRATCH_BYTES`]), every place's working buffers
-/// ([`ledger_scratch`]), and the pipe's fixed state, part of the wire's
-/// bound ([`wire_allowance`]).
-pub const FIXED_ALLOWANCE: usize = fixed_allowance::<Local>();
+/// Records whether the subject future requested another poll.
+struct WakeFlag(AtomicBool);
 
-/// The session allowance of a session over the in-memory replica at the
-/// default message-size target: the fixed allowance ([`FIXED_ALLOWANCE`])
-/// beside the session's two wire pools at that target.
-///
-/// Its memory budget sets this aside beside the floor allowance
-/// ([`floor_allowance`]).
-pub const SESSION_ALLOWANCE: usize =
-    session_allowance::<Local>(crate::default::TARGET_MESSAGE_SIZE);
+/// Convert wakeups into a flag the closed-world poller can inspect.
+impl Wake for WakeFlag {
+    /// Record an owned wakeup.
+    fn wake(self: Arc<Self>) {
+        self.0.store(true, Ordering::Release);
+    }
 
-/// The most bytes one side's wire buffering holds at once at the
-/// message-size target `target`, a supply record larger than a pool
-/// aside: its two wire pools beside the pipe's fixed state.
-pub const fn wire_allowance(target: usize) -> usize {
-    crate::tree::mirror::streaming::remote::fixed_wire_bytes().saturating_add(
-        crate::tree::mirror::streaming::remote::wire_pools_bytes(target),
-    )
+    /// Record a borrowed wakeup.
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.store(true, Ordering::Release);
+    }
 }
 
-/// The memory budget whose sessions at the default message-size target
-/// admit work against exactly `bytes` in their ledgers.
+/// Poll a closed, in-memory future until it completes or becomes quiescent.
 ///
-/// That is `bytes` beside the floor allowance ([`floor_allowance`]) and
-/// the session allowance ([`SESSION_ALLOWANCE`]), saturating at
-/// `usize::MAX`. A session at another target sets aside another session
-/// allowance.
-pub const fn memory_budget_admitting(bytes: usize) -> usize {
-    Allowances::of::<Local>(crate::default::TARGET_MESSAGE_SIZE)
-        .ledger(bytes)
-        .memory
-}
+/// Every legitimate suspension must arrange another wake. A `Pending` poll
+/// without one is therefore a deterministic deadlock witness rather than a
+/// wall-clock guess. Futures waiting on external events do not satisfy this
+/// closed-world premise and should use their real liveness mechanism instead.
+/// Tokio's cooperative budget is disabled around the subject so that invoking
+/// this detector from within a Tokio task cannot turn a scheduler yield into a
+/// false deadlock report.
+pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> {
+    // Sized for the deepest closed-world runs the suites drive, such as the
+    // capacity stress fixtures over a one-byte pipe, so a legitimate long
+    // session is not misreported as a runaway. Measure those runs before
+    // lowering this.
+    const MAX_POLLS: usize = 1_000_000;
 
-/// The budget the ledgers of sessions at the default message-size target
-/// on the memory budget `budget` admit work against.
-///
-/// That is what `budget` leaves beside the floor allowance
-/// ([`floor_allowance`]) and the session allowance
-/// ([`SESSION_ALLOWANCE`]), or zero. Inverse to
-/// [`memory_budget_admitting`] wherever that does not saturate.
-pub const fn ledger_budget_within(budget: usize) -> usize {
-    Allowances::of::<Local>(crate::default::TARGET_MESSAGE_SIZE).left(budget)
-}
+    let wake = Arc::new(WakeFlag(AtomicBool::new(true)));
+    let waker = Waker::from(wake.clone());
+    let mut cx = Context::from_waker(&waker);
+    let mut future = pin!(tokio::task::coop::unconstrained(future));
 
-/// Set the budget `peer`'s sessions' ledgers admit work against to exactly
-/// `bytes`, at whatever message-size target the peer runs at.
-///
-/// Its sessions run on that budget beside the floor allowance and the
-/// session allowance at the peer's target.
-///
-/// Unlike a budget set through
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which a
-/// session raises to the minimum for its peer's message-size target
-/// ([`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
-/// default target), this one sessions run on as given, whatever the
-/// target. So it reaches ledger budgets below the largest grant, zero
-/// included: the floor-only
-/// configuration the liveness argument rests on, and the starved regime
-/// the budget analyses probe.
-pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
-    mut peer: crate::Peer<T, B>,
-    bytes: usize,
-) -> crate::Peer<T, B> {
-    peer.sync_memory_budget = MemoryBudget::Ledger(bytes);
-    peer
+    for _ in 0..MAX_POLLS {
+        wake.0.store(false, Ordering::Release);
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(output) => return Ok(output),
+            Poll::Pending if !wake.0.swap(false, Ordering::AcqRel) => {
+                return Err(Quiescence::Stalled);
+            }
+            Poll::Pending => {}
+        }
+    }
+    Err(Quiescence::PollBudget)
 }
 
 /// Unit tests for this support module.

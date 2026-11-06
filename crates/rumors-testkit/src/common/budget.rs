@@ -11,14 +11,14 @@
 //! ([`ledger_budget`](rumors::testing::ledger_budget)). The sweep adds
 //! explicit byte budgets and the production default on top. Every budget
 //! sets aside the floor allowance
-//! ([`floor_allowance`](rumors::testing::floor_allowance)) for the floor
+//! ([`FLOOR_ALLOWANCE`](rumors::testing::FLOOR_ALLOWANCE)) for the floor
 //! slots and the session allowance
 //! ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE)) for the
-//! session's fixed state and wire pools, and admits work beyond them
-//! against the rest, so the explicit budgets are drawn beyond both. Peers
-//! draw choices independently, so sessions between differently-configured
-//! endpoints arise throughout the population; each side of such a session
-//! admits its work against its own budget.
+//! session's fixed state and wire pools, and admits work beyond them against the rest, so
+//! the explicit budgets are drawn beyond both. Peers draw choices independently, so
+//! sessions between differently-configured endpoints arise throughout the
+//! population; each side of such a session admits its work against its
+//! own budget.
 
 use crate::bench::session::admitting;
 use proptest::prelude::*;

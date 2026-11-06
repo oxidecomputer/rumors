@@ -214,7 +214,7 @@ fn check_case(
     ]);
     let no_cost = references
         .each_ref()
-        .map(|reference| reference.admitted.no_cost_budget());
+        .map(|reference| reference.admitted.no_cost_point());
     let threshold = depth1_claims(&references[0]);
     assert!(
         LARGEST_GRANT < threshold && threshold < no_cost[0],

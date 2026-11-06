@@ -91,7 +91,7 @@
 //! each.
 
 use rumors::MIN_SYNC_MEMORY_BUDGET;
-use rumors::testing::{SESSION_ALLOWANCE, floor_allowance, ledger_budget_within};
+use rumors::testing::{FLOOR_ALLOWANCE, SESSION_ALLOWANCE, ledger_budget_within};
 use rumors_testkit::bench::link::{LinkConfig, Side};
 use rumors_testkit::bench::session::{
     self as fixture, Case, DEPTHS, Grants, LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Session, Shape,
@@ -141,9 +141,7 @@ const LADDER: [usize; 9] = [0, 1, 4, 8, 12, 15, 16, 20, 32];
 
 /// The rung below the ladder, half the floor allowance: a budget a
 /// session raises to the minimum.
-fn below_floor() -> usize {
-    floor_allowance() / 2
-}
+const BELOW_FLOOR: usize = FLOOR_ALLOWANCE / 2;
 
 /// The budget at the ladder's rung `sixteenths`, for a pair whose no-cost
 /// point is `no_cost`.
@@ -179,7 +177,8 @@ const MINIMUM_RUNG: usize = LADDER.len();
 
 /// Every pair at every rung, pair-major: the ladder's, each a fraction of
 /// the pair's no-cost point in `no_cost` beside the floor and session
-/// allowances, then [`MIN_SYNC_MEMORY_BUDGET`], then [`below_floor`].
+/// allowances, then
+/// [`MIN_SYNC_MEMORY_BUDGET`], then [`BELOW_FLOOR`].
 fn ladder(no_cost: &[usize; PAIRS.len()]) -> [Case; PAIRS.len() * RUNGS] {
     std::array::from_fn(|index| {
         let pair = index / RUNGS;
@@ -187,7 +186,7 @@ fn ladder(no_cost: &[usize; PAIRS.len()]) -> [Case; PAIRS.len() * RUNGS] {
         let budget = match LADDER.get(rung) {
             Some(&sixteenths) => budget(no_cost[pair], sixteenths),
             None if rung == MINIMUM_RUNG => MIN_SYNC_MEMORY_BUDGET,
-            None => below_floor(),
+            None => BELOW_FLOOR,
         };
         Case {
             shape: PAIRS[pair].0,
@@ -235,11 +234,10 @@ fn parity(grants: &[Grants; DEPTHS]) -> Option<Option<usize>> {
 /// on every session's duration.
 fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64) {
     let case = &session.case;
-    let allowance = floor_allowance();
     let runs_on = requested(case).max(MIN_SYNC_MEMORY_BUDGET);
     let admitted = ledger_budget_within(runs_on);
     println!(
-        "{:?} on BDP {}: B = {}, B' = {runs_on} (F + X = {allowance} + {SESSION_ALLOWANCE} \
+        "{:?} on BDP {}: B = {}, B' = {runs_on} (F + X = {FLOOR_ALLOWANCE} + {SESSION_ALLOWANCE} \
          + {:.4} N*), {} waited, T = {} byte-times, T∞ = {}, floor {floor}",
         case.shape,
         case.link.bdp(),
@@ -285,9 +283,9 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
             ledger.budget_peak,
         );
         assert!(
-            ledger.floor_peak <= allowance,
+            ledger.floor_peak <= FLOOR_ALLOWANCE,
             "a ledger's floor slots held {} B, over the floor allowance of \
-             {allowance} B: {case:?}",
+             {FLOOR_ALLOWANCE} B: {case:?}",
             ledger.floor_peak,
         );
         assert!(
@@ -314,12 +312,13 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// Every session whose budget, raised to the minimum, admits at least its
 /// pair's no-cost point beside the floor and session allowances is the
 /// unlimited session, event for event, with no unit waiting; every session
-/// below the minimum, at the two allowances and at half the floor
-/// allowance included, is the session at the minimum; every session
-/// carries the unlimited session's bytes in each direction, lasts at least
-/// its busier direction's bytes and two delays, and at least the unlimited
-/// session's critical path; and every ledger is exact, holds at most its
-/// raised budget, and asks and answers at depths of opposite parities.
+/// below the minimum,
+/// at the two allowances and at half the floor allowance included, is the
+/// session at the minimum; every session carries the unlimited session's bytes in
+/// each direction, lasts at least its busier direction's bytes and two
+/// delays, and at least the unlimited session's critical path; and every
+/// ledger is exact, holds at most its raised budget, and asks and answers
+/// at depths of opposite parities.
 ///
 /// Below the no-cost point this test holds the duration to the lower bound
 /// alone: greedy admission makes it non-monotone there, and the owner's
@@ -336,7 +335,7 @@ fn every_budget_keeps_the_exact_properties() {
     let critical = fixture::run_all(unlimited(LinkConfig::latency_only));
     let no_cost = references
         .each_ref()
-        .map(|reference| reference.admitted.no_cost_budget());
+        .map(|reference| reference.admitted.no_cost_point());
     let swept = fixture::run_all(ladder(&no_cost));
 
     for (pair, (reference, critical)) in references.iter().zip(&critical).enumerate() {

@@ -52,8 +52,6 @@
 //! Each session then runs at the no-cost point, where no unit waits, and at
 //! half of `Λ`, where units wait for admission, once with an unsent limit
 //! of zero and once with one bandwidth-delay product.
-//! Each such budget is what the ledgers admit against, set directly
-//! ([`BudgetChoice::Ledger`]).
 //!
 //! # Thresholds
 //!
@@ -148,7 +146,7 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
     };
     let [oracle] = fixture::run_all([case(ORACLE_BUDGET, bare)]);
     let peak = oracle.admitted.budget_peak();
-    let no_cost = BudgetChoice::Ledger(oracle.admitted.no_cost_budget());
+    let no_cost = BudgetChoice::Ledger(oracle.admitted.no_cost_point());
     let half = BudgetChoice::Ledger(peak / 2);
     let [
         critical_path,
