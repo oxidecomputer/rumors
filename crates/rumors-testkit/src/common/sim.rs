@@ -1091,8 +1091,16 @@ pub fn assert_value_oracle(
 ///    exactly [`Party::seed`] — every id-region is held by exactly one
 ///    live peer, and none leaked.
 pub fn assert_party_invariants(peers: &[Rumors<u64>], possible_losses: usize) {
-    let parties: Vec<Party> = peers.iter().map(|k| k.dangerously_alias_party()).collect();
+    assert_parties_partition(
+        peers.iter().map(|k| k.dangerously_alias_party()).collect(),
+        possible_losses,
+    );
+}
 
+/// The invariants of [`assert_party_invariants`], over parties already
+/// read from their peers, so that a fleet mixing bookmark types can be
+/// checked too.
+pub fn assert_parties_partition(parties: Vec<Party>, possible_losses: usize) {
     for (n, pi) in parties.iter().enumerate() {
         for (m, pj) in parties.iter().enumerate().skip(n + 1) {
             assert!(
