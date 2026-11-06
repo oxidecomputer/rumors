@@ -1,4 +1,5 @@
-//! A leaked session future cannot wedge the peer reclaimed from its handles.
+//! A leaked session future cannot wedge the peer reclaimed from its handles,
+//! nor keep the replica alive for its observers.
 
 use std::future::{Future, pending, poll_fn};
 use std::io::Cursor;
@@ -7,6 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
+use futures::StreamExt;
 use futures::future::join_all;
 use rumors::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
 use rumors::{Bookmark, Joined, Peer, Rumors};
@@ -143,5 +145,50 @@ divided_proptest! {
             assert_eq!(remote.snapshot().len(), 2, "the later session delivers the leaked session's message");
         })
         .expect("sessions on the reclaimed peer make progress");
+    }
+
+    /// Once every handle is gone, the replica's observers drain and end,
+    /// even though a session future leaked while waiting on bookmark storage.
+    ///
+    /// The leaked future can never run again, so nothing it holds may keep
+    /// the replica alive for its observers.
+    #[test]
+    fn observers_end_after_a_leaked_session(network in network_seed()) {
+        run_to_quiescence(async {
+            let storage = StallingBookmark::default();
+            let live = network
+                .peer::<u64>()
+                .bookmark(storage.clone())
+                .await
+                .expect("in-memory storage attaches")
+                .into_rumors();
+            live.send(0).unwrap();
+            let remote = join_from(&live).await;
+            let mut observer = live.unordered_messages();
+
+            // Run a session until the live side waits on its checkpoint's
+            // store, then leak that side's future.
+            storage.arm();
+            live.send(1).unwrap();
+            let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
+            let mut leaked = Box::pin(live.gossip_once(&mut near.read, &mut near.write));
+            let mut partner = Box::pin(remote.gossip_once(&mut far.read, &mut far.write));
+            poll_fn(|cx| {
+                assert!(leaked.as_mut().poll(cx).is_pending(), "a stalled store never completes");
+                let _ = partner.as_mut().poll(cx);
+                if storage.stalled() { Poll::Ready(()) } else { Poll::Pending }
+            })
+            .await;
+            mem::forget(leaked);
+            drop(partner);
+
+            drop(live);
+            let mut drained = 0;
+            while observer.next().await.is_some() {
+                drained += 1;
+            }
+            assert_eq!(drained, 2, "the observer drains both messages before it ends");
+        })
+        .expect("the observer ends once every handle is gone");
     }
 }
