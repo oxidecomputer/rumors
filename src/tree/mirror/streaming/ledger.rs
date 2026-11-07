@@ -282,6 +282,15 @@ impl Ledger {
     /// deep, whose items take at most `bytes`, is admitted, and return its
     /// grant ([`admission`]).
     ///
+    /// The request is live from this call, not from the first poll of the
+    /// returned future: the ledger admits the unit or queues it here, and
+    /// dropping the future withdraws it. Within a kind and depth, requests
+    /// are admitted in the order they were made, so a unit asked for here is
+    /// admitted only after every earlier unit of its kind and depth. A second
+    /// producer at a kind and depth therefore waits its turn behind the
+    /// first's units: it loses parallelism and nothing else, since every
+    /// unit is still admitted.
+    ///
     /// # Panics
     ///
     /// Panics if `depth` exceeds 32, the depth of a leaf: a programmer
@@ -302,7 +311,9 @@ impl Ledger {
     ///
     /// The question concerns a scope `depth` bytes deep, its items take at
     /// most `bytes`, and its reply is predicted to need `need` bytes
-    /// processed.
+    /// processed. As with [`admit`](Self::admit), the request is live from
+    /// this call and is admitted only after every earlier question at its
+    /// depth.
     ///
     /// # Panics
     ///

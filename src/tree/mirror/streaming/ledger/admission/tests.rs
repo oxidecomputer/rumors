@@ -597,11 +597,16 @@ proptest! {
     /// - Each depth's outstanding claims equal the needs of the unfinished
     ///   invitations whose grants claimed, and only a question under the
     ///   share claims.
-    /// - No unit waits at an empty kind and depth, nor fits within its
-    ///   bound; and one that would pass the room check, and its depth's
-    ///   share check if the share governs it, waits behind a deeper or older
-    ///   waiting unit that fails the room check, the only kind that closes
-    ///   the budget.
+    /// - Within each kind and depth, units are granted first come, first
+    ///   served: no unit is granted while an earlier unit of its kind and
+    ///   depth still waits.
+    /// - No unit waits at an empty kind and depth. A unit *first in line*,
+    ///   with no earlier unit of its kind and depth waiting, does not fit
+    ///   within its bound; and one that would pass the room check, and its
+    ///   depth's share check if the share governs it, waits behind a deeper
+    ///   or older unit first in line that fails the room check, the only
+    ///   kind that closes the budget. A unit behind an earlier one of its
+    ///   kind and depth is left undecided, so it may fit.
     ///
     /// When every grant keeps within its bound (premise (P1)), it also
     /// checks the memory bound as two checks, `E ≤ B` and
@@ -677,9 +682,11 @@ proptest! {
                 _ => {}
             }
             let mut still = Vec::new();
+            let mut granted = Vec::new();
             for mut unit in waiting.drain(..) {
                 match poll(&mut unit.admit) {
                     Some(grant) => {
+                        granted.push((unit.unit, unit.depth, unit.order));
                         if let Some(need) = unit.need {
                             unfinished.push(Invitation {
                                 depth: unit.depth,
@@ -698,6 +705,19 @@ proptest! {
                 }
             }
             waiting = still;
+            // Whether a unit of `unit` kind at `depth` asked before `order`
+            // still waits.
+            let earlier_waits = |unit: Unit, depth: usize, order: usize| -> bool {
+                waiting
+                    .iter()
+                    .any(|other| (other.unit, other.depth) == (unit, depth) && other.order < order)
+            };
+            for &(unit, depth, order) in &granted {
+                prop_assert!(
+                    !earlier_waits(unit, depth, order),
+                    "a unit was granted while an earlier unit of its kind and depth waits"
+                );
+            }
 
             let tally = |unit: Unit, depth: usize| -> usize {
                 live.iter()
@@ -763,10 +783,15 @@ proptest! {
                 let (held, bound) = (tally(unit.unit, unit.depth), bounds.of(unit.unit, unit.depth));
                 excess - excess_beyond(held, bound) + excess_beyond(held + unit.bytes, bound)
             };
+            let first_in_line =
+                |unit: &Waiting| -> bool { !earlier_waits(unit.unit, unit.depth, unit.order) };
             for unit in &waiting {
                 let (held, bound) = (tally(unit.unit, unit.depth), bounds.of(unit.unit, unit.depth));
                 prop_assert!(held > 0, "a unit waits at an empty kind and depth");
-                prop_assert!(held + unit.bytes > bound, "a unit within its bound waits");
+                if !first_in_line(unit) {
+                    continue;
+                }
+                prop_assert!(held + unit.bytes > bound, "a unit first in line within its bound waits");
                 let claims_fit = unit.need.is_none_or(|need| {
                     let pace = ledger.pace(unit.depth);
                     excess_beyond(held, bound) as u128
@@ -776,10 +801,12 @@ proptest! {
                 });
                 if with_unit(unit) <= budget && claims_fit {
                     prop_assert!(
-                        waiting.iter().any(|other| (other.depth, Reverse(other.order))
-                            > (unit.depth, Reverse(unit.order))
+                        waiting.iter().any(|other| first_in_line(other)
+                            && (other.depth, Reverse(other.order))
+                                > (unit.depth, Reverse(unit.order))
                             && with_unit(other) > budget),
-                        "a unit that fits waits behind no deeper or older unit that does not"
+                        "a unit that fits waits behind no deeper or older unit first in line \
+                         that does not"
                     );
                 }
             }
@@ -880,8 +907,10 @@ proptest! {
     ///
     /// One critical section, started in one state with the same waiters at
     /// two budgets `B ≤ B′`, makes the same grants up to the first unit, in
-    /// decision order, granted at one budget and not the other, and that
-    /// unit is granted at `B′`.
+    /// the order the section takes them, granted at one budget and not the
+    /// other, and that unit is granted at `B′`. Waiters of one kind and
+    /// depth exercise the first-come, first-served clause, which leaves the
+    /// same units undecided at both budgets until the first difference.
     ///
     /// The state is generated directly: a table of bounds, what each kind
     /// and depth holds, each depth's outstanding claims and pace, and up to

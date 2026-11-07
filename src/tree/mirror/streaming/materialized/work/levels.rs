@@ -659,6 +659,15 @@ where
     /// query's resolution once every child's work is launched. The levels
     /// differ only in the steps [`AnsweringLevel`] supplies, so the orderings
     /// their progress rests on are written once, here, for both.
+    ///
+    /// The walk is the one producer of its level's answers and of their
+    /// questions: it admits each answer, then each of the answer's
+    /// questions, awaiting each admission in turn, so it asks for an
+    /// answer's questions before its next answer, as admission's liveness
+    /// argument requires. Processing a level's replies concurrently would
+    /// add producers at the same kinds and depths, which the ledger admits
+    /// first come, first served against the same bounds and budget, so the
+    /// concurrency would add waiters, not room.
     fn answering_walk<L: AnsweringLevel<B>>(
         &mut self,
         their_version: Version,

@@ -46,7 +46,9 @@
 //!
 //! The ledger keeps `held[k]` for every kind and depth and the excess `E`,
 //! both changed only under the admission queue's lock ([`Counts`]). The
-//! rule lives in [`decide`] and nowhere else. A unit of kind and depth
+//! rule's steps live in [`decide`], which judges one unit against the
+//! counts, and the order in which units are decided lives in
+//! [`admit_waiting`] and [`Admit::new`]. A unit of kind and depth
 //! `k = (kind, d)` with grant `c` is decided this way, under that lock, with
 //! `open` true unless an earlier step of the same critical section closed
 //! the budget:
@@ -80,10 +82,27 @@
 //!
 //! A unit refused at step 2 or 3 is decided again whenever the ledger
 //! releases bytes, a reply finishes, or a waiter withdraws. Each
-//! reconsideration decides every waiter in one critical section, deepest
+//! reconsideration takes every waiter in one critical section, deepest
 //! first and, within a depth, in the order the units asked, with `open`
 //! starting true ([`admit_waiting`]). A unit that asks while nothing waits
 //! is decided at once, by the same steps, with `open` true ([`Admit::new`]).
+//!
+//! **First come, first served within a kind and depth.** Within a kind and
+//! depth, waiters are decided in the order they asked, and none is decided
+//! past an earlier one that waits. Once a reconsideration refuses a unit of
+//! `k`, at step 2 or 3, it leaves every later waiter of `k` waiting,
+//! undecided, for the rest of that critical section, and a waiter left so
+//! leaves `open` as it was. A unit that asks while any unit waits queues
+//! behind it. So no unit of `k` is granted while an earlier unit of `k`
+//! waits, which step 2 of the argument that [every unit is
+//! admitted](#every-unit-is-admitted) needs: step 1 judges a unit by its own
+//! grant, so without this clause a later unit that fits beside what `k`
+//! holds would be granted past an earlier one that does not, and a second
+//! producer of such units could starve the earlier one. Across kinds and
+//! depths the order stays deepest first, and step 1 admits a unit past
+//! waiters of other kinds and depths. Those exceptions resolve the
+//! schedules the liveness argument lists, and an order first come, first
+//! served across all kinds and depths would bring their deadlocks back.
 //!
 //! Releasing `b` bytes of a charge of `k` lowers `held[k]` by `b`. A
 //! *shortfall*, an item that needs more than its grant has left, raises
@@ -142,17 +161,21 @@
 //! - **(P5) Every item fits its grant:** no shortfall. A shortfall is a
 //!   conformance bug in pricing, counted in the ledger's `short`, and the
 //!   session-budget suite fails on it.
-//! - **(P6) One producer per kind and depth.** On each side, the stage that
-//!   processes the replies to questions about scopes at depth `d − 1` is the
-//!   only producer of answers at depth `d` and of questions at depth
-//!   `d + 1`. It awaits each admission before it asks for the next unit, and
-//!   it asks for all of an answer's questions before it asks for the next
-//!   answer. The opening question and the responder's root answer each have
-//!   one producer too. In the walk, that stage is one level's
-//!   `Work::answering_walk`, which `internal_level` and `leaf_parent_level`
-//!   start: it admits each answer, then each of the answer's questions
-//!   through its level's `AnsweringLevel::ask` (the `Internal` and
-//!   `LeafParent` impls), awaiting each admission in turn.
+//! - **(P6) An answer's questions come before its next answer.** On each
+//!   side, a producer of answers asks for every question an answer asks
+//!   before it asks for its next answer, and the opening question and the
+//!   responder's root answer each have a producer. In the walk, the producer
+//!   of the answers at depth `d` and of their questions at depth `d + 1` is
+//!   the stage that processes the replies to questions about scopes at depth
+//!   `d − 1`: one level's `Work::answering_walk`, which `internal_level` and
+//!   `leaf_parent_level` start. It admits each answer, then each of the
+//!   answer's questions through its level's `AnsweringLevel::ask` (the
+//!   `Internal` and `LeafParent` impls), awaiting each admission in turn.
+//!
+//!   One producer per kind and depth is not a premise. A second producer at
+//!   a kind and depth is admitted in turn behind every earlier unit of that
+//!   kind and depth (the rule's first-come, first-served clause), so it can
+//!   cost parallelism, never liveness.
 //! - **(P7) Release needs only deeper work.** A unit admitted at depth `d`
 //!   releases every byte it was granted once the units its release waits on
 //!   have been admitted and have released theirs, provided the pipe drains.
@@ -264,11 +287,12 @@
 //! *wait for room* (which closes it).
 //!
 //! **Claim (M).** Let a critical section start in one ledger state at two
-//! budgets `B ≤ B′`, with the same waiters. Decide them in the rule's order
-//! at each budget. Then up to the first decision whose outcome differs,
-//! every decision is the same at both budgets and leaves the same state;
-//! and at that first difference, the outcome at `B′` is the more
-//! permissive.
+//! budgets `B ≤ B′`, with the same waiters. Take them in the rule's order
+//! at each budget, deciding each one the first-come, first-served clause
+//! does not leave undecided. Then up to the first decision whose outcome
+//! differs, the same waiters are left undecided at both budgets, and every
+//! decision is the same at both and leaves the same state; and at that
+//! first difference, the outcome at `B′` is the more permissive.
 //!
 //! **Consequence.** Two sessions at `B ≤ B′` that have made the same
 //! decisions so far are in the same state, since the state (`held`, `E`, the
@@ -276,8 +300,10 @@
 //! nothing in it reads the budget. So the first admission one makes and the
 //! other does not is made by the larger budget. A difference in which the
 //! larger budget waits for the share where the smaller waits for room
-//! changes no state, only which budget stays open, and the next differing
-//! admission after it again belongs to the larger budget.
+//! changes no state, only which budget stays open (both outcomes are
+//! refusals, so both leave the unit's later waiters of its kind and depth
+//! undecided), and the next differing admission after it again belongs to
+//! the larger budget.
 //!
 //! **Argument.**
 //!
@@ -299,9 +325,15 @@
 //!      they pass at `B′`.
 //! 3. *Equal decisions leave equal states.* A grant changes `held`, `E` and
 //!    possibly `N_d` by amounts that depend only on the unit; a refusal
-//!    changes only `open`, and equal outcomes change it equally.
-//! 4. *Induction along the critical section.* Before the first difference,
-//!    states and `open` flags agree (3), so by (2) the first differing
+//!    changes only `open` and which kinds and depths the critical section
+//!    has refused, and equal outcomes change them equally.
+//! 4. *Equal outcomes so far leave the same waiters undecided.* Whether the
+//!    rule leaves a waiter undecided depends only on whether the critical
+//!    section has already refused a unit of its kind and depth, and a
+//!    waiter left undecided changes nothing.
+//! 5. *Induction along the critical section.* Before the first difference,
+//!    states, `open` flags and the refused kinds and depths agree (3), so
+//!    the same waiters are decided (4), and by (2) the first differing
 //!    outcome is the more permissive at `B′`. ∎
 //!
 //! ## The no-cost point
@@ -377,31 +409,42 @@
 //! 1. *A unit decided while its kind and depth hold nothing is granted.*
 //!    Step 1 grants it before the closed budget or the share is consulted,
 //!    and the grant compares nothing with `B` or `F[k]`.
-//! 2. *At most one unit of each kind and depth waits, and every other unit
-//!    of its kind and depth was granted before it asked.* Its producer
-//!    awaits each admission before asking for the next unit (P6).
-//! 3. *While a unit `W` of `k` waits, `held[k]` never rises.* Only a grant
-//!    at `k` or a shortfall raises it. No unit of `k` is granted while `W`
-//!    waits (2), and there is no shortfall (P5).
-//! 4. *No unit is left waiting at an empty kind and depth.* Every release
-//!    reconsiders every waiter in the critical section that lowered `held`
-//!    (P4). Grants in that pass raise only their own kind and depth's
-//!    `held`, and by (2) `W` is its kind and depth's only waiter, so if
+//! 2. *No unit of `k` is granted while an earlier unit of `k` waits.* The
+//!    rule decides the units of a kind and depth first come, first served
+//!    ([the rule](#the-rule)). So every unit of `k` granted while `W` waits
+//!    asked before `W`, and once `W` is *first in line*, the earliest unit
+//!    of its kind and depth still waiting, no other unit of `k` is granted
+//!    until `W` is.
+//! 3. *While a unit `W` of `k` is first in line, `held[k]` never rises.*
+//!    Only a grant at `k` or a shortfall raises it. No other unit of `k` is
+//!    granted while `W` is first in line (2), and there is no shortfall
+//!    (P5).
+//! 4. *No unit is left first in line at an empty kind and depth.* Every
+//!    release reconsiders every waiter in the critical section that lowered
+//!    `held` (P4). Grants in that pass raise only their own kind and depth's
+//!    `held`, and `W` is first in line, so the pass decides it before any
+//!    other unit of `k` and never leaves it undecided; if
 //!    `held[k]` reaches zero in a critical section, `W` is decided with
 //!    `held[k] = 0` in that same section and granted by (1). A unit asking
-//!    while `held[k] = 0` is granted as it asks, for the same reason.
+//!    while `held[k] = 0` is first in line, since no waiter is left at an
+//!    empty kind and depth, so it is granted as it asks, for the same
+//!    reason.
 //! 5. *Induction on depth, deepest first, over both sides at once.* At each
 //!    depth, one side answers and the other asks (P2). Take the claim
 //!    `Q(d)`: every unit at a depth of `d` or more, on either side, is
 //!    eventually admitted and eventually releases every byte it was granted.
-//!    - *The answers at depth `d`.* An answering side's unit `W` at
-//!      `(answer, d)` that waits finds `held[k] > 0`, held by units of its
-//!      kind and depth granted before it (2). Each of those releases its
-//!      bytes once the deeper work `Q(d + 1)` grants has happened (P7), and
-//!      that work includes their questions at `d + 1`, all of which were
-//!      asked before `W`, since a stage asks all of an answer's questions
-//!      before its next answer (P6). So `held[k]` falls to zero (3), and `W`
-//!      is granted (4). Once granted, `W` releases by (P7).
+//!    - *The answers at depth `d`.* Take an answering side's units at
+//!      `(answer, d)` in the order they asked, and a unit `W` among them
+//!      that waits. By induction along that order, every earlier one is
+//!      eventually admitted, so `W` becomes first in line, and then finds
+//!      `held[k] > 0` held by units of its kind and depth that asked before
+//!      it (2). Each of those releases its bytes once the deeper work
+//!      `Q(d + 1)` grants has happened (P7), and that work includes their
+//!      questions at `d + 1`, which each one's producer asks for once that
+//!      unit is granted and before it asks for its next answer (P6), so
+//!      asking them waits on no unit at `W`'s kind and depth. So `held[k]`
+//!      falls to zero (3), and `W` is granted (4). Once granted, `W`
+//!      releases by (P7).
 //!    - *The questions at depth `d`.* The same argument applies to a
 //!      waiting question, with one more dependency in (P7): the peer's
 //!      answer at depth `d`, which the previous case grants.
@@ -422,8 +465,8 @@
 //! - **Hold and wait.** An answer keeps its resolution until its scope is
 //!   assembled, which needs its later questions; if what cannot be released
 //!   beside a question's grant exceeds `B`, budget room would never come. The
-//!   question waits only while its kind and depth hold bytes, all of them
-//!   earlier questions' (argument, step 2), which release without it. The
+//!   question waits only while earlier questions of its kind and depth wait
+//!   or hold bytes (argument, step 2), and those release without it. The
 //!   answer's own bytes are another kind and depth, and never stand in its way.
 //! - **The share's lone question.** A question at a depth with nothing
 //!   outstanding whose own claim `c + α · n` exceeds `B`, reachable at any
@@ -433,8 +476,9 @@
 //!
 //! So what must stay is exactly step 1's position and reach: decided first,
 //! at an empty kind and depth at least, and bypassing both the closure and
-//! the share; with one producer per kind and depth (P6) and the
-//! reconsideration on every release (P4).
+//! the share; with the first-come, first-served order within each kind and
+//! depth, and only within it; an answer's questions before its next answer
+//! (P6); and the reconsideration on every release (P4).
 //!
 //! **Why kinds and depths stay separate.** An answer's own items cannot
 //! share a kind and depth with its questions: at a budget of zero, with zero
@@ -464,7 +508,7 @@
 //! - **A residue.** A unit that has returned all but a few bytes still
 //!   holds its kind and depth. The next unit is exempt if it fits beside the
 //!   residue within the bound; it never waits for the residue to clear
-//!   unless it does not fit.
+//!   unless it does not fit, or an earlier unit of its kind and depth waits.
 //! - **A zero-byte grant** changes no `held` and is irrelevant to every
 //!   decision.
 //! - **The opening question.** It is the only unit of `(question, 0)`, and
@@ -476,9 +520,10 @@
 //!   them, and they never claim.
 //! - **A withdrawn waiter** (its [`Admit`] dropped) leaves the queue,
 //!   returns any grant it was handed, and the waiters are reconsidered,
-//!   since it may have closed the budget for them.
+//!   since it may have closed the budget for them or stood ahead of later
+//!   units of its kind and depth.
 //! - **Different budgets on the two sides.** Each side's ledger decides
-//!   against its own budget and bounds; the proofs are per ledger, and the
+//!   against its own budget and bounds; the arguments are per ledger, and the
 //!   liveness induction holds for every pair, since it uses no budget.
 //!
 //! # The invitation share
@@ -914,8 +959,9 @@ impl Share {
 struct Waiter {
     /// The unit asking.
     request: Request,
-    /// Its order among the units its ledger queued, which breaks ties
-    /// between waiting units at one depth.
+    /// Its order among the units its ledger queued, which orders the
+    /// waiting units at one depth, and so the units of each kind and depth
+    /// in the order they asked ([`admit_waiting`]).
     order: u64,
     /// The grant once admitted, and the task to wake then.
     state: Mutex<State>,
@@ -1036,8 +1082,8 @@ fn reconsider(account: &Arc<Account>) {
 ///
 /// Both happen in one critical section of the queue's lock, so no decision sees
 /// the bytes counted twice or not at all, and a release that empties a kind and
-/// depth decides its waiter in the same section (step 4 of the liveness
-/// argument).
+/// depth decides the first of its waiters in the same section (step 4 of the
+/// liveness argument).
 pub(super) fn release(
     account: &Arc<Account>,
     place: Holding,
@@ -1118,13 +1164,15 @@ pub(super) fn pace(account: &Account, depth: usize) -> Pace {
     lock(&account.admission).share.pace(depth)
 }
 
-/// Decide every waiting unit under the lock `queue` holds, deepest first
+/// Decide the waiting units under the lock `queue` holds, deepest first
 /// and then in the order they asked, granting each the rule admits, then
 /// wake the units granted.
 ///
 /// A unit that waits for room closes the budget to every shallower unit
 /// decided after it in this critical section, which then only step 1 can
-/// admit.
+/// admit. A unit refused for either reason keeps every later unit of its
+/// kind and depth waiting, undecided, for the rest of the section: the
+/// rule's first-come, first-served clause.
 fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>) {
     let mut woken = Vec::new();
     let Queue {
@@ -1136,7 +1184,29 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>) {
     if !waiting.is_empty() {
         waiting.sort_by_key(|waiter| (Reverse(waiter.request.depth), waiter.order));
         let mut budget_open = true;
+        // The kinds and depths at which this section has refused a unit.
+        // Step 1 judges a unit by its own grant, so without this a later
+        // unit small enough to fit beside what its kind and depth holds
+        // would be granted past an earlier waiter of the same kind and
+        // depth that does not fit. A second producer at that kind and depth
+        // could then keep `held[k]` above what the earlier waiter needs for
+        // as long as it kept asking, and the earlier waiter would starve.
+        // Skipping every later unit of a refused kind and depth, undecided,
+        // makes admission first-come, first-served within each kind and
+        // depth, so no unit is granted while an earlier one of its kind and
+        // depth waits: step 2 of the module's argument that every unit is
+        // admitted. A skipped unit leaves the budget open. It waits for the
+        // earlier unit, not for room: if that unit waits for room, it has
+        // closed the budget already, and if it waits for its depth's
+        // replies, room held back for the skipped unit could not admit it
+        // before the earlier one.
+        let mut refused = [false; KIND_DEPTHS];
         waiting.retain(|waiter| {
+            let Request { unit, depth, .. } = waiter.request;
+            let kind_and_depth = unit.index(depth);
+            if refused[kind_and_depth] {
+                return true;
+            }
             match decide(account, counts, share, budget_open, waiter.request) {
                 Decision::Grant(grant) => {
                     let mut state = lock(&waiter.state);
@@ -1146,9 +1216,13 @@ fn admit_waiting(account: &Arc<Account>, mut queue: MutexGuard<'_, Queue>) {
                 }
                 Decision::Room => {
                     budget_open = false;
+                    refused[kind_and_depth] = true;
                     true
                 }
-                Decision::Share => true,
+                Decision::Share => {
+                    refused[kind_and_depth] = true;
+                    true
+                }
             }
         });
     }
@@ -1357,6 +1431,8 @@ impl Admit {
             // admits exactly what queueing it would, without building a
             // waiter. The lock is held from the decision to the queueing,
             // so a unit this refuses queues as if it had never been tried.
+            // With any unit waiting, this one queues behind it, so it is
+            // never decided past an earlier unit of its kind and depth.
             let Queue {
                 waiting,
                 counts,

@@ -723,16 +723,18 @@ impl Reading {
     /// depth is waiting: `admission` reports a unit starting to wait, before
     /// it joins `pending`, or taking its grant, after it has left it.
     ///
-    /// Each kind and depth has one producer, which awaits each admission
-    /// before it asks for the next unit: the admission module's premise
-    /// (P6). So while a unit waits, no other unit of its kind and depth
-    /// either starts waiting or is granted, which is the proof's step 2 that
-    /// every unit is admitted rests on: what the kind and depth holds never
-    /// rises while its unit waits, so it empties. The second half matters
-    /// on its own, since a smaller unit of the same kind and depth that fits
-    /// within the bound is exempt, and admitted past the waiting one,
-    /// without ever waiting itself. A waiting unit leaves `pending` only
-    /// once it is admitted.
+    /// This checks the walk's structure, not a premise of liveness. In the
+    /// walk, each kind and depth has one producer, a stage of the pipeline
+    /// the walk runs as, which awaits each admission before it asks for the
+    /// next unit, so while a unit waits, no other unit of its kind and depth
+    /// either starts waiting or is granted. Admission serves each kind and
+    /// depth first come, first served, so a second waiter would only wait
+    /// its turn: it means the structure has changed, for example by
+    /// processing a level's replies concurrently or by asking for a unit
+    /// before awaiting the previous one. A unit granted past an earlier
+    /// waiter of its kind and depth, which the same check also records,
+    /// would break admission's first-come, first-served rule itself. A
+    /// waiting unit leaves `pending` only once it is admitted.
     fn check_alone(&mut self, admission: &Admission) {
         let unit = ChargeUnit {
             question: admission.question,
@@ -993,9 +995,10 @@ fn start_reading(link: &Link) {
 /// floor allowance a session sets aside rests on neither happening.
 ///
 /// If a unit began waiting for admission, or took its grant, while another
-/// unit of its kind and depth still waited in the same ledger: the proof
-/// that every unit is admitted rests on each kind and depth having one
-/// producer, which awaits each admission before it asks for the next unit.
+/// unit of its kind and depth still waited in the same ledger: the walk
+/// gives each kind and depth one producer, which awaits each admission
+/// before it asks for the next unit, so a second waiter means the walk's
+/// structure has changed ([`Reading::check_alone`]).
 fn admitted() -> Admitted {
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
