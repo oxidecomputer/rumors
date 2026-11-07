@@ -24,14 +24,14 @@ mod tests;
 /// One named exception: public surface deliberately outside the board.
 pub(crate) struct Exception {
     /// The extracted name (item exceptions) or `::`-terminated path
-    /// prefix (module exceptions) this ruling covers.
+    /// prefix (module exceptions) this exception covers.
     pub name: &'static str,
     /// Why the board does not apply to this surface.
     pub reason: &'static str,
 }
 
-/// Per-item exceptions: none at this tip. An entry here is a deliberate,
-/// owner-reviewable ruling that one public function-like item stays outside
+/// Per-item exceptions: none at this tip. An entry here is a deliberate
+/// exception, with its reason, keeping one public function-like item outside
 /// the board inventory.
 pub(crate) const ITEM_EXCEPTIONS: &[Exception] = &[];
 

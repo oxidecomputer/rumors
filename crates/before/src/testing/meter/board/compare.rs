@@ -211,10 +211,10 @@ fn currencies() -> [Currency; 2] {
 /// Write every cell's exact readings from one ladder sweep to `out` in the
 /// capture format.
 ///
-/// The ladder is the one acceptance judges, so a capture reads what the board
-/// of record reads. The capture records every currency the ladder measured,
-/// and only those, under `source_tree`, the runner's name for the source the
-/// ladder's build was compiled from.
+/// The ladder is the one acceptance judges, so a capture reads what the
+/// acceptance board reads. The capture records every currency the ladder
+/// measured, and only those, under `source_tree`, the runner's name for the
+/// source the ladder's build was compiled from.
 ///
 /// # Panics
 ///

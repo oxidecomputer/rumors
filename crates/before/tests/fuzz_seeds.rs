@@ -44,7 +44,7 @@ fn committed_seeds_match_the_live_derivation() {
     }
 }
 
-/// The seed directories hold exactly the set of record, with no strays.
+/// The seed directories hold exactly the derived seed set, with no strays.
 ///
 /// A leftover file from a renamed or retired seed (or a whole directory
 /// for a renamed or retired target) would seed the fuzzer with bytes
@@ -58,7 +58,7 @@ fn seed_directories_hold_exactly_the_set_of_record() {
             .or_default()
             .insert(seed.name.to_string());
     }
-    // The root holds exactly one directory per target of record.
+    // The root holds exactly one directory per target the set derives.
     let listed_targets: BTreeSet<String> = fs::read_dir(seeds_root())
         .unwrap_or_else(|err| panic!("listing {} failed: {err}", seeds_root().display()))
         .map(|entry| {
@@ -80,7 +80,7 @@ fn seed_directories_hold_exactly_the_set_of_record() {
     );
     assert_eq!(
         listed_targets, expected_targets,
-        "fuzz/seeds holds directories outside the targets of record (or is missing some)"
+        "fuzz/seeds holds directories outside the derived targets (or is missing some)"
     );
     for (target, names) in &expected {
         let dir = seeds_root().join(target);
@@ -96,7 +96,7 @@ fn seed_directories_hold_exactly_the_set_of_record() {
             .collect();
         assert_eq!(
             &listed, names,
-            "fuzz/seeds/{target} holds files outside the set of record (or is missing some)",
+            "fuzz/seeds/{target} holds files outside the derived set (or is missing some)",
         );
     }
 }

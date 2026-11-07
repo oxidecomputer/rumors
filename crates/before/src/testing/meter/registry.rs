@@ -1031,7 +1031,7 @@ pub enum FamilyId {
     ZigzagPair,
 }
 
-/// One family's row of record: the answers every instrument derives
+/// One family's registry row: the answers every instrument derives
 /// from.
 #[derive(Debug, Clone, Copy)]
 pub struct FamilySpec {
@@ -1159,12 +1159,12 @@ impl FamilyId {
         FamilyId::ALL.into_iter()
     }
 
-    /// The family name of record (the spec's `name`).
+    /// The family's registry name (the spec's `name`).
     pub fn name(self) -> &'static str {
         self.spec().name
     }
 
-    /// This family's row of record.
+    /// This family's registry row.
     pub const fn spec(self) -> FamilySpec {
         match self {
             FamilyId::Dense => FamilySpec {

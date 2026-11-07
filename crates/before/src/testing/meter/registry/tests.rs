@@ -111,7 +111,7 @@ fn family_names_are_unique() {
     assert_eq!(
         names.len(),
         FamilyId::ALL.len(),
-        "two families share a name of record"
+        "two families share a registry name"
     );
 }
 

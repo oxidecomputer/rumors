@@ -516,7 +516,7 @@ const ALL_CLASSES: [&str; 4] = ["concurrent", "equal", "greater", "less"];
 // ─── the checker ─────────────────────────────────────────────────────────────
 
 /// The verdict surfaces under cross-check, as violation labels: this
-/// enum is the axis roster of record.
+/// enum names every axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Axis {
     /// The pair sweep's own coherence (antisymmetry, equality, concurrency).
@@ -656,7 +656,7 @@ fn check(pool: &Pool) -> Outcome {
         census: Census::default(),
     };
 
-    // The pairwise verdict matrix of record: every transcription below
+    // The reference pairwise verdict matrix: every transcription below
     // reads from here, so a dissenting kernel separates from `sweep`.
     let rel: Vec<Vec<Option<Ordering>>> = pool
         .versions
@@ -775,7 +775,7 @@ fn check(pool: &Pool) -> Outcome {
             let r = rel[i][j];
 
             // Sweep axis: antisymmetry, equality, and concurrency cohere
-            // with the verdict of record.
+            // with the reference verdict.
             if r != rel[j][i].map(Ordering::reverse) {
                 flag(
                     &mut outcome,
@@ -802,8 +802,8 @@ fn check(pool: &Pool) -> Outcome {
             }
 
             // Masked axis. The unmasked (seed-party) comparison must equal
-            // the verdict of record exactly; every masked cell must equal
-            // the verdict of record over the materialized projections.
+            // the reference verdict exactly; every masked cell must equal
+            // the reference verdict over the materialized projections.
             if (vi / &seed).partial_cmp(vj) != r {
                 flag(
                     &mut outcome,

@@ -17,7 +17,7 @@
 //! when re-pinning. Every fitted key must also be refittable from the prefix
 //! with the same constant-or-linear classification.
 //!
-//! Usage: `calibrate [programs]` (default 4096, the corpus of record; the
+//! Usage: `calibrate [programs]` (default 4096, the calibration corpus; the
 //! committed pins state their corpus size per band).
 
 use std::collections::BTreeMap;

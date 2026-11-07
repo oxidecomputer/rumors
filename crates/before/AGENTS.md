@@ -1,7 +1,7 @@
 # before — Interval Tree Clocks
 
-The documentation of record is the rustdoc and, for the algorithms, the ITC
-paper (`reference/itc2008.md`). Read the crate docs first for the model and its
+The documentation is the rustdoc and, for the algorithms, the ITC paper
+(`reference/itc2008.md`). Read the crate docs first for the model and its
 safety rules. Each operation's public type module is the entry point to its
 implementation.
 

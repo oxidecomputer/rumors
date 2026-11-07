@@ -833,7 +833,7 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 ///
 /// The cheap structural half of the pin's tamper evidence; the readings half,
 /// the argmax itself, is the release-profile entry-compare inside the board's
-/// verdict of record (`just amp-board-acceptance`), because rankings derive
+/// acceptance verdict (`just amp-board-acceptance`), because rankings derive
 /// from readings and dev readings are never pinned.
 #[test]
 fn worst_rankings_pin_is_well_formed() {

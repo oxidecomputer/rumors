@@ -25,8 +25,8 @@
 //!   are `parameter name`, `return`, `generics`, `header`, or `type`.
 //!
 //! The feature-gated instrument trees carry no pins here: the module
-//! exceptions in [`crate::check`] cover them, with the ruling of record
-//! at each entry.
+//! exceptions in [`crate::check`] cover them, with the reason at each
+//! entry.
 
 /// Every reachable trait impl outside the module-excepted trees.
 pub(crate) const TRAIT_IMPLS: &[&str] = &[

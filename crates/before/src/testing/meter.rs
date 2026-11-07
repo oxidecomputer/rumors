@@ -46,7 +46,7 @@
 //! on shared structure (aligned boundaries, mirrored spikes, lockstep walks) —
 //! one generator builds and returns the pair
 //! ([`Shape::ToothTail`](crate::testing::meter::registry::Shape::ToothTail) is the form
-//! of record), never two parallel generators whose coupling is maintained by
+//! to follow), never two parallel generators whose coupling is maintained by
 //! keeping their bodies in sync by hand. Existing paired generators keep their
 //! committed shapes as-is; the convention binds new families.
 

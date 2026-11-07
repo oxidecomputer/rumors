@@ -666,7 +666,7 @@ pub(super) struct MaskedPair {
 
 impl FamilyData {
     /// A bundle with every slot empty, for a build arm to fill with what the
-    /// shape actually has; the name is the registry's name of record.
+    /// shape actually has; the name is the registry's.
     fn bare(kind: FamilyId) -> FamilyData {
         FamilyData {
             kind,

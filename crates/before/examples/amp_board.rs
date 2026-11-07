@@ -7,8 +7,9 @@
 //! state the library cannot own), parses the size knob, and orchestrates
 //! the process sharding below.
 //!
-//! Usage: `just amp-board` (release, the profile of record; dev runs are
-//! a debugging view whose readings are never committed), or directly
+//! Usage: `just amp-board` (release, the profile the committed readings
+//! come from; dev runs are a debugging view whose readings are never
+//! committed), or directly
 //! `cargo run -p before --example amp_board --features serde,borsh -- [scale]`
 //! where the optional `scale` (a positive number, default
 //! `board::DEFAULT_SCALE`) multiplies every input family's base size and
@@ -17,7 +18,7 @@
 //! would leave the deserialization rows out of a board that still prints
 //! verdict colors, so cargo refuses it outright.
 //!
-//! # The verdict of record
+//! # The acceptance verdict
 //!
 //! `acceptance [--capture <file>]` (`just amp-board-acceptance`) sweeps the
 //! measurement ladder once (two sizes at each of the two growth sampling
@@ -63,11 +64,11 @@
 //! ladder, judges nothing, and rewrites the heap ceiling table
 //! (`board::recalibrate`) from the larger of this host's reading and each
 //! capture's reading at every sample, printing one line per cell whose
-//! ceiling moved. Pass a capture taken on each other architecture of record
+//! ceiling moved. Pass a capture taken on each other required architecture
 //! (`acceptance --capture` there) from the same source tree, which
 //! `AMP_BOARD_SOURCE_TREE` names: the calibration refuses another tree's
 //! capture, and refuses to write a table that would not cover exactly the
-//! architectures of record (`board::HEAP_ARCHS`). Review the rewritten table
+//! required architectures (`board::HEAP_ARCHS`). Review the rewritten table
 //! like a snapshot.
 //!
 //! # The worst-case map
@@ -321,8 +322,8 @@ fn main() {
             );
         }
         // A single-scale render is a debugging view: its verdict colors
-        // ride per-window fits and never bind (the acceptance mode above
-        // is the one verdict of record).
+        // ride per-window fits and never bind (only the acceptance mode
+        // above gives a binding verdict).
         arg => {
             let scale = match arg {
                 None => board::DEFAULT_SCALE,

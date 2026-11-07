@@ -1,6 +1,6 @@
 //! Compacting a dump into the rustdoc fuelscape widgets' committed data.
 //!
-//! The raw dump is the measurement of record, and it is far too large to
+//! The raw dump is the full measurement, and it is far too large to
 //! ship inside the `before` crate package — while the rustdoc fuelscape
 //! widgets need only per-column fuel histograms, three orders of
 //! magnitude smaller. This module derives that compact form: the

@@ -103,7 +103,7 @@ pub fn run_program(program: &[Op]) -> Result<Vec<Sample>, Malformed> {
 ///
 /// Propagates [`run_program`]'s differential panics; a malformed program
 /// (a generator bug) also panics, since the deterministic stream is the
-/// corpus of record and must be entirely runnable.
+/// corpus both consumers read and must be entirely runnable.
 pub fn for_each_deterministic_program(
     programs: usize,
     mut visit: impl FnMut(usize, &Family, &[Sample]),

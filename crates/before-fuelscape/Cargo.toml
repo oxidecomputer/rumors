@@ -15,7 +15,7 @@ edition = "2021"
 # `meter` feature exposes the committed adversarial family generators the
 # renders overlay as marked points.
 before = { workspace = true, features = ["meter"] }
-# The fuel apparatus of record: the fuzzfit harness's wasmtime driver runs
+# The fuel apparatus: the fuzzfit harness's wasmtime driver runs
 # one public operation per guest call under deterministic instruction-count
 # fuel. Reused whole rather than duplicated, so the atlas and the band
 # enforcement read the same currency from the same guest.

@@ -171,7 +171,7 @@ pub fn fit(samples: &[(u64, u64)]) -> Option<Fit> {
 /// side. `None` when fewer than 2 samples exist.
 ///
 /// The constant classification is by construction, not by span test:
-/// below [`FIT_FLOOR_BITS`] the law of record *is* the constant-overhead
+/// below [`FIT_FLOOR_BITS`] the cost law *is* the constant-overhead
 /// regime (the reason the floor exists — see its doc), so a slope fitted
 /// there would read overhead decay as an asymptote. The band therefore
 /// prices the region's whole spread — one level, two measured widths —

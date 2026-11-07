@@ -142,7 +142,7 @@ fn tables_are_sorted_and_distinct() {
     }
 }
 
-/// Every table names exactly its currency's architectures of record.
+/// Every table names exactly its currency's required architectures.
 ///
 /// A table calibrated from fewer architectures stops holding for the omitted
 /// one, whose runs then face the board-wide ceiling alone (or, for fuel,
@@ -193,7 +193,7 @@ fn ceilings_add_headroom_to_the_worst_sample_and_round_up() {
 /// Merging another architecture's capture derives the ceiling from the
 /// larger of the two readings at every sample.
 ///
-/// The table must hold on every architecture of record, so a sample that
+/// The table must hold on every required architecture, so a sample that
 /// reads more on the other architecture sets the ceiling, and one that reads
 /// less there changes nothing.
 #[test]
@@ -260,12 +260,12 @@ fn recalibration_refuses_unmergeable_captures() {
 }
 
 /// Recalibration refuses to write a heap table from any set of
-/// architectures but the heap architectures of record.
+/// architectures but the heap's required architectures.
 ///
 /// A table calibrated from fewer architectures stops holding for the omitted
 /// one, whose runs then face the board-wide ceiling alone. One calibrated
 /// from more claims an architecture that the next calibration, taken from
-/// the architectures of record, drops without notice.
+/// the required architectures, drops without notice.
 #[test]
 fn recalibration_refuses_architectures_off_the_record() {
     let flat = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
@@ -292,8 +292,8 @@ fn same_table(a: &Recalibration, b: &Recalibration) -> bool {
 /// from.
 ///
 /// It refuses no capture at all, a first capture holding no reading in the
-/// currency, a capture of another tree, and a set of captures off the
-/// currency's architectures of record.
+/// currency, a capture of another tree, and a set of captures other than
+/// the currency's required architectures.
 #[test]
 fn calibration_from_captures_refuses_what_it_cannot_derive_from() {
     let flat = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
@@ -325,7 +325,7 @@ fn calibration_from_captures_refuses_what_it_cannot_derive_from() {
     assert_eq!(
         kind(Currency::Heap, &[("arm", &arm)]),
         std::io::ErrorKind::InvalidData,
-        "one heap architecture alone is off the record"
+        "one heap architecture alone is not the required set"
     );
 }
 
@@ -458,7 +458,7 @@ fn judge_applies_the_tighter_ceiling_and_names_it() {
 /// judge, and its outer bound still binds.
 ///
 /// A refusal would end the run before it writes its capture, and a
-/// recalibration needs that capture from the other architecture of record.
+/// recalibration needs that capture from the other required architecture.
 #[test]
 fn a_cell_its_table_omits_is_red_as_uncalibrated() {
     const OTHER_CELL: CellCeilings = CellCeilings {
@@ -477,7 +477,7 @@ fn a_cell_its_table_omits_is_red_as_uncalibrated() {
 /// The rendered ceiling of a currency with a per-cell table names that table
 /// on every architecture; a currency with no table anywhere names none.
 ///
-/// On an architecture of record the text names the table's architectures;
+/// On a required architecture the text names the table's architectures;
 /// on any other, where the outer bound judges alone, it names the table's
 /// absence.
 ///
