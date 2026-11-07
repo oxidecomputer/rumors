@@ -16,6 +16,10 @@ use crate::bookmark::{Bookmark, NoBookmark};
 /// the new peer, and [`Retire`](crate::Retire) when this peer has left. See
 /// [what a session promises](crate#what-a-session-promises).
 ///
+/// To keep the connection for another session, take its halves with
+/// [`into_halves`](Self::into_halves), which returns a lost connection's
+/// error instead, so `?` passes it on.
+///
 /// `B` is the bookmark type of the session's [`Error`]. Retirement can fail
 /// in its peer's bookmark storage; bootstrap's session error is always
 /// `Error<NoBookmark>`.
@@ -49,6 +53,42 @@ impl<R, W, B: Bookmark> Connection<R, W, B> {
         match completed {
             Ok(()) => Self::Reusable { read, write },
             Err(error) => Self::Lost { error },
+        }
+    }
+}
+
+/// Take back a reusable connection's halves.
+impl<R, W, B: Bookmark> Connection<R, W, B> {
+    /// Return a reusable connection's halves, or the error that lost it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the session's error if the connection is
+    /// [`Lost`](Self::Lost).
+    ///
+    /// # Examples
+    ///
+    /// A caller who wants the connection for another session takes its
+    /// halves with `?`, and a lost connection's error passes on:
+    ///
+    /// ```
+    /// use rumors::{Connection, Error};
+    ///
+    /// fn reuse<R, W>(connection: Connection<R, W>) -> Result<(R, W), Error> {
+    ///     let (read, write) = connection.into_halves()?;
+    ///     Ok((read, write))
+    /// }
+    ///
+    /// let reusable: Connection<&[u8], Vec<u8>> = Connection::Reusable {
+    ///     read: &[],
+    ///     write: Vec::new(),
+    /// };
+    /// assert!(reuse(reusable).is_ok());
+    /// ```
+    pub fn into_halves(self) -> Result<(R, W), Error<B>> {
+        match self {
+            Self::Reusable { read, write } => Ok((read, write)),
+            Self::Lost { error } => Err(error),
         }
     }
 }
