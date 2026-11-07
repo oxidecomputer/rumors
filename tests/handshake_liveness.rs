@@ -24,7 +24,7 @@
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
-use rumors::{Peer, Retire, Rumors};
+use rumors::{Connection, Peer, Retire, Rumors};
 
 use rumors_testkit::common::property::FLEET_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
@@ -135,7 +135,12 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     );
     gossiped.expect("absorbing gossip completes");
     assert!(
-        matches!(retired, Retire::Retired { .. }),
+        matches!(
+            retired,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        ),
         "fixture fork retires cleanly, got {retired:?}"
     );
     assert_connection_drained(fork_end, seed_end);
@@ -295,7 +300,12 @@ async fn retire_session(network: NetworkSeed) {
     );
     gossiped.expect("the absorbing session completes");
     assert!(
-        matches!(retired, Retire::Retired { .. }),
+        matches!(
+            retired,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        ),
         "the retiree is absorbed, got {retired:?}"
     );
     assert_eq!(
@@ -351,7 +361,12 @@ async fn retire_into_bootstrapper_session(network: NetworkSeed) {
         Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
     );
     assert!(
-        matches!(retired, Retire::Retired { .. }),
+        matches!(
+            retired,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        ),
         "the bootstrapper absorbs the retiree, got {retired:?}"
     );
     let successor = (match joined {

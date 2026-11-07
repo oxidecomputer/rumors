@@ -5,7 +5,7 @@ use ciborium::value::Value;
 use futures::channel::oneshot;
 use proptest::prelude::*;
 use rumors::error::Phase;
-use rumors::{Error, Network, Retire};
+use rumors::{Connection, Error, Network, Retire};
 
 use super::{GatedBookmark, Msg, Rumors, block_on, boot_from, gossip};
 use crate::common::fault::{self, FaultPlan, Vanish};
@@ -92,7 +92,12 @@ fn boundaries(network: NetworkSeed, initial: usize) -> (usize, usize, usize) {
             donor.retire(&mut a.read, &mut a.write),
             receiver.gossip_once(&mut b.read, &mut b.write)
         );
-        assert!(matches!(outcome, Retire::Retired { .. }));
+        assert!(matches!(
+            outcome,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        ));
         accepted.unwrap();
         // The donation and the completion marker are the donor's last two
         // items, so the donation starts that far before its last byte.
@@ -185,7 +190,7 @@ proptest! {
                 assert_eq!(live.snapshot().hash(), pair.receiver.snapshot().hash());
                 assert_eq!(recorded(&pair.donor_bookmark, network), Some(identity));
             } else {
-                assert!(matches!(outcome, Retire::Uncertain { error: Error::DeadlineExceeded }));
+                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::DeadlineExceeded } }));
                 assert!(recorded(&pair.donor_bookmark, network).is_none());
             }
             assert!(accepted.is_err(), "an incomplete donation cannot be accepted");
@@ -246,7 +251,7 @@ proptest! {
             } else { None };
             assert_eq!(recorded(&pair.donor_bookmark, network), expected_donor);
             if stage == Cancellation::AfterAbsorption {
-                assert!(matches!(outcome, Retire::Uncertain { error: Error::DeadlineExceeded }));
+                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::DeadlineExceeded } }));
                 expected_receiver.join(identity).unwrap();
             } else {
                 let Retire::Recovered { peer, error: Error::DeadlineExceeded } = outcome else {
@@ -332,7 +337,7 @@ proptest! {
                 }
                 assert_eq!(recorded(&pair.donor_bookmark, network), Some(identity.dangerously_alias()));
             } else {
-                let Retire::Uncertain { error } = outcome else {
+                let Retire::Retired { connection: Connection::Lost { error } } = outcome else {
                     panic!("possible handoff must consume the peer, stage {stage:?}: {outcome:?}");
                 };
                 transport_phase(&error, if matches!(stage, Failure::Completion | Failure::AfterAbsorption) { Phase::Completion } else { Phase::IdentityTransfer });

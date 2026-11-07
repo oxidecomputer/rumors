@@ -43,7 +43,7 @@ use std::collections::BTreeMap;
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::{Retire, Rumors};
+use rumors::{Connection, Retire, Rumors};
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
@@ -119,7 +119,12 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
             absorber.gossip_once(&mut a_end.read, &mut a_end.write)
         );
         gossiped.expect("absorber gossip");
-        let completed = matches!(retired, Retire::Retired { .. });
+        let completed = matches!(
+            retired,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        );
         let outcome = format!("{retired:?}");
         drop(retired);
         assert_connection_drained(r_end, a_end);

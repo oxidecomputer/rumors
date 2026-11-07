@@ -26,7 +26,7 @@
 
 use rumors_testkit::common;
 
-use rumors::{Peer, Retire, Rumors};
+use rumors::{Connection, Peer, Retire, Rumors};
 
 use crate::common::gossip_snapshot::{capture_session, observed, seeded};
 use crate::common::wire::bootstrap_fork;
@@ -35,8 +35,8 @@ use crate::common::wire::bootstrap_fork;
 /// while `absorber` drives `gossip` (party A), reconciling content and then
 /// taking the retiree's party.
 ///
-/// The retiree is expected to commit
-/// ([`Retire::Retired`]).
+/// The retiree is expected to commit, its connection reusable
+/// ([`Retire::Retired`] with [`Connection::Reusable`]).
 fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
     capture_session(
         move |mut end, hook| async move {
@@ -54,7 +54,12 @@ fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
                 .observe(hook);
             let outcome = retiree.retire(&mut end.read, &mut end.write).await;
             assert!(
-                matches!(outcome, Retire::Retired { .. }),
+                matches!(
+                    outcome,
+                    Retire::Retired {
+                        connection: Connection::Reusable { .. }
+                    }
+                ),
                 "the absorber dominates, so retire must commit; got {outcome:?}",
             );
         },
@@ -168,7 +173,12 @@ fn retire_into_bootstrapper() {
                 .observe(hook);
             let outcome = retiree.retire(&mut end.read, &mut end.write).await;
             assert!(
-                matches!(outcome, Retire::Retired { .. }),
+                matches!(
+                    outcome,
+                    Retire::Retired {
+                        connection: Connection::Reusable { .. }
+                    }
+                ),
                 "a bootstrapper absorbs the retiree; got {outcome:?}",
             );
         },

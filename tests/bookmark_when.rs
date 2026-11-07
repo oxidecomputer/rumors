@@ -21,7 +21,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Bookmark, Peer, Retire, Rumors, Version};
+use rumors::{Bookmark, Connection, Peer, Retire, Rumors, Version};
 
 use crate::common::wire::block_on;
 use rumors::testing::MEMORY_CAPACITY;
@@ -137,7 +137,9 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
     );
     s.expect("subject absorbs the retiree");
     match outcome {
-        Retire::Retired { .. } => {}
+        Retire::Retired {
+            connection: Connection::Reusable { .. },
+        } => {}
         other => panic!("a clean retirement must succeed, got {other:?}"),
     }
 }
@@ -155,7 +157,9 @@ async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
     );
     a.expect("absorber gossip");
     match outcome {
-        Retire::Retired { .. } => {}
+        Retire::Retired {
+            connection: Connection::Reusable { .. },
+        } => {}
         other => panic!("a clean retirement must succeed, got {other:?}"),
     }
 }

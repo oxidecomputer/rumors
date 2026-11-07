@@ -313,7 +313,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// The lifecycle of a [`Peer`] usually looks something like this:
 ///
 /// ```
-/// use rumors::{Joined, Peer, Retire};
+/// use rumors::{Connection, Joined, Peer, Retire};
 ///
 /// # tokio::runtime::Builder::new_current_thread()
 /// #     .build()
@@ -362,19 +362,21 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// #     counterparty.gossip_once(far_read, far_write).await.unwrap();
 /// # });
 /// let retry = match peer.retire(near_read, near_write).await {
-///     // Retirement completed; nothing more to do.
-///     Retire::Retired { .. } => None,
+///     // This peer left the network; nothing more to do. A lost connection
+///     // carries the session's error, worth logging.
+///     Retire::Retired { connection } => {
+///         if let Connection::Lost { error } = connection {
+///             eprintln!("retired, but the session then failed: {error}");
+///         }
+///         None
+///     }
 ///     // Both sides were retiring; retry against a different peer.
 ///     Retire::Declined { peer, .. } => Some(peer),
 ///     // Retirement did not proceed. Retry using a fresh connection.
 ///     Retire::Recovered { peer, error: _ } => Some(peer),
-///     // The outcome is uncertain, and this peer cannot be used again.
-///     Retire::Uncertain { error } => return Err(error),
 /// };
 /// assert!(retry.is_none(), "the example's retirement succeeds");
-/// # Ok(())
-/// # })?;
-/// # Ok::<(), rumors::Error>(())
+/// # });
 /// ```
 ///
 /// # Bootstrapping without consensus
@@ -791,9 +793,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// member; see the [transport requirements](crate#transport). Pass
     /// `&mut` halves to keep the connection after the session.
     ///
-    /// [`Retire`] reports whether this peer left, can retry, or was consumed
-    /// with an uncertain outcome, including after [`session_deadline`](Self::session_deadline)
-    /// expires; the outcomes that completed the session return the halves.
+    /// [`Retire`] reports whether this peer left the network or remains to
+    /// keep gossiping or retry, including after
+    /// [`session_deadline`](Self::session_deadline) expires, and whether the
+    /// connection can carry another session.
     /// See the [lifecycle example](Peer) and
     /// [what a session promises](crate#what-a-session-promises).
     pub async fn retire<R, W>(self, read: R, write: W) -> Retire<T, R, W, B>

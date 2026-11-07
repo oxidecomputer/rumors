@@ -176,7 +176,7 @@ proptest! {
             },
             move |mut end| async move {
                 match retiree.retire(&mut end.read, &mut end.write).await {
-                    rumors::Retire::Retired { .. } => {}
+                    rumors::Retire::Retired { connection: rumors::Connection::Reusable { .. } } => {}
                     other => panic!("the retiree must retire cleanly, got {other:?}"),
                 }
             },

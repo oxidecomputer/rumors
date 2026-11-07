@@ -37,7 +37,9 @@ use before::Party;
 use proptest::prelude::*;
 use rand_chacha::ChaChaRng;
 use rumors::error::{Mismatch, ProtocolViolation};
-use rumors::{Bookmark, BookmarkIo, Error, Network, Peer, Retire, Rumors, Snapshot, Version};
+use rumors::{
+    Bookmark, BookmarkIo, Connection, Error, Network, Peer, Retire, Rumors, Snapshot, Version,
+};
 
 use crate::common::fault::{self, FaultPlan};
 use crate::common::flaky::{
@@ -1060,20 +1062,35 @@ impl World {
                 "{step}: the absorber failed on a clean wire over reliable bookmarks: {error:?}",
             );
         }
-        if let Retire::Recovered { error, .. } | Retire::Uncertain { error } = &outcome {
+        if let Retire::Recovered { error, .. }
+        | Retire::Retired {
+            connection: Connection::Lost { error },
+        } = &outcome
+        {
             assert_not_codec_bug(&format!("{step}, retiree"), error);
         }
         assert!(
-            may_fail || matches!(outcome, Retire::Retired { .. }),
+            may_fail
+                || matches!(
+                    outcome,
+                    Retire::Retired {
+                        connection: Connection::Reusable { .. }
+                    }
+                ),
             "{step}: a clean-wire retirement over reliable bookmarks must land as \
              `Retired`, not {outcome:?}",
         );
 
-        let retired = matches!(outcome, Retire::Retired { .. }) && absorbed.is_ok();
+        let retired = matches!(
+            outcome,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        ) && absorbed.is_ok();
         match outcome {
             // Donated: the retiree's memory is consumed, so secure what it
             // persisted and lose the rest.
-            Retire::Retired { .. } | Retire::Uncertain { .. } => self.secure_and_lose(retiree),
+            Retire::Retired { .. } => self.secure_and_lose(retiree),
             // Unchanged: hand the intact peer back to life; its persisted
             // emissions are durable, its unpersisted ones remain pending.
             Retire::Recovered { peer, .. } => {
@@ -1655,7 +1672,12 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         );
 
         assert!(
-            matches!(retire_out, Retire::Retired { .. }),
+            matches!(
+                retire_out,
+                Retire::Retired {
+                    connection: Connection::Reusable { .. }
+                }
+            ),
             "the retiree should have retired",
         );
         absorb_out.expect("the absorber's gossip must not fail while taking a retirement");

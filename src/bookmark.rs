@@ -162,7 +162,7 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// Retirement removes the departing identity from the local bookmark before
 /// sending it. If the transfer then fails or is cancelled, that bookmark cannot
 /// recover the removed identity. Recovery depends on what reached the recipient
-/// and its bookmark; see [`Retire::Uncertain`](crate::Retire::Uncertain).
+/// and its bookmark; see [`Retire::Retired`](crate::Retire::Retired).
 /// Serving a bootstrap removes the donated identity the same way. If that
 /// session fails before sending, the identity returns to the live peer and is
 /// recorded again at its next checkpoint; a crash before this occurs would drop

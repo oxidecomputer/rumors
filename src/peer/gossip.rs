@@ -36,7 +36,7 @@ use crate::{
     },
 };
 
-use super::{Inner, Peer, SessionSizing, bootstrap::Bootstrap};
+use super::{Inner, Peer, SessionSizing, bootstrap::Bootstrap, connection::Connection};
 
 /// The completion marker each side writes after all of its session work,
 /// in the closing exchange: the CBOR text item `"."`.
@@ -76,20 +76,27 @@ type RemoteParticipant<'a> = streaming_remote::Handshaking<Local, DynRead<'a>, D
 
 /// The outcome of [`Peer::retire`].
 ///
-/// [`Retired`](Self::Retired) and [`Declined`](Self::Declined) completed the
-/// session and return the connection's halves, resting at the session
-/// boundary. [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered)
-/// return the peer so it can keep gossiping or retry retirement. Dropping
-/// either result discards that peer.
+/// [`Retired`](Self::Retired) means this peer left the network, and carries
+/// a [`Connection`] that says whether the connection can carry another
+/// session. [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered)
+/// return the peer, still holding its identity, so it can keep gossiping or
+/// retry retirement; dropping either result discards that peer.
+/// [`Declined`](Self::Declined) completed the session and returns the
+/// connection's halves, resting at the session boundary.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
 pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
-    /// Retirement completed and this replica left the network.
-    /// The remote peer confirmed completion.
+    /// This replica left the network, handing its identity to the remote peer.
+    ///
+    /// The peer was consumed once it began to send its identity, and cannot
+    /// resume gossip or retry. With [`Connection::Reusable`], the remote
+    /// peer confirmed completion. With [`Connection::Lost`], the session
+    /// failed after the handoff began, including while awaiting
+    /// [`Phase::Completion`], so the remote peer may or may not have
+    /// committed; if it did not, no peer holds the identity, which then
+    /// cannot be recycled (see [`Bookmark`]).
     Retired {
-        /// The connection's read half, ready for another session.
-        read: R,
-        /// The connection's write half, ready for another session.
-        write: W,
+        /// Whether the connection can carry another session.
+        connection: Connection<R, W, B>,
     },
     /// The remote peer was also retiring, so the session changed neither replica.
     /// Retry retirement with another peer.
@@ -110,24 +117,18 @@ pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
         /// The session failure.
         error: Error<B>,
     },
-    /// Retirement started but could not be confirmed. This peer was consumed
-    /// and cannot resume gossip or retry; the remote peer may have committed.
-    /// Discard the connection.
-    ///
-    /// This includes failures while awaiting [`Phase::Completion`].
-    Uncertain {
-        /// The session failure.
-        error: Error<B>,
-    },
 }
 
 /// Format retirement outcomes without requiring debuggable payload, bookmark,
 /// or transport types.
 impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W, B> {
-    /// Formats the outcome and any returned peer or error.
+    /// Formats the outcome and any returned peer, connection, or error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Retired { .. } => f.debug_struct("Retired").finish_non_exhaustive(),
+            Self::Retired { connection } => f
+                .debug_struct("Retired")
+                .field("connection", connection)
+                .finish(),
             Self::Declined { peer, .. } => f
                 .debug_struct("Declined")
                 .field("peer", peer)
@@ -137,7 +138,6 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W,
                 .field("peer", peer)
                 .field("error", error)
                 .finish(),
-            Self::Uncertain { error } => f.debug_struct("Uncertain").field("error", error).finish(),
         }
     }
 }
@@ -426,8 +426,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             .session(Intent::Retire, &mut staged, &mut read, &mut write)
             .await;
         match (intent, result) {
-            (Intent::Retire, Ok(_)) => Retire::Retired { read, write },
-            (Intent::Retire, Err(error)) => Retire::Uncertain { error },
+            (Intent::Retire, result) => Retire::Retired {
+                connection: Connection::from_session(result.map(drop), read, write),
+            },
             (Intent::Remain, Ok(_)) => Retire::Declined {
                 peer: self,
                 read,

@@ -23,7 +23,7 @@ use rumors::observe::{
     SessionOutcome, StreamId, StreamInfo, StreamObserver,
 };
 use rumors::testing::PipeCapture;
-use rumors::{Peer, Retire, Rumors, SessionStats, Version};
+use rumors::{Connection, Peer, Retire, Rumors, SessionStats, Version};
 
 use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{capture_sides, corpora, payloads};
@@ -507,7 +507,7 @@ proptest! {
                 absorber.gossip_once(&mut end.read, &mut end.write).await.expect("absorber gossip");
             },
             |mut end| async move {
-                assert!(matches!(retiree.retire(&mut end.read, &mut end.write).await, Retire::Retired { .. }));
+                assert!(matches!(retiree.retire(&mut end.read, &mut end.write).await, Retire::Retired { connection: Connection::Reusable { .. } }));
             },
         );
         assert_pair(

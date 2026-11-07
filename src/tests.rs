@@ -26,7 +26,7 @@ use crate::testing::{
     MEMORY_CAPACITY, PREAMBLE_LEN, memory_connection, run_to_quiescence, wrap_io,
 };
 use crate::tree::{Root, Tree};
-use crate::{Error, Inner, Peer, Retire};
+use crate::{Connection, Error, Inner, Peer, Retire};
 
 /// Insert each of `vals` into `k` as one committed batch.
 fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
@@ -50,7 +50,12 @@ fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
             survivor.gossip_once(&mut b_end.read, &mut b_end.write),
         );
         assert!(
-            matches!(child_out, Retire::Retired { .. }),
+            matches!(
+                child_out,
+                Retire::Retired {
+                    connection: Connection::Reusable { .. }
+                }
+            ),
             "the survivor absorbs the child",
         );
         survivor_out.expect("survivor gossip");
@@ -129,9 +134,15 @@ divided_proptest! {
             "absorbing an overlapping party must surface PartyOverlap, got {survivor_out:?}"
         );
         // The absorber aborted pre-marker, so the forged retiree's party is in
-        // limbo: `Uncertain`, never a false `Retired`.
+        // limbo: the retiree is consumed and its connection lost, never
+        // confirmed reusable.
         assert!(
-            matches!(retire_out, Retire::Uncertain { .. }),
+            matches!(
+                retire_out,
+                Retire::Retired {
+                    connection: Connection::Lost { .. }
+                }
+            ),
             "an unconfirmed in-flight party must consume the retiree, got {retire_out:?}"
         );
     }
@@ -366,15 +377,16 @@ divided_proptest! {
     ///
     /// The party frame was delivered whole, so the absorber may well hold the
     /// identity: [`Retire::Recovered`] here would let the same identity live
-    /// twice, and [`Retire::Retired`] would overstate (the peer's commit was
-    /// never confirmed). The only safe outcome is [`Retire::Uncertain`], and
-    /// its error identifies [`Phase::Completion`](crate::error::Phase::Completion).
-    /// Failure at this point must preserve the uncertain retirement outcome;
-    /// the donated identity cannot be recovered safely.
+    /// twice, and a reusable connection would overstate (the peer's commit
+    /// was never confirmed). The only safe outcome is [`Retire::Retired`]
+    /// with a [`Connection::Lost`](crate::Connection::Lost), whose error
+    /// identifies [`Phase::Completion`](crate::error::Phase::Completion).
+    /// Failure at this point must consume the retiree; the donated identity
+    /// cannot be recovered safely.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn severed_completion_marker_is_uncertain(network in network_seed()) {
+    fn severed_completion_marker_consumes_the_retiree(network in network_seed()) {
         let survivor = network.peer::<u64>();
         let (mut survivor, child) = bootstrap_from(survivor);
 
@@ -383,7 +395,10 @@ divided_proptest! {
         let budget = PREAMBLE_LEN + greeting_frame_len(&child) + party_frame_len(&child);
         let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 
-        let Retire::Uncertain { error } = child_out else {
+        let Retire::Retired {
+            connection: Connection::Lost { error },
+        } = child_out
+        else {
             panic!("a failure on the completion marker must consume the retiree, got {child_out:?}");
         };
         assert!(
@@ -402,13 +417,14 @@ divided_proptest! {
     /// A session severed on the trailing party frame itself leaves delivery
     /// irreducibly uncertain.
     ///
-    /// The retiree cannot know whether the peer received its
-    /// party, so it is consumed ([`Retire::Uncertain`]) rather than risk
+    /// The retiree cannot know whether the peer received its party, so it
+    /// is consumed ([`Retire::Retired`] with a
+    /// [`Connection::Lost`](crate::Connection::Lost)) rather than risk
     /// duplicating the region by surviving alongside a delivered copy.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn severed_party_frame_is_uncertain(network in network_seed()) {
+    fn severed_party_frame_consumes_the_retiree(network in network_seed()) {
         let survivor = network.peer::<u64>();
         let (mut survivor, child) = bootstrap_from(survivor);
 
@@ -420,7 +436,12 @@ divided_proptest! {
         let (child_out, peer_out) = severed_retire(child, &mut survivor, budget);
 
         assert!(
-            matches!(child_out, Retire::Uncertain { .. }),
+            matches!(
+                child_out,
+                Retire::Retired {
+                    connection: Connection::Lost { .. }
+                }
+            ),
             "a failure on the party frame itself must consume the retiree, got {child_out:?}"
         );
         assert!(
@@ -704,12 +725,14 @@ divided_proptest! {
 
 /// What one cancelled retirement returned to the retiree.
 enum RetireOutcome {
-    /// The absorber confirmed the retirement.
-    Retired,
+    /// The retiree left with its connection reusable: the absorber
+    /// confirmed the retirement.
+    Confirmed,
     /// The retirement failed before the handoff began, returning the peer.
     Recovered(Peer<u64>),
-    /// The handoff began, and the retiree was consumed unconfirmed.
-    Uncertain,
+    /// The handoff began, and the retiree left with its connection lost,
+    /// unconfirmed.
+    Lost,
 }
 
 /// What one cancelled retirement left on each side, and how often each
@@ -754,9 +777,13 @@ fn cancelled_retire(
         retired
     });
     let outcome = match retired {
-        Retire::Retired { .. } => RetireOutcome::Retired,
+        Retire::Retired {
+            connection: Connection::Reusable { .. },
+        } => RetireOutcome::Confirmed,
+        Retire::Retired {
+            connection: Connection::Lost { .. },
+        } => RetireOutcome::Lost,
         Retire::Recovered { peer, .. } => RetireOutcome::Recovered(peer),
-        Retire::Uncertain { .. } => RetireOutcome::Uncertain,
         Retire::Declined { .. } => panic!("the absorber is not retiring"),
     };
     CancelledRetire {
@@ -778,14 +805,14 @@ divided_proptest! {
     /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled retirement
     /// counts each side's suspensions; the retiree's cancellation then ranges
     /// over each of its suspensions, one past its last, and never, and so does
-    /// the absorber's, in every combination. A confirmed retirement leaves
-    /// the absorber holding the seed's whole identity and the retiree's
-    /// messages. A recovered retiree holds exactly the identity it had, the
+    /// the absorber's, in every combination. A retirement whose connection
+    /// stays reusable was confirmed, and leaves the absorber holding the
+    /// seed's whole identity and the retiree's messages. A recovered retiree holds exactly the identity it had, the
     /// absorber exactly its own, and the two together the seed's whole
     /// identity; with the deadlines lifted, the retiree then retires into the
-    /// absorber. An uncertain retirement leaves the absorber holding either
-    /// the seed's whole identity or exactly its own: the retiree's identity
-    /// is absorbed whole or stranded, never split.
+    /// absorber. A retirement whose connection is lost leaves the absorber
+    /// holding either the seed's whole identity or exactly its own: the
+    /// retiree's identity is absorbed whole or stranded, never split.
     ///
     /// Two floors show both custody paths ran: some cancellation returns the
     /// retiree for retry, and some consumes it after its handoff began.
@@ -795,16 +822,16 @@ divided_proptest! {
     #[test]
     fn cancelled_retire_never_duplicates_and_recovers_a_usable_peer(network in network_seed()) {
         let clean = cancelled_retire(network, usize::MAX, usize::MAX);
-        assert!(matches!(clean.outcome, RetireOutcome::Retired), "an uncancelled retirement completes");
+        assert!(matches!(clean.outcome, RetireOutcome::Confirmed), "an uncancelled retirement completes");
         let points = |suspensions: usize| (1..=suspensions + 1).chain([usize::MAX]);
-        let (mut recovered, mut uncertain) = (0, 0);
+        let (mut recovered, mut lost) = (0, 0);
         for retiree_at in points(clean.suspensions[0]) {
             for absorber_at in points(clean.suspensions[1]) {
                 let at = format!("retiree at {retiree_at}, absorber at {absorber_at}");
                 let cancelled = cancelled_retire(network, retiree_at, absorber_at);
                 let absorber = party_of(&cancelled.absorber);
                 match cancelled.outcome {
-                    RetireOutcome::Retired => {
+                    RetireOutcome::Confirmed => {
                         assert_eq!(absorber, Party::seed(), "{at}: a confirmed retirement left identity behind");
                         let held: Vec<u64> = cancelled.absorber.snapshot().iter().map(|(_, value)| *value).collect();
                         assert!(held.contains(&4) && held.contains(&5), "{at}: the absorber lacks the retiree's messages");
@@ -821,8 +848,8 @@ divided_proptest! {
                         );
                         assert_eq!(party_of(&survivor), Party::seed(), "{at}: the retried retirement left identity behind");
                     }
-                    RetireOutcome::Uncertain => {
-                        uncertain += 1;
+                    RetireOutcome::Lost => {
+                        lost += 1;
                         assert!(
                             absorber == Party::seed() || absorber == cancelled.absorber_before,
                             "{at}: the absorber holds part of the retiree's identity",
@@ -832,7 +859,7 @@ divided_proptest! {
             }
         }
         assert!(recovered > 0, "some cancellation returns the retiree for retry");
-        assert!(uncertain > 0, "some cancellation consumes the retiree after its handoff began");
+        assert!(lost > 0, "some cancellation consumes the retiree after its handoff began");
     }
 }
 

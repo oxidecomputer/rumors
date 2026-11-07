@@ -54,10 +54,10 @@
 //! # Loss accounting
 //!
 //! Party id-regions can leave the live universe *legitimately* when a wire
-//! drops mid-hand-off: a bootstrap fork lost in flight, a retiree's
-//! [`Retire::Uncertain`] whose absorber also failed, or a peer that
-//! vanished while bootstrapping or retiring. The engine counts
-//! every such *possible* loss conservatively in
+//! drops mid-hand-off: a bootstrap fork lost in flight, a retirement
+//! whose [`Retire::Retired`] carries a lost connection while its absorber
+//! also failed, or a peer that vanished while bootstrapping or retiring.
+//! The engine counts every such *possible* loss conservatively in
 //! [`SimOutcome::possible_losses`]. Disjointness must hold regardless;
 //! the sharper invariants -- the surviving parties fold-join back to exactly
 //! [`Party::seed`], and the converged value multiset equals the ledger's
@@ -880,10 +880,15 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             continue;
         };
         match outcome {
-            // The retiree believes its party was delivered; if the absorber
-            // failed too, delivery is unconfirmed on both sides and the
-            // region may be in limbo.
-            Retire::Retired { .. } => {
+            // The retiree gave its party up. With a reusable connection the
+            // absorber confirmed it; with a lost one it was in flight when
+            // the wire died. Either way, if the absorber committed cleanly
+            // it holds the party (no loss); if it failed too, delivery is
+            // unconfirmed on both sides and the region may be in limbo.
+            Retire::Retired { connection } => {
+                if let rumors::Connection::Lost { error } = &connection {
+                    assert_honest_error(error);
+                }
                 let transfer = if absorbed.is_err() {
                     possible_losses += 1;
                     Transfer::Lost
@@ -897,18 +902,6 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
                 assert_honest_error(&error);
                 slots[op.retiree] = Some(peer);
                 transfers.push((op.retiree, op.absorber, Transfer::Recovered));
-            }
-            // In flight when the wire died. If the absorber committed
-            // cleanly it holds the party (no loss); otherwise it is gone.
-            Retire::Uncertain { error } => {
-                assert_honest_error(&error);
-                let transfer = if absorbed.is_err() {
-                    possible_losses += 1;
-                    Transfer::Lost
-                } else {
-                    Transfer::Committed
-                };
-                transfers.push((op.retiree, op.absorber, transfer));
             }
             Retire::Declined { .. } => {
                 unreachable!("the absorber runs plain gossip and never declines")

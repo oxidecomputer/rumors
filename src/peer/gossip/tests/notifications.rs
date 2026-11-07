@@ -8,7 +8,7 @@ use crate::peer::gossip::ForkGuard;
 use crate::testing::property::network_seed;
 use crate::testing::run_to_quiescence;
 use crate::testing::{MEMORY_CAPACITY, memory_connection};
-use crate::{Peer, Retire};
+use crate::{Connection, Peer, Retire};
 
 proptest! {
     /// Bootstrap and retirement notify the surviving replica only when its
@@ -49,7 +49,7 @@ proptest! {
             tokio::join!(provider.gossip_once(serving.read, serving.write), newcomer.retire(retiring.read, retiring.write))
         }).expect("retirement must complete");
         served.unwrap();
-        prop_assert!(matches!(retired, Retire::Retired { .. }), "retirement completes");
+        prop_assert!(matches!(retired, Retire::Retired { connection: Connection::Reusable { .. } }), "retirement completes");
         prop_assert_eq!(party_of(&provider), original_party);
         prop_assert_eq!(changes.has_changed().unwrap(), provider.snapshot() != before);
     }

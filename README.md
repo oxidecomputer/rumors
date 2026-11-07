@@ -248,17 +248,17 @@ reused:
 - **Success:** both sides confirmed completion. The returned halves rest
   exactly at the session boundary, ready for another session. Gossip
   returns `Gossiped`; bootstrap and retirement report their results
-  through `Joined` and `Retire`. A bootstrap that joined returns the
-  halves in a `Connection::Reusable`.
+  through `Joined` and `Retire`, which return the halves in a
+  `Connection::Reusable` once this side has joined or left the network.
 - **Failure:** the connection's position is unknown: discard it and
   reconnect. A later session on it gets no typed warning; it can fail in
   any way, or misread the stale bytes. Failure does not always mean that
   nothing changed: a failure in
   `Phase::Completion` can follow a
   local commit. Accepting a retirement can also commit content before a
-  bookmark write fails; see `Error::Bookmark`. A bootstrap that fails
-  after this side has joined reports the failure as a
-  `Connection::Lost` beside the new peer.
+  bookmark write fails; see `Error::Bookmark`. A bootstrap or
+  retirement that fails after this side has joined or left the network
+  reports the failure as a `Connection::Lost` in that outcome.
 - **Cancellation:** dropping an active session future also leaves the
   connection at an unknown position; discard it. No partial
   reconciliation is published, but a completed local commit is not

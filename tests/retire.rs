@@ -22,7 +22,7 @@ use rumors_testkit::common::wire::ROOMY_CAPACITY;
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
-use rumors::{Peer, Retire, Rumors, causally};
+use rumors::{Connection, Peer, Retire, Rumors, causally};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::fault::{self, FaultPlan};
@@ -83,9 +83,18 @@ type Outcome<T> = Retire<T, (), ()>;
 /// Release a retirement outcome's connection halves, keeping the outcome.
 fn released<T: Send + Sync + 'static, R, W>(outcome: Retire<T, R, W>) -> Outcome<T> {
     match outcome {
-        Retire::Retired { .. } => Retire::Retired {
-            read: (),
-            write: (),
+        Retire::Retired {
+            connection: Connection::Reusable { .. },
+        } => Retire::Retired {
+            connection: Connection::Reusable {
+                read: (),
+                write: (),
+            },
+        },
+        Retire::Retired {
+            connection: Connection::Lost { error },
+        } => Retire::Retired {
+            connection: Connection::Lost { error },
         },
         Retire::Declined { peer, .. } => Retire::Declined {
             peer,
@@ -93,7 +102,6 @@ fn released<T: Send + Sync + 'static, R, W>(outcome: Retire<T, R, W>) -> Outcome
             write: (),
         },
         Retire::Recovered { peer, error } => Retire::Recovered { peer, error },
-        Retire::Uncertain { error } => Retire::Uncertain { error },
     }
 }
 
@@ -187,7 +195,7 @@ divided_proptest! {
 
         let outcome = retire_into_gossip(a, &b);
         assert!(
-            matches!(outcome, Retire::Retired { .. }),
+            matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
             "equal versions dominate reflexively, so retire commits; got {outcome:?}"
         );
     }
@@ -217,7 +225,7 @@ divided_proptest! {
 
         let outcome = retire_into_gossip(a, &b);
         assert!(
-            matches!(outcome, Retire::Retired { .. }),
+            matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
             "the reconciled peer absorbs the retiree, got {outcome:?}"
         );
         let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| *m).collect();
@@ -249,7 +257,7 @@ divided_proptest! {
         retiree.redact(&version);
 
         let outcome = retire_into_gossip(retiree, &absorber);
-        assert!(matches!(outcome, Retire::Retired { .. }), "{outcome:?}");
+        assert!(matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }), "{outcome:?}");
         assert!(
             !absorber.snapshot().contains(&version),
             "the retiree's later frontier must preserve the redaction"
@@ -289,7 +297,7 @@ divided_proptest! {
         // the other commits.
         let outcome = retire_into_gossip(a, &b);
         assert!(
-            matches!(outcome, Retire::Retired { .. }),
+            matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
             "a declined retire leaves both parties whole, got {outcome:?}"
         );
     }
@@ -310,7 +318,7 @@ divided_proptest! {
 
         let (outcome, successor) = retire_into_bootstrap(retiree);
         assert!(
-            matches!(outcome, Retire::Retired { .. }),
+            matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
             "a bootstrapper absorbs the retiree, got {outcome:?}"
         );
         assert_eq!(
@@ -348,7 +356,7 @@ divided_proptest! {
 
         let (outcome, novel) = retire_into_counting_gossip(a, &b);
         assert!(
-            matches!(outcome, Retire::Retired { .. }),
+            matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
             "the reconciled peer absorbs the retiree, got {outcome:?}"
         );
         assert_eq!(
@@ -377,7 +385,7 @@ divided_proptest! {
 
         let (outcome, novel) = retire_into_counting_gossip(a, &b);
         assert!(
-            matches!(outcome, Retire::Retired { .. }),
+            matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
             "the gossiping peer absorbs the retiree, got {outcome:?}"
         );
         assert_eq!(novel, 0, "absorbing a retiree delivers no messages");
@@ -432,7 +440,7 @@ proptest! {
         let mut latest = retiree.snapshot().latest().clone();
         latest |= survivor.snapshot().latest();
         let outcome = retire_into_gossip(retiree, &survivor);
-        prop_assert!(matches!(outcome, Retire::Retired { .. }), "{outcome:?}");
+        prop_assert!(matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }), "{outcome:?}");
         prop_assert_eq!(readout(&survivor.snapshot()), expected.clone());
         prop_assert_eq!(survivor.snapshot().latest().clone(), latest.clone());
 
@@ -478,7 +486,7 @@ proptest! {
             wire_gossip(&a, &b);
             let outcome = retire_into_gossip(a, &b);
             prop_assert!(
-                matches!(outcome, Retire::Retired { .. }),
+                matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
                 "a converged peer dominates, so retire commits; got {outcome:?}",
             );
             fingerprint(&b)
@@ -507,7 +515,7 @@ proptest! {
             let b = build_local(seed, &b_actions);
             let outcome = retire_into_gossip(a, &b);
             prop_assert!(
-                matches!(outcome, Retire::Retired { .. }),
+                matches!(outcome, Retire::Retired { connection: Connection::Reusable { .. } }),
                 "the in-session gossip round always brings the peer to dominance; got {outcome:?}",
             );
             fingerprint(&b)
@@ -555,7 +563,12 @@ fn retirement_cut(network: NetworkSeed, cut: Option<usize>, initial: usize) -> u
         );
         if cut.is_none() {
             assert!(
-                matches!(retired, Retire::Retired { .. }),
+                matches!(
+                    retired,
+                    Retire::Retired {
+                        connection: Connection::Reusable { .. }
+                    }
+                ),
                 "clean retirement: {retired:?}"
             );
         }
@@ -567,13 +580,17 @@ fn retirement_cut(network: NetworkSeed, cut: Option<usize>, initial: usize) -> u
                 live.send(999).unwrap();
                 assert_eq!(live.snapshot().len(), initial + 1);
             }
-            Retire::Retired { .. } => {
+            Retire::Retired {
+                connection: Connection::Reusable { .. },
+            } => {
                 if cut.is_none() {
                     received.unwrap();
                 }
                 assert!(absorber.dangerously_alias_party().is_seed());
             }
-            Retire::Uncertain { .. } => {}
+            Retire::Retired {
+                connection: Connection::Lost { .. },
+            } => {}
             Retire::Declined { .. } => panic!("ordinary gossip accepts retirement"),
         }
         meter.map_or(0, |meter| meter.written())

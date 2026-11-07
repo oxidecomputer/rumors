@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use rumors::{Retire, Version};
+use rumors::{Connection, Retire, Version};
 
 use super::events::{Event, EventIdx, Schedule};
 use crate::common::budget::BudgetAssignment;
@@ -275,9 +275,13 @@ where
                 });
                 absorbed.expect("clean-wire absorber gossip");
                 match outcome {
-                    Retire::Retired { .. } => {}
+                    Retire::Retired {
+                        connection: Connection::Reusable { .. },
+                    } => {}
                     Retire::Recovered { .. } => panic!("clean-wire retirement recovered"),
-                    Retire::Uncertain { .. } => panic!("clean-wire retirement uncertain"),
+                    Retire::Retired {
+                        connection: Connection::Lost { .. },
+                    } => panic!("clean-wire retirement lost its connection"),
                     Retire::Declined { .. } => {
                         panic!("the absorber runs plain gossip and never declines")
                     }
