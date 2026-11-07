@@ -45,7 +45,7 @@ fn every_island_is_included_or_exempted() {
     // Every `/fuelscapes/<op>.html` occurrence in the crate's sources, and
     // every site whose next line is not its contract text.
     let contracts = Path::new(concat!(env!("OUT_DIR"), "/fuelscape-contracts"));
-    let of_record = texts_of_record(contracts);
+    let texts = contract_texts(contracts);
     let mut included = BTreeSet::new();
     let mut faults = Vec::new();
     let mut stack = vec![Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).to_path_buf()];
@@ -69,7 +69,7 @@ fn every_island_is_included_or_exempted() {
                             // Prose naming the directory, this suite's own included.
                             continue;
                         }
-                        let want = format!("\"{}\"", text_of_record(contracts, op));
+                        let want = format!("\"{}\"", contract_text(contracts, op));
                         let found = not_doc_literal(&lines[i + 1..]);
                         if found.as_deref() != Some(want.as_str()) {
                             faults.push(format!(
@@ -83,7 +83,7 @@ fn every_island_is_included_or_exempted() {
                     // Any claim-shaped literal, anchored or not, must be some
                     // contract text.
                     if let Some(claim) = claim_literal(line) {
-                        if !of_record.contains(claim) {
+                        if !texts.contains(claim) {
                             faults.push(format!(
                                 "{}:{}: the claim literal `{claim}` is no measured operation's contract text",
                                 path.display(),
@@ -193,7 +193,7 @@ fn claim_literal(line: &str) -> Option<&str> {
 }
 
 /// The contract text for `op`, as build.rs formatted it.
-fn text_of_record(contracts: &Path, op: &str) -> String {
+fn contract_text(contracts: &Path, op: &str) -> String {
     std::fs::read_to_string(contracts.join(format!("{op}.md")))
         .unwrap_or_else(|e| panic!("no contract text for island {op}: {e}"))
         .trim_end()
@@ -201,7 +201,7 @@ fn text_of_record(contracts: &Path, op: &str) -> String {
 }
 
 /// Every contract text, for the literals no island include anchors.
-fn texts_of_record(contracts: &Path) -> BTreeSet<String> {
+fn contract_texts(contracts: &Path) -> BTreeSet<String> {
     std::fs::read_dir(contracts)
         .expect("build.rs writes the contract texts")
         .map(|entry| {

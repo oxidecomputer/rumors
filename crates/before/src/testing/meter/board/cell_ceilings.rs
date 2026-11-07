@@ -149,7 +149,7 @@ pub const FUEL_ARCHS: [&str; 1] = ["wasm32"];
 
 /// The architectures `currency`'s table must be calibrated from; empty for a
 /// currency with no table.
-fn archs_of_record(currency: Currency) -> &'static [&'static str] {
+fn required_archs(currency: Currency) -> &'static [&'static str] {
     match currency {
         Currency::Heap => &HEAP_ARCHS,
         Currency::Fuel => &FUEL_ARCHS,
@@ -204,7 +204,7 @@ impl Calibration {
     /// the currency has a table and it does not hold for the run's
     /// architecture.
     pub(super) fn missing(&self, currency: Currency) -> Option<&'static [&'static str]> {
-        let archs = archs_of_record(currency);
+        let archs = required_archs(currency);
         (self.table(currency).is_none() && !archs.is_empty()).then_some(archs)
     }
 }
@@ -455,15 +455,15 @@ fn recalibrate_table(
                 .map(|(_, other)| other.measured_on.arch.as_str()),
         )
         .collect();
-    let of_record: BTreeSet<&str> = archs_of_record(table.currency).iter().copied().collect();
-    if archs != of_record {
+    let required: BTreeSet<&str> = required_archs(table.currency).iter().copied().collect();
+    if archs != required {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
                 "amp-board calibrate: the {} table needs readings from {:?}, but the \
                  readings came from {:?}",
                 table.currency.label(),
-                of_record,
+                required,
                 archs
             ),
         ));

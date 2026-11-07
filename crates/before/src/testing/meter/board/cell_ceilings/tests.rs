@@ -10,8 +10,8 @@ use super::super::ladder::Ladder;
 use super::super::measure::{Model, Sample};
 use super::super::render::ceiling_text;
 use super::{
-    archs_of_record, calibration, ceiling_thousandths, derive_ceilings, recalibrate,
-    recalibrate_from_captures, recalibrate_tables, recalibrate_tables_from_captures, Calibration,
+    calibration, ceiling_thousandths, derive_ceilings, recalibrate, recalibrate_from_captures,
+    recalibrate_tables, recalibrate_tables_from_captures, required_archs, Calibration,
     CellCeilings, Recalibration, CEILING_RESOLUTION, CELL_CEILING_HEADROOM, TABLES,
 };
 
@@ -148,11 +148,11 @@ fn tables_are_sorted_and_distinct() {
 /// one, whose runs then face the board-wide ceiling alone (or, for fuel,
 /// which has none, are refused).
 #[test]
-fn every_table_names_its_architectures_of_record() {
+fn every_table_names_its_required_architectures() {
     for table in TABLES {
         let named: BTreeSet<&str> = table.archs.iter().copied().collect();
-        let of_record: BTreeSet<&str> = archs_of_record(table.currency).iter().copied().collect();
-        assert_eq!(named, of_record, "the {} table", table.currency.label());
+        let required: BTreeSet<&str> = required_archs(table.currency).iter().copied().collect();
+        assert_eq!(named, required, "the {} table", table.currency.label());
     }
 }
 
@@ -267,7 +267,7 @@ fn recalibration_refuses_unmergeable_captures() {
 /// from more claims an architecture that the next calibration, taken from
 /// the required architectures, drops without notice.
 #[test]
-fn recalibration_refuses_architectures_off_the_record() {
+fn recalibration_refuses_architectures_not_required() {
     let flat = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
     let here = ladder("aarch64", flat);
     let good = capture_text(&ladder("x86_64", flat), "tree-a");
@@ -488,7 +488,7 @@ fn a_cell_its_table_omits_is_red_as_uncalibrated() {
 fn ceiling_text_names_the_table_or_its_absence() {
     let elsewhere = calibration("no-such-arch");
     for (currency, _) in ByCurrency::from_fn(|_| ()).each() {
-        let archs = archs_of_record(currency);
+        let archs = required_archs(currency);
         let text = ceiling_text(currency, &elsewhere);
         let names_absence = text.contains(&format!(
             "no per-cell {} table for no-such-arch; the table is calibrated from {}",

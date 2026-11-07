@@ -50,7 +50,7 @@ fn committed_seeds_match_the_live_derivation() {
 /// for a renamed or retired target) would seed the fuzzer with bytes
 /// nothing re-derives, which is the rot this suite exists to prevent.
 #[test]
-fn seed_directories_hold_exactly_the_set_of_record() {
+fn seed_directories_hold_exactly_the_derived_seed_set() {
     let mut expected: std::collections::BTreeMap<String, BTreeSet<String>> = Default::default();
     for seed in fuzz_seed_set::seed_set() {
         expected
