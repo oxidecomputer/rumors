@@ -589,34 +589,36 @@ proptest! {
     /// finished replies, splits, drops, and withdrawals, admission keeps its
     /// counts, its bound, and its rule, for any table of bounds.
     ///
-    /// An independent tally, from the live charges and the kind and depth
-    /// each was granted to, checks after every operation:
+    /// After every operation, an independent tally of the live charges, by
+    /// the kind and depth each was granted to, checks that:
     ///
-    /// - The ledger's `held[k]` for every kind and depth, its total, and its
-    ///   excess, `E = Σ_k max(0, held[k] − F[k])`, equal the tally's.
-    /// - Each depth's outstanding claims equal the needs of the unfinished
-    ///   invitations whose grants claimed, and only a question under the
-    ///   share claims.
-    /// - Within each kind and depth, units are granted first come, first
-    ///   served: no unit is granted while an earlier unit of its kind and
-    ///   depth still waits.
-    /// - No unit waits at an empty kind and depth. A unit *first in line*,
-    ///   with no earlier unit of its kind and depth waiting, does not fit
-    ///   within its bound; and one that would pass the room check, and its
-    ///   depth's share check if the share governs it, waits behind a deeper
-    ///   or older unit first in line that fails the room check, the only
-    ///   kind that closes the budget. A unit behind an earlier one of its
-    ///   kind and depth is left undecided, so it may fit.
+    /// - the ledger's `held[k]` for every kind and depth, its total, and its
+    ///   excess `E` equal the tally's;
+    /// - each depth's outstanding claims equal the needs of its unfinished
+    ///   invitations that claimed, and only a question under the share
+    ///   claims;
+    /// - no unit is granted while an earlier unit of its kind and depth
+    ///   waits;
+    /// - every waiting unit waits at a kind and depth that holds bytes, and
+    ///   for a reason the rule gives:
+    ///   - a unit behind an earlier waiter of its kind and depth waits its
+    ///     turn, whatever its size;
+    ///   - a unit first in line is not exempt: it does not fit beside what
+    ///     its kind and depth holds within the bound;
+    ///   - and if that unit would pass the room check, and its depth's
+    ///     share check where the share governs it, the budget is closed:
+    ///     another unit first in line, deeper or at its depth and older,
+    ///     would take the excess past the budget with its grant added.
     ///
     /// When every grant keeps within its bound (premise (P1)), it also
-    /// checks the memory bound as two checks, `E ≤ B` and
-    /// `L − E ≤ Σ F[k]` over the kinds and depths holding bytes, and the
-    /// banker's invariant: at each depth, the excess its questions hold and
-    /// its outstanding claims, scaled by the pace its latest claiming
-    /// admission read, fit the budget together. Each claiming admission
-    /// establishes it; exempt grants add no excess, releases and finished
-    /// replies only shrink both sums, and only a finished reply moves the
-    /// pace, so it holds after every operation.
+    /// checks the memory bound, as `E ≤ B` and `L − E ≤ Σ F[k]` over the
+    /// kinds and depths holding bytes, and the banker's invariant: at each
+    /// depth, the excess its questions hold plus its outstanding claims,
+    /// scaled by the pace its latest claiming admission read, fit the
+    /// budget. Each claiming admission establishes that invariant, and no
+    /// later operation breaks it: exempt grants add no excess, returns and
+    /// finished replies only shrink both sums, and only a finished reply
+    /// moves the pace.
     ///
     /// Once everything is dropped, the ledger holds nothing.
     #[test]
