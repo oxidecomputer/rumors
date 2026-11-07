@@ -433,8 +433,8 @@ fn standard_schedules() -> [(Vec<u8>, Vec<u8>); 4] {
 
 /// Merge `a` and `b` through `Tree::join`: the in-memory oracle.
 ///
-/// Its observational equivalence to wire reconciliation is the design of
-/// record: `join` and the mirror delegate deletion honoring to the same
+/// Its observational equivalence to wire reconciliation is a design
+/// requirement: `join` and the mirror delegate deletion honoring to the same
 /// filter, so a reconciled endpoint must hold exactly the joined tree.
 fn join_oracle(a: Root, b: Root) -> Root {
     let mut joined = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);

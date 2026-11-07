@@ -6,7 +6,7 @@
 //! Write `T(B)` for a session's duration at ledger budget `B` (the budget
 //! its ledgers admit work against, beside the floor and session allowances),
 //! `N*` for the session's no-cost point, and `δ` for the link's one-way
-//! delay, so that one round trip is `2δ` on every link. The owner's ruling
+//! delay, so that one round trip is `2δ` on every link. The criterion
 //! states what holds for every pair of ledger budgets `0 ≤ B ≤ B′`, zero
 //! included: below as well as above the largest grant
 //! ([`LARGEST_GRANT`](rumors::testing::LARGEST_GRANT)), the least ledger

@@ -1,8 +1,8 @@
 # rumors — project notes
 
-A guidepost, not a manual: it orients and points, and the documentation of
-record is the rustdoc. Keep this file small and accurate; when detail needs a
-durable home, put it in the docs and point there.
+A guidepost, not a manual: it orients and points, and the rustdoc holds the
+documentation. Keep this file small and accurate; when detail needs a durable
+home, put it in the docs and point there.
 
 ## Orientation
 
@@ -96,7 +96,7 @@ No gate leg checks these; review does.
 - Nothing in the tree refers to code that no longer exists: no "formerly", no
   "was removed", no deleted API names. Restate prose in terms of what is;
   provenance lives in git history.
-- The model of record is uniform-hash and authenticated-honest-peer: the
+- The assumed model is uniform-hash and authenticated-honest-peer: the
   transport is pre-authenticated and authorized, and an authorized peer already
   holds write authority over the set. Hostile peers are off-model, so no
   design or cost argument rests on a hostile peer's economics, and fail-fast
@@ -117,10 +117,10 @@ No gate leg checks these; review does.
   so reason about it in version ceilings and floors, not markers.
 - The `insta` snapshots and the exact byte counts in
   `tests/protocol_overhead.rs` pin the wire and storage formats. Re-accept
-  them only for a deliberate, owner-ruled change to a format or to the capture
-  renderer, named in the re-accepting commit, never to accommodate drift. Once
-  a release ships, a wire format change means a new protocol version, never a
-  mutation of a released one.
+  them only for a deliberate change to a format or to the capture renderer,
+  named in the re-accepting commit, never to accommodate drift. Once a release
+  ships, a wire format change means a new protocol version, never a mutation
+  of a released one.
   - A bookmark snapshot that moves because the encoding changed is an on-disk
     format change: bump `BOOKMARK_FORMAT_VERSION` in the same commit.
   - A snapshot that moves only because its test fixture changed is a fixture

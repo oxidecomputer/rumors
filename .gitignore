@@ -9,7 +9,7 @@ formal/lean/.lake/
 formal/quint/node_modules/
 formal/quint/_apalache-out/
 
-# Fetched TLC binary; the sha256 pin alongside it is the artifact of record.
+# Fetched TLC binary; only the sha256 pin alongside it is tracked.
 formal/tla/tla2tools.jar
 
 # EventDag analysis dumps (lake exe eventdag); regenerable from the tool.

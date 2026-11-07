@@ -21,7 +21,7 @@ mod no_slowdown;
 #[path = "throughput/budget_sweep.rs"]
 mod budget_sweep;
 
-/// The owner's criterion for a duration's movement across budgets.
+/// The criterion a duration's movement across budgets must meet.
 #[path = "throughput/budget_criterion.rs"]
 mod budget_criterion;
 

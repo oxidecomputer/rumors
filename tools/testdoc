@@ -15,8 +15,8 @@ than depending on a Rust parser.
 
 Directories named in `IGNORED_DIRECTORIES` are never entered under any
 root: build output and vendored trees hold none of this repository's
-tests, and `.claude` may hold other agents' worktrees, whose state must
-not move this tree's verdict. The gate's explicit roots are the first
+tests, and `.claude` may hold nested worktrees of this repository, whose
+state must not move this tree's verdict. The gate's explicit roots are the first
 guard; this set is the second.
 """
 

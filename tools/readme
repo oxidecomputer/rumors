@@ -34,9 +34,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# The cargo-rdme of record. The READMEs are byte-pinned derived artifacts:
-# CI regenerates them with this exact version and diffs, so a regeneration
-# under any other version can land bytes the check rejects. `write` and
+# The cargo-rdme version the READMEs are generated with. The READMEs are
+# byte-pinned derived artifacts: CI regenerates them with this exact version
+# and diffs, so a regeneration under any other version can land bytes the
+# check rejects. `write` and
 # `check` refuse a mismatched tool up front, naming both versions, instead
 # of letting the skew surface later as unattributed README drift. CI
 # installs the same version; if the two pins ever diverge, the CI leg fails

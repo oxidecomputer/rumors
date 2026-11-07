@@ -32,7 +32,7 @@ fn admitted(budget: u64) -> u64 {
 }
 
 /// The candidate defaults the figures mark: today's, and the two powers of
-/// two below it, between which the owner chooses.
+/// two below it.
 const MARKED_CANDIDATES: [u64; 3] = [CURRENT_DEFAULT / 4, CURRENT_DEFAULT / 2, CURRENT_DEFAULT];
 
 /// The design point: messages per replica.
@@ -446,7 +446,8 @@ fn smallest_power_of_two(curve: &Curve, threshold: f64) -> u64 {
     smallest
 }
 
-/// Writes the owner's rule and the candidates' table.
+/// Writes the default's candidates: the smallest power of two within each
+/// slowdown threshold, and the slowdown at every power of two.
 fn candidates(out: &mut String, curves: &BTreeMap<Pair, Curve>) {
     let reference: Vec<&Curve> = curves
         .values()

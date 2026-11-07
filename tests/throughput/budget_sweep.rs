@@ -322,7 +322,7 @@ fn check_rung(session: &Session, reference: &Session, no_cost: usize, floor: u64
 /// at depths of opposite parities.
 ///
 /// Below the no-cost point this test holds the duration to the lower bound
-/// alone: greedy admission makes it non-monotone there, and the owner's
+/// alone: greedy admission makes it non-monotone there, and the budget
 /// criterion for its inversions is asserted by
 /// [`budget_criterion`](super::budget_criterion).
 ///

@@ -137,7 +137,7 @@ fmt-check:
 # gate instead of passing everything. Each tool's header documents its rules.
 
 # doclint and testdoc walk named roots, never `.`, whose untracked trees
-# (agent worktrees under `.claude/`) would otherwise enter the verdict.
+# (worktrees nested under `.claude/`) would otherwise enter the verdict.
 
 # Flag doc-comment summaries and included-figure layouts that render wrong.
 doclint:
@@ -175,8 +175,8 @@ readme-check:
     ./tools/readme self-test
     ./tools/readme check
 
-# The rustdoc is the documentation of record, so broken intra-doc links fail
-# the gate. A page missing the fuelscape widget's assets shows empty charts
+# The rustdoc is where the documentation lives, so broken intra-doc links
+# fail the gate. A page missing the fuelscape widget's assets shows empty charts
 # and fails nothing else, so tools/fuelscape-assets requires them exactly
 # once on every page with a chart and on no other.
 
@@ -654,9 +654,9 @@ bench-quick target *filter:
 # The amplification board judges each cell's peak heap, a deterministic
 # counter, against its declared bounds, so its output is byte-identical
 # under any load and any shard count (AMP_BOARD_SHARDS). It runs in release,
-# the profile of record: debug assertions add work, so never pin a dev
-# reading. A bare `just amp-board [scale]` is a debugging view; the verdict
-# of record is `amp-board-acceptance`.
+# the profile its ceilings are calibrated in: debug assertions add work, so
+# never pin a dev reading. A bare `just amp-board [scale]` is a debugging
+# view; the gate's verdict is `amp-board-acceptance`.
 
 # No root-target leg builds release, so a separate target dir costs no extra
 # compilation and never waits on the workspace stream's build lock.
@@ -681,8 +681,8 @@ amp-board *args:
 # whatever the other's verdict:
 #
 # - Acceptance judges every constant and floor per size and fits each
-#   exponent as one trend. A failing cell is resolved only by a fix or an
-#   owner-declared model at the cell.
+#   exponent as one trend. A failing cell is resolved only by a fix or a
+#   model declared at the cell.
 # - The ranking pin requires the live worst family per operation x currency
 #   to match WORST_RANKINGS, whose docs give the TARGET_DEPENDENT rule. A
 #   flip is news: re-pin a legitimate overtake with a movement annotation,
@@ -691,7 +691,7 @@ amp-board *args:
 # `--capture <file>` also writes the exact readings, stamped with the source
 # tree, for `just amp-board compare` and calibration.
 
-# Run the board's verdict of record: one ladder sweep, acceptance and the ranking pin.
+# Run the board's gate verdict: one ladder sweep, acceptance and the ranking pin.
 [positional-arguments]
 amp-board-acceptance *args:
     #!/usr/bin/env bash
@@ -704,8 +704,8 @@ amp-board-acceptance *args:
 
 # Runs every board cell in a wasm32 guest under Wasmtime fuel, a count of
 # every executed instruction, judged by the board's rules against per-cell
-# calibrated ceilings; the native board stays the measure of record for
-# heap. Each cell gets a fresh guest, so readings ignore load and
+# calibrated ceilings; heap stays judged by the native board alone. Each
+# cell gets a fresh guest, so readings ignore load and
 # AMP_BOARD_FUEL_THREADS. The ceilings record the compiler, Wasmtime, and
 # cost table they were calibrated under, and the run refuses a guest built
 # under any other: after a bump, run `just amp-board-calibrate-fuel`.
@@ -716,7 +716,7 @@ amp-board-fuel-build:
     {{ fuel_guest_env }} cargo build -p board-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ board_fuel_target }}
     cargo build -p board-fuel-harness --release --target-dir {{ board_fuel_target }}
 
-# Run the fuel board's verdict of record: every cell judged in Wasmtime fuel.
+# Run the fuel board's gate verdict: every cell judged in Wasmtime fuel.
 [positional-arguments]
 amp-board-fuel *args: amp-board-fuel-build
     #!/usr/bin/env bash
@@ -732,7 +732,7 @@ amp-board-fuel *args: amp-board-fuel-build
 
 # Each cell's ceilings derive from its own readings (the board's
 # `cell_ceilings` module states the rule). The heap table must hold on both
-# architectures of record (`board::HEAP_ARCHS`), so re-deriving it takes two
+# architectures `board::HEAP_ARCHS` names, so re-deriving it takes two
 # hosts at one source tree:
 #
 # 1. On one architecture, `just amp-board-acceptance --capture <file>`.
