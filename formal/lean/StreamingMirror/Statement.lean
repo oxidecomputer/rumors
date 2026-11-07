@@ -1,5 +1,5 @@
 /-
-The statement of record: what this artifact claims, in definitions small
+The claimed statements: what this artifact claims, in definitions small
 enough to audit by reading them.
 
 # The two theorems

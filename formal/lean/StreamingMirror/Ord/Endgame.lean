@@ -1225,8 +1225,8 @@ variable (sk : Skel)
 order is deadlock-free at the shipping capacities under EVERY
 assignment of the two-point per-loop dequeue-order class.
 
-The class (MODEL.md §5's dequeue-order subsection, the claim of
-record): each pairing loop — each walk stage, and the absorber —
+The class (MODEL.md §5's dequeue-order subsection, the claimed
+statement): each pairing loop — each walk stage, and the absorber —
 independently dequeues its per-scope wire reply and queued query in
 one of exactly TWO orders, reply-first (the baseline transcription,
 `OrdMap.rf`, definitionally `Model.apply`) or query-first (the
@@ -1299,7 +1299,7 @@ theorem greedy_run_terminal_anyOrder (ord : OrdMap)
 re-derives the base flagship's claim through `deadlockFreeO_rf_iff`.
 This coincides with `Sched.deadlock_free` (Proofs/EndgameE.lean) — an
 internal consistency pin that the quantified statement's reply-first
-instance IS the model of record's theorem, not a new claim. -/
+instance IS the base model's theorem, not a new claim. -/
 theorem deadlock_free_rf_corner (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) :
     StreamingMirror.DeadlockFree sk AxMode.impl :=

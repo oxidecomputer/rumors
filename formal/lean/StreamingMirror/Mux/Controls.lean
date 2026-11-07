@@ -7,8 +7,7 @@ Every control here is a `decide` — no `native_decide` — in the
 Controls.lean idiom: a concrete run, a kernel verdict on its final
 state, and where the verdict refutes a Prop, the `mdrain_reachable` /
 `mrun_reachable` glue. The suite brackets `wc_impossibility`
-(Mux/Proofs/WcImpossibility.lean) from every side the adjudication
-names:
+(Mux/Proofs/WcImpossibility.lean) from every side:
 
 - **work-conservation is load-bearing** — the shipped work-conserving
   policy jams `wedge` (`wedge_not_deadlockFree`, the faithfulness pin,
@@ -44,8 +43,8 @@ that never arrived. The pin therefore guards the guard: `mstuck` and
 `mterminal` are total over arbitrary `Skel`, the theorem statements
 quantify over strategy-reachable states of ANY skeleton a caller
 writes down, and the close semantics must not depend on well-formedness
-for its soundness — the cross-examination's "Terminal/stuck
-classification drifts at the session tail" is this drift.
+for its soundness — terminal/stuck classification drifting at the
+session tail is this drift.
 -/
 import StreamingMirror.Mux.Instances
 
@@ -122,7 +121,7 @@ theorem wedge_idler_completes :
 
 /-- The unbounded-slot demux variant: `deliver` moves the pipe head into
 the wire channel WITHOUT the slot-empty guard, so per-stream demux
-state grows without bound; every other arm is the harness of record.
+state grows without bound; every other arm is `Mux.apply`'s.
 
 This is the option-C escape hatch of the boundedness caveat
 (the rejected option C of the boundedness analysis): with unbounded
@@ -220,7 +219,7 @@ the F8 conjunct's bite is exactly at — and the pin must live at — the
 boundary the definitions do not police. -/
 theorem gadget_not_wellFormed : gadget.wellFormed = false := by decide
 
-/-- The harness of record with ONLY the F8 no-in-flight conjunct
+/-- The `Mux.apply` harness with ONLY the F8 no-in-flight conjunct
 removed from the wire close-receives: the base arms delegate straight
 to `Model.apply` (still minus wire fires); push and deliver are
 untouched. The exact pre-strengthening semantics, for the must-fail
@@ -361,8 +360,8 @@ theorem noF8_bogus_mterminal :
      | none => false) = true := by
   decide
 
-/-- The strengthened close refuses the trap: under the harness of
-record the trap schedule is disabled — some action of the script fails
+/-- The strengthened close refuses the trap: under `Mux.apply` the
+trap schedule is disabled — some action of the script fails
 its guard, where the F8-free variant runs it to a bogus terminal.
 
 What the kernel decides here is only `mrun … = none` (the script

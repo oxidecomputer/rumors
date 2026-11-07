@@ -4,13 +4,13 @@ defeats everything — for every capacity C ≥ 1 and EVERY pair of
 work-conserving strategies, local or not, the muxed `wedge` session
 reaches a stuck non-terminal state.
 
-# The technique of record: the forced run (no fooling, no pigeonhole)
+# The technique: the forced run (no fooling, no pigeonhole)
 
 The adversary schedules endpoints and withholds R→I deliveries so that
 every strategy consultation happens at a state whose enabled-push set
 is a SINGLETON; work-conservation forces the push; the strategies are
-never meaningfully consulted (the singleton-consultation design,
-verified step-by-step in cross-examination). Mechanized as a
+never meaningfully consulted (the singleton-consultation design).
+Mechanized as a
 σ-free executor:
 
 - `fstep` takes, in priority order, the first enabled base action, a
@@ -47,7 +47,7 @@ exactly four shapes:
   stuck state pins on `noHands`, which kills pushes at EVERY capacity;
   the single b = 4 anchor covers all C ≥ 4.
 
-The adjudication's proof skeleton (a)–(f) lands as: (a) commits forced
+The proof skeleton (a)–(f) lands as: (a) commits forced
 — consumed silently, the executor takes them as first-enabled base
 actions and T1 (`commit_totality`) is why no commit choice exists to
 adversarially explore; (b)+(c) `push_singleton` + replay =
@@ -226,7 +226,7 @@ else a forced push (I before R), else a forward delivery, else — last,
 the adversary's signature — a reverse delivery.
 
 `deliver .R` last is the delivery-withholding schedule of the forced
-run (the cross-examination's withholding schedule): R's question frame
+run: R's question frame
 crosses only when the
 system is otherwise quiescent, i.e. after the provision wall has
 parked the consumer. -/

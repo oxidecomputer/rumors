@@ -3,20 +3,20 @@ The C1 verdicts: the literal
 conjecture at its two locality grains, its refutation shapes, and the
 control pinning why the Inevitable closure is load-bearing.
 
-# The grains, and which statement is of record (Finch's F3 ruling)
+# The grains, and which statement the suite claims
 
 Phase 4's F3 found the legacy `LocalEq`/`LocalStrategy` grain
 (Mux/Strategy.lean) FINER than session-start indistinguishability:
 `viewEnc` encodes peer-determined merge labels (D vs R-cut vs M-absent)
 of a party's own held children, which no party knows from its own tree.
-Finch's ruling: theorem statements of record must bind the charter's
+The claimed theorem statements must bind the charter's
 intended grain — information in the causal past of the party at the
 decision point. In this model that grain is `CharterLocal`
 (Mux/Causal.lean): invariance across skeletons with equal ANNOUNCED
 VIEWS (the stage-0 probe's `KnownSkel`: session parameters at t = 0,
 plus the records the arrived frames have determined, at
 `.impl`-realizable observations). `C1StatementCharter` below is
-therefore THE literal conjecture of record; `C1Statement` (the legacy
+therefore THE literal conjecture; `C1Statement` (the legacy
 grain) is retained as an internal artifact for its landed consumers.
 
 NOTE the two grains are INCOMPARABLE, not nested — the a-fortiori
@@ -37,7 +37,7 @@ separately (`oracle_not_localStrategy`, `oracle_not_charterLocal`).
 
 - `C1StatementOmniscient` (no locality hypothesis at all): refuted
   OUTRIGHT by ⟨1, σ*, σ*⟩ + T4 (`c1_omniscient_false`), unconditional.
-- `C1StatementCharter` (the statement of record): refuted
+- `C1StatementCharter` (the claimed statement): refuted
   UNCONDITIONALLY by ⟨1, σ*-causal, σ*-causal⟩ (`c1_charter_false`):
   `sigmaStarCausal_charterLocal` is kernel-proven, and the liveness
   half is now kernel-proven end to end — Steps 1–3 in
@@ -89,7 +89,7 @@ pair K_I, K_R ≥ 1, and EVERY window-disciplined strategy pair
 causally licensed frames; the canonical σ*ₖ and the shipped-ladder
 shape are checked inhabitants), the K-deep composition is
 deadlock-free and completes within `2·ρ(init)` steps. The
-specification of record is Proofs/SigmaStarKLive.lean's module doc,
+specification is Proofs/SigmaStarKLive.lean's module doc,
 which carries the clause-by-clause audit crosswalk.
 
 The stub's two convention notes are honored by the landed statement:
@@ -115,12 +115,12 @@ open Model
 
 -- ======================================================= the statements
 
-/-- C1 at the grain of record (Finch's F3 ruling): every capacity and
+/-- C1 at the charter grain: every capacity and
 every pair of deterministic CHARTER-LOCAL strategies — invariant across
 skeletons with equal announced views at `.impl`-realizable observations
 (`CharterLocal`, Mux/Causal.lean) — has a killer skeleton in the
 shipping encoder's class. Determinism is free (`Strategy` is a
-function); the domain is the adjudicated `.impl`+margin-0 reading of
+function); the domain is the `.impl`+margin-0 reading of
 "schedulable". -/
 def C1StatementCharter : Prop :=
   ∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
@@ -133,7 +133,7 @@ def C1StatementCharter : Prop :=
 note): the strategy class is `LocalStrategy` over `viewEnc`/`LocalEq`,
 which phase 4's F3 found finer than session-start honesty. Kept because
 its landed refutation (`c1_literal_false`) and the stage-3 record cite
-it; the statement of record is `C1StatementCharter`. -/
+it; the claimed statement is `C1StatementCharter`. -/
 def C1Statement : Prop :=
   ∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
     LocalStrategy .I σI → LocalStrategy .R σR →
@@ -155,15 +155,15 @@ def C1StatementOmniscient : Prop :=
 class jams the demand-lockstep pair at any capacity — already at the
 minimum pipe.
 
-Rests on σ*'s (message-denominated) liveness; the W = 1 byte caveat of
-record is Mux/Basic.lean's module doc (# The byte-denomination
+Rests on σ*'s (message-denominated) liveness; the W = 1 byte caveat is stated
+in Mux/Basic.lean's module doc (# The byte-denomination
 caveat). -/
 theorem c1_omniscient_false : ¬ C1StatementOmniscient := by
   intro hc1
   obtain ⟨sk, hwf, hm0, hnd⟩ := hc1 1 (Nat.le_refl 1) sigmaStar sigmaStar
   exact hnd (sigmaStar_deadlock_free hwf hm0 1 (Nat.le_refl 1))
 
-/-- The statement of record is false, UNCONDITIONALLY: locality is
+/-- The claimed statement is false, UNCONDITIONALLY: locality is
 kernel-proven (`sigmaStarCausal_charterLocal`), and the liveness half
 is kernel-proven end to end — Steps 1–3 through
 `sigmaStarCausal_deadlock_free_of_coverage` (causal push certificates
@@ -173,8 +173,8 @@ and Step 4 through `causalStuckCoverage` (Proofs/CausalMint.lean: the
 minting ladder plus the τ-staged causal coverage induction). This is
 the charter's constructive witness in full: a deterministic,
 charter-local strategy pair no skeleton of the class jams.
-Rests on (message-denominated) liveness; the W = 1 byte caveat of
-record is Mux/Basic.lean's module doc (# The byte-denomination
+Rests on (message-denominated) liveness; the W = 1 byte caveat is stated
+in Mux/Basic.lean's module doc (# The byte-denomination
 caveat). -/
 theorem c1_charter_false : ¬ C1StatementCharter := by
   intro hc1
@@ -188,10 +188,9 @@ theorem c1_charter_false : ¬ C1StatementCharter := by
 the hypothesis exactly as landed at stage 3 (module doc: it is the
 A_p-sufficiency theorem quantified over every reachable observation,
 probe-adjacent and recorded [open] at kernel tier). Retained as the
-internal artifact the F3 ruling anticipated; the claim of record is
-`c1_charter_false`.
-Rests on (message-denominated) liveness; the W = 1 byte caveat of
-record is Mux/Basic.lean's module doc (# The byte-denomination
+internal artifact; the claim is `c1_charter_false`.
+Rests on (message-denominated) liveness; the W = 1 byte caveat is stated
+in Mux/Basic.lean's module doc (# The byte-denomination
 caveat). -/
 theorem c1_literal_false
     (hlocI : LocalStrategy .I sigmaStar)

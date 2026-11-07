@@ -1,5 +1,5 @@
 /-
-The mux proof map: how the campaign's statements of record are
+The mux proof map: how the campaign's claimed statements are
 discharged, file by file — the Mux/ extension of Proofs/Map.lean (read
 that first for the base artifact's layers; everything here builds on
 them). This module contains no code. The audit surface — what the

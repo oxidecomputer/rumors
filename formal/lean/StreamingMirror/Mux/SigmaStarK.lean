@@ -1,6 +1,6 @@
 /-
 σ*ₖ: the K-parameterized window discipline and its strategy class
-(T8's spec, clauses 4 and 5 — the specification of record is
+(T8's spec, clauses 4 and 5 — the specification is
 Proofs/SigmaStarKLive.lean's module doc) — the demand rule of Mux/SigmaStar.lean
 and Mux/Causal.lean generalized from demand-lockstep (arrears 1) to the
 per-direction advertised parking depths of the K-deep transport

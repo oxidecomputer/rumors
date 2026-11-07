@@ -48,7 +48,7 @@ so the un-muxed `.impl` system is inside the kernel-proven
 
 Realizability bridge (stage-2 track D, corrected provenance): the
 committed proptest seeds realize the wedge's *jam mechanism* on the old
-transport, NOT its byte-exact shape. The bridge of record is
+transport, NOT its byte-exact shape. The bridge is
 `src/tree/mirror/streaming/tests/dispute_before_supplies.rs`, which constructs a
 deterministic tree pair and pins the decoded skeleton to this literal —
 generator against the rootH-6 literal, session against the generator at
@@ -70,8 +70,8 @@ def wedge : Skel :=
 
 /-- The margin-0 capacity discipline as a bounded boolean check: every
 scope's dispute count within the assembler capacity — the shipping
-encoder's `FAN ≥ kids` stance, the hypothesis class of every mux
-statement of record.
+encoder's `FAN ≥ kids` stance, the hypothesis class of every claimed
+mux statement.
 
 Bounded over the scope table so it is kernel-`decide`-friendly;
 `margin0_sound` recovers the flagship theorem's unbounded form
@@ -108,7 +108,7 @@ the UN-muxed `.impl` session is kernel-proven deadlock-free
 
 Stated in the flagship hypothesis's unbounded form, discharged through
 the bounded `margin0` check (`decide` cannot cross an unbounded `∀`;
-the adjudication's `by decide` is read as this bridge). -/
+a `by decide` proof of the unbounded form is read as this bridge). -/
 theorem wedge_margin0 : ∀ s, wedge.dCount s ≤ wedge.capLevel :=
   margin0_sound (by decide)
 

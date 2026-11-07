@@ -16,11 +16,11 @@ scheduling alone (settled both ways: eagerness provably fatal, an
 inference-gated local scheduler provably live, the oracle recognized in
 the base proof's own witness schedule).
 
-The documentation of record is the Lean. Start here:
+The Lean holds the documentation. Start here:
 
 - **The claims** — [`lean/StreamingMirror/Statement.lean`](lean/StreamingMirror/Statement.lean) (campaign one)
   and [`lean/StreamingMirror/Mux/Statement.lean`](lean/StreamingMirror/Mux/Statement.lean) (campaign two): every
-  statement of record restated inline and kernel-re-certified on every
+  claimed statement restated inline and kernel-re-certified on every
   build. [`lean/StreamingMirror/Mux/Charters.lean`](lean/StreamingMirror/Mux/Charters.lean) holds the two
   planned follow-ons.
 - **The human story** — [`doc/exposition.typ`](doc/exposition.typ) (by argument) and
@@ -37,8 +37,8 @@ The documentation of record is the Lean. Start here:
   claims rest on the kernel-checked Lean artifact (full statement in
   the manual).
 
-Archaeology: the mux campaign's full coordination record (ledger,
-adjudication, audit notes, statement audit, spec, panel briefs) was
-last complete in the tree at commit `a5cf8e3b`; it lives in git
+Archaeology: the mux campaign's design documents (spec, audit notes,
+statement audit) were last complete in the tree at commit `a5cf8e3b`;
+they live in git
 history, and everything load-bearing from it is folded into the Lean
 doc comments.

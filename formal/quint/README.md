@@ -5,7 +5,7 @@ streaming mirror protocol ([`streamingMirror.qnt`](streamingMirror.qnt))
 plus a validation matrix ([`instances.qnt`](instances.qnt)) that
 reproduces the Rust suite's known completions, the capacity-tightness
 threshold, and — under relaxed axioms — the deadlocks that prove each
-axiom is load-bearing. The documentation of record is the Lean artifact
+axiom is load-bearing. The Lean artifact holds the documentation
 ([`../lean/StreamingMirror/Statement.lean`](../lean/StreamingMirror/Statement.lean));
 the protocol model both tiers transcribe is [`../MODEL.md`](../MODEL.md).
 This file is the operational manual for running the Quint tier.

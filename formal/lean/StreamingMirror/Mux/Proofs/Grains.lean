@@ -1,8 +1,8 @@
 /-
 The two locality grains' control suite: the kernel pins behind the
-incomparability finding of record (Proofs/C1.lean's module doc), the
-charter grain's non-triviality controls, and the oracle's nonlocality
-at the grain of record — the charter-grain analogs of Oracle/Controls'
+incomparability finding (Proofs/C1.lean's module doc), the charter
+grain's non-triviality controls, and the oracle's nonlocality at the
+charter grain — the charter-grain analogs of Oracle/Controls'
 T9 suite (`localEq_nondegenerate`, `oracle_not_localStrategy`).
 
 # The finding these pins discharge
@@ -35,8 +35,8 @@ announced views at a shared consistent observation — without such a
 pair, `CharterLocal` would be vacuously satisfiable and
 `c1_charter_false`'s locality hypothesis would say nothing (the
 charter-grain analog of `localEq_nondegenerate`).
-`oracle_not_charterLocal` pins the C2 oracle outside the class of
-record: before the opening reply arrives, the initiator's announced
+`oracle_not_charterLocal` pins the C2 oracle outside the claimed
+class: before the opening reply arrives, the initiator's announced
 view is the bare session parameters, and the oracle's second output
 already depends on the root census — remote structure no arrived frame
 has determined. With `oracle_not_localStrategy` (the legacy grain)
@@ -91,7 +91,7 @@ def charterActs : List MAction := [.base (.iopenChoose .wire), .push .I]
 /-- The charter grain is nondegenerate: two DISTINCT skeletons with
 equal announced views on a shared `.impl`-consistent observation —
 without this pair `CharterLocal` would be vacuously satisfiable and
-the C1 statement of record's locality hypothesis would say nothing
+the claimed C1 statement's locality hypothesis would say nothing
 (the charter-grain analog of `localEq_nondegenerate`). The equal-view
 observations: the initiator's pre-arrival history, and the responder's
 empty history. -/
@@ -189,7 +189,7 @@ view pair at the shared pre-arrival observation — a legacy-local
 strategy outside `CharterLocal`, so legacy-grain membership does not
 transfer to the charter grain. With
 `announcedLeafProbe_not_localStrategy` this pins the incomparability
-finding of record (Proofs/C1.lean's module doc) at class strength in
+finding (Proofs/C1.lean's module doc) at class strength in
 both directions. -/
 theorem viewProbe_not_charterLocal : ¬ CharterLocal .I viewProbe := by
   intro hloc
@@ -201,7 +201,7 @@ theorem viewProbe_not_charterLocal : ¬ CharterLocal .I viewProbe := by
       charterActs (by decide))
   exact absurd h (by decide)
 
--- ============================== the oracle, at the grain of record
+-- ================================ the oracle, at the charter grain
 
 /-- The C2 oracle is NOT charter-local: at the initiator's pre-arrival
 observation — announced view = bare parameters — its second output
@@ -211,7 +211,7 @@ has determined. The charter-grain companion of
 `oracle_not_localStrategy`: the oracle's nonlocality now stands at
 BOTH grains, each with its own witness — neither pin transfers, per
 the incomparability above. T6's necessity reading is therefore about
-a hypothesis the oracle genuinely fails at the grain of record. -/
+a hypothesis the oracle genuinely fails at the charter grain. -/
 theorem oracle_not_charterLocal : ¬ CharterLocal .I (oracle .I) := by
   intro hloc
   have h := hloc viewPair bareRoot charterTrace

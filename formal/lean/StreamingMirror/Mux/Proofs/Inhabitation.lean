@@ -1,6 +1,6 @@
 /-
-Non-vacuity certificates for the strategy classes (the adjudication's
-mandated controls, landed as a phase-4 repair): the shipped policy
+Non-vacuity certificates for the strategy classes (required controls,
+landed as a phase-4 repair): the shipped policy
 `bottomMostReady` is `WorkConserving` — and its K/E-universe twins —
 and is `LocalStrategy`, so every ∀-class impossibility in the suite
 quantifies over a kernel-inhabited class.

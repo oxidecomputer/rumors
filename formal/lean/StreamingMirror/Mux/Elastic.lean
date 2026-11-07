@@ -6,7 +6,7 @@ capacity-1 demux slot.
 
 # The semantics
 
-`applyE` is the harness of record (Mux/Basic.lean) with ONE arm
+`applyE` is the mux harness (Mux/Basic.lean) with ONE arm
 changed: `deliver` moves the pipe head into its per-stream cell WITHOUT
 the slot-empty guard. The cell stops being a capacity-1 demux slot and
 becomes the parked-reply queue of the eager-absorption design: incoming
@@ -26,8 +26,8 @@ handles (a provision run's subtree rides as one cheap handle — payload
 custody is the `Backend`'s, whose nodes are persistent-structure
 pointers), worst-case `fan²` hashes for a maximally disputed reply.
 The model's unbounded cell counts
-REPLIES, not bytes — the same reply denomination as the pipe capacity
-(the adjudicated reply denomination), so byte soundness sits at the same model
+REPLIES, not bytes — the same reply denomination as the pipe
+capacity, so byte soundness sits at the same model
 boundary, and what the model leaves unbounded is exactly the number of
 parked replies. That no FIXED parking bound survives work conservation
 is `wc_impossibility_K` (Mux/Proofs/WcImpossibilityK.lean) at its
@@ -1054,7 +1054,7 @@ stage-F sweep's elastic twin. Nothing about the composition is
 assumed beyond the class hypotheses, and the `EWorkConserving` class
 is kernel-inhabited (`bottomMostReady_wcE`,
 Mux/Proofs/Inhabitation.lean). Capacity and parking are
-message-denominated; the byte caveat of record is Mux/Basic.lean's
+message-denominated; the byte caveat is stated in Mux/Basic.lean's
 module doc (# The byte-denomination caveat). -/
 theorem elastic_deadlock_free (sk : Skel) (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) {C : Nat} (hC : 1 ≤ C)

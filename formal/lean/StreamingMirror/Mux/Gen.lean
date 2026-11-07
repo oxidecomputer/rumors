@@ -2,7 +2,7 @@
 Executable-tier generation and probe machinery for the mux harness
 (executable tier only). Everything here serves
 `lake exe muxprobe`; nothing here is theorem-bearing, and nothing a
-theorem of record quantifies over may live here (the statement-path
+claimed theorem quantifies over may live here (the statement-path
 strategies and classes stay in Mux/{Basic,Strategy,Instances}.lean).
 
 Three kinds of content:
@@ -12,8 +12,8 @@ Three kinds of content:
   growing provision widths, `wedgeFam 6 = wedge` pinned by the exe's
   self-test), the margin-0 lift for the pinned Controls shapes, and a
   deterministic LCG skeleton generator mirroring `EventDag.genSkel`'s
-  approach but emitting margin-0 skeletons directly (the mux statements
-  of record live on the margin-0 class).
+  approach but emitting margin-0 skeletons directly (the claimed mux
+  statements live on the margin-0 class).
 - **executable-tier strategies** — `roundRobin` (the probe's `rr`
   policy: a second work-conserving entry, deliberately NOT in the
   theorem modules) and `pushList`/`piOrder` (the demand-order
@@ -77,8 +77,8 @@ per-scope dispute count, topology unchanged (the probe's
 `lift_margin0`, `EventDag.margin0` mirrored).
 
 This is how the sub-margin Controls shapes (`jam`, `pdelay`) enter the
-mux matrix: their topologies stress the mux, but the statements of
-record need the UN-muxed `.impl` system inside the kernel-proven
+mux matrix: their topologies stress the mux, but the claimed
+statements need the UN-muxed `.impl` system inside the kernel-proven
 margin-0 class, so a muxed jam indicts the mux alone. -/
 def liftMargin0 (sk : Skel) : Skel :=
   { sk with capLevel := max sk.capLevel (maxDCount sk) }
@@ -98,7 +98,7 @@ def draw (st bound : Nat) : Nat × Nat :=
 `EventDag.genSkel` idiom (rootH in {2, 4, 6}, kid counts 0–7, D-kind
 with probability 2/3, height-1 D scopes draw leafReqs 0–7), then
 `liftMargin0` in place of a drawn capLevel — every emitted skeleton
-sits in the hypothesis class of the mux statements of record.
+sits in the hypothesis class of the claimed mux statements.
 
 Callers filter on `wellFormed` exactly as `EventDag.runFuzz` does; the
 generator is deterministic per seed, so a sweep is reproducible from
@@ -183,14 +183,14 @@ deadlock-free on the margin-0 class — the committed `rand2` instance
 wedges it at every matrix capacity (the π-wedge finding,
 cross-confirmed in the Python probe — see `Muxprobe.piWedge`), so the
 "precomputed form of the state-feedback oracle" reading of §1.3 is
-executably false and T5 takes the adjudication's fallback slot. The
+executably false and T5 takes its fallback form (Oracle/Order.lean). The
 projection stays here, in the executable tier, precisely because it is
 a refuted candidate: the matrix keeps both its positive shape and its
 wedge pinned.
 
 Named `piOrder` (π_d as a frame list): the theorem-bearing definition
 is `demandOrder` (Oracle/Controls.lean, where `static_oracle_jams`
-consumes it) and carries the adjudication's vocabulary; the two are
+consumes it) and carries the statement path's name; the two are
 one definition (`piOrder_eq_demandOrder`, Mux/Proofs/Twins.lean — the
 drift guard), and Muxprobe opens both namespaces. -/
 def piOrder (sk : Skel) (d : Party) : List Nat :=
@@ -336,7 +336,7 @@ that. The convention charges the mux its store-and-forward hop
 (generous to the baseline, so a mux ≤ base reading is conservative);
 `rounds.py` charged the same two rounds through its fused-composite
 `busy` accounting. Informational tier only: H-c consumes these, no
-statement of record does. -/
+claimed statement does. -/
 def roundsMux (sk : Skel) (ax : AxMode) (C : Nat) (σI σR : Strategy)
     (fuel : Nat) : Outcome × Nat := Id.run do
   let agents : List (List MAction) :=

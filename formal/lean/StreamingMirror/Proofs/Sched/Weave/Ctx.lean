@@ -9,7 +9,7 @@ front of the parent. This is the own-walk component of the descent
 supply (`DescSupply`'s top level); the cross-walk components (the
 completed-subtree boundary memberships along the coverage telescope)
 and the ascent coverage are the remaining CtxOK obligations, built by
-the weave-order induction (see the design of record in PROGRESS.md).
+the weave-order induction (see the design in PROGRESS.md).
 
 Chain (both corners, stage B): the position layer's assemblies
 (SpineLink ladders, P1, DescSupply) consumed by Site.lean/TeleE.lean

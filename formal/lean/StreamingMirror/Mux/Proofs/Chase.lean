@@ -9,7 +9,7 @@ proof infrastructure both stage-3 theorems consume — T5's oracle
   the stuckness transfer lemmas (muxed-enabled ⇔ base-enabled off the
   wire fires).
 - Chase/Closure.lean — the Certified/Inevitable demand closures
-  (the ratified evidence/inevitability design, cross-examination-repaired).
+  (the evidence/inevitability design, with its repair).
 - Chase/Decode.lean — the base pending layer packaged for the mux:
   pool inversions, the unified frontier decode, τ-comparison tools.
 - Chase/Keystone.lean — T2: closure members are performed at stuck

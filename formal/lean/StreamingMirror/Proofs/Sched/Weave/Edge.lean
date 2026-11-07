@@ -3,7 +3,7 @@ Weave edge-respect, the generic layer (PROGRESS.md §7 3b): the `WEdge`
 invariant — the counting layer plus `MInv`'s guard-history fields —
 and its preservation through everything except the guards themselves.
 
-# Design of record for the edge-respect campaign
+# Design for the edge-respect campaign
 
 The weave's pump emissions go through `scan`, which checks `enabled`;
 their guard-history is free (`wEdge_step`, the same argument as

@@ -1,7 +1,7 @@
 /-
 T8 (`sigmaStarK_deadlock_free`): the window-generalized liveness of
 the single-connection transport. This module doc is the theorem's
-ENGLISH SPECIFICATION OF RECORD — fixed before the build (the
+ENGLISH SPECIFICATION — fixed before the build (the
 spec-first method: the English is written first and the Lean
 transcribes it; any transcription choice the spec leaves open is
 recorded here, dated, before the theorem lands) — followed by the
@@ -88,7 +88,7 @@ number of steps.
 Model-tier, reply-denominated, single conforming session. The kernel
 guarantees the model; the proptest bridge suite argues the model is
 the Rust. Byte-level liveness additionally requires byte pacing at the
-transport — the byte caveat of record is Mux/Basic.lean's module doc
+transport — the byte caveat is stated in Mux/Basic.lean's module doc
 (# The byte-denomination caveat). No performance content: latency
 lives at the executable tier.
 -/
@@ -305,7 +305,7 @@ no reachable stuck state, no infinite run, greedy drains reach
 `mterminal`. The canonical pair is `sigmaStarK_pair_deadlock_free`;
 the shipped ladder pair is inside the class by
 `sigmaLadderK_windowDisciplined`. Rests on message-denominated
-liveness; the W = 1 byte caveat of record is Mux/Basic.lean's module
+liveness; the W = 1 byte caveat is stated in Mux/Basic.lean's module
 doc (# The byte-denomination caveat). -/
 theorem sigmaStarK_deadlock_free (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)

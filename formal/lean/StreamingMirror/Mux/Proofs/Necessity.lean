@@ -44,8 +44,8 @@ namespace StreamingMirror.Mux
 
 variable {sk : Skel}
 
-/-- T5, `oracle_deadlock_free`, unconditional (the adjudication's
-fallback SLOT, realized as the static
+/-- T5, `oracle_deadlock_free`, unconditional (T5's fallback form,
+realized as the static
 send-projection pusher: no state feedback needed, the track-E
 sharpening): the send-projection pusher completes every well-formed
 margin-0 skeleton over the single-pipe transport at every capacity
@@ -57,7 +57,7 @@ Mux/Proofs/Termination.lean) — packaged there as
 `oracle_greedy_run_terminal`, the greedy oracle drain reaching
 `mterminal` within 2·ρ(init) steps.
 
-Capacity is message-denominated; the byte caveat of record is
+Capacity is message-denominated; the byte caveat is stated in
 Mux/Basic.lean's module doc (# The byte-denomination caveat).
 Overlap/latency optimality is NOT claimed (H-c is executable-tier
 only). -/
@@ -77,7 +77,7 @@ Read per the module doc: nonlocal information is necessary for
 liveness under work-conservation, and not for liveness alone. The
 work-conserving class in the first conjunct is kernel-inhabited
 (`bottomMostReady_wc`, Mux/Proofs/Inhabitation.lean). Capacities are
-message-denominated; the byte caveat of record is Mux/Basic.lean's
+message-denominated; the byte caveat is stated in Mux/Basic.lean's
 module doc (# The byte-denomination caveat). -/
 theorem necessity (C : Nat) (hC : 1 ≤ C) :
     (∀ σI σR : Strategy, WorkConserving .I σI → WorkConserving .R σR →

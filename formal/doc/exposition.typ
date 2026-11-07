@@ -1,4 +1,4 @@
-// The exposition of record for the streaming-mirror deadlock-freedom
+// The exposition of the streaming-mirror deadlock-freedom
 // artifact. Audience: technically competent, no familiarity with the
 // codebase, the data structure, or the algorithm assumed. The faithful
 // development history is the companion document (narrative.typ); this
@@ -41,7 +41,7 @@
   #text(size: 9.5pt, fill: rgb("#555555"))[
     An exposition of the `rumors` formal artifact · 2026-07-19, extended
     2026-07-22 \
-    Statements of record: `formal/lean/StreamingMirror/Statement.lean`
+    Claimed statements: `formal/lean/StreamingMirror/Statement.lean`
     (act one) · `…/Mux/Statement.lean` (act two)
   ]
 ]
@@ -338,7 +338,7 @@ degree of freedom, and it is the subject of this entire document.
 == From code to model
 
 The Lean model abstracts this machine faithfully but finitely; its
-definitions of record are `Skel.lean` and `Model.lean`, whose module
+definitions live in `Skel.lean` and `Model.lean`, whose module
 docs carry the specification:
 
 - Sessions are quantified by *dispute skeletons* — the finite labeled
@@ -913,8 +913,8 @@ For the reader who wants to go deeper, in reading order:
 
 - `formal/lean/StreamingMirror/Statement.lean` — the audit surface:
   what is claimed, in ~220 lines of definitions chosen to be read.
-- `formal/lean/StreamingMirror/Skel.lean` and `Model.lean` — the model
-  of record, with the specification in their module docs: the skeleton
+- `formal/lean/StreamingMirror/Skel.lean` and `Model.lean` — the model,
+  with the specification in their module docs: the skeleton
   abstraction, the channel graph, the obligation machine, the ledgers.
 - `formal/lean/StreamingMirror/Controls.lean` — the negative controls:
   every trap in this act as a kernel-checked stuck run.
@@ -948,8 +948,8 @@ consumer was that same waiting walk. The cycle reproduced identically
 at 64-byte and 16-megabyte transport buffers; it was never about
 buffer capacity.
 
-The owner of this codebase conjectured that the deadlock was
-fundamental, and posed it precisely. Freeze the message set — no new
+The conjecture is that the deadlock is fundamental, and it can be
+posed precisely. Freeze the message set — no new
 frames, no credits, no acknowledgments; the mux may only _reorder_ what
 the protocol already sends. Call a scheduler _local_ if its every
 decision is a function of information in its party's causal past: the
@@ -971,7 +971,7 @@ is true (@answer-wc), the possibility that refutes C1 as posed
 stronger-than-conjectured form (@answer-oracle). Then the window
 generalization an implementation would rest on (@window), and the
 engineering consequence (@consequence). The
-statement of record for everything in this act is
+claimed statements for everything in this act are in
 `formal/lean/StreamingMirror/Mux/Statement.lean` — like act one's, it
 restates every claim inline and proves each by citation, so the audit
 surface cannot drift from the theorems.
@@ -1000,8 +1000,8 @@ everything that follows:
   enabled, the strategy must push something. Every eager mux —
   including the one that deadlocked in production — is in this class.
 - *Local* (the charter's sense): decisions computable from the causal
-  past, as defined above. Formalized _by construction_: the strategy
-  of record consults the skeleton only through an _announced view_,
+  past, as defined above. Formalized _by construction_: the claimed
+  strategy consults the skeleton only through an _announced view_,
   reconstructed from the party's own structure plus delivered frames
   (@answer-sigma).
 - *Window-disciplined* (the implementation's class): push only frames
@@ -1166,7 +1166,7 @@ eleven-scope counterexample, kernel-pinned (`static_oracle_jams`
 #kernel), because a consumption-friendly order can demand a frame
 whose producer is parked behind a frame the order postponed. The
 receiver's slots absorb the sender-side skew; nothing absorbs
-producer infeasibility. An earlier adjudication in the campaign had
+producer infeasibility. An earlier design in the campaign had
 those two projections exactly backwards — the executable tier caught
 it before the kernel did, which is the campaign's methodological story
 in one sentence.
@@ -1291,7 +1291,7 @@ tuned by nobody — or transports that have had their decades of tuning
 and carry the two physical properties no inference can recover. The
 one corner where the bespoke engine genuinely wins (silent provision
 runs pipelining without credit round trips) lives in a bandwidth-bound
-regime where the win is invisible. The conclusion of record: *the
+regime where the win is invisible. The conclusion: *the
 `Link` contract stands as the product surface.* Not theorem-forced —
 the campaign proved the alternative exists and priced it exactly — but
 theorem-backed: we verified the alternative, identified what it must
@@ -1357,7 +1357,7 @@ The trust ledger, act two:
   citation; each entry's docstring carries its provenance and its
   load-bearing controls.
 - `formal/lean/StreamingMirror/Mux/Causal.lean` and `SigmaStarK.lean`
-  — the strategies of record, with the announced view and the
+  — the claimed strategies, with the announced view and the
   licensing discipline in their module docs.
 - The controls — `Mux/Controls.lean`,
   `Mux/Proofs/Oracle/Controls.lean`, and the refutation ledger in

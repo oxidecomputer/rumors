@@ -4572,7 +4572,7 @@ theorem causalStuckCoverage (hwf : sk.wellFormed = true)
 
 /-- σ*-causal is deadlock-free, unconditionally: the charter-grain
 demand-lockstep pair completes every well-formed margin-0 session at
-every capacity C ≥ 1 — T4 re-proven at the grain of record, with every
+every capacity C ≥ 1 — T4 re-proven at the charter grain, with every
 closure read routed through the announced view.
 
 "Completes" is two kernel facts: no reachable stuck state (this
@@ -4580,7 +4580,7 @@ theorem) and no infinite run (`mux_terminating`,
 Mux/Proofs/Termination.lean — strategy-generic, so it applies to the
 σ*-causal pair verbatim).
 
-Capacity is message-denominated; the byte caveat of record is
+Capacity is message-denominated; the byte caveat is stated in
 Mux/Basic.lean's module doc (# The byte-denomination caveat). -/
 theorem sigmaStarCausal_deadlock_free (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :

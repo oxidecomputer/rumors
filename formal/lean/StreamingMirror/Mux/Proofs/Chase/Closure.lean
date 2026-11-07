@@ -1,7 +1,6 @@
 /-
-The demand closures (T2's vocabulary, the panel design as repaired in
-cross-examination): what a machine can prove about the
-session's events from its own observation history.
+The demand closures (T2's vocabulary, in the repaired design): what a
+machine can prove about the session's events from its own observation history.
 
 # The two tiers
 
@@ -13,27 +12,25 @@ every continuation once its whole dependency past does, so an event
 whose E1/E2 predecessors and full trace prefix are derivable is
 derivable. Pushes are strategy-gated and are NEVER derived — they enter
 only as grounded evidence. That exclusion is the self-containment
-property the cross-examination singled out: no
-demand proof ever cites traffic not already committed to the transport.
+property: no demand proof ever cites traffic not already committed to
+the transport.
 
-# Deviations from the panel's closure design, recorded
+# Deviations from the closure design
 
-- The panel vocabulary's delivery events do not exist here: the
+- The design vocabulary's delivery events do not exist here: the
   closure speaks `Sched.Ev` only, and the F1 repair's forward-delivery
   case is discharged where it belongs — in the keystone, by the
   FIFO-ancestry hypothesis (`MuxInv.pushtime_delivered`), not by
   closure members. This is the "ban forward-del citations from I-step"
-  reading of the repair, offered by the cross-examination as the
-  alternative restatement.
-- The I-step guard is positional (the cross-examination's membership
-  form): a send's E2
+  reading of the repair, its alternative restatement.
+- The I-step guard is positional (the membership form): a send's E2
   predecessor must be a MEMBER; no occupancy is ever computed, so
   monotonicity in the observation is by construction.
 - The I-step's E3 guard requires the event's whole trace prefix, not
   the immediate predecessor: the most restrictive reading, and the one
   that makes the closure literally downward-closed (used by the
   keystone's argmin).
-- I-step is party-uniform where the panel design restricts to the peer's
+- I-step is party-uniform where the design restricts to the peer's
   side: deriving one's own future non-push events is equally sound
   (they are scheduler-forced at stuck states, which is all soundness
   says) and strictly more useful to σ*.

@@ -370,7 +370,7 @@ order (scope order = query order = BFS/radix order of the skeleton):
    the divergence flagged here by the 07-23 re-audit is closed by
    quantifying the `.impl` theorems over the prologue order itself
    rather than re-pinning the model to one order — the dequeue-order
-   class subsection below states the class, the claim of record, and
+   class subsection below states the class, the claim, and
    the reply-first residue.**
 2. **Publication obligations** (the poset the axioms guard): per D child c —
    `send wire(c)`, `send lowerRes(c)`, `send asked(g)` for each child g of
@@ -449,7 +449,7 @@ dequeue choice; none is the shipping Rust, and none is covered):
 - a prologue interleaved with the scope's sends (both receives always
   precede every publication of the scope).
 
-**Claim of record** (fixed 2026-07-23, before any Lean transcription;
+**The claim** (fixed 2026-07-23, before any Lean transcription;
 kernel-proven 2026-07-24): under `wellFormed` and margin 0
 (`∀ σ, dCount σ ≤ capLevel`), every assignment's `.impl` session is
 deadlock-free and terminating, at the floor capacities and at every
@@ -586,8 +586,8 @@ trivially ordered.)
 W), N2 (drop D1 at the root), N3 (drop D1 internally), N4 (drop D2),
 N5/`ledgerGap` (drop D3), and the Lean controls `Control.jam` (drop D4) and
 `Control.pdelay` (drop D5 with D6 unasserted; the Quint spec predates all
-three and has no `AX_D4`/`AX_D5`/`AX_D6` consts — the Lean model is the
-model of record for them).
+three and has no `AX_D4`/`AX_D5`/`AX_D6` consts — only the Lean model
+carries them).
 Dropping a guard removes those poset edges and nothing else; the
 checker then searches the freed linearizations for a stuck state. One
 scaffolding const, `WIRE_FIRST`, is **not an axiom**: because the wire

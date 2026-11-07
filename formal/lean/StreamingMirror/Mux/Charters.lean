@@ -2,7 +2,7 @@
 The chartered follow-on campaigns: documentation-only module.
 
 Two theorem campaigns were chartered at the mux campaign's close and
-deliberately not begun. This module is their charter of record — the
+deliberately not begun. This module is their charter — the
 statements a future prover transcribes, spec-first (the English fixed
 before the build; transcription choices recorded, dated, before any
 theorem lands — the method that carried T8 to an every-clause-EXACT

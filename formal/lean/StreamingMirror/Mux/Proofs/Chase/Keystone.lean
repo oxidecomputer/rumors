@@ -1,12 +1,12 @@
 /-
-T2, the repaired Keystone Lemma (the cross-examination's push-time-
-derivation route, formalized): at a stuck muxed state, every
+T2, the repaired Keystone Lemma (the push-time-derivation route,
+formalized): at a stuck muxed state, every
 event a machine's demand closure derived at push time has been
 performed.
 
 # The push-time derivation tree, as hypotheses
 
-The adjudicated repair runs the induction over the PUSH-TIME derivation
+The repair runs the induction over the PUSH-TIME derivation
 tree, with FIFO ancestry discharging the forward-delivery citations.
 Here the tree is the closure `inevitable sk p tr` computed at the
 push-time observation `tr`, and its two grounding walls arrive as count
@@ -22,7 +22,7 @@ hypotheses:
 Stating the tree this way removes every delivery event from the
 induction: the broken delivery case of the original lemma cannot even
 be written, and what remains is exactly
-the panel's repaired remainder — non-push events discharged by the
+the repaired remainder — non-push events discharged by the
 counting/enabledness argument.
 
 # The induction, one paragraph
@@ -63,7 +63,7 @@ own-push `tr` can cite has been delivered by `s` — and `harr` is
 arrival monotonicity. The ground facts `MuxInv` stand in for muxed
 reachability (their preservation is the stage-3 obligation); given
 them, no reachability induction appears — the proof is one argmin over
-`scheduleE` positions, exactly the adjudicated plan. -/
+`scheduleE` positions. -/
 theorem keystone (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel)
     {C : Nat} {σI σR : Strategy} {s : MState}
