@@ -144,6 +144,39 @@ fn a_waiter_is_admitted_as_its_kind_and_depth_empties() {
     );
 }
 
+/// A unit that would fit within its kind and depth's bound waits behind an
+/// earlier waiter of its kind and depth, and is admitted only after it.
+///
+/// With a bound of 100 B at `(answer, 3)` and a budget of zero: a 60 B unit
+/// is exempt; a 70 B unit would bring the kind and depth to 130 B and waits
+/// for room; a 40 B unit would fit beside the 60 B one, but asked after the
+/// 70 B unit, so it waits too. Dropping the 60 B unit admits the 70 B unit,
+/// beside which the 40 B unit does not fit, so it is admitted only once the
+/// 70 B unit drops.
+#[test]
+fn a_unit_that_fits_waits_behind_an_earlier_unit_of_its_kind_and_depth() {
+    let ledger = Ledger::new(0, bounds(&[(Unit::Answer, 3, 100)]));
+    let first = poll(&mut ledger.admit(Unit::Answer, 3, 60)).expect("an empty kind and depth");
+    let mut large = ledger.admit(Unit::Answer, 3, 70);
+    assert!(
+        poll(&mut large).is_none(),
+        "130 B exceed the bound, and the budget of zero has no room for 30 B"
+    );
+    let mut small = ledger.admit(Unit::Answer, 3, 40);
+    assert!(
+        poll(&mut small).is_none(),
+        "60 + 40 fits the bound, but the 70 B unit asked first"
+    );
+    drop(first);
+    let large = poll(&mut large).expect("its kind and depth emptied");
+    assert!(poll(&mut small).is_none(), "70 + 40 exceeds the bound");
+    drop(large);
+    assert!(
+        poll(&mut small).is_some(),
+        "its kind and depth emptied, and nothing asked before it waits"
+    );
+}
+
 /// An item built beyond its grant is charged in full to the grant's kind
 /// and depth, raising its excess by what falls beyond the bound, and
 /// returns in full.
