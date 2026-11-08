@@ -8,8 +8,8 @@
 //!
 //! A uniform region can also decide a whole subtree: an unowned second region
 //! preserves the first subtree, an owned second region removes it, and an
-//! unowned first region makes the second subtree irrelevant. Those subtrees
-//! are scanned once as blocks instead of walking each leaf through the merge.
+//! unowned first region makes the second subtree irrelevant. Those subtrees are
+//! scanned once as blocks instead of walking each leaf through the merge.
 
 use crate::party::io::writer::PartyRegionWriter;
 use crate::party::io::PartyReader;

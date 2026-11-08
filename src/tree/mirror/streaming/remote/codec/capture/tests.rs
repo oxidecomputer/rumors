@@ -16,9 +16,9 @@ use super::super::encode::encode;
 use super::super::frame::{Frame, LeafRun, Reaction};
 use super::super::signal::Flow;
 
-/// Encode one initiator supply frame carrying `payload` as a single record
-/// on stream 1, an interior stream: the harness-reachable shape a captured
-/// frame arrives in.
+/// Encode one initiator supply frame carrying `payload` as a single record on
+/// stream 1, an interior stream: the harness-reachable shape a captured frame
+/// arrives in.
 fn supply_frame(payload: &Message) -> (Stream, Vec<u8>) {
     let mut run = LeafRun::new();
     run.push(&Version::new(), payload, RunBudget::default())
@@ -30,9 +30,9 @@ fn supply_frame(payload: &Message) -> (Stream, Vec<u8>) {
     (stream, bytes)
 }
 
-/// A frame renders under a header line naming its index, its exact byte
-/// count, and the signal its opener decodes to, with the whole frame as
-/// one diagnostic-notation item beneath.
+/// A frame renders under a header line naming its index, its exact byte count,
+/// and the signal its opener decodes to, with the whole frame as one
+/// diagnostic-notation item beneath.
 ///
 /// The supply run unfolds through its embedded-sequence tag down to the
 /// record's payload.
@@ -53,8 +53,8 @@ fn frames_render_their_label_and_diagnostic_body() {
     );
 }
 
-/// Bytes that are not one parseable CBOR item render as an explicit
-/// failure line carrying the parse error above the exact bytes.
+/// Bytes that are not one parseable CBOR item render as an explicit failure
+/// line carrying the parse error above the exact bytes.
 ///
 /// The specimen is an array head promising more elements than follow.
 #[test]
@@ -79,13 +79,12 @@ fn rendered(bytes: &[u8]) -> Vec<String> {
     out.lines().map(str::to_string).collect()
 }
 
-/// A length head wider than its value needs falls back to hex, so two
-/// arrays differing only in which empty string has the wide head render
-/// distinctly.
+/// A length head wider than its value needs falls back to hex, so two arrays
+/// differing only in which empty string has the wide head render distinctly.
 ///
-/// The notation spells a byte string's length without a width
-/// indicator, which is why the canonical `[h'', h'']` alone renders in
-/// notation. The same holds inside an embedded item.
+/// The notation spells a byte string's length without a width indicator, which
+/// is why the canonical `[h'', h'']` alone renders in notation. The same holds
+/// inside an embedded item.
 #[test]
 fn non_shortest_length_heads_fall_back() {
     let canonical = rendered(&[0x82, 0x40, 0x40]);
@@ -102,9 +101,9 @@ fn non_shortest_length_heads_fall_back() {
     assert!(embedded[0].contains("in an embedded item"), "{embedded:?}");
 }
 
-/// The ill-formed two-byte spelling of a simple value (`f8 14` for
-/// `false`) falls back to hex, so arrays differing only in which `false`
-/// is ill-formed render distinctly.
+/// The ill-formed two-byte spelling of a simple value (`f8 14` for `false`)
+/// falls back to hex, so arrays differing only in which `false` is ill-formed
+/// render distinctly.
 ///
 /// The re-encoding check catches it: re-encoding uses the one-byte form.
 #[test]
@@ -117,11 +116,11 @@ fn ill_formed_simple_values_fall_back() {
     assert_eq!(first[1], "h'82f814f4'");
 }
 
-/// Every NaN falls back to hex, so two NaNs differing only in the sign
-/// bit render distinctly, while a finite float renders in notation.
+/// Every NaN falls back to hex, so two NaNs differing only in the sign bit
+/// render distinctly, while a finite float renders in notation.
 ///
-/// The parser and encoder are bit-exact on floats, so the re-encoding
-/// check alone would pass both.
+/// The parser and encoder are bit-exact on floats, so the re-encoding check
+/// alone would pass both.
 #[test]
 fn nans_fall_back() {
     let positive = rendered(&[0xfb, 0x7f, 0xf8, 0, 0, 0, 0, 0, 0]);
@@ -132,9 +131,9 @@ fn nans_fall_back() {
     assert_eq!(rendered(&[0xf9, 0x3c, 0x00]), ["1.0_1"]);
 }
 
-/// The two-byte spelling of a simple value in 24 through 31 (`f8 18`)
-/// is not well-formed CBOR and falls back to hex; the parser accepts it
-/// and re-encodes it verbatim, so the walk rejects it by value.
+/// The two-byte spelling of a simple value in 24 through 31 (`f8 18`) is not
+/// well-formed CBOR and falls back to hex; the parser accepts it and re-encodes
+/// it verbatim, so the walk rejects it by value.
 #[test]
 fn simple_values_without_a_well_formed_spelling_fall_back() {
     let out = rendered(&[0xf8, 0x18]);
@@ -143,12 +142,12 @@ fn simple_values_without_a_well_formed_spelling_fall_back() {
     assert_eq!(rendered(&[0xf8, 0x20]), ["simple(32)"]);
 }
 
-/// A text string holding a control character falls back to hex, so a
-/// payload cannot forge a header.
+/// A text string holding a control character falls back to hex, so a payload
+/// cannot forge a header.
 ///
-/// A string carrying a newline followed by a frame header's text renders
-/// under its real header as hex, and the only line beginning with
-/// `frame ` is the header.
+/// A string carrying a newline followed by a frame header's text renders under
+/// its real header as hex, and the only line beginning with `frame ` is the
+/// header.
 #[test]
 fn text_with_control_characters_falls_back() {
     let forged = "a\nframe 9 (1 bytes) / Supply(End) /";
@@ -163,9 +162,8 @@ fn text_with_control_characters_falls_back() {
     assert!(out.contains("control character in a text string"), "{out}");
 }
 
-/// An item followed by trailing bytes is not one item: the whole buffer
-/// falls back explicitly rather than rendering the item and dropping the
-/// tail.
+/// An item followed by trailing bytes is not one item: the whole buffer falls
+/// back explicitly rather than rendering the item and dropping the tail.
 #[test]
 fn trailing_bytes_fall_back_explicitly() {
     let two_items = [0x01, 0x02];
@@ -175,8 +173,8 @@ fn trailing_bytes_fall_back_explicitly() {
     assert!(out.contains("h'0102'"), "{out}");
 }
 
-/// The totality witness accepts exactly the wire it was given, split at
-/// any item boundaries.
+/// The totality witness accepts exactly the wire it was given, split at any
+/// item boundaries.
 #[test]
 fn items_accounting_accepts_the_exact_wire() {
     let wire = [1_u8, 2, 3, 4, 5];
@@ -220,8 +218,7 @@ fn control_items_are_named_by_shape() {
     assert_eq!(control_item_name(&epilogue), "epilogue");
 }
 
-/// A control item of no known shape is a broken capture, not a
-/// renderable one.
+/// A control item of no known shape is a broken capture, not a renderable one.
 #[test]
 #[should_panic(expected = "no known shape")]
 fn unknown_control_item_shapes_are_refused() {
@@ -230,15 +227,15 @@ fn unknown_control_item_shapes_are_refused() {
     control_item_name(&bare);
 }
 
-/// Build a chain of `levels` nested embedded byte strings, each level
-/// one tag-24 item wrapping the next level's encoding as a byte string,
-/// bottoming out at a single `0x00` uint.
+/// Build a chain of `levels` nested embedded byte strings, each level one
+/// tag-24 item wrapping the next level's encoding as a byte string, bottoming
+/// out at a single `0x00` uint.
 ///
-/// Written outside-in: encoded lengths follow the recurrence
-/// `len[0] = 1` (the innermost uint) and
-/// `len[i + 1] = tag head (2 bytes) + byte-string head + len[i]`, so
-/// every head is computed before any byte is emitted and the build is
-/// linear in the output size.
+/// Written outside-in: encoded lengths follow the recurrence `len[0] = 1` (the
+/// innermost uint) and
+/// `len[i + 1] = tag head (2 bytes) + byte-string head + len[i]`, so every head
+/// is computed before any byte is emitted and the build is linear in the output
+/// size.
 fn embedded_chain(levels: usize) -> Vec<u8> {
     let mut lens = vec![1_usize];
     for _ in 0..levels {
@@ -254,8 +251,8 @@ fn embedded_chain(levels: usize) -> Vec<u8> {
     bytes
 }
 
-/// A chain of embedded byte strings nested far past the depth limit
-/// renders with bounded recursion.
+/// A chain of embedded byte strings nested far past the depth limit renders
+/// with bounded recursion.
 ///
 /// Unfolding stops at the limit and the remainder stands as a plain byte
 /// string; the walk returns rather than overflowing the stack.
@@ -271,11 +268,11 @@ fn deep_embedded_chain_stops_unfolding_instead_of_recursing() {
     assert!(out.contains("24_0(h'"), "and stops at the limit: {out:.80}");
 }
 
-/// The same nesting arriving as a supply record's payload (a captured
-/// frame rendered whole) renders with the same bounded unfold.
+/// The same nesting arriving as a supply record's payload (a captured frame
+/// rendered whole) renders with the same bounded unfold.
 ///
-/// An application payload of legal CBOR can nest arbitrarily, and the
-/// frame walk must return, never overflow.
+/// An application payload of legal CBOR can nest arbitrarily, and the frame
+/// walk must return, never overflow.
 #[test]
 fn deep_payload_through_the_frame_path_renders() {
     let payload = Message::from_slice::<ciborium::Value>(
@@ -292,9 +289,9 @@ fn deep_payload_through_the_frame_path_renders() {
     );
 }
 
-/// Structure nested past cbor-diag's depth limit is not one parseable
-/// item: the whole buffer falls back explicitly, naming the depth, rather
-/// than recursing without bound on input-controlled depth.
+/// Structure nested past cbor-diag's depth limit is not one parseable item: the
+/// whole buffer falls back explicitly, naming the depth, rather than recursing
+/// without bound on input-controlled depth.
 #[test]
 fn structure_past_the_depth_limit_falls_back_explicitly() {
     let mut bytes = Vec::new();

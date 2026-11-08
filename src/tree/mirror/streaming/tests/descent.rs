@@ -2,42 +2,41 @@
 //! sessions.
 //!
 //! [`predict`] computes every reply a session's two walks build from the
-//! replicas' leaves alone, without a tree, a backend, or a channel. Each
-//! side contributes its leaves' paths, and for each leaf whether the peer's
-//! greeting version leaves it unknown, which is all the deletion filter
-//! reads. The suite then runs real sessions, in process and over a pipe,
-//! records every reply each walk publishes ([`with_transcript`]), and
-//! requires the two to agree exactly: per endpoint and logical stream, the
-//! same replies in the same order, each with the same reactions. Over a
-//! pipe, it also observes every frame each endpoint sends, and holds each
-//! reply to the frames the model predicts for it.
+//! replicas' leaves alone, without a tree, a backend, or a channel. Each side
+//! contributes its leaves' paths, and for each leaf whether the peer's greeting
+//! version leaves it unknown, which is all the deletion filter reads. The suite
+//! then runs real sessions, in process and over a pipe, records every reply
+//! each walk publishes ([`with_transcript`]), and requires the two to agree
+//! exactly: per endpoint and logical stream, the same replies in the same
+//! order, each with the same reactions. Over a pipe, it also observes every
+//! frame each endpoint sends, and holds each reply to the frames the model
+//! predicts for it.
 //!
 //! The model rests on four facts about the protocol:
 //!
 //! - A node's children, as `children_of` yields them, are the distinct next
 //!   bytes of the keys beneath it, whatever its storage compresses.
-//! - Two subtrees match exactly when their key sets match, since a node's
-//!   hash covers exactly its leaves.
+//! - Two subtrees match exactly when their key sets match, since a node's hash
+//!   covers exactly its leaves.
 //! - The reply about a node held by both sides holds one reaction per child
-//!   either side holds, in radix order, but for the matches after its first:
-//!   a match where both sides' subtrees are equal, the first one naming the
-//!   radixes of every later one, which take no reaction of their own; a
-//!   query listing the replier's children of the child where
-//!   both hold it with different contents; a supply where only the replier
-//!   holds it and some leaf beneath it is unknown to the asker, and nothing
-//!   where every such leaf is known; and an empty query where only the asker
-//!   holds it. The asker answers that empty query with one supply per child
-//!   holding a leaf unknown to the replier, or at the last level with the
-//!   leaf itself if it is unknown.
+//!   either side holds, in radix order, but for the matches after its first: a
+//!   match where both sides' subtrees are equal, the first one naming the
+//!   radixes of every later one, which take no reaction of their own; a query
+//!   listing the replier's children of the child where both hold it with
+//!   different contents; a supply where only the replier holds it and some leaf
+//!   beneath it is unknown to the asker, and nothing where every such leaf is
+//!   known; and an empty query where only the asker holds it. The asker answers
+//!   that empty query with one supply per child holding a leaf unknown to the
+//!   replier, or at the last level with the leaf itself if it is unknown.
 //! - Within one logical stream, replies leave in prefix order: each stage
-//!   answers the questions of the replies it takes, in the order it asked
-//!   them, and each reply's questions in radix order.
+//!   answers the questions of the replies it takes, in the order it asked them,
+//!   and each reply's questions in radix order.
 //!
-//! Because a reply's contents depend only on the two trees, the walk's
-//! schedule cannot change them. The suite therefore varies the budget and
-//! the transport and expects one prediction to hold for all of them; that
-//! independence is the property that later lets the model price, offline,
-//! every reply a session can invite.
+//! Because a reply's contents depend only on the two trees, the walk's schedule
+//! cannot change them. The suite therefore varies the budget and the transport
+//! and expects one prediction to hold for all of them; that independence is the
+//! property that later lets the model price, offline, every reply a session can
+//! invite.
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -75,8 +74,8 @@ use crate::{causally, message::Message};
 const PATH_BYTES: usize = 32;
 
 /// The typed height of a reply's children when the reply is about a node
-/// `depth` bytes below the root: the root's reply has children at height
-/// 31, and a reply about a leaf's parent has children at height 0.
+/// `depth` bytes below the root: the root's reply has children at height 31,
+/// and a reply about a leaf's parent has children at height 0.
 fn reply_height(depth: usize) -> usize {
     PATH_BYTES - 1 - depth
 }
@@ -86,8 +85,8 @@ fn reply_height(depth: usize) -> usize {
 struct ModelLeaf {
     /// The leaf's path.
     path: [u8; PATH_BYTES],
-    /// Whether the peer's greeting version leaves the leaf unknown, so
-    /// that the deletion filter lets it travel.
+    /// Whether the peer's greeting version leaves the leaf unknown, so that the
+    /// deletion filter lets it travel.
     unknown: bool,
 }
 
@@ -104,9 +103,9 @@ fn model_leaves(side: &Root, peer: &Root) -> Vec<ModelLeaf> {
     leaves
 }
 
-/// Split `leaves`, which share their first `depth` bytes and are in path
-/// order, into runs by their byte at `depth`: the children `children_of`
-/// yields for the node they sit under.
+/// Split `leaves`, which share their first `depth` bytes and are in path order,
+/// into runs by their byte at `depth`: the children `children_of` yields for
+/// the node they sit under.
 fn children(leaves: &[ModelLeaf], depth: usize) -> Vec<(u8, &[ModelLeaf])> {
     let mut runs = Vec::new();
     let mut rest = leaves;
@@ -120,8 +119,8 @@ fn children(leaves: &[ModelLeaf], depth: usize) -> Vec<(u8, &[ModelLeaf])> {
     runs
 }
 
-/// Whether a subtree holding `leaves` travels in a supply: some leaf in it
-/// is unknown to the receiver.
+/// Whether a subtree holding `leaves` travels in a supply: some leaf in it is
+/// unknown to the receiver.
 fn travels(leaves: &[ModelLeaf]) -> bool {
     leaves.iter().any(|leaf| leaf.unknown)
 }
@@ -131,8 +130,8 @@ fn same_keys(ours: &[ModelLeaf], theirs: &[ModelLeaf]) -> bool {
     ours.len() == theirs.len() && ours.iter().zip(theirs).all(|(a, b)| a.path == b.path)
 }
 
-/// Every reply a session builds, per role and reply height, in the order
-/// its logical stream carries them.
+/// Every reply a session builds, per role and reply height, in the order its
+/// logical stream carries them.
 type Prediction = BTreeMap<(Party, usize), Vec<Vec<Label>>>;
 
 /// One reply the model predicts, before it is sorted into its stream.
@@ -141,8 +140,8 @@ struct Predicted {
     by: Party,
     /// Its children's typed height, which names its logical stream.
     height: usize,
-    /// The prefix that orders it within its stream: the node it is about,
-    /// or for a leaf request's reply, the leaf's whole path.
+    /// The prefix that orders it within its stream: the node it is about, or
+    /// for a leaf request's reply, the leaf's whole path.
     order: Vec<u8>,
     /// Its reactions, payload-erased.
     labels: Vec<Label>,
@@ -160,11 +159,11 @@ struct Dispute<'k> {
     by: Party,
 }
 
-/// Predict every reply of a session between `responder` and `initiator`,
-/// each side's leaves in path order, whose greeting versions differ.
+/// Predict every reply of a session between `responder` and `initiator`, each
+/// side's leaves in path order, whose greeting versions differ.
 ///
-/// The descent iterates over an explicit stack rather than recursing, so
-/// the model's own depth never depends on its input.
+/// The descent iterates over an explicit stack rather than recursing, so the
+/// model's own depth never depends on its input.
 fn predict(responder: &[ModelLeaf], initiator: &[ModelLeaf]) -> Prediction {
     let mut replies = vec![Predicted {
         by: Party::I,
@@ -198,9 +197,9 @@ fn predict(responder: &[ModelLeaf], initiator: &[ModelLeaf]) -> Prediction {
     prediction
 }
 
-/// The reply about one disputed node, pushing the disputes its questions
-/// open onto `stack` and the request replies its empty questions invite
-/// onto `replies`.
+/// The reply about one disputed node, pushing the disputes its questions open
+/// onto `stack` and the request replies its empty questions invite onto
+/// `replies`.
 fn dispute_reply<'k>(
     Dispute {
         replier,
@@ -286,9 +285,9 @@ fn dispute_reply<'k>(
     }
 }
 
-/// The reply `by` builds to an empty question about the node at `prefix`,
-/// under which it holds `leaves`: one supply per child that travels, or at
-/// the last level the leaf itself if it travels.
+/// The reply `by` builds to an empty question about the node at `prefix`, under
+/// which it holds `leaves`: one supply per child that travels, or at the last
+/// level the leaf itself if it travels.
 fn request_reply(leaves: &[ModelLeaf], prefix: Vec<u8>, by: Party) -> Predicted {
     let depth = prefix.len();
     let (height, labels) = if depth == PATH_BYTES {
@@ -315,8 +314,8 @@ fn request_reply(leaves: &[ModelLeaf], prefix: Vec<u8>, by: Party) -> Predicted 
     }
 }
 
-/// The model's prediction for a session between `left` and `right`, or
-/// `None` when their greeting versions agree and no descent opens.
+/// The model's prediction for a session between `left` and `right`, or `None`
+/// when their greeting versions agree and no descent opens.
 fn predict_pair(left: &Root, right: &Root) -> Option<Prediction> {
     if left.ceiling == right.ceiling {
         return None;
@@ -332,8 +331,8 @@ fn predict_pair(left: &Root, right: &Root) -> Option<Prediction> {
     ))
 }
 
-/// A transcript's replies per endpoint and logical stream, the endpoint
-/// named by its work identity.
+/// A transcript's replies per endpoint and logical stream, the endpoint named
+/// by its work identity.
 fn recorded(transcript: &Transcript) -> BTreeMap<usize, BTreeMap<usize, Vec<Vec<Label>>>> {
     let mut endpoints: BTreeMap<usize, BTreeMap<usize, Vec<Vec<Label>>>> = BTreeMap::new();
     for sent in transcript.sent() {
@@ -356,13 +355,13 @@ fn role(prediction: &Prediction, party: Party) -> BTreeMap<usize, Vec<Vec<Label>
         .collect()
 }
 
-/// Require `transcript` to hold exactly the replies the model predicts for
-/// a session between `left` and `right`.
+/// Require `transcript` to hold exactly the replies the model predicts for a
+/// session between `left` and `right`.
 ///
-/// The transcript names endpoints by work identity, which says nothing
-/// about roles, so the check takes the two endpoints as an unordered pair:
-/// one must have built exactly the initiator's predicted replies and the
-/// other exactly the responder's.
+/// The transcript names endpoints by work identity, which says nothing about
+/// roles, so the check takes the two endpoints as an unordered pair: one must
+/// have built exactly the initiator's predicted replies and the other exactly
+/// the responder's.
 fn assert_matches(left: &Root, right: &Root, transcript: &Transcript) -> Result<(), TestCaseError> {
     let endpoints = recorded(transcript);
     let Some(prediction) = predict_pair(left, right) else {
@@ -398,9 +397,9 @@ fn local_transcript(left: Root, right: Root, budget: SessionLedger) -> Transcrip
     transcript
 }
 
-/// The wire session's transcript between `left` and `right`, both
-/// endpoints at `budget`, with leaf-path derivation following the pair's
-/// placement when `placed`.
+/// The wire session's transcript between `left` and `right`, both endpoints at
+/// `budget`, with leaf-path derivation following the pair's placement when
+/// `placed`.
 fn wire_transcript(left: Root, right: Root, budget: SessionLedger, placed: bool) -> Transcript {
     piped_transcript(left, right, budget, placed, AMPLE)
 }
@@ -425,9 +424,9 @@ fn piped_transcript(
     transcript
 }
 
-/// The ledgers the suite runs every pair at: the serial configuration, at
-/// which each walk admits one unit of each kind and depth at a time, and an
-/// unlimited budget, at which no unit waits for admission.
+/// The ledgers the suite runs every pair at: the serial configuration, at which
+/// each walk admits one unit of each kind and depth at a time, and an unlimited
+/// budget, at which no unit waits for admission.
 fn arb_budget() -> impl Strategy<Value = SessionLedger> {
     prop_oneof![
         Just(SessionLedger::Serial),
@@ -500,9 +499,9 @@ const FORK_SHARED: usize = 2_000;
 /// other lacks.
 const FORK_OWN: usize = 2_000;
 
-/// Two forks of one network: both hold [`FORK_SHARED`] messages and each
-/// then sends [`FORK_OWN`] the other lacks, one of them redacting every
-/// third shared message.
+/// Two forks of one network: both hold [`FORK_SHARED`] messages and each then
+/// sends [`FORK_OWN`] the other lacks, one of them redacting every third shared
+/// message.
 fn forked_replicas() -> (Root, Root) {
     let seed = nth_party(0);
     let mut base = Tree::<()>::default();
@@ -532,8 +531,8 @@ fn forked_replicas() -> (Root, Root) {
     (fork(1, true), fork(2, false))
 }
 
-/// The model predicts every reply of sessions between two forks, in
-/// process and over a pipe.
+/// The model predicts every reply of sessions between two forks, in process and
+/// over a pipe.
 ///
 /// The forks are large enough that every depth-1 node is disputed, and one
 /// fork's redactions reach the deletion filter.
@@ -573,9 +572,9 @@ proptest! {
     }
 }
 
-/// Every data frame both endpoints of an observed session sent, per
-/// logical stream, keyed by the stream's speaking role and wire index, each
-/// stream's frames in order.
+/// Every data frame both endpoints of an observed session sent, per logical
+/// stream, keyed by the stream's speaking role and wire index, each stream's
+/// frames in order.
 type SentFrames = BTreeMap<(Role, u8), Vec<Vec<u8>>>;
 
 /// An observer that records every data frame its sessions send.
@@ -627,8 +626,8 @@ impl StreamObserver for StreamRecorder {
     }
 }
 
-/// The frames each endpoint of a session between `left` and `right`
-/// sends, over an ample pipe with no budget limit.
+/// The frames each endpoint of a session between `left` and `right` sends, over
+/// an ample pipe with no budget limit.
 fn sent_frames(left: Root, right: Root) -> SentFrames {
     let recorder = FrameRecorder::default();
     let mut observers = Attachment::default();
@@ -668,9 +667,9 @@ impl WireReply {
     }
 }
 
-/// Split one sent stream's frames, spoken by `role`, into its replies:
-/// each ends at a frame marking its end, and the stream's closing frame
-/// belongs to none.
+/// Split one sent stream's frames, spoken by `role`, into its replies: each
+/// ends at a frame marking its end, and the stream's closing frame belongs to
+/// none.
 fn wire_replies(role: Role, frames: &[Vec<u8>]) -> Vec<WireReply> {
     let speaker = match role {
         Role::Initiator => Speaker::Initiator,

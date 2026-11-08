@@ -2,49 +2,48 @@
 //! arbitrary generators reach.
 //!
 //! [`arb_oracle_version`](super::arb_oracle_version) recurses at most four
-//! levels, so a property fed only by it never meets a version deeper than
-//! four, an encoding wider than a few hundred bytes, or a pair of versions
-//! that are equal or tie exactly in rank. The strategies here reach all of
-//! these.
+//! levels, so a property fed only by it never meets a version deeper than four,
+//! an encoding wider than a few hundred bytes, or a pair of versions that are
+//! equal or tie exactly in rank. The strategies here reach all of these.
 //!
 //! A [`LeafList`] is a version's leaves in stream order, each a
 //! [`Leaf`](crate::testing::shape_rows::Leaf) row with its depth and its
-//! *absolute height*: the sum of the bases on its root-to-leaf path. The
-//! depths tile `[0, 1)`, and any such list with any heights is a valid
-//! version once normalized, so nothing is rejected. A leaf list grows from
-//! the single root leaf by repeated splits, and its heights come from a
-//! separate *height arm*, so topology and heights vary independently:
+//! *absolute height*: the sum of the bases on its root-to-leaf path. The depths
+//! tile `[0, 1)`, and any such list with any heights is a valid version once
+//! normalized, so nothing is rejected. A leaf list grows from the single root
+//! leaf by repeated splits, and its heights come from a separate *height arm*,
+//! so topology and heights vary independently:
 //!
-//! | Component | Strategy | What it reaches |
-//! |---|---|---|
-//! | Topology | [`DEEP_SIZES`] | depth to 300 and up to 401 leaves, as bushy trees, left and right spines, zigzags, and combs |
-//! | Topology | [`arb_multiscale_topology`] | bushy regions under the mixed rule, a quarter of the time beside a same-side spine 32 to 119 levels deep, so shallow leaves sit far above the common scale |
-//! | Heights | [`arb_step_heights`] | heights moved by steps at scales up to 2,200 bits, with plateaus, returns, and near-cancellations |
-//! | Heights | [`arb_boundary_heights`] | a few levels whose differences straddle `2^31` and `2^32`, the limits of the writer's one-word codes, and pass `2^64` |
-//! | Heights | [`arb_near_equal_wide_heights`] | values one or two apart at widths from 31 to 1,000 bits |
-//! | Pairs | [`arb_relation`] | a second leaf list that is independent, perturbed, refined, resplit into the same version, edited at one leaf, mirrored, or rotated |
-//! | Pairs | [`arb_correlated_pair`] | a version combined with a sparse version by sum, difference, join, or meet, or two operands decomposing a target, built through the [flat model](crate::testing::oracles::flat) |
+//! | Component | Strategy                        | What it reaches                                                                                                                                                                 |
+//! |-----------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+//! | Topology  | [`DEEP_SIZES`]                  | depth to 300 and up to 401 leaves, as bushy trees, left and right spines, zigzags, and combs                                                                                    |
+//! | Topology  | [`arb_multiscale_topology`]     | bushy regions under the mixed rule, a quarter of the time beside a same-side spine 32 to 119 levels deep, so shallow leaves sit far above the common scale                      |
+//! | Heights   | [`arb_step_heights`]            | heights moved by steps at scales up to 2,200 bits, with plateaus, returns, and near-cancellations                                                                               |
+//! | Heights   | [`arb_boundary_heights`]        | a few levels whose differences straddle `2^31` and `2^32`, the limits of the writer's one-word codes, and pass `2^64`                                                           |
+//! | Heights   | [`arb_near_equal_wide_heights`] | values one or two apart at widths from 31 to 1,000 bits                                                                                                                         |
+//! | Pairs     | [`arb_relation`]                | a second leaf list that is independent, perturbed, refined, resplit into the same version, edited at one leaf, mirrored, or rotated                                             |
+//! | Pairs     | [`arb_correlated_pair`]         | a version combined with a sparse version by sum, difference, join, or meet, or two operands decomposing a target, built through the [flat model](crate::testing::oracles::flat) |
 //!
 //! The mirrored and rotated relations keep every leaf's width and height, so
 //! they tie exactly in rank while usually differing as versions.
 //!
-//! Each height arm takes a *widest exponent* and draws its scales below it.
-//! A deep leaf list's size sets that exponent, so a list of hundreds of
-//! leaves draws narrower heights than one of a few; [`Size::widest_exponent`]
-//! gives the budget.
+//! Each height arm takes a *widest exponent* and draws its scales below it. A
+//! deep leaf list's size sets that exponent, so a list of hundreds of leaves
+//! draws narrower heights than one of a few; [`Size::widest_exponent`] gives
+//! the budget.
 //!
 //! The composed strategies are what the drivers use:
 //!
 //! - [`arb_deep_version`], [`arb_deep_version_pair`],
 //!   [`arb_deep_version_triple`], and [`arb_deep_version_family`] draw one
-//!   size, then leaf lists of that size with heights from any arm, for the
-//!   law drivers and the tree-oracle differentials.
-//! - [`arb_multiscale_pair`] draws a multi-scale topology with step heights
-//!   to 2,200 bits and a related second leaf list. Its pairs reach the rank
-//!   integral's deferral, in single folds and in the pair measures'
-//!   co-sweeps, and exact rank ties at freezing scale, which no arbitrary
-//!   pair reaches. The measure tests feed it to their tree-oracle checks, and
-//!   law drivers over one or two versions and over ranks take it too.
+//!   size, then leaf lists of that size with heights from any arm, for the law
+//!   drivers and the tree-oracle differentials.
+//! - [`arb_multiscale_pair`] draws a multi-scale topology with step heights to
+//!   2,200 bits and a related second leaf list. Its pairs reach the rank
+//!   integral's deferral, in single folds and in the pair measures' co-sweeps,
+//!   and exact rank ties at freezing scale, which no arbitrary pair reaches.
+//!   The measure tests feed it to their tree-oracle checks, and law drivers
+//!   over one or two versions and over ranks take it too.
 //! - [`arb_deep_or_correlated_pair`] draws from [`arb_deep_version_pair`] and
 //!   [`arb_correlated_pair`] in equal shares, for the flat model's
 //!   differentials.
@@ -70,17 +69,16 @@ use super::family_picks;
 /// The case-count divisor for a property whose inputs hold one deep version.
 ///
 /// A deep version costs a property many arbitrary cases, up to hundreds of
-/// leaves and kilobytes of encoding, and its cost dominates each case. So
-/// the divisors grow with the versions a property's inputs hold, and a
-/// property over deep parties alone runs the full case count.
+/// leaves and kilobytes of encoding, and its cost dominates each case. So the
+/// divisors grow with the versions a property's inputs hold, and a property
+/// over deep parties alone runs the full case count.
 pub(crate) const ONE_VERSION_DIVISOR: u32 = 4;
 
-/// The case-count divisor for a property whose inputs hold two deep
-/// versions, or a family drawn from a pool of up to three.
+/// The case-count divisor for a property whose inputs hold two deep versions,
+/// or a family drawn from a pool of up to three.
 pub(crate) const TWO_VERSION_DIVISOR: u32 = 8;
 
-/// The case-count divisor for a property whose inputs hold three deep
-/// versions.
+/// The case-count divisor for a property whose inputs hold three deep versions.
 pub(crate) const THREE_VERSION_DIVISOR: u32 = 12;
 
 // ─────────────────────────────── leaf lists ───────────────────────────────
@@ -88,8 +86,8 @@ pub(crate) const THREE_VERSION_DIVISOR: u32 = 12;
 /// A version's leaves in stream order, with absolute heights.
 ///
 /// The leaf depths always tile `[0, 1)` exactly: every constructor grows them
-/// by splits or keeps another leaf list's depths, so [`LeafList::tree`]
-/// closes them into one root.
+/// by splits or keeps another leaf list's depths, so [`LeafList::tree`] closes
+/// them into one root.
 #[derive(Clone, Debug)]
 pub(crate) struct LeafList {
     leaves: Vec<Leaf>,
@@ -119,10 +117,9 @@ impl LeafList {
 
     /// Builds the normal-form version tree with these leaves.
     ///
-    /// [`version_from_rows`] closes the rows through the oracle's
-    /// normalizing [`tree::Version::node`], which lifts each pair of
-    /// siblings' common minimum into their parent's base and collapses equal
-    /// leaves.
+    /// [`version_from_rows`] closes the rows through the oracle's normalizing
+    /// [`tree::Version::node`], which lifts each pair of siblings' common
+    /// minimum into their parent's base and collapses equal leaves.
     pub(crate) fn tree(&self) -> tree::Version {
         version_from_rows(&self.leaves)
     }
@@ -191,8 +188,8 @@ pub(crate) fn arb_leaf_list(
 /// exponent of its heights.
 #[derive(Clone, Copy, Debug)]
 enum Size {
-    /// Bounds a topology to at most `splits` splits under one of the tier
-    /// rules ([`arb_split_rule`]), with no leaf deeper than `depth`.
+    /// Bounds a topology to at most `splits` splits under one of the tier rules
+    /// ([`arb_split_rule`]), with no leaf deeper than `depth`.
     Tier {
         /// The most splits a topology draws.
         splits: usize,
@@ -215,11 +212,11 @@ impl Size {
 
     /// The widest scale exponent this size's height arms draw.
     ///
-    /// Counting each leaf's height code as twice its exponent, the gamma
-    /// code's length, a size of at most `n` leaves gets the exponent at which
-    /// its heights spend at most [`HEIGHT_BUDGET_BITS`] bits. Without the
-    /// bound, a few leaf lists of hundreds of leaves at thousands of bits each
-    /// would cost a law driver more than the rest of its run.
+    /// Counting each leaf's height code as twice its exponent, the gamma code's
+    /// length, a size of at most `n` leaves gets the exponent at which its
+    /// heights spend at most [`HEIGHT_BUDGET_BITS`] bits. Without the bound, a
+    /// few leaf lists of hundreds of leaves at thousands of bits each would
+    /// cost a law driver more than the rest of its run.
     fn widest_exponent(self) -> u32 {
         let leaves = u64::try_from(self.max_leaves()).expect("a leaf count fits in u64");
         u32::try_from(HEIGHT_BUDGET_BITS / (2 * leaves))
@@ -281,14 +278,14 @@ const HEIGHT_BUDGET_BITS: u64 = 100_000;
 
 /// The sizes the deep strategies draw from, with their weights.
 ///
-/// The tiers that reach past depth 12 take three shares each, and the
-/// shallower tiers and the multi-scale arm one share each. The deep tiers'
-/// weight keeps enough drawn triples past depth 32 for the least-sampled law
-/// driver, which the census in this module's sibling tests floors; the
-/// shallow tiers keep small structures, and small shrink targets, in every
-/// run. Within a tier, the spine and zigzag rules reach the depth limit
-/// whenever the drawn split count allows, the uniform rule spends the splits
-/// on breadth, and the combs fall between.
+/// The tiers that reach past depth 12 take three shares each, and the shallower
+/// tiers and the multi-scale arm one share each. The deep tiers' weight keeps
+/// enough drawn triples past depth 32 for the least-sampled law driver, which
+/// the census in this module's sibling tests floors; the shallow tiers keep
+/// small structures, and small shrink targets, in every run. Within a tier, the
+/// spine and zigzag rules reach the depth limit whenever the drawn split count
+/// allows, the uniform rule spends the splits on breadth, and the combs fall
+/// between.
 const DEEP_SIZES: [(u32, Size); 6] = [
     (
         1,
@@ -328,8 +325,8 @@ const DEEP_SIZES: [(u32, Size); 6] = [
     (1, Size::Multiscale),
 ];
 
-/// Draws one size from [`DEEP_SIZES`] by weight, then what `draw` draws at
-/// that size.
+/// Draws one size from [`DEEP_SIZES`] by weight, then what `draw` draws at that
+/// size.
 fn arb_sized<T: Debug>(draw: fn(Size) -> BoxedStrategy<T>) -> impl Strategy<Value = T> {
     Union::new_weighted(
         DEEP_SIZES
@@ -358,10 +355,9 @@ pub(crate) fn arb_deep_version_triple() -> impl Strategy<Value = (LeafList, Leaf
 /// Draws a receiver and items for the variadic version laws, as oracle trees,
 /// from a pool of a deep triple and the empty version.
 ///
-/// Drawing from a small pool makes repeated values and receiver aliases
-/// common at the arities [`arb_fold_arity`](super::arb_fold_arity) sweeps,
-/// as [`arb_version_family`](super::arb_version_family) does for shallow
-/// versions.
+/// Drawing from a small pool makes repeated values and receiver aliases common
+/// at the arities [`arb_fold_arity`](super::arb_fold_arity) sweeps, as
+/// [`arb_version_family`](super::arb_version_family) does for shallow versions.
 pub(crate) fn arb_deep_version_family() -> impl Strategy<Value = (tree::Version, Vec<tree::Version>)>
 {
     arb_deep_version_triple().prop_flat_map(|(a, b, c)| {
@@ -371,10 +367,10 @@ pub(crate) fn arb_deep_version_family() -> impl Strategy<Value = (tree::Version,
 
 /// Draws a multi-scale version with step heights to [`STEP_K_MAX`] bits.
 ///
-/// Unlike the multi-scale arm of [`DEEP_SIZES`], whose heights stay within
-/// the size budget, these heights take the full width, which the
-/// integral's deferral needs: a parked height must be wider than a later
-/// drift by more than the 256-bit freeze allowance.
+/// Unlike the multi-scale arm of [`DEEP_SIZES`], whose heights stay within the
+/// size budget, these heights take the full width, which the integral's
+/// deferral needs: a parked height must be wider than a later drift by more
+/// than the 256-bit freeze allowance.
 pub(crate) fn arb_multiscale_version() -> impl Strategy<Value = LeafList> {
     arb_leaf_list(arb_multiscale_topology(), arb_step_heights(STEP_K_MAX))
 }
@@ -384,9 +380,9 @@ pub(crate) fn arb_multiscale_version() -> impl Strategy<Value = LeafList> {
 /// Independent and mirrored second versions take extra weight: they are the
 /// relations under which the pair measures' co-sweeps defer, where the other
 /// relations change a few heights or none. Mirrored and rotated pairs tie
-/// exactly in rank, and step heights at several scales make the rank
-/// integral freeze its drift and defer parked heights. The measure tests'
-/// census floors deferral in single folds and in co-sweeps, and exact ties.
+/// exactly in rank, and step heights at several scales make the rank integral
+/// freeze its drift and defer parked heights. The measure tests' census floors
+/// deferral in single folds and in co-sweeps, and exact ties.
 pub(crate) fn arb_multiscale_pair() -> impl Strategy<Value = (LeafList, LeafList)> {
     let relation = prop_oneof![
         2 => arb_multiscale_version().prop_map(Relation::Independent),
@@ -449,8 +445,8 @@ enum Holder {
     Both,
 }
 
-/// One refinement cell's draws in a decomposition: how far the operand off
-/// the target sits from it, and which operand holds the target.
+/// One refinement cell's draws in a decomposition: how far the operand off the
+/// target sits from it, and which operand holds the target.
 #[derive(Clone, Debug)]
 struct CellDraw {
     /// The off-target operand's distance from the target.
@@ -462,9 +458,9 @@ struct CellDraw {
 impl Size {
     /// Draws a leaf list of this size whose heights are mostly zero.
     ///
-    /// A mask of 1 to 16 bits, each set with probability a quarter, cycles
-    /// over the leaves: a leaf keeps its drawn height where its bit is set,
-    /// and otherwise sits at zero.
+    /// A mask of 1 to 16 bits, each set with probability a quarter, cycles over
+    /// the leaves: a leaf keeps its drawn height where its bit is set, and
+    /// otherwise sits at zero.
     fn arb_sparse(self) -> BoxedStrategy<LeafList> {
         (
             self.arb_version(),
@@ -485,9 +481,9 @@ impl Size {
             .boxed()
     }
 
-    /// Draws a version of this size and a partner built through the flat
-    /// model: the version combined with a sparse one, in either order, or
-    /// two operands decomposing a target.
+    /// Draws a version of this size and a partner built through the flat model:
+    /// the version combined with a sparse one, in either order, or two operands
+    /// decomposing a target.
     fn arb_correlated_pair(self) -> BoxedStrategy<(LeafList, LeafList)> {
         let widest = self.widest_exponent();
         let op = prop::sample::select(vec![
@@ -532,11 +528,11 @@ impl Size {
 /// target.
 ///
 /// On each cell of the target's refinement by `partition`, the next draw,
-/// cycled, says which operand holds the target's height; the other sits
-/// `delta` below it (stopping at zero) for a join, or `delta` above it for a
-/// meet, unless both hold it. The
-/// result therefore collapses back to the target's leaves wherever the
-/// target is flat, while each operand keeps the partition's structure.
+/// cycled, says which operand holds the target's height; the other sits `delta`
+/// below it (stopping at zero) for a join, or `delta` above it for a meet,
+/// unless both hold it. The result therefore collapses back to the target's
+/// leaves wherever the target is flat, while each operand keeps the partition's
+/// structure.
 fn decompose(
     target: &LeafList,
     partition: &[u64],
@@ -575,17 +571,17 @@ fn decompose(
 
 /// Draws a deep version and a partner built through the flat model.
 ///
-/// Half the pairs combine a version with a sparse version, by sum,
-/// difference, join, or meet, so the pair is often comparable or nearly so.
-/// The other half are two operands decomposing a target, whose join or meet
-/// is the target exactly: on every refinement cell one operand holds the
-/// target and the other sits below it, for a join, or above it, for a meet.
-/// Canonicalizing that join or meet, from the cells of the operands' common
-/// refinement, collapses them back to the target's leaves, often through
-/// cascades in which a collapsed pair collapses again with its sibling. The
-/// census in this module's sibling tests floors those cascades, as the flat
-/// model's canonicalization counts them, and cascades whose surviving code is
-/// wider than the version writer's one-word limit.
+/// Half the pairs combine a version with a sparse version, by sum, difference,
+/// join, or meet, so the pair is often comparable or nearly so. The other half
+/// are two operands decomposing a target, whose join or meet is the target
+/// exactly: on every refinement cell one operand holds the target and the other
+/// sits below it, for a join, or above it, for a meet. Canonicalizing that join
+/// or meet, from the cells of the operands' common refinement, collapses them
+/// back to the target's leaves, often through cascades in which a collapsed
+/// pair collapses again with its sibling. The census in this module's sibling
+/// tests floors those cascades, as the flat model's canonicalization counts
+/// them, and cascades whose surviving code is wider than the version writer's
+/// one-word limit.
 pub(crate) fn arb_correlated_pair() -> impl Strategy<Value = (LeafList, LeafList)> {
     arb_sized(Size::arb_correlated_pair)
 }
@@ -616,9 +612,9 @@ pub(crate) enum SplitRule {
         /// How often, out of 256, a split follows the focus.
         wander_per_256: u8,
     },
-    /// Divides a uniformly chosen leaf half the time, and otherwise the
-    /// first, the last, or the second-to-last leaf, growing bushy regions
-    /// with spine and comb fragments.
+    /// Divides a uniformly chosen leaf half the time, and otherwise the first,
+    /// the last, or the second-to-last leaf, growing bushy regions with spine
+    /// and comb fragments.
     Mixed,
 }
 
@@ -627,8 +623,8 @@ pub(crate) enum SplitRule {
 pub(crate) struct SplitChoice {
     /// The leaf a uniform choice divides.
     leaf: Index,
-    /// A byte the rule reads as a coin: the focus's step, the comb's
-    /// choice, or the mixed rule's choice.
+    /// A byte the rule reads as a coin: the focus's step, the comb's choice, or
+    /// the mixed rule's choice.
     coin: u8,
 }
 
@@ -721,10 +717,10 @@ const MULTISCALE_SPLITS: usize = 64;
 
 /// The spine lengths [`arb_multiscale_topology`] draws.
 ///
-/// A spine of `s` splits leaves one leaf at depth `s` beside siblings at
-/// every depth from 1 to `s`. With `s` at least 32, the shallowest region is
-/// wider than the deepest leaf by a factor of at least `2^31`, so the rank
-/// integral weighs regions whose scales differ by nearly a 32-bit digit.
+/// A spine of `s` splits leaves one leaf at depth `s` beside siblings at every
+/// depth from 1 to `s`. With `s` at least 32, the shallowest region is wider
+/// than the deepest leaf by a factor of at least `2^31`, so the rank integral
+/// weighs regions whose scales differ by nearly a 32-bit digit.
 const MULTISCALE_SPINE: core::ops::Range<usize> = 32..120;
 
 /// Draws one split's draws.
@@ -732,9 +728,8 @@ fn arb_split_choice() -> impl Strategy<Value = SplitChoice> {
     (any::<Index>(), any::<u8>()).prop_map(|(leaf, coin)| SplitChoice { leaf, coin })
 }
 
-/// Draws a [`Size::Tier`]'s split rule, in equal shares: uniform, first,
-/// last, wander, and combs that follow the focus half the time and 220 times
-/// in 256.
+/// Draws a [`Size::Tier`]'s split rule, in equal shares: uniform, first, last,
+/// wander, and combs that follow the focus half the time and 220 times in 256.
 fn arb_split_rule() -> impl Strategy<Value = SplitRule> {
     prop_oneof![
         Just(SplitRule::Uniform),
@@ -751,8 +746,8 @@ fn arb_split_rule() -> impl Strategy<Value = SplitRule> {
 }
 
 /// Draws a multi-scale topology: a spine of [`MULTISCALE_SPINE`] levels a
-/// quarter of the time, then up to [`MULTISCALE_SPLITS`] splits under the
-/// mixed rule.
+/// quarter of the time, then up to [`MULTISCALE_SPLITS`] splits under the mixed
+/// rule.
 pub(crate) fn arb_multiscale_topology() -> impl Strategy<Value = Topology> {
     (
         prop_oneof![
@@ -775,8 +770,8 @@ pub(crate) fn arb_multiscale_topology() -> impl Strategy<Value = Topology> {
 /// How a leaf list's leaves receive their absolute heights.
 #[derive(Clone, Debug)]
 pub(crate) enum Heights {
-    /// Sets the first leaf's height to `first` applied to zero, and each
-    /// later leaf's to the next step, cycling through `steps`, applied to the
+    /// Sets the first leaf's height to `first` applied to zero, and each later
+    /// leaf's to the next step, cycling through `steps`, applied to the
     /// previous leaf's height.
     Steps {
         /// The step that sets the first leaf's height.
@@ -834,23 +829,23 @@ pub(crate) enum StepKind {
     DownPower,
     /// Moves to `2^k − 1 + small`, all ones below bit `k`.
     AllOnes,
-    /// Moves to `(2^32 − 1) · 2^(32·⌊k/32⌋)`, one full 32-bit digit at a
-    /// digit boundary.
+    /// Moves to `(2^32 − 1) · 2^(32·⌊k/32⌋)`, one full 32-bit digit at a digit
+    /// boundary.
     Digit,
     /// Stays at `h`, extending a plateau.
     Plateau,
-    /// Returns to an earlier leaf's height, chosen by `k`, or stays at `h`
-    /// on the first leaf.
+    /// Returns to an earlier leaf's height, chosen by `k`, or stays at `h` on
+    /// the first leaf.
     Return,
     /// Drops to zero.
     Zero,
     /// Flips bit `k` of `h`.
     FlipBit,
-    /// Moves by `2^k − 2^⌊k/2⌋`: up when `small` is even or the drop would
-    /// go negative, and down otherwise.
+    /// Moves by `2^k − 2^⌊k/2⌋`: up when `small` is even or the drop would go
+    /// negative, and down otherwise.
     Gap,
-    /// Returns to an earlier leaf's height, chosen by `k`, plus `small`,
-    /// nearly cancelling the drift since then.
+    /// Returns to an earlier leaf's height, chosen by `k`, plus `small`, nearly
+    /// cancelling the drift since then.
     NearReturn,
 }
 
@@ -909,9 +904,9 @@ const PALETTE_PICKS: core::ops::RangeInclusive<usize> = 1..=64;
 /// The widest scale exponent [`arb_step`] draws.
 const STEP_K_MAX: u32 = 2_200;
 
-/// The bands [`arb_step_scale`] draws a step's scale exponent from, with
-/// their weights: up to 69 bits, about 300, about 600, about 1,000, and
-/// 2,000 to [`STEP_K_MAX`].
+/// The bands [`arb_step_scale`] draws a step's scale exponent from, with their
+/// weights: up to 69 bits, about 300, about 600, about 1,000, and 2,000 to
+/// [`STEP_K_MAX`].
 ///
 /// The bands put drifts below, near, and far above the integral's 256-bit
 /// freeze allowance.
@@ -923,8 +918,8 @@ const STEP_SCALE_BANDS: [(u32, Range<u32>); 5] = [
     (1, 2000..STEP_K_MAX),
 ];
 
-/// Draws a step's scale exponent from [`STEP_SCALE_BANDS`], each band cut
-/// off at `widest`.
+/// Draws a step's scale exponent from [`STEP_SCALE_BANDS`], each band cut off
+/// at `widest`.
 ///
 /// The first band lies below every size's widest exponent, so some band is
 /// always left.
@@ -981,12 +976,12 @@ pub(crate) fn arb_step_heights(widest: u32) -> impl Strategy<Value = Heights> {
 ///
 /// Half the bases are zero; the rest sit at `2^31`, `2^32 − 2`, `2^64 − 1`,
 /// `2^128` when `widest` exceeds 128, or a power of two below
-/// `2^min(700, widest)`. The offsets sit at 0 to 3, on either side of
-/// `2^31`, `2^32`, and `2^64`, at `2^63`, or at a power of two below
-/// `2^min(300, widest)`. The writer moves a gamma code through one 64-bit
-/// word only when it is at most 63 bits: an absolute height through
-/// `2^32 − 2` or a signed difference within `±(2^31 − 1)`. Differences
-/// between two levels land on both sides of that limit.
+/// `2^min(700, widest)`. The offsets sit at 0 to 3, on either side of `2^31`,
+/// `2^32`, and `2^64`, at `2^63`, or at a power of two below
+/// `2^min(300, widest)`. The writer moves a gamma code through one 64-bit word
+/// only when it is at most 63 bits: an absolute height through `2^32 − 2` or a
+/// signed difference within `±(2^31 − 1)`. Differences between two levels land
+/// on both sides of that limit.
 fn arb_boundary_level(widest: u32) -> impl Strategy<Value = BigUint> {
     let pow2 = |k: u32| BigUint::from(1u8) << k;
     let fixed = |weight: u32, value: BigUint| (weight, Just(value).boxed());
@@ -1020,11 +1015,11 @@ fn arb_boundary_level(widest: u32) -> impl Strategy<Value = BigUint> {
         .prop_map(|(base, offset)| base + offset)
 }
 
-/// Draws a palette of one to four boundary levels, at scales up to
-/// `widest`, and zero.
+/// Draws a palette of one to four boundary levels, at scales up to `widest`,
+/// and zero.
 ///
-/// A small palette shared by every leaf makes equal heights, and so
-/// collapses, common.
+/// A small palette shared by every leaf makes equal heights, and so collapses,
+/// common.
 pub(crate) fn arb_boundary_heights(widest: u32) -> impl Strategy<Value = Heights> {
     (
         proptest::collection::vec(arb_boundary_level(widest), 1..=4),
@@ -1037,8 +1032,8 @@ pub(crate) fn arb_boundary_heights(widest: u32) -> impl Strategy<Value = Heights
 }
 
 /// The exponents of the wide value `W = 2^e` in
-/// [`arb_near_equal_wide_heights`]: on both sides of the 32- and 64-bit
-/// words, past two words, and far past them.
+/// [`arb_near_equal_wide_heights`]: on both sides of the 32- and 64-bit words,
+/// past two words, and far past them.
 const WIDE_EXPONENTS: [u32; 9] = [31, 32, 63, 64, 65, 127, 128, 200, 1000];
 
 /// One of [`arb_near_equal_wide_heights`]' palettes over `W`.
@@ -1080,25 +1075,23 @@ impl WideAlphabet {
     }
 }
 
-/// Draws a palette of near-equal wide values no wider than about
-/// `2^widest`.
+/// Draws a palette of near-equal wide values no wider than about `2^widest`.
 ///
 /// With `W = 2^e` for `e` in [`WIDE_EXPONENTS`], the palette is a
-/// [`WideAlphabet`]: `{W, W + 1, W + 2}`, `{0, 1, W, W + 1}`, `{0, W, 2W}`,
-/// or `{W − 1, W, W + 1}` with `e` at most `widest`, or `{0, 1, W − 1, W²}`
-/// with `2e` at most `widest`. The consecutive and straddling palettes hold
-/// values one or two apart at a width past the word, and the paired palette
-/// holds one such pair at 0 and another at `W`. The multiples palette steps
-/// by exactly `W`, and the square palette sets `W − 1` far below `W²`. Each
-/// leaf takes a palette value, so a walk that compares neighboring heights
-/// builds and discards differences of one or two at that width, or of whole
-/// multiples of `W`.
+/// [`WideAlphabet`]: `{W, W + 1, W + 2}`, `{0, 1, W, W + 1}`, `{0, W, 2W}`, or
+/// `{W − 1, W, W + 1}` with `e` at most `widest`, or `{0, 1, W − 1, W²}` with
+/// `2e` at most `widest`. The consecutive and straddling palettes hold values
+/// one or two apart at a width past the word, and the paired palette holds one
+/// such pair at 0 and another at `W`. The multiples palette steps by exactly
+/// `W`, and the square palette sets `W − 1` far below `W²`. Each leaf takes a
+/// palette value, so a walk that compares neighboring heights builds and
+/// discards differences of one or two at that width, or of whole multiples of
+/// `W`.
 ///
 /// # Panics
 ///
-/// Panics if `widest` is below the smallest of [`WIDE_EXPONENTS`], which
-/// leaves no palette to draw. Every [`Size`] gives a widest exponent above
-/// it.
+/// Panics if `widest` is below the smallest of [`WIDE_EXPONENTS`], which leaves
+/// no palette to draw. Every [`Size`] gives a widest exponent above it.
 pub(crate) fn arb_near_equal_wide_heights(widest: u32) -> impl Strategy<Value = Heights> {
     let alphabets = [
         WideAlphabet::Consecutive,
@@ -1148,18 +1141,18 @@ pub(crate) enum Relation {
     Independent(LeafList),
     /// Moves each leaf's height by the next nudge, cycling.
     Perturbed(Vec<Step>),
-    /// Splits leaves further: each split divides the leaf the mixed rule
-    /// picks, and the new right child takes its parent's height moved by the
-    /// next narrow nudge, cycling.
+    /// Splits leaves further: each split divides the leaf the mixed rule picks,
+    /// and the new right child takes its parent's height moved by the next
+    /// narrow nudge, cycling.
     Refined {
         /// One draw per split.
         splits: Vec<SplitChoice>,
         /// The narrow nudges for the new children, cycled.
         nudges: Vec<Step>,
     },
-    /// Splits leaves further, each new child at its parent's height, giving
-    /// a different leaf list for the same version: normalization collapses
-    /// two equal siblings back into their parent.
+    /// Splits leaves further, each new child at its parent's height, giving a
+    /// different leaf list for the same version: normalization collapses two
+    /// equal siblings back into their parent.
     Resplit(Vec<SplitChoice>),
     /// Moves one leaf's height by one step.
     Edited {
@@ -1170,8 +1163,8 @@ pub(crate) enum Relation {
     },
     /// Reverses the leaves, giving the mirror image, of equal rank.
     Mirrored,
-    /// Rotates the heights of every leaf at one leaf's depth by one place
-    /// among those leaves, keeping the rank.
+    /// Rotates the heights of every leaf at one leaf's depth by one place among
+    /// those leaves, keeping the rank.
     Rotated {
         /// The leaf whose depth is rotated.
         leaf: Index,
@@ -1180,13 +1173,12 @@ pub(crate) enum Relation {
 
 /// Draws a relation, with steps at scales up to `widest`.
 ///
-/// Mirroring and resplitting take three shares each, and every other kind
-/// one. Mirrored and rotated pairs are the distinct pairs of equal rank, and
-/// resplit pairs are equal; the census in this module's sibling tests floors
-/// both regimes, and the weights keep each well above its floor on any
-/// sample. A
-/// perturbation's nudges are narrow half the time and any step otherwise,
-/// so the pair's difference is sometimes narrow over wide common heights and
+/// Mirroring and resplitting take three shares each, and every other kind one.
+/// Mirrored and rotated pairs are the distinct pairs of equal rank, and resplit
+/// pairs are equal; the census in this module's sibling tests floors both
+/// regimes, and the weights keep each well above its floor on any sample. A
+/// perturbation's nudges are narrow half the time and any step otherwise, so
+/// the pair's difference is sometimes narrow over wide common heights and
 /// sometimes wide.
 pub(crate) fn arb_relation(
     independent: impl Strategy<Value = LeafList>,

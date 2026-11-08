@@ -1,9 +1,9 @@
 //! Route operands without normalizing them or allocating shifted copies.
 //!
-//! A primitive value is added directly while the accumulator and result fit
-//! the small representation. A limb iterator is read only far enough to
-//! distinguish empty, one-word, and wider input: one word shares the same
-//! path, while a wider stream is deposited directly into signed digits.
+//! A primitive value is added directly while the accumulator and result fit the
+//! small representation. A limb iterator is read only far enough to distinguish
+//! empty, one-word, and wider input: one word shares the same path, while a
+//! wider stream is deposited directly into signed digits.
 //!
 //! Another accumulator is read without a copy. A small operand enters as one
 //! exact value; a digit-stored operand is read through its highest nonzero
@@ -40,8 +40,8 @@ pub enum Update {
 }
 
 impl Update {
-    /// The update that applies a magnitude of the given sign: subtraction
-    /// for a negative one, addition otherwise.
+    /// The update that applies a magnitude of the given sign: subtraction for a
+    /// negative one, addition otherwise.
     pub fn from_sign(sign: Ordering) -> Update {
         if sign == Ordering::Less {
             Update::Sub
@@ -77,9 +77,9 @@ impl Update {
 impl Value {
     /// Add a full-width integer without forcing it through signed `i128`.
     ///
-    /// Smaller primitives use `add_word` and its proven headroom instead.
-    /// A `u128` magnitude also represents the absolute value of `i128::MIN`,
-    /// so subtraction never needs an overflowing signed negation.
+    /// Smaller primitives use `add_word` and its proven headroom instead. A
+    /// `u128` magnitude also represents the absolute value of `i128::MIN`, so
+    /// subtraction never needs an overflowing signed negation.
     pub(crate) fn apply_magnitude(&mut self, magnitude: u128, update: Update) {
         if magnitude == 0 {
             return;
@@ -167,7 +167,8 @@ impl Value {
             .add_at(digit_index(u128::from(digit_shift)), update.apply(value));
     }
 
-    /// Peek at most two limbs so the common one-word case stays allocation-free.
+    /// Peek at most two limbs so the common one-word case stays
+    /// allocation-free.
     ///
     /// Replaying the two peeked limbs with `chain` keeps the stream lazy and
     /// allocation-free. High zero limbs still select the wide path and cost

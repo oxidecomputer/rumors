@@ -41,8 +41,8 @@ fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
 }
 
-/// The opener of an `arity`-item frame on `stream` carrying `signal`: the
-/// array head, then the stream and state items.
+/// The opener of an `arity`-item frame on `stream` carrying `signal`: the array
+/// head, then the stream and state items.
 fn frame_head(arity: u64, stream: Stream, signal: Signal) -> Vec<u8> {
     let mut head = Vec::new();
     cbor::write_head(&mut head, cbor::MAJOR_ARRAY, arity);
@@ -56,8 +56,7 @@ fn bare_frame(stream: Stream, s: Signal) -> Vec<u8> {
     frame_head(2, stream, s)
 }
 
-/// A whole supply frame declaring `body.len()` run bytes and carrying
-/// `body`.
+/// A whole supply frame declaring `body.len()` run bytes and carrying `body`.
 fn supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
     supply_declaring(stream, flow, body.len(), body)
 }
@@ -71,18 +70,17 @@ fn supply_declaring(stream: Stream, flow: Flow, declared: usize, body: &[u8]) ->
     encoded
 }
 
-/// A whole query frame carrying `children` as its listing map, written
-/// raw (no canonical-order validation) so tests can synthesize
-/// violations.
+/// A whole query frame carrying `children` as its listing map, written raw (no
+/// canonical-order validation) so tests can synthesize violations.
 fn query(stream: Stream, flow: Flow, children: &[Listed]) -> Vec<u8> {
     let mut encoded = frame_head(3, stream, Signal::Query(flow));
     super::super::frame::write_listing(&mut encoded, children);
     encoded
 }
 
-/// One leaf record as it appears inside a run body: the embedded-sequence
-/// tag and byte-string head, then the tagged version atom, then the
-/// payload's CBOR bytes bare.
+/// One leaf record as it appears inside a run body: the embedded-sequence tag
+/// and byte-string head, then the tagged version atom, then the payload's CBOR
+/// bytes bare.
 fn record(version: &Version, message: &Message) -> Vec<u8> {
     raw_record(&record_content(version, message))
 }
@@ -115,8 +113,8 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
-/// The stream constructor rejects an index past the stream range with an
-/// error naming the index.
+/// The stream constructor rejects an index past the stream range with an error
+/// naming the index.
 #[test]
 fn out_of_range_stream_index_is_rejected() {
     assert!(matches!(
@@ -125,9 +123,9 @@ fn out_of_range_stream_index_is_rejected() {
     ));
 }
 
-/// A reserved state code on a known stream is rejected naming that
-/// stream; a reserved stream index is rejected against the direction;
-/// a non-int item in either position is a malformed signal.
+/// A reserved state code on a known stream is rejected naming that stream; a
+/// reserved stream index is rejected against the direction; a non-int item in
+/// either position is a malformed signal.
 #[test]
 fn invalid_openers_are_rejected() {
     let stream = stream(4);
@@ -229,8 +227,8 @@ fn frame_shape_is_enforced() {
     }
 }
 
-/// A match frame on `stream` whose body is a byte string holding `set`, a
-/// set's spelling whether or not it is canonical.
+/// A match frame on `stream` whose body is a byte string holding `set`, a set's
+/// spelling whether or not it is canonical.
 fn match_with_set(stream: Stream, flow: Flow, set: &[u8]) -> Vec<u8> {
     let mut encoded = frame_head(3, stream, Signal::Match(flow));
     cbor::write_head(&mut encoded, MAJOR_BSTR, set.len() as u64);
@@ -238,8 +236,8 @@ fn match_with_set(stream: Stream, flow: Flow, set: &[u8]) -> Vec<u8> {
     encoded
 }
 
-/// A match covering no later child is body-free, so a match frame whose
-/// body is the empty set is not canonical: both decoders reject it.
+/// A match covering no later child is body-free, so a match frame whose body is
+/// the empty set is not canonical: both decoders reject it.
 #[test]
 fn an_empty_match_set_is_rejected() {
     let stream = stream(4);
@@ -264,9 +262,8 @@ fn an_empty_match_set_is_rejected() {
 
 /// A match's body must be a byte string no longer than a set's encoding.
 ///
-/// Both decoders reject a head of another major type before anything
-/// behind it is read, and a longer byte string at its head, before its
-/// content is read.
+/// Both decoders reject a head of another major type before anything behind it
+/// is read, and a longer byte string at its head, before its content is read.
 #[test]
 fn a_match_body_is_held_to_a_set_encoding_at_its_head() {
     let stream = stream(4);
@@ -333,8 +330,8 @@ proptest! {
     }
 }
 
-/// A widened (non-shortest-form) state item is rejected: the wire admits
-/// one spelling per value.
+/// A widened (non-shortest-form) state item is rejected: the wire admits one
+/// spelling per value.
 #[test]
 fn widened_signal_heads_are_rejected() {
     let stream = stream(3);
@@ -437,9 +434,9 @@ proptest! {
     }
 }
 
-/// Structurally invalid runs are rejected at the wire with their exact
-/// cause: an empty run, bytes that are no record item, or a record's
-/// content past the run's end.
+/// Structurally invalid runs are rejected at the wire with their exact cause:
+/// an empty run, bytes that are no record item, or a record's content past the
+/// run's end.
 #[test]
 fn malformed_run_structure_is_typed() {
     let stream = stream(8);
@@ -490,10 +487,10 @@ fn malformed_run_structure_is_typed() {
 
 /// An empty-content record inside a run body is structurally valid.
 ///
-/// From raw wire bytes, a run body of one record whose byte string is
-/// empty chains exactly, so the codec accepts the frame and defers the
-/// record's failure to its record iterator: the empty content cannot hold
-/// a tagged version, and the iterator reports the version decode failure.
+/// From raw wire bytes, a run body of one record whose byte string is empty
+/// chains exactly, so the codec accepts the frame and defers the record's
+/// failure to its record iterator: the empty content cannot hold a tagged
+/// version, and the iterator reports the version decode failure.
 #[test]
 fn a_zero_length_record_is_structurally_valid() {
     let stream = stream(8);
@@ -600,8 +597,8 @@ fn assert_version_head_error(content: &[u8], expected: HeadError) {
     ));
 }
 
-/// A widened version byte-string head is rejected with its typed
-/// shortest-form defect.
+/// A widened version byte-string head is rejected with its typed shortest-form
+/// defect.
 #[test]
 fn widened_version_atom_head_is_rejected() {
     let version = Version::new();
@@ -619,8 +616,8 @@ fn widened_version_atom_head_is_rejected() {
     assert_version_head_error(&content, HeadError::NotShortest);
 }
 
-/// An indefinite version byte string is rejected with its typed
-/// definite-length defect.
+/// An indefinite version byte string is rejected with its typed definite-length
+/// defect.
 #[test]
 fn indefinite_version_atom_head_is_rejected() {
     let version = Version::new();
@@ -639,12 +636,12 @@ fn indefinite_version_atom_head_is_rejected() {
     assert_version_head_error(&content, HeadError::Indefinite);
 }
 
-/// Pins the stated ingress boundary: the application payload is decoded
-/// by a general CBOR reader that does not judge spelling.
+/// Pins the stated ingress boundary: the application payload is decoded by a
+/// general CBOR reader that does not judge spelling.
 ///
-/// A record whose payload is the indefinite-length empty map (a spelling
-/// the emitter never writes) still decodes. Flipping this to rejection
-/// is a deliberate contract change, not drift.
+/// A record whose payload is the indefinite-length empty map (a spelling the
+/// emitter never writes) still decodes. Flipping this to rejection is a
+/// deliberate contract change, not drift.
 #[test]
 fn indefinite_payload_spelling_is_not_spelling_judged() {
     let mut content = Vec::new();
@@ -746,14 +743,14 @@ proptest! {
     }
 }
 
-/// One listing entry with a non-canonical head, and the defect both
-/// decoders must name.
+/// One listing entry with a non-canonical head, and the defect both decoders
+/// must name.
 ///
 /// The spellings: a widened key (a radix below 24 spelled with a one-byte
-/// argument), a widened value head (the digest's length spelled with a
-/// two-byte argument), an indefinite-length value head, or a reserved key
-/// head. Each entry carries a full digest behind the defect, so nothing
-/// but the head is wrong.
+/// argument), a widened value head (the digest's length spelled with a two-byte
+/// argument), an indefinite-length value head, or a reserved key head. Each
+/// entry carries a full digest behind the defect, so nothing but the head is
+/// wrong.
 fn arb_listing_head_defect() -> impl Strategy<Value = (Vec<u8>, HeadError)> {
     let digest = [0u8; MERKLE_HASH_LEN];
     let canonical_value = move |entry: &mut Vec<u8>| {
@@ -786,8 +783,8 @@ fn arb_listing_head_defect() -> impl Strategy<Value = (Vec<u8>, HeadError)> {
 
 /// A query body whose listing map is empty is rejected by both decoders.
 ///
-/// An empty query travels as its own signal, so the map spelling requires
-/// at least one child (the upper bound is pinned by
+/// An empty query travels as its own signal, so the map spelling requires at
+/// least one child (the upper bound is pinned by
 /// `oversized_query_listing_is_rejected`).
 #[test]
 fn empty_query_listing_is_rejected() {
@@ -801,8 +798,8 @@ fn empty_query_listing_is_rejected() {
 }
 
 /// A query listing declaring more children than the radix space holds is
-/// rejected at its map head, before any entry is read: the map spelling
-/// admits at most one child per radix value.
+/// rejected at its map head, before any entry is read: the map spelling admits
+/// at most one child per radix value.
 #[test]
 fn oversized_query_listing_is_rejected() {
     let stream = stream(5);
@@ -827,7 +824,8 @@ fn oversized_query_listing_is_rejected() {
     }
 }
 
-/// Exact decoding rejects a trailing frame while incremental decoding preserves it.
+/// Exact decoding rejects a trailing frame while incremental decoding preserves
+/// it.
 #[test]
 fn exact_decode_rejects_trailing_frame() {
     let stream = stream(10);
@@ -856,8 +854,8 @@ fn exact_decode_rejects_trailing_frame() {
     }
 }
 
-/// Async EOF is clean only before a frame head; every partial body reports
-/// the same missing part and stream context in both decoders.
+/// Async EOF is clean only before a frame head; every partial body reports the
+/// same missing part and stream context in both decoders.
 ///
 /// The clean close is checked async-only: the sync oracle's callers always
 /// expect a frame, so it deliberately treats a clean close as a truncation.
@@ -908,11 +906,11 @@ fn async_eof_distinguishes_close_from_truncation() {
     }
 }
 
-/// An invalid async signal consumes only its own frame, leaving the
-/// following valid frame at the next exact boundary.
+/// An invalid async signal consumes only its own frame, leaving the following
+/// valid frame at the next exact boundary.
 ///
-/// The invalid signal is one the other speaker may place on the same
-/// stream, so only this speaker's phase grammar rejects it.
+/// The invalid signal is one the other speaker may place on the same stream, so
+/// only this speaker's phase grammar rejects it.
 #[test]
 fn async_invalid_signal_does_not_consume_a_body() {
     for speaker in SPEAKERS {
@@ -957,8 +955,8 @@ fn async_invalid_signal_does_not_consume_a_body() {
     }
 }
 
-/// What a `TestRead` transport does once it has failed: keep failing,
-/// close cleanly, or resume delivering the rest of its bytes.
+/// What a `TestRead` transport does once it has failed: keep failing, close
+/// cleanly, or resume delivering the rest of its bytes.
 #[derive(Debug, Clone, Copy)]
 enum AfterFailure {
     /// Keep reporting the same error.
@@ -969,7 +967,8 @@ enum AfterFailure {
     Resume,
 }
 
-/// Bytes delivered with a repeating chunk schedule and an optional read failure.
+/// Bytes delivered with a repeating chunk schedule and an optional read
+/// failure.
 ///
 /// Both I/O traits use the same byte source. Async reads also yield once before
 /// each operation, so the decoder must retain its progress across polls.
@@ -1096,20 +1095,19 @@ impl AsyncRead for TestRead {
     }
 }
 
-/// A transport failure inside a frame's opener is reported at the item
-/// it interrupted, identically by both decoders and without another read
-/// of the transport, whatever the transport would do next.
+/// A transport failure inside a frame's opener is reported at the item it
+/// interrupted, identically by both decoders and without another read of the
+/// transport, whatever the transport would do next.
 ///
 /// Each row delivers a prefix of an opener and then fails. The canonical
-/// `End(Stream)` opener on stream 9 is three one-byte items: a failure
-/// before the first byte is a read error at the frame head; after one or
-/// two bytes, at the signal; after all three, unseen, and the frame
-/// decodes. Two non-canonical openers fail inside a head's extension
-/// bytes: a stream item `0x18` owed its one-byte extension, and an array
-/// head `0x9b` owed eight. Every row runs against a transport that then
-/// keeps failing, closes, or resumes delivering; in every case no read
-/// follows the failure, so a resuming transport still holds the bytes
-/// it would have delivered.
+/// `End(Stream)` opener on stream 9 is three one-byte items: a failure before
+/// the first byte is a read error at the frame head; after one or two bytes, at
+/// the signal; after all three, unseen, and the frame decodes. Two
+/// non-canonical openers fail inside a head's extension bytes: a stream item
+/// `0x18` owed its one-byte extension, and an array head `0x9b` owed eight.
+/// Every row runs against a transport that then keeps failing, closes, or
+/// resumes delivering; in every case no read follows the failure, so a resuming
+/// transport still holds the bytes it would have delivered.
 #[test]
 fn opener_read_failures_are_reported_in_wire_order() {
     let stream = stream(9);
@@ -1186,13 +1184,13 @@ fn opener_read_failures_are_reported_in_wire_order() {
 /// Supply-body truncation cuts at every seeded offset all classify as a
 /// truncated `SupplyRun` with an `UnexpectedEof` source.
 ///
-/// The seeded offsets are the roster the framing suites share: one byte
-/// short of, exactly on, and one byte past each payload chunk boundary,
-/// plus the zero-byte, one-byte, and one-short-of-total cuts. The supply
-/// body is read into a buffer reserved whole, so none of them is a seam
-/// of its own read; the roster spreads the cuts over a body of several
-/// chunks, and the zero- and one-byte cuts exercise the earliest ones,
-/// where a record's leading heads would sit.
+/// The seeded offsets are the roster the framing suites share: one byte short
+/// of, exactly on, and one byte past each payload chunk boundary, plus the
+/// zero-byte, one-byte, and one-short-of-total cuts. The supply body is read
+/// into a buffer reserved whole, so none of them is a seam of its own read; the
+/// roster spreads the cuts over a body of several chunks, and the zero- and
+/// one-byte cuts exercise the earliest ones, where a record's leading heads
+/// would sit.
 #[test]
 fn supply_truncation_at_chunk_boundaries_is_typed() {
     use crate::tree::mirror::framing::{PAYLOAD_CHUNK_LEN, chunk_boundary_cuts};
@@ -1221,8 +1219,8 @@ fn supply_truncation_at_chunk_boundaries_is_typed() {
 }
 
 /// The charged wire size of a supply frame carrying `body` run bytes: the
-/// budget envelope constant plus the body, the exact quantity `covers`
-/// prices and `OverbatchedRun` reports.
+/// budget envelope constant plus the body, the exact quantity `covers` prices
+/// and `OverbatchedRun` reports.
 fn frame_wire_size(body: &[u8]) -> usize {
     super::super::SUPPLY_FRAME_OVERHEAD + body.len()
 }
@@ -1377,15 +1375,14 @@ proptest! {
     }
 }
 
-/// Corner classifications of the run-budget ingress check, under a zero
-/// budget so every frame overhangs.
+/// Corner classifications of the run-budget ingress check, under a zero budget
+/// so every frame overhangs.
 ///
-/// An over-budget body too short to hold a record's heads is the
-/// violation, decided on the declared length alone (no body byte follows,
-/// yet the error is not a truncation); a first record that falls short of
-/// the body or overruns it is the violation; a stream ending inside the
-/// first record's heads, or inside an admitted lone record's body, is a
-/// truncated supply run.
+/// An over-budget body too short to hold a record's heads is the violation,
+/// decided on the declared length alone (no body byte follows, yet the error is
+/// not a truncation); a first record that falls short of the body or overruns
+/// it is the violation; a stream ending inside the first record's heads, or
+/// inside an admitted lone record's body, is a truncated supply run.
 #[test]
 fn overbatched_corners_classify_exactly() {
     let stream = stream(9);
@@ -1458,15 +1455,15 @@ fn overbatched_corners_classify_exactly() {
     }
 }
 
-/// The over-budget lone-record body read consumes no byte beyond the
-/// declared run: the frame after it stays intact in the transport and
-/// decodes next, whatever the delivery chunking.
+/// The over-budget lone-record body read consumes no byte beyond the declared
+/// run: the frame after it stays intact in the transport and decodes next,
+/// whatever the delivery chunking.
 ///
-/// Stream 9, `Supply(End)` declaring a four-byte run that is exactly one
-/// record of one content byte, then `End(Stream)` on the same stream,
-/// under a zero budget so the lone-record path is taken. Both decoders
-/// accept the record; the async reader then decodes the second frame and
-/// reports the clean close after it.
+/// Stream 9, `Supply(End)` declaring a four-byte run that is exactly one record
+/// of one content byte, then `End(Stream)` on the same stream, under a zero
+/// budget so the lone-record path is taken. Both decoders accept the record;
+/// the async reader then decodes the second frame and reports the clean close
+/// after it.
 #[test]
 fn over_budget_lone_record_read_stays_within_its_frame() {
     let stream = stream(9);
@@ -1509,8 +1506,8 @@ fn over_budget_lone_record_read_stays_within_its_frame() {
 /// accepts the record's structure before its content is examined.
 #[test]
 fn record_iteration_enforces_payload_depth() {
-    /// The receiving payload type: pure array nesting, the innermost
-    /// array empty, matching the hand-crafted bytes below.
+    /// The receiving payload type: pure array nesting, the innermost array
+    /// empty, matching the hand-crafted bytes below.
     #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     struct Arr(Vec<Arr>);
     let limit = PayloadDepthLimit::default();
@@ -1548,19 +1545,19 @@ fn record_iteration_enforces_payload_depth() {
         .expect("a payload at exactly the limit decodes");
 }
 
-/// Reading a supply run through the receive pool never holds more than
-/// the run's own bytes at once.
+/// Reading a supply run through the receive pool never holds more than the
+/// run's own bytes at once.
 ///
-/// For a run within the budget, its permit covers those bytes and the
-/// run's node in its lane, so no moment of receiving the run holds more
-/// than its permit covers. A record larger than the pool takes the whole
-/// pool, and holds beside it only its own excess over the pool.
+/// For a run within the budget, its permit covers those bytes and the run's
+/// node in its lane, so no moment of receiving the run holds more than its
+/// permit covers. A record larger than the pool takes the whole pool, and holds
+/// beside it only its own excess over the pool.
 ///
-/// The read completes in one poll from an in-memory transport, so the
-/// poll's peak covers the run's buffer at its largest, both blocks of any
-/// reallocation counted. The runs fill the body the default target admits,
-/// and a target four times as large, and outgrow each one's pool by a
-/// lone record of three times its body.
+/// The read completes in one poll from an in-memory transport, so the poll's
+/// peak covers the run's buffer at its largest, both blocks of any reallocation
+/// counted. The runs fill the body the default target admits, and a target four
+/// times as large, and outgrow each one's pool by a lone record of three times
+/// its body.
 #[test]
 fn receiving_a_run_holds_at_most_its_permit() {
     let node = queued::<Inbound>();

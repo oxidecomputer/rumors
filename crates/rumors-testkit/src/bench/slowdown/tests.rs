@@ -6,12 +6,11 @@ use proptest::prelude::*;
 use super::Profile;
 use crate::bench::session::Step;
 
-/// A profile of up to 40 steps, each holding up to 2²⁰ bytes and lasting
-/// 1 to 25,000 byte-times.
+/// A profile of up to 40 steps, each holding up to 2²⁰ bytes and lasting 1 to
+/// 25,000 byte-times.
 ///
-/// The first starts at the session's start or within 1,000 byte-times of
-/// it, so no two steps share a time, and some profiles cover the whole
-/// session.
+/// The first starts at the session's start or within 1,000 byte-times of it, so
+/// no two steps share a time, and some profiles cover the whole session.
 fn profile() -> impl Strategy<Value = Profile> {
     (
         prop_oneof![Just(0_u64), 1..1_000_u64],

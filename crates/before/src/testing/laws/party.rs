@@ -301,9 +301,8 @@ laws! {
     }
 }
 
-/// Fold `second` then `third` into an alias of `first`, `None` at the
-/// first overlap: one association order of the partial monoid's ternary
-/// sum.
+/// Fold `second` then `third` into an alias of `first`, `None` at the first
+/// overlap: one association order of the partial monoid's ternary sum.
 fn join3(first: &Party, second: &Party, third: &Party) -> Option<Party> {
     let mut acc = first.dangerously_alias();
     acc.join(second.dangerously_alias()).ok()?;

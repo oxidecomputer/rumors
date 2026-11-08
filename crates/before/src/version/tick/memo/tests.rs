@@ -3,8 +3,8 @@
 
 use super::{Memo, StoredAccumulator};
 
-/// Values inserted nonsequentially at both edges of three memo blocks are
-/// read back from those same six slots.
+/// Values inserted nonsequentially at both edges of three memo blocks are read
+/// back from those same six slots.
 #[test]
 fn selected_out_of_order_values_cross_block_boundaries() {
     let mut memo = Memo::new();

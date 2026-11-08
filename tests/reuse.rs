@@ -1,13 +1,12 @@
 //! Connection reuse: back-to-back gossip sessions on one transport.
 //!
-//! A [`rumors::Rumors::gossip_once`] session that returns `Ok` leaves the stream
-//! at a session boundary, so a single connection can host any number of
-//! sequential sessions. These tests pin that promise at the two
-//! interleavings that matter: rounds separated by a cross-peer barrier, and
-//! rounds where one side eagerly begins its next session while the other is
-//! still draining the last frames of the previous one — the shape of any
-//! loop that re-gossips a long-lived connection whenever local content
-//! changes.
+//! A [`rumors::Rumors::gossip_once`] session that returns `Ok` leaves the
+//! stream at a session boundary, so a single connection can host any number of
+//! sequential sessions. These tests pin that promise at the two interleavings
+//! that matter: rounds separated by a cross-peer barrier, and rounds where one
+//! side eagerly begins its next session while the other is still draining the
+//! last frames of the previous one — the shape of any loop that re-gossips a
+//! long-lived connection whenever local content changes.
 
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
@@ -25,16 +24,16 @@ use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
 /// Generous wall-clock bound: these sessions are in-memory and finish in
-/// microseconds, so hitting the deadline means lost bytes wedged a session,
-/// not a slow machine.
+/// microseconds, so hitting the deadline means lost bytes wedged a session, not
+/// a slow machine.
 const DEADLINE: Duration = Duration::from_secs(10);
 
 /// How many sequential sessions each test drives over the one connection.
 const ROUNDS: u64 = 3;
 
 /// Create a connected, party-disjoint pair: the first peer of the network
-/// `network` names and a bootstrap fork of it. The two ends of one
-/// connection they will keep reusing are created per test.
+/// `network` names and a bootstrap fork of it. The two ends of one connection
+/// they will keep reusing are created per test.
 async fn pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
@@ -128,8 +127,8 @@ divided_proptest! {
     }
 }
 
-/// Items each side flushes in a session that carries no frame: the
-/// preamble, the greeting, and the completion marker, one flush each.
+/// Items each side flushes in a session that carries no frame: the preamble,
+/// the greeting, and the completion marker, one flush each.
 const FRAMELESS_FLUSHES: usize = 3;
 
 divided_proptest! {

@@ -1,11 +1,9 @@
-//! The session reader and its fixtures, each against an independent
-//! answer.
+//! The session reader and its fixtures, each against an independent answer.
 //!
 //! Fixture messages' encoded sizes are checked against an independent CBOR
-//! encoder; a session's records over time, against its ledgers' totals;
-//! and the reader's record of units waiting or admitted beside a waiting
-//! unit of their kind and depth, against a model of each ledger's waiting
-//! units.
+//! encoder; a session's records over time, against its ledgers' totals; and the
+//! reader's record of units waiting or admitted beside a waiting unit of their
+//! kind and depth, against a model of each ledger's waiting units.
 
 use std::collections::BTreeMap;
 
@@ -53,8 +51,8 @@ proptest! {
     }
 }
 
-/// The excess `ledger`'s profile records, integrated from
-/// its first step to its last.
+/// The excess `ledger`'s profile records, integrated from its first step to its
+/// last.
 fn profile_area(ledger: &LedgerReading) -> u128 {
     ledger
         .profile
@@ -63,23 +61,22 @@ fn profile_area(ledger: &LedgerReading) -> u128 {
         .sum()
 }
 
-/// A session's records over time agree with the totals its ledgers keep
-/// by other means, with and without a budget that holds units back.
+/// A session's records over time agree with the totals its ledgers keep by
+/// other means, with and without a budget that holds units back.
 ///
-/// Each side's profile of its excess integrates to its budget area and ends
-/// at zero, as the session releases every charge. Its holders, built from
-/// the moves the ledger reports, partition what it holds: their areas add
-/// up to the places' areas, which the ledger's own per-place totals give.
-/// Its waits number the units the ledger counted as waiting, each admitted
-/// no earlier than it was queued and no wait longer than the time some unit
-/// waited. Where a side made a share check, as some side does, the check
-/// it dates as its share peak weighed exactly the peak the ledger kept, its
-/// terms add up to that sum as the share's rule computes it, and it falls
-/// within the session; where it made none, since every question it asked
-/// was exempt, its share peak reads zero. What the holders held at
-/// the budget peak adds up to what the ledger held then, which is at least
-/// that peak excess, at a moment within the session. The two ledgers are
-/// read as the two sides'.
+/// Each side's profile of its excess integrates to its budget area and ends at
+/// zero, as the session releases every charge. Its holders, built from the
+/// moves the ledger reports, partition what it holds: their areas add up to the
+/// places' areas, which the ledger's own per-place totals give. Its waits
+/// number the units the ledger counted as waiting, each admitted no earlier
+/// than it was queued and no wait longer than the time some unit waited. Where
+/// a side made a share check, as some side does, the check it dates as its
+/// share peak weighed exactly the peak the ledger kept, its terms add up to
+/// that sum as the share's rule computes it, and it falls within the session;
+/// where it made none, since every question it asked was exempt, its share peak
+/// reads zero. What the holders held at the budget peak adds up to what the
+/// ledger held then, which is at least that peak excess, at a moment within the
+/// session. The two ledgers are read as the two sides'.
 ///
 /// The pair holds 10,000 messages a side, enough that some of its questions
 /// overflow their kinds and depths' bounds and meet the share.
@@ -157,14 +154,13 @@ fn records_over_time_agree_with_the_ledger_totals() {
     }
 }
 
-/// A shape's redactions take effect on the side that makes them and on
-/// that side alone.
+/// A shape's redactions take effect on the side that makes them and on that
+/// side alone.
 ///
 /// Before the session, each replica holds the shared messages, its own
-/// insertions, and the messages its peer redacted, and none it redacted
-/// itself. A session over the pair still gains each side exactly the
-/// messages its peer inserted, since a redaction crosses as a version,
-/// never as a message.
+/// insertions, and the messages its peer redacted, and none it redacted itself.
+/// A session over the pair still gains each side exactly the messages its peer
+/// inserted, since a redaction crosses as a version, never as a message.
 #[test]
 fn redactions_hold_on_the_redacting_side_alone() {
     let shape = Shape::overlapping(2_000, 50).with_redactions(100, 300);
@@ -185,9 +181,9 @@ fn redactions_hold_on_the_redacting_side_alone() {
     });
 }
 
-/// Each draw of a shape builds another tree for the same counts: every
-/// replica holds as many messages at every draw, and its tree's hash
-/// differs from draw to draw, since the draw moves every leaf's path.
+/// Each draw of a shape builds another tree for the same counts: every replica
+/// holds as many messages at every draw, and its tree's hash differs from draw
+/// to draw, since the draw moves every leaf's path.
 #[test]
 fn draws_change_the_tree_and_not_the_counts() {
     let shape = Shape::overlapping(500, 50).with_redactions(20, 30);
@@ -211,9 +207,9 @@ fn draws_change_the_tree_and_not_the_counts() {
 
 /// One report to the admission hook in a generated schedule.
 ///
-/// The report is of a unit of `ledger`'s kind `question` at `depth`
-/// starting to wait or admitted at once, or of the `pick`th of `ledger`'s
-/// waiting units, counted modulo how many wait, taking its grant.
+/// The report is of a unit of `ledger`'s kind `question` at `depth` starting to
+/// wait or admitted at once, or of the `pick`th of `ledger`'s waiting units,
+/// counted modulo how many wait, taking its grant.
 #[derive(Clone, Copy, Debug)]
 enum Report {
     /// A unit starts to wait.
@@ -243,8 +239,8 @@ enum Report {
     },
 }
 
-/// Reports over two ledgers and few kinds and depths, so that units of one
-/// kind and depth meet often, in one ledger and across the two.
+/// Reports over two ledgers and few kinds and depths, so that units of one kind
+/// and depth meet often, in one ledger and across the two.
 fn report() -> impl Strategy<Value = Report> {
     prop_oneof![
         (1..=2_usize, any::<bool>(), 0..3_usize).prop_map(|(ledger, question, depth)| {
@@ -353,8 +349,8 @@ proptest! {
     }
 }
 
-/// Two questions at one depth waiting at once in one ledger fail the
-/// session's reading as it ends.
+/// Two questions at one depth waiting at once in one ledger fail the session's
+/// reading as it ends.
 #[test]
 #[should_panic(expected = "while another unit of its kind and depth waited")]
 fn two_waiting_units_of_one_kind_and_depth_fail_the_reading() {
@@ -364,11 +360,11 @@ fn two_waiting_units_of_one_kind_and_depth_fail_the_reading() {
     admitted();
 }
 
-/// A unit admitted at once while an earlier unit of its kind and depth
-/// still waits in its ledger fails the session's reading as it ends.
+/// A unit admitted at once while an earlier unit of its kind and depth still
+/// waits in its ledger fails the session's reading as it ends.
 ///
-/// The admitted unit never waited itself, as an exempt unit need not, but
-/// what its kind and depth holds rose while the earlier unit waited.
+/// The admitted unit never waited itself, as an exempt unit need not, but what
+/// its kind and depth holds rose while the earlier unit waited.
 #[test]
 #[should_panic(expected = "while another unit of its kind and depth waited")]
 fn a_unit_admitted_past_a_waiting_one_of_its_kind_and_depth_fails_the_reading() {

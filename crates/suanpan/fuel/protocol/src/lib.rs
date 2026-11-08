@@ -2,24 +2,23 @@
 //!
 //! A [`Program`] is a list of [`Step`]s over a pool of [`POOL`] accumulators,
 //! run [`Program::repetitions`] times in a row. Every step is one public
-//! `suanpan` operation, or one of the fixed compositions the crate's cost
-//! rules themselves decompose (an owned operator on a clone, a sum, an
-//! `abs_diff`). The harness builds programs, encodes them with
-//! [`Program::encode`], and writes the bytes into the guest, which decodes
-//! them with [`Program::decode`] and runs them under fuel. Decoding happens
-//! before the guest's measured window opens, so the format costs the
-//! readings nothing, and it is `postcard`'s encoding of the derived `serde`
-//! form.
+//! `suanpan` operation, or one of the fixed compositions the crate's cost rules
+//! themselves decompose (an owned operator on a clone, a sum, an `abs_diff`).
+//! The harness builds programs, encodes them with [`Program::encode`], and
+//! writes the bytes into the guest, which decodes them with [`Program::decode`]
+//! and runs them under fuel. Decoding happens before the guest's measured
+//! window opens, so the format costs the readings nothing, and it is
+//! `postcard`'s encoding of the derived `serde` form.
 //!
-//! Steps carry concrete sizes. Wide limb operands travel as a [`LimbInput`],
-//! a pattern and a count that both sides expand the same way, so a megabyte
+//! Steps carry concrete sizes. Wide limb operands travel as a [`LimbInput`], a
+//! pattern and a count that both sides expand the same way, so a megabyte
 //! operand crosses the boundary in a few bytes.
 //!
 //! A step that returns an answer (a sign, an order, a magnitude) also yields
-//! one observation word, computed on both sides by the functions below from
-//! the answer alone. The harness compares the guest's observations with its
-//! own model's, which establishes that the guest's answers agree with the
-//! model's values at every step.
+//! one observation word, computed on both sides by the functions below from the
+//! answer alone. The harness compares the guest's observations with its own
+//! model's, which establishes that the guest's answers agree with the model's
+//! values at every step.
 
 #[cfg(test)]
 mod tests;
@@ -44,8 +43,7 @@ impl Member {
     /// Every member, in index order.
     pub const ALL: [Member; POOL] = [Member(0), Member(1), Member(2)];
 
-    /// Returns the member at `index`, or `None` if the pool has no such
-    /// member.
+    /// Returns the member at `index`, or `None` if the pool has no such member.
     pub fn new(index: usize) -> Option<Member> {
         Member::ALL.get(index).copied()
     }
@@ -133,9 +131,9 @@ pub enum Pattern {
     /// the limb's index, except the highest, which is drawn from the seed
     /// alone.
     ///
-    /// The lowest and highest limbs are therefore the same at every count,
-    /// so the operand's ends, where a shift spills into another digit and a
-    /// carry leaves the top, behave alike however long the operand is.
+    /// The lowest and highest limbs are therefore the same at every count, so
+    /// the operand's ends, where a shift spills into another digit and a carry
+    /// leaves the top, behave alike however long the operand is.
     Mixed(u64),
 }
 
@@ -174,10 +172,10 @@ impl LimbInput {
 
 /// How an accumulator operand reaches its receiver in a [`Step::Operand`].
 ///
-/// When the receiver is its own operand, [`Borrowed`](Form::Borrowed)
-/// computes `&member ± &member`, the one spelling that reads one accumulator
-/// as both operands; every other form lends a clone of the member, since it
-/// borrows the receiver mutably or consumes it.
+/// When the receiver is its own operand, [`Borrowed`](Form::Borrowed) computes
+/// `&member ± &member`, the one spelling that reads one accumulator as both
+/// operands; every other form lends a clone of the member, since it borrows the
+/// receiver mutably or consumes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Form<L = u64> {
     /// `receiver += &operand` or `receiver -= &operand`.
@@ -221,10 +219,10 @@ pub enum Read {
 
 /// One instruction of a program.
 ///
-/// `L` is the type of the step's lengths: its shifts, its stability width,
-/// and its limb count. A program's steps hold `u64` bits and limbs; the
-/// harness describes a step whose lengths are measured against a unit with
-/// another `L`, and resolves it with [`map_lengths`](Step::map_lengths).
+/// `L` is the type of the step's lengths: its shifts, its stability width, and
+/// its limb count. A program's steps hold `u64` bits and limbs; the harness
+/// describes a step whose lengths are measured against a unit with another `L`,
+/// and resolves it with [`map_lengths`](Step::map_lengths).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Step<L = u64> {
     /// `member += value` or `member -= value`.
@@ -265,8 +263,8 @@ pub enum Step<L = u64> {
         /// Whether to negate a borrow, which clones first.
         borrowed: bool,
     },
-    /// `value + member` or `value - member`, with the primitive on the
-    /// left, replacing the member by the result.
+    /// `value + member` or `value - member`, with the primitive on the left,
+    /// replacing the member by the result.
     ReversedPrimitive {
         /// The member updated.
         member: Member,
@@ -304,9 +302,8 @@ pub enum Step<L = u64> {
         /// The primitive it is compared with.
         value: i128,
     },
-    /// `TryFrom<Accumulator>` into the target type, putting a value that
-    /// does not fit back, and replacing one that fits by `Accumulator::from`
-    /// of it.
+    /// `TryFrom<Accumulator>` into the target type, putting a value that does
+    /// not fit back, and replacing one that fits by `Accumulator::from` of it.
     Convert {
         /// The member converted.
         member: Member,
@@ -334,8 +331,8 @@ pub enum Step<L = u64> {
         /// The member copied.
         source: Member,
     },
-    /// `receiver.clone_from(&source)`, or a plain clone when they are the
-    /// same member.
+    /// `receiver.clone_from(&source)`, or a plain clone when they are the same
+    /// member.
     CloneFrom {
         /// The member overwritten.
         receiver: Member,
@@ -363,8 +360,7 @@ pub enum Step<L = u64> {
     },
 }
 
-/// A program: steps, run `repetitions` times over a pool that starts at
-/// zero.
+/// A program: steps, run `repetitions` times over a pool that starts at zero.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Program {
     /// How many times the steps run, one after another.
@@ -559,8 +555,8 @@ pub fn observe_stable(answer: Option<Ordering>) -> u64 {
     answer.map_or(6, |order| 6 + observe_ordering(order))
 }
 
-/// Returns the observation word of a conversion: the converted value's sign
-/// and magnitude if it fit, or a refusal.
+/// Returns the observation word of a conversion: the converted value's sign and
+/// magnitude if it fit, or a refusal.
 pub fn observe_conversion(converted: Option<(Ordering, u128)>) -> u64 {
     match converted {
         Some((sign, magnitude)) => splitmix64(
@@ -572,8 +568,8 @@ pub fn observe_conversion(converted: Option<(Ordering, u128)>) -> u64 {
     }
 }
 
-/// Returns the observation word of a magnitude read: the sign, the value's
-/// bit length, and its lowest limb (0 when the read does not reveal it).
+/// Returns the observation word of a magnitude read: the sign, the value's bit
+/// length, and its lowest limb (0 when the read does not reveal it).
 pub fn observe_magnitude(sign: Ordering, bit_length: u64, low_limb: u64) -> u64 {
     splitmix64(observe_ordering(sign) ^ bit_length.rotate_left(2) ^ splitmix64(low_limb))
 }

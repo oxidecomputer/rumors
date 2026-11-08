@@ -1,12 +1,12 @@
 //! Byte snapshots of gossip sessions between two [`rumors::Rumors`] replicas.
 //!
 //! Each scenario records every wire byte through [`common::gossip_snapshot`].
-//! Frames are grouped by logical stream so scheduling between streams does
-//! not change a snapshot; ordering within each stream remains exact.
-//! Re-accept only for a deliberate protocol change, following `AGENTS.md`.
+//! Frames are grouped by logical stream so scheduling between streams does not
+//! change a snapshot; ordering within each stream remains exact. Re-accept only
+//! for a deliberate protocol change, following `AGENTS.md`.
 //!
-//! These public-API fixtures use ordinary version hashes and reach streams
-//! 0 and 1. The codec's `canonical_frame_atlas_snapshot` pins every stream's
+//! These public-API fixtures use ordinary version hashes and reach streams 0
+//! and 1. The codec's `canonical_frame_atlas_snapshot` pins every stream's
 //! frame forms; the proxy's `tests::deep` fixtures check their behavior over
 //! one pipe at the remaining tree depths.
 //!
@@ -22,9 +22,9 @@ use crate::common::shape::{
 };
 use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 
-/// The version of the live message holding `value`: how a scenario picks
-/// out a specific message for redaction. The scenarios use distinct
-/// payloads, so the lookup is unambiguous.
+/// The version of the live message holding `value`: how a scenario picks out a
+/// specific message for redaction. The scenarios use distinct payloads, so the
+/// lookup is unambiguous.
 fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
     rumors
         .snapshot()
@@ -35,10 +35,9 @@ fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
 
 /// Two empty peers: the minimal session.
 ///
-/// After the 25-byte preamble
-/// the two sides exchange greetings, find their versions equal, and converge
-/// immediately with no content transfer: the protocol's shortest possible
-/// conversation.
+/// After the 25-byte preamble the two sides exchange greetings, find their
+/// versions equal, and converge immediately with no content transfer: the
+/// protocol's shortest possible conversation.
 #[test]
 fn empty_pair_converges_immediately() {
     let a: Rumors<u64> = seeded();
@@ -49,10 +48,10 @@ fn empty_pair_converges_immediately() {
 /// One side holds two messages, the other is an empty peer in the same
 /// universe.
 ///
-/// Captures the one-directional flow: the empty peer initiates
-/// (the smaller set wins the election) and its empty greeting listing asks
-/// for everything, so the populated responder ships its root children as
-/// whole height-31 supplies while nothing of substance flows the other way.
+/// Captures the one-directional flow: the empty peer initiates (the smaller set
+/// wins the election) and its empty greeting listing asks for everything, so
+/// the populated responder ships its root children as whole height-31 supplies
+/// while nothing of substance flows the other way.
 #[test]
 fn one_sided_transfer() {
     let (a, b) = block_on(async {
@@ -67,20 +66,19 @@ fn one_sided_transfer() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
-/// Pool size for [`colliding_pair`]'s two-byte search: paths are uniform,
-/// so a two-byte agreement needs a birthday-scale pool over 2¹⁶.
+/// Pool size for [`colliding_pair`]'s two-byte search: paths are uniform, so a
+/// two-byte agreement needs a birthday-scale pool over 2¹⁶.
 const COLLIDING_POOL: u64 = 1024;
 
-/// Stage the batched-run universe: a populated peer holding exactly two
-/// leaves whose paths share their first two bytes, against an empty fork.
+/// Stage the batched-run universe: a populated peer holding exactly two leaves
+/// whose paths share their first two bytes, against an empty fork.
 ///
 /// Paths are version-derived, so the shape is staged by committing a pool of
-/// sends, searching the created versions for the first two-byte agreement,
-/// and redacting the rest — deterministic under the seeded universe (see
+/// sends, searching the created versions for the first two-byte agreement, and
+/// redacting the rest — deterministic under the seeded universe (see
 /// `common::shape`). The shared leading byte places both leaves inside one
-/// supplied root child (the two-byte agreement is stronger than that
-/// supply needs, and keeps the pair inside one subtree at height 30 as
-/// well).
+/// supplied root child (the two-byte agreement is stronger than that supply
+/// needs, and keeps the pair inside one subtree at height 30 as well).
 fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
@@ -113,10 +111,10 @@ fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
 /// One supplied subtree holding two leaves pins a batched run on the wire.
 ///
 /// Every other fixture supplies single-leaf subtrees, so no other snapshot
-/// contains a multi-record run body. Here the transfer's two leaf paths
-/// share a two-byte prefix, so the populated peer ships them as a single
-/// Supply frame whose run carries two length-prefixed records back to back
-/// — the byte-for-byte pin of the batched wire form.
+/// contains a multi-record run body. Here the transfer's two leaf paths share a
+/// two-byte prefix, so the populated peer ships them as a single Supply frame
+/// whose run carries two length-prefixed records back to back — the
+/// byte-for-byte pin of the batched wire form.
 #[test]
 fn batched_supply_run() {
     let (a, b) = colliding_pair();
@@ -125,13 +123,12 @@ fn batched_supply_run() {
 
 /// The session honors the smaller of the two exchanged message targets.
 ///
-/// The same two-leaves-one-subtree fixture as [`batched_supply_run`],
-/// except the *receiving* (empty) peer declares a zero target. The
-/// sender's own default would batch both records into one Supply frame —
-/// the previous snapshot pins exactly that — so the two single-record
-/// Supply frames pinned here are the receiver's exchanged preference
-/// being honored by its peer: the greeting carried it, and the session
-/// ran at the minimum of the two settings.
+/// The same two-leaves-one-subtree fixture as [`batched_supply_run`], except
+/// the *receiving* (empty) peer declares a zero target. The sender's own
+/// default would batch both records into one Supply frame — the previous
+/// snapshot pins exactly that — so the two single-record Supply frames pinned
+/// here are the receiver's exchanged preference being honored by its peer: the
+/// greeting carried it, and the session ran at the minimum of the two settings.
 #[test]
 fn asymmetric_message_targets_unbatch_the_run() {
     let (a, b) = colliding_pair();
@@ -147,9 +144,9 @@ fn asymmetric_message_targets_unbatch_the_run() {
 
 /// Extract one frame header's semantic.
 ///
-/// A frame header has the form `frame <n> (<b> bytes) / <Semantic> /`.
-/// The renderer guarantees no body line begins with `frame ` (text with
-/// a control character renders as hex), so the prefix identifies it.
+/// A frame header has the form `frame <n> (<b> bytes) / <Semantic> /`. The
+/// renderer guarantees no body line begins with `frame ` (text with a control
+/// character renders as hex), so the prefix identifies it.
 fn signal_semantic(line: &str) -> Option<&str> {
     let (head, rest) = line.trim_start().split_once(" / ")?;
     if !head.starts_with("frame ") {
@@ -163,10 +160,10 @@ fn signal_semantic(line: &str) -> Option<&str> {
 
 /// The child count of every nonempty-Query frame body in a capture.
 ///
-/// A `Query(…)` frame's listing is a map from radix to digest. The scan
-/// counts its entries, however the layout places them, from the Query
-/// header to the next frame or capture header, so the greeting's listing
-/// (under a control item) is never counted.
+/// A `Query(…)` frame's listing is a map from radix to digest. The scan counts
+/// its entries, however the layout places them, from the Query header to the
+/// next frame or capture header, so the greeting's listing (under a control
+/// item) is never counted.
 fn nonempty_query_listings(capture: &str) -> Vec<usize> {
     let mut counts = Vec::new();
     let mut in_query: Option<usize> = None;
@@ -194,8 +191,8 @@ fn nonempty_query_listings(capture: &str) -> Vec<usize> {
 /// control-item, or stream header.
 ///
 /// The capture writes these at column zero in a fixed vocabulary, and a
-/// rendered item cannot start a line with any of it: its text is quoted
-/// and holds no control character.
+/// rendered item cannot start a line with any of it: its text is quoted and
+/// holds no control character.
 fn is_capture_header(line: &str) -> bool {
     line.starts_with("direction ")
         || line.starts_with("role: ")
@@ -203,12 +200,11 @@ fn is_capture_header(line: &str) -> bool {
         || (line.contains(" stream ") && line.ends_with(" wire bytes"))
 }
 
-/// The listing entries on one rendered line, wherever the layout puts
-/// them.
+/// The listing entries on one rendered line, wherever the layout puts them.
 ///
 /// Each is an unsigned-integer key with an optional encoding indicator, a
-/// colon, and the entry's value, an array opening with its hash, preceded
-/// by a line start, a brace, or a comma.
+/// colon, and the entry's value, an array opening with its hash, preceded by a
+/// line start, a brace, or a comma.
 fn listing_entries(line: &str) -> usize {
     let bytes = line.as_bytes();
     line.match_indices(": [")
@@ -233,13 +229,12 @@ fn listing_entries(line: &str) -> usize {
 
 /// Count the frames rendered under one stream header of a wire capture.
 ///
-/// Returns `None` when the header never appears; the header must be a
-/// prefix of the capture's
-/// `"{Speaker} stream {index} (height {height}), {n} wire bytes"`
-/// header line. The section ends at the next capture header (the
-/// following stream or direction header, or a control-item label);
-/// within the section each frame contributes exactly one header line,
-/// whose comment is the frame's semantic.
+/// Returns `None` when the header never appears; the header must be a prefix of
+/// the capture's `"{Speaker} stream {index} (height {height}), {n} wire bytes"`
+/// header line. The section ends at the next capture header (the following
+/// stream or direction header, or a control-item label); within the section
+/// each frame contributes exactly one header line, whose comment is the frame's
+/// semantic.
 fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
     let mut frames = None;
     for line in capture.lines() {
@@ -256,17 +251,16 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
     frames
 }
 
-/// Pool size for a one-byte *pair* search (any two paths agreeing on
-/// their root radix): a birthday search over 256 radixes, hit early.
+/// Pool size for a one-byte *pair* search (any two paths agreeing on their root
+/// radix): a birthday search over 256 radixes, hit early.
 const RADIX_POOL: u64 = 64;
 
-/// Pool size for hitting one *specific* root radix: a direct-hit search
-/// with mean 256, sized well past it.
+/// Pool size for hitting one *specific* root radix: a direct-hit search with
+/// mean 256, sized well past it.
 const TARGETED_POOL: u64 = 2048;
 
-/// Payload base and pool size for a fixture's responder ballast: a
-/// disjoint payload range so pool cleanups never touch the other side's
-/// messages.
+/// Payload base and pool size for a fixture's responder ballast: a disjoint
+/// payload range so pool cleanups never touch the other side's messages.
 const BALLAST_POOL: (u64, u64) = (10_000, 16);
 
 /// A bulk-holding initiator supplies its exclusive root child when the
@@ -274,9 +268,9 @@ const BALLAST_POOL: (u64, u64) = (10_000, 16);
 ///
 /// The initiator (the smaller set) holds one exclusive root child with two
 /// leaves splitting at the second path byte. The responder's opening reply
-/// requests that child with an empty query; the initiator answers at height
-/// 30 with one Supply frame per second-byte child, and never writes its
-/// unused stream 0.
+/// requests that child with an empty query; the initiator answers at height 30
+/// with one Supply frame per second-byte child, and never writes its unused
+/// stream 0.
 #[test]
 fn bulk_initiator_supplies_its_exclusive_child_on_request() {
     // Stage: the initiator holds exactly two leaves sharing a root radix
@@ -345,17 +339,16 @@ fn bulk_initiator_supplies_its_exclusive_child_on_request() {
     insta::assert_snapshot!(capture);
 }
 
-/// Deletion honoring prunes a requested root child's supply: a redacted
-/// message does not resurrect, and the supply carries the survivor rather
-/// than the full subtree.
+/// Deletion honoring prunes a requested root child's supply: a redacted message
+/// does not resurrect, and the supply carries the survivor rather than the full
+/// subtree.
 ///
-/// The initiator holds two messages under one root radix; the responder
-/// once held the first (it forked after it existed), redacted it, and holds
-/// ballast elsewhere. The initiator's supply answering the responder's
-/// request for that radix must carry only the second message — the
-/// survivor of pruning against the responder's version — and both peers
-/// converge with the redacted message gone. Two records would resurrect the
-/// redaction; the pinned bytes show one.
+/// The initiator holds two messages under one root radix; the responder once
+/// held the first (it forked after it existed), redacted it, and holds ballast
+/// elsewhere. The initiator's supply answering the responder's request for that
+/// radix must carry only the second message — the survivor of pruning against
+/// the responder's version — and both peers converge with the redacted message
+/// gone. Two records would resurrect the redaction; the pinned bytes show one.
 #[test]
 fn requested_supplies_honor_redactions() {
     // Stage: the initiator's first message exists before the fork (so the
@@ -479,9 +472,9 @@ fn fork_insert_redact() {
 ///
 /// Both peers carry identical content *and* identical version vectors, so the
 /// version exchange short-circuits the session to Done before any content is
-/// examined — zero transfer despite non-empty trees. The non-empty companion
-/// to [`empty_pair_converges_immediately`]: it proves convergence is decided
-/// by version equality, independent of how much content the peers hold.
+/// examined — zero transfer despite non-empty trees. The non-empty companion to
+/// [`empty_pair_converges_immediately`]: it proves convergence is decided by
+/// version equality, independent of how much content the peers hold.
 #[test]
 fn converged_forks_noop() {
     let (a, b) = block_on(async {
@@ -496,10 +489,9 @@ fn converged_forks_noop() {
 /// Redaction in isolation: both forks hold `1` and `2`, `A` redacts `1`, `B`
 /// does nothing, then they gossip and converge on `{2}`.
 ///
-/// The clean counterpart
-/// to [`fork_insert_redact`] — no inserts share the wire, so the bytes that
-/// carry a redaction (and the version advance that distinguishes "forgot it"
-/// from "never had it") stand alone.
+/// The clean counterpart to [`fork_insert_redact`] — no inserts share the wire,
+/// so the bytes that carry a redaction (and the version advance that
+/// distinguishes "forgot it" from "never had it") stand alone.
 #[test]
 fn redaction_only() {
     let (a, b) = block_on(async {
@@ -537,25 +529,24 @@ fn deep_trie_divergence() {
 }
 
 /// Payload base for [`shared_subtree_dispute_pins_a_nonempty_query`]'s
-/// divergence pool: disjoint from the fixture's first pool so the
-/// second cleanup never touches the shared pair.
+/// divergence pool: disjoint from the fixture's first pool so the second
+/// cleanup never touches the shared pair.
 const DISPUTE_POOL_BASE: u64 = 100;
 
-/// A disputed shared subtree pins the nonempty Query frame: the one
-/// wire form no other fixture provokes.
+/// A disputed shared subtree pins the nonempty Query frame: the one wire form
+/// no other fixture provokes.
 ///
-/// The other fixtures' nonempty listings ride only inside greetings,
-/// and every wire query they pin is `QueryEmpty`. Here both peers hold
-/// the same two leaves under one root radix, splitting at the second
-/// path byte, so the shared node is a genuine two-child branch on each
-/// side; the populated side then adds a third leaf under the same
-/// radix. The two sides' subtree hashes differ while neither side is
-/// absent (an absent side yields supplies) and the subtrees are not
-/// identical (identical subtrees yield matches), so answering the
-/// dispute *lists children*: a Query frame carrying a nonempty
-/// `{radix => digest}` listing. The in-test liveness floor asserts
-/// that listing before the snapshot comparison, so the fixture cannot
-/// silently degrade back to `QueryEmpty` under a future corpus change.
+/// The other fixtures' nonempty listings ride only inside greetings, and every
+/// wire query they pin is `QueryEmpty`. Here both peers hold the same two
+/// leaves under one root radix, splitting at the second path byte, so the
+/// shared node is a genuine two-child branch on each side; the populated side
+/// then adds a third leaf under the same radix. The two sides' subtree hashes
+/// differ while neither side is absent (an absent side yields supplies) and the
+/// subtrees are not identical (identical subtrees yield matches), so answering
+/// the dispute *lists children*: a Query frame carrying a nonempty
+/// `{radix => digest}` listing. The in-test liveness floor asserts that listing
+/// before the snapshot comparison, so the fixture cannot silently degrade back
+/// to `QueryEmpty` under a future corpus change.
 #[test]
 fn shared_subtree_dispute_pins_a_nonempty_query() {
     // Stage: two leaves sharing a root radix and splitting at the
@@ -634,8 +625,8 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
 ///
 /// A `String` encodes as a CBOR text string — a header byte carrying the
 /// length, then the UTF-8 bytes — so this is the scenario that pins how a
-/// variable-length value is framed inside a leaf on the wire. `A` and `B`
-/// each contribute one distinct string and converge on both.
+/// variable-length value is framed inside a leaf on the wire. `A` and `B` each
+/// contribute one distinct string and converge on both.
 #[test]
 fn string_payload() {
     let (a, b) = block_on(async {
@@ -650,14 +641,14 @@ fn string_payload() {
 
 /// Equal live content, divergent version vectors.
 ///
-/// Both peers hold `1`; then
-/// `A` inserts `2` and immediately redacts it, leaving its *live* set back at
-/// `{1}` but advancing its version vector past `B`'s. The two peers' observable
-/// root hashes are therefore equal while their versions are not — so this pins
-/// whether the protocol short-circuits on the matching live hash or whether the
-/// version dominance (the same signal redaction propagation rides on) drives a
-/// reconciliation pass. There are no deletion markers in the protocol; the only
-/// trace of the redacted `2` is the advanced version.
+/// Both peers hold `1`; then `A` inserts `2` and immediately redacts it,
+/// leaving its *live* set back at `{1}` but advancing its version vector past
+/// `B`'s. The two peers' observable root hashes are therefore equal while their
+/// versions are not — so this pins whether the protocol short-circuits on the
+/// matching live hash or whether the version dominance (the same signal
+/// redaction propagation rides on) drives a reconciliation pass. There are no
+/// deletion markers in the protocol; the only trace of the redacted `2` is the
+/// advanced version.
 #[test]
 fn same_live_content_divergent_versions() {
     let (a, b) = block_on(async {
@@ -675,13 +666,12 @@ fn same_live_content_divergent_versions() {
 
 /// Concurrent, identical redaction.
 ///
-/// Both forks hold `1` and `2`, and *each*
-/// independently redacts `1` (the same message: a bootstrap copies the
-/// leaf, [`Version`] included) before they gossip. The two redactions are
-/// causally concurrent — distinct version advances on distinct parties —
-/// yet target the same message, so this pins that the protocol converges
-/// idempotently on `{2}` rather than treating the two redactions as
-/// conflicting work to reconcile.
+/// Both forks hold `1` and `2`, and *each* independently redacts `1` (the same
+/// message: a bootstrap copies the leaf, [`Version`] included) before they
+/// gossip. The two redactions are causally concurrent — distinct version
+/// advances on distinct parties — yet target the same message, so this pins
+/// that the protocol converges idempotently on `{2}` rather than treating the
+/// two redactions as conflicting work to reconcile.
 #[test]
 fn both_redact_the_same_message() {
     let (a, b) = block_on(async {

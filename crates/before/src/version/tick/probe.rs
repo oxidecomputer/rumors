@@ -1,4 +1,5 @@
-//! Chooses the cheapest owned region to raise if simplification changes nothing.
+//! Chooses the cheapest owned region to raise if simplification changes
+//! nothing.
 
 use crate::bits::stack::{BitStack, PackedU64Stack};
 use crate::party::io::{PartyBranch, PartyNode, PartyReader};
@@ -48,8 +49,8 @@ impl RaiseProbe {
     /// Price expanding one version leaf across the party branch at `key`.
     ///
     /// Each party level below the leaf requires one version expansion. This
-    /// method scans both present party subtrees, records the path to the nearest
-    /// owned terminal, and leaves `party` just past them.
+    /// method scans both present party subtrees, records the path to the
+    /// nearest owned terminal, and leaves `party` just past them.
     pub fn expand(&mut self, key: u64, party: &mut PartyReader, branch: PartyBranch) -> Cost {
         if !self.live {
             if branch.has_left_child() {

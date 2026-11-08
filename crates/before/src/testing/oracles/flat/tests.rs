@@ -1,11 +1,11 @@
 //! Calibration of the flat model against the recursive oracle.
 //!
-//! The differentials that judge production against the flat model trust
-//! every answer it gives, so each property here compares the model with the
-//! recursive oracle, which computes the same answers by the paper's tree
-//! recursions and shares no code with the model. Neither side reads
-//! production. The recursive oracle handles the deep strategies' depths, so
-//! the calibration runs on arbitrary normal forms and on deep inputs alike.
+//! The differentials that judge production against the flat model trust every
+//! answer it gives, so each property here compares the model with the recursive
+//! oracle, which computes the same answers by the paper's tree recursions and
+//! shares no code with the model. Neither side reads production. The recursive
+//! oracle handles the deep strategies' depths, so the calibration runs on
+//! arbitrary normal forms and on deep inputs alike.
 
 use num_bigint::BigUint;
 use proptest::prelude::*;
@@ -25,14 +25,14 @@ fn raw(rank: &Rank) -> (BigUint, u64) {
     (num.clone(), exp)
 }
 
-/// Asserts that the model's version answers equal the recursive oracle's on
-/// one pair of normal-form trees and one party.
+/// Asserts that the model's version answers equal the recursive oracle's on one
+/// pair of normal-form trees and one party.
 ///
 /// The canonical form is checked in both directions: the model keeps each
 /// tree's own leaves, which are already in normal form, and it collapses a
-/// spelling with every leaf split in two back to them. The measures are
-/// checked against the oracle's ranks through the valuation identities the
-/// rustdoc states: `distance(a, b) = rank(a ∨ b) − rank(a ∧ b)` and
+/// spelling with every leaf split in two back to them. The measures are checked
+/// against the oracle's ranks through the valuation identities the rustdoc
+/// states: `distance(a, b) = rank(a ∨ b) − rank(a ∧ b)` and
 /// `a.lag(b) = rank(a ∨ b) − rank(a)`.
 fn assert_versions_agree(
     ta: &tree::Version,
@@ -88,11 +88,10 @@ fn assert_versions_agree(
     Ok(())
 }
 
-/// Asserts that the model's party answers equal the recursive oracle's on
-/// one pair of normal-form trees.
+/// Asserts that the model's party answers equal the recursive oracle's on one
+/// pair of normal-form trees.
 ///
-/// The oracle has no intersection, so the model's is checked as
-/// `p − (p − q)`.
+/// The oracle has no intersection, so the model's is checked as `p − (p − q)`.
 fn assert_parties_agree(tp: &tree::Party, tq: &tree::Party) -> Result<(), TestCaseError> {
     let (p, q) = (Party::from_oracle(tp), Party::from_oracle(tq));
     prop_assert_eq!(p.regions(), oracle_regions(tp), "regions");

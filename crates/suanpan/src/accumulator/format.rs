@@ -6,8 +6,8 @@ use core::fmt::{self, Write as _};
 use super::value::Value;
 use super::Accumulator;
 
-/// The largest power of ten that fits a `u64`, the chunk of decimal digits
-/// each division by a word produces.
+/// The largest power of ten that fits a `u64`, the chunk of decimal digits each
+/// division by a word produces.
 const DECIMAL_CHUNK: u64 = 10_000_000_000_000_000_000;
 
 /// Decimal digits in one [`DECIMAL_CHUNK`].
@@ -33,8 +33,8 @@ const DECIMAL_CHUNK_DIGITS: usize = 19;
 ///
 /// The read takes the cost of
 /// [`signed_magnitude`](Accumulator::signed_magnitude). Converting its `Q`
-/// limbs to decimal divides them by a word once per 19 digits, O(`Q`²) time
-/// and O(`Q`) temporary space.
+/// limbs to decimal divides them by a word once per 19 digits, O(`Q`²) time and
+/// O(`Q`) temporary space.
 impl fmt::Display for Accumulator {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (sign, magnitude) = self.signed_magnitude();
@@ -52,8 +52,8 @@ impl fmt::Display for Accumulator {
 ///
 /// # Complexity
 ///
-/// Time and space linear in the storage width, which can far exceed the
-/// value's width.
+/// Time and space linear in the storage width, which can far exceed the value's
+/// width.
 impl fmt::Debug for Accumulator {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         // We copy the stored form while the cell is borrowed and format the

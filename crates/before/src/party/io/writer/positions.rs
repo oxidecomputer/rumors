@@ -12,8 +12,8 @@ use super::{OpenBranch, TAG_BITS};
 ///
 /// Descending through fresh branches reserves adjacent two-bit tags. One run
 /// length represents that common case. When emitted output creates a gap, the
-/// stack stores the distance to the preceding run. This avoids one machine
-/// word per open branch while still recovering every tag position on unwind.
+/// stack stores the distance to the preceding run. This avoids one machine word
+/// per open branch while still recovering every tag position on unwind.
 pub struct Positions {
     /// The newest absolute position, or zero when empty.
     top: u64,

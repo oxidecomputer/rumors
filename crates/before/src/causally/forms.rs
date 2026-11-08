@@ -2,8 +2,8 @@
 //!
 //! [`Floor`] and [`Ceiling`] are the two atomic bounds. Negation, widening to
 //! include concurrent versions, and the named constructors translate directly
-//! into [`Query`]'s floor, ceiling, and same-polarity holes. Keeping that normal
-//! form avoids building or later interpreting an expression tree.
+//! into [`Query`]'s floor, ceiling, and same-polarity holes. Keeping that
+//! normal form avoids building or later interpreting an expression tree.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -361,8 +361,8 @@ impl<'a> Ceiling<'a> {
     }
 }
 
-/// The complement of the upper atom: `!before(s)` keeps `v > s` or
-/// `v ∥ s`; this is [`since`], a [`Down`]-polar query.
+/// The complement of the upper atom: `!before(s)` keeps `v > s` or `v ∥ s`;
+/// this is [`since`], a [`Down`]-polar query.
 impl<'a> Not for Ceiling<'a> {
     type Output = Query<'a, Down>;
 
@@ -379,8 +379,8 @@ impl<'a> Not for Ceiling<'a> {
     }
 }
 
-/// The complement of the lower atom: `!after(s)` keeps `v < s` or
-/// `v ∥ s`; this is [`until`], an [`Up`]-polar query.
+/// The complement of the lower atom: `!after(s)` keeps `v < s` or `v ∥ s`; this
+/// is [`until`], an [`Up`]-polar query.
 impl<'a> Not for Floor<'a> {
     type Output = Query<'a, Up>;
 

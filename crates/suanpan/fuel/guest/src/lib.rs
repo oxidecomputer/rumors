@@ -1,32 +1,32 @@
 //! Runs `suanpan` programs over a pool of accumulators inside a wasm guest,
 //! reading Wasmtime fuel after every step.
 //!
-//! The harness (the `suanpan-fuel-harness` crate) writes an encoded
-//! [`Program`] into the buffer [`input_buffer`] returns and calls [`run`],
-//! once per fresh instance. The guest decodes the program and expands its
-//! limb operands, then opens one measured window and runs every repetition
-//! of the steps inside it, reading the instance's consumed fuel once before
-//! the first step and once after each step. The readings, and one
-//! observation word per step (`suanpan_fuel_protocol::observe_*`), are
-//! left for [`output_ptr`] and [`output_len`].
+//! The harness (the `suanpan-fuel-harness` crate) writes an encoded [`Program`]
+//! into the buffer [`input_buffer`] returns and calls [`run`], once per fresh
+//! instance. The guest decodes the program and expands its limb operands, then
+//! opens one measured window and runs every repetition of the steps inside it,
+//! reading the instance's consumed fuel once before the first step and once
+//! after each step. The readings, and one observation word per step
+//! (`suanpan_fuel_protocol::observe_*`), are left for [`output_ptr`] and
+//! [`output_len`].
 //!
-//! Everything the window does not need is prepared before it opens: the
-//! decoded steps, the limb operands, the pool, and the output vectors, whose
-//! capacity covers every reading, so recording a reading allocates nothing.
-//! Inside the window, fuel counts the steps, the loop that dispatches them,
-//! the observation of each answer, and one host call per reading: a fixed
-//! cost per step.
+//! Everything the window does not need is prepared before it opens: the decoded
+//! steps, the limb operands, the pool, and the output vectors, whose capacity
+//! covers every reading, so recording a reading allocates nothing. Inside the
+//! window, fuel counts the steps, the loop that dispatches them, the
+//! observation of each answer, and one host call per reading: a fixed cost per
+//! step.
 //!
 //! The global allocator is the fuel board's window allocator, with every
-//! reallocation made to move its block (the `moving` module). The window runs on a
-//! fresh, primed heap, so a reading does not depend on what decoding and
+//! reallocation made to move its block (the `moving` module). The window runs
+//! on a fresh, primed heap, so a reading does not depend on what decoding and
 //! expansion left in the heap; and no block grows in place, so a reading does
-//! not depend on where earlier blocks landed. The window allocator's module
-//! and the panic record are the board guest's own source files, included by
-//! path rather than through a shared crate: moving them into a crate would
-//! change the board guest's compiled code, and with it the fuel its ceilings
-//! were calibrated against. Their prose speaks of the board's cells; here
-//! the one measured window is a whole program run.
+//! not depend on where earlier blocks landed. The window allocator's module and
+//! the panic record are the board guest's own source files, included by path
+//! rather than through a shared crate: moving them into a crate would change
+//! the board guest's compiled code, and with it the fuel its ceilings were
+//! calibrated against. Their prose speaks of the board's cells; here the one
+//! measured window is a whole program run.
 
 mod moving;
 #[path = "../../../../before/board-fuel/guest/src/panic_record.rs"]
@@ -76,8 +76,8 @@ static OUTPUT: Mutex<Vec<u64>> = Mutex::new(Vec::new());
 /// Locks one of the guest's buffers.
 ///
 /// A panic aborts this guest without unwinding, so no guard is dropped
-/// mid-panic and the lock is never poisoned; recovering the inner buffer
-/// keeps the exports total regardless.
+/// mid-panic and the lock is never poisoned; recovering the inner buffer keeps
+/// the exports total regardless.
 fn lock<T>(buffer: &'static Mutex<Vec<T>>) -> MutexGuard<'static, Vec<T>> {
     buffer.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -96,11 +96,11 @@ pub extern "C" fn input_buffer(bytes: u32) -> u32 {
     wire(input.as_ptr().addr())
 }
 
-/// Runs the program in the input buffer, leaving its readings and
-/// observations in the output.
+/// Runs the program in the input buffer, leaving its readings and observations
+/// in the output.
 ///
-/// Returns 0, or 1 if the input is not an encoded program. A panic in the
-/// code under test traps instead, with its message in the panic record.
+/// Returns 0, or 1 if the input is not an encoded program. A panic in the code
+/// under test traps instead, with its message in the panic record.
 ///
 /// The output holds `1 + n` fuel readings, where `n` is the number of steps
 /// times the number of repetitions: the instance's consumed fuel before the
@@ -346,8 +346,8 @@ fn apply(pool: &mut [Accumulator; POOL], prepared: &Prepared) -> u64 {
 }
 
 /// Converts `value` to `T`, returning the accumulator the step leaves (the
-/// refused value as returned, or `Accumulator::from` of the converted one)
-/// and the converted value's sign and magnitude, by `parts`, if it fit.
+/// refused value as returned, or `Accumulator::from` of the converted one) and
+/// the converted value's sign and magnitude, by `parts`, if it fit.
 fn convert<T>(
     value: Accumulator,
     parts: impl Fn(T) -> (Ordering, u128),
@@ -362,8 +362,8 @@ where
     }
 }
 
-/// Returns `value + rhs` or `value - rhs`, with the primitive on the left,
-/// for an owned or a borrowed `rhs`.
+/// Returns `value + rhs` or `value - rhs`, with the primitive on the left, for
+/// an owned or a borrowed `rhs`.
 fn reversed_primitive<R>(value: Primitive, direction: Direction, rhs: R) -> Accumulator
 where
     i64: Add<R, Output = Accumulator> + Sub<R, Output = Accumulator>,
@@ -409,8 +409,8 @@ fn apply_primitive(value: &mut Accumulator, direction: Direction, operand: Primi
 ///
 /// # Panics
 ///
-/// Panics if `first == second`; every caller handles a member that is its
-/// own operand before borrowing two.
+/// Panics if `first == second`; every caller handles a member that is its own
+/// operand before borrowing two.
 fn two_members(
     pool: &mut [Accumulator; POOL],
     first: Member,
@@ -462,8 +462,8 @@ fn apply_operand(
     }
 }
 
-/// Applies `operand` to `receiver` in `form`, leaving `operand` with its
-/// owner; the owned forms consume a clone of it.
+/// Applies `operand` to `receiver` in `form`, leaving `operand` with its owner;
+/// the owned forms consume a clone of it.
 fn apply_borrowed(
     receiver: &mut Accumulator,
     operand: &Accumulator,

@@ -186,8 +186,7 @@ impl PartyBranch {
 /// A reader over a nonempty canonical party tree.
 ///
 /// [`read`](Self::read) consumes the current two-bit tag. The reader is not
-/// cloneable; an additional traversal must explicitly construct another
-/// reader.
+/// cloneable; an additional traversal must explicitly construct another reader.
 pub struct PartyReader<'a> {
     /// Canonical source tree.
     bits: &'a Bits,

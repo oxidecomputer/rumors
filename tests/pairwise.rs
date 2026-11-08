@@ -1,21 +1,21 @@
-//! Pairwise gossip semantics for `Rumors::gossip_once`, the wire merge primitive.
+//! Pairwise gossip semantics for `Rumors::gossip_once`, the wire merge
+//! primitive.
 //!
 //! With the shared-state rumor set, wire gossip *is* the merge: there is no
 //! in-process `join`. These properties pin the algebraic laws of one
 //! bidirectional session — convergence, side-symmetry, idempotence,
-//! order-independence across three peers, and the union of live content —
-//! plus the causal-concurrency basics the merge rests on.
+//! order-independence across three peers, and the union of live content — plus
+//! the causal-concurrency basics the merge rests on.
 //!
-//! Live content is compared through `readout` (the identity → value lens
-//! the oracle checks also use), or through [`Snapshot`](rumors::Snapshot)
-//! equality where the assertion is "nothing changed at all".
+//! Live content is compared through `readout` (the identity → value lens the
+//! oracle checks also use), or through [`Snapshot`](rumors::Snapshot) equality
+//! where the assertion is "nothing changed at all".
 //!
 //! Every peer in a test is a genuine, party-disjoint fork, created by
-//! [`bootstrap_fork`], of the first peer of one network, which the test
-//! creates from a drawn network seed. They
-//! share a [`Network`](rumors::Network) but tick disjoint parties, so their
-//! concurrent inserts stay incomparable and gossip between them never
-//! fails.
+//! [`bootstrap_fork`], of the first peer of one network, which the test creates
+//! from a drawn network seed. They share a [`Network`](rumors::Network) but
+//! tick disjoint parties, so their concurrent inserts stay incomparable and
+//! gossip between them never fails.
 
 use rumors_testkit::common;
 
@@ -321,9 +321,9 @@ proptest! {
     }
 }
 
-/// Among 64 deterministic samples, `arb_local_actions` emits a `Redact`
-/// that follows at least one `Insert` (the position where `build_local`
-/// applies it), so the redaction dimension is live in the population.
+/// Among 64 deterministic samples, `arb_local_actions` emits a `Redact` that
+/// follows at least one `Insert` (the position where `build_local` applies it),
+/// so the redaction dimension is live in the population.
 #[test]
 fn action_population_contains_effectual_redactions() {
     let mut runner = TestRunner::deterministic();

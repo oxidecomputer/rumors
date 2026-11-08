@@ -24,8 +24,8 @@ use crate::tree::{
     },
 };
 
-/// How one probed session ended: the two outcomes the capacity laws are
-/// stated over.
+/// How one probed session ended: the two outcomes the capacity laws are stated
+/// over.
 #[derive(Debug, PartialEq, Eq)]
 enum Probe {
     /// Both sides completed holding the join oracle's tree.
@@ -36,9 +36,9 @@ enum Probe {
 
 /// Classify a probed session's verdict.
 ///
-/// A completion is held to the join oracle. A violation and an exhausted
-/// poll budget are neither outcome the laws speak of, so each fails by
-/// name instead of being read as "did not stall".
+/// A completion is held to the join oracle. A violation and an exhausted poll
+/// budget are neither outcome the laws speak of, so each fails by name instead
+/// of being read as "did not stall".
 fn classify(verdict: Verdict, expected: &Root) -> Probe {
     match verdict {
         Ok(Ok((ours, theirs))) => {
@@ -101,8 +101,8 @@ fn assert_capacity_case(name: &'static str, pair: (Root, Root)) {
     }
 }
 
-/// The structural stress cases: exact barriers, aggregate overflow, full
-/// depth, and multiplying width, each named.
+/// The structural stress cases: exact barriers, aggregate overflow, full depth,
+/// and multiplying width, each named.
 fn stress_cases() -> [(&'static str, (Root, Root)); 6] {
     [
         // A full fan of disputed root children proves that publishing the
@@ -145,9 +145,8 @@ fn stress_cases() -> [(&'static str, (Root, Root)); 6] {
     ]
 }
 
-/// Every structural stress case ([`stress_cases`]) drains at the
-/// documented capacities, in both orientations and under every standard
-/// poll schedule.
+/// Every structural stress case ([`stress_cases`]) drains at the documented
+/// capacities, in both orientations and under every standard poll schedule.
 #[test]
 fn capacity_stress_matrix() {
     for (name, pair) in stress_cases() {
@@ -155,8 +154,8 @@ fn capacity_stress_matrix() {
     }
 }
 
-/// The edges of [`ONE_SLOT_KINDS`] a session between two in-memory
-/// endpoints builds: every one but the pipe's lanes.
+/// The edges of [`ONE_SLOT_KINDS`] a session between two in-memory endpoints
+/// builds: every one but the pipe's lanes.
 const MATERIALIZED_ONE_SLOT_KINDS: [QueueKind; 5] = [
     QueueKind::OutgoingResponses,
     QueueKind::InitiatorRootQuery,
@@ -165,15 +164,15 @@ const MATERIALIZED_ONE_SLOT_KINDS: [QueueKind; 5] = [
     QueueKind::ResponderRootReturns,
 ];
 
-/// Every structural stress case drains with every edge that needs only one
-/// slot ([`ONE_SLOT_KINDS`]) capped at one, in both orientations and under
-/// every standard poll schedule.
+/// Every structural stress case drains with every edge that needs only one slot
+/// ([`ONE_SLOT_KINDS`]) capped at one, in both orientations and under every
+/// standard poll schedule.
 ///
-/// Those edges have slots beyond the first only for speed, so that a send
-/// into an empty edge does not park, or so that one input's outputs enqueue
-/// together; their progress arguments rest on one. At the documented
-/// capacities the further slots could hide a wait the arguments miss, so
-/// this runs the cases at the floor the arguments state.
+/// Those edges have slots beyond the first only for speed, so that a send into
+/// an empty edge does not park, or so that one input's outputs enqueue
+/// together; their progress arguments rest on one. At the documented capacities
+/// the further slots could hide a wait the arguments miss, so this runs the
+/// cases at the floor the arguments state.
 #[test]
 fn capacity_stress_matrix_drains_at_one_slot() {
     for (name, pair) in stress_cases() {
@@ -284,8 +283,8 @@ fn stalls_under_any_schedule(pair: &(Root, Root), capacity: usize) -> bool {
         .any(|(chan, back)| probe(pair, capacity, chan, back) == Probe::Stalled)
 }
 
-/// Whether a shape completes, holding the join oracle's tree, under every
-/// probe schedule at the given capacity.
+/// Whether a shape completes, holding the join oracle's tree, under every probe
+/// schedule at the given capacity.
 fn completes_under_every_schedule(pair: &(Root, Root), capacity: usize) -> bool {
     standard_schedules()
         .into_iter()
@@ -293,16 +292,16 @@ fn completes_under_every_schedule(pair: &(Root, Root), capacity: usize) -> bool 
 }
 
 /// An internal scope with `n` disputed children, each carrying leaf-level
-/// grandchildren, so dependent queries follow the final child resolution
-/// while the enclosing parent resolution waits in the scope epilogue.
+/// grandchildren, so dependent queries follow the final child resolution while
+/// the enclosing parent resolution waits in the scope epilogue.
 fn internal_fan(n: u8) -> (Root, Root) {
     let cells: Vec<Vec<u8>> = (0..n).map(|radix| vec![0, radix]).collect();
     divergent_cells_pair(&cells, 1, LeafOrder::Outside)
 }
 
-/// A probed session that dies with a protocol violation is neither a
-/// completion nor a stall: the classifier fails by name rather than
-/// reading the violation as "did not stall".
+/// A probed session that dies with a protocol violation is neither a completion
+/// nor a stall: the classifier fails by name rather than reading the violation
+/// as "did not stall".
 #[test]
 #[should_panic(expected = "died with a violation")]
 fn probe_classifier_rejects_a_violation() {
@@ -323,19 +322,18 @@ fn probe_classifier_rejects_a_violation() {
     );
 }
 
-/// A lone parent scope stalls the walk once its disputed fan exceeds the
-/// return capacity plus one, and completes at that fan.
+/// A lone parent scope stalls the walk once its disputed fan exceeds the return
+/// capacity plus one, and completes at that fan.
 ///
-/// The walk publishes a parent resolution only after the reply's last
-/// chunk. In the serial configuration each answer holds its kind and depth
-/// until the answered child is assembled, so before
-/// the parent resolution departs the walk has assembled every child but
-/// the last, and their returns wait in the queue. At return capacity one, a
-/// fan of two (capacity + 1) completes under every probed poll order and a
-/// fan of three stalls under some; at capacity two, a fan of three
-/// completes. That pins the walk's stall boundary, the capacity-tightness
-/// law fan ≤ capacity + 1, from both sides at capacity one and from below
-/// at capacity two.
+/// The walk publishes a parent resolution only after the reply's last chunk. In
+/// the serial configuration each answer holds its kind and depth until the
+/// answered child is assembled, so before the parent resolution departs the
+/// walk has assembled every child but the last, and their returns wait in the
+/// queue. At return capacity one, a fan of two (capacity + 1) completes under
+/// every probed poll order and a fan of three stalls under some; at capacity
+/// two, a fan of three completes. That pins the walk's stall boundary, the
+/// capacity-tightness law fan ≤ capacity + 1, from both sides at capacity one
+/// and from below at capacity two.
 #[test]
 fn parent_delay_single_parent_boundary() {
     assert!(
@@ -352,15 +350,16 @@ fn parent_delay_single_parent_boundary() {
     );
 }
 
-/// Return backlog does not accumulate across sibling parent scopes at one height.
+/// Return backlog does not accumulate across sibling parent scopes at one
+/// height.
 ///
-/// The level return queue serves a whole stage, so if completions from
-/// several parents' subtrees could occupy it simultaneously, a stage much
-/// wider than the queue would stall even with every individual fan inside
-/// the tightness boundary — and no fixed capacity would be safe for large
-/// trees. The walk's sequential scope order (each parent resolution departs
-/// before the next scope's prologue) prevents that: many parents at fan =
-/// cap + 1 behave exactly like one.
+/// The level return queue serves a whole stage, so if completions from several
+/// parents' subtrees could occupy it simultaneously, a stage much wider than
+/// the queue would stall even with every individual fan inside the tightness
+/// boundary — and no fixed capacity would be safe for large trees. The walk's
+/// sequential scope order (each parent resolution departs before the next
+/// scope's prologue) prevents that: many parents at fan = cap + 1 behave
+/// exactly like one.
 #[test]
 fn parent_delay_no_cross_parent_backlog() {
     let parents_of_three = |parents: u8| {

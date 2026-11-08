@@ -10,24 +10,24 @@
 //!
 //! - **Depth.** Version and party trees are bushy, up to
 //!   [`BUSHY_DEPTH`](trees::BUSHY_DEPTH) levels, or spines of
-//!   [`SPINE_LEVELS`](trees::SPINE_LEVELS) levels that lean left or right
-//!   level by level ([`trees`]). Most spines pass [`DEEP_LEVELS`], where a
+//!   [`SPINE_LEVELS`](trees::SPINE_LEVELS) levels that lean left or right level
+//!   by level ([`trees`]). Most spines pass [`DEEP_LEVELS`], where a
 //!   validator's path state spills past one word.
-//! - **Width.** Heights mix small values, where equal siblings are common,
-//!   with values at the `2^64` boundary and powers of two hundreds of bits
-//!   wide. Ranks reach fractions thousands of digits long, past the rank
-//!   decoder's buffer ([`rank`]).
+//! - **Width.** Heights mix small values, where equal siblings are common, with
+//!   values at the `2^64` boundary and powers of two hundreds of bits wide.
+//!   Ranks reach fractions thousands of digits long, past the rank decoder's
+//!   buffer ([`rank`]).
 //! - **Damage.** A canonical encoding is then damaged, usually in exactly one
 //!   way ([`damage`]): a non-canonical spelling *planted* in the tree (a
-//!   sibling pair that should have collapsed, or a running height below
-//!   zero), a live bit flipped, inserted, deleted, or the live bits cut, a
-//!   sealing defect, or a byte flipped, cut, or appended. Rank encodings get
-//!   their format's own defects: an oversized width header, an all-zero final
-//!   group, or set padding bits. Composite encodings ([`composites`])
-//!   concatenate component encodings, canonical or damaged, and add their own
-//!   relational defects: crossed or concurrent span endpoints, a ranked key's
-//!   rank belonging to another version, and a structural defect in a span
-//!   whose endpoints are also out of order.
+//!   sibling pair that should have collapsed, or a running height below zero),
+//!   a live bit flipped, inserted, deleted, or the live bits cut, a sealing
+//!   defect, or a byte flipped, cut, or appended. Rank encodings get their
+//!   format's own defects: an oversized width header, an all-zero final group,
+//!   or set padding bits. Composite encodings ([`composites`]) concatenate
+//!   component encodings, canonical or damaged, and add their own relational
+//!   defects: crossed or concurrent span endpoints, a ranked key's rank
+//!   belonging to another version, and a structural defect in a span whose
+//!   endpoints are also out of order.
 //!
 //! Each [`NearValid`] input carries what construction settles about it
 //! ([`Expect`]) and the regimes it reaches ([`Regime`]). The tests module's
@@ -49,13 +49,13 @@ pub(crate) use trees::SPINE_LEVELS;
 use damage::{arb_damage, BitEdit, Damage};
 use trees::{arb_party_plant, arb_party_tree, arb_version_plant, arb_version_tree, Plantable};
 
-/// The depth past which a tree's validation keeps path state in more than
-/// one 64-bit word.
+/// The depth past which a tree's validation keeps path state in more than one
+/// 64-bit word.
 ///
-/// The version and party validators record each open level of the tree in
-/// bit stacks, which hold 64 bits in a register and spill whole words to the
-/// heap beyond that, so validating a tree deeper than this spills its path
-/// state at least once.
+/// The version and party validators record each open level of the tree in bit
+/// stacks, which hold 64 bits in a register and spill whole words to the heap
+/// beyond that, so validating a tree deeper than this spills its path state at
+/// least once.
 pub(crate) const DEEP_LEVELS: u64 = u64::BITS as u64;
 
 /// What construction settles about how a correct decoder treats an input.
@@ -96,8 +96,8 @@ pub(crate) enum Regime {
     /// A non-canonical spelling planted deeper than [`DEEP_LEVELS`], and no
     /// other damage.
     DeepNonCanonical,
-    /// A planted sibling pair that canonical form collapses (equal heights,
-    /// or two owned leaves), and no other damage.
+    /// A planted sibling pair that canonical form collapses (equal heights, or
+    /// two owned leaves), and no other damage.
     CollapsiblePair,
     /// A planted negative running height, and no other damage.
     NegativeHeight,
@@ -116,11 +116,10 @@ pub(crate) enum Regime {
     ClockVersionDefect,
     /// A span whose canonical endpoints are crossed or concurrent.
     UnorderedSpan,
-    /// A span whose endpoints are out of order and whose upper endpoint has
-    /// a structural defect ([`Expect::StructuralOverOrdering`]).
+    /// A span whose endpoints are out of order and whose upper endpoint has a
+    /// structural defect ([`Expect::StructuralOverOrdering`]).
     StructuralOverOrdering,
-    /// A canonical span whose lower endpoint is deeper than
-    /// [`DEEP_LEVELS`].
+    /// A canonical span whose lower endpoint is deeper than [`DEEP_LEVELS`].
     DeepLowerEndpoint,
     /// A ranked key with a canonical version and the canonical rank of a
     /// version of different rank.
@@ -133,8 +132,8 @@ pub(crate) enum Regime {
 pub(crate) struct NearValid {
     /// The bytes every decoder under test reads.
     pub(crate) bytes: Vec<u8>,
-    /// How a correct decoder treats the bytes, as far as construction
-    /// settles it.
+    /// How a correct decoder treats the bytes, as far as construction settles
+    /// it.
     pub(crate) expect: Expect,
     /// The census regimes this input reaches.
     pub(crate) regimes: Vec<Regime>,
@@ -164,9 +163,9 @@ fn with_unstructured(
 /// A canonical tree's encoding under `damage`, with its regimes.
 ///
 /// A deep tree reaches [`Regime::DeepCanonical`] only undamaged, and a plant
-/// reaches [`Regime::DeepNonCanonical`] only when its planted leaves lie
-/// deeper than [`DEEP_LEVELS`], where a validator meets them with its path
-/// state spilled.
+/// reaches [`Regime::DeepNonCanonical`] only when its planted leaves lie deeper
+/// than [`DEEP_LEVELS`], where a validator meets them with its path state
+/// spilled.
 fn damaged<T: Plantable>(tree: &T, damage: &Damage<T::Plant>) -> NearValid {
     let expect = damage.expect();
     let mut regimes = Vec::new();

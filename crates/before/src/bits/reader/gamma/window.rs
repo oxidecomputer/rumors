@@ -1,8 +1,8 @@
 //! The single-word fast path for Elias-gamma decoding.
 //!
-//! A window is used only when it contains the complete code. Wider or
-//! truncated inputs fall back to the sequential reader, which remains the sole
-//! authority for rejection.
+//! A window is used only when it contains the complete code. Wider or truncated
+//! inputs fall back to the sequential reader, which remains the sole authority
+//! for rejection.
 
 use super::super::body_tail;
 

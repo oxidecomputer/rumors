@@ -1,17 +1,16 @@
 //! End-to-end lifecycle pins for the V2 session epilogue, at the public-API
 //! tier.
 //!
-//! The crate docs' "What a session promises" section states the contract
-//! these tests hold the public API to: `Ok` certifies both replicas
-//! committed and leaves the connection at the session boundary, reusable;
-//! `Err` and cancellation publish no partial reconciliation and leave the
-//! connection at an unknown position, to be discarded. Losing the final
-//! marker fails in [`rumors::error::Phase::Completion`], after local work
-//! has committed; a transport failure met during the walk fails the
-//! session before it commits anything. The in-crate unit tests (`src/tests.rs`) pin the same
-//! mechanisms at exact byte boundaries with forged peers; these are their
-//! integration-tier complements, driving whole sessions between real
-//! replicas.
+//! The crate docs' "What a session promises" section states the contract these
+//! tests hold the public API to: `Ok` certifies both replicas committed and
+//! leaves the connection at the session boundary, reusable; `Err` and
+//! cancellation publish no partial reconciliation and leave the connection at
+//! an unknown position, to be discarded. Losing the final marker fails in
+//! [`rumors::error::Phase::Completion`], after local work has committed; a
+//! transport failure met during the walk fails the session before it commits
+//! anything. The in-crate unit tests (`src/tests.rs`) pin the same mechanisms
+//! at exact byte boundaries with forged peers; these are their integration-tier
+//! complements, driving whole sessions between real replicas.
 
 use rumors_testkit::common;
 #[path = "lifecycle/leak.rs"]
@@ -46,24 +45,24 @@ use rumors_testkit::divided_proptest;
 /// polls to complete.
 const DIVERGENT_MESSAGES: u64 = 32;
 
-/// The most polls granted to the joined in-flight sessions while waiting
-/// for both ends to flush frames.
+/// The most polls granted to the joined in-flight sessions while waiting for
+/// both ends to flush frames.
 ///
-/// Under a waker that never fires, each poll moves a session forward by
-/// about one frame, and one end writes its first frame only after reading
-/// dozens of the other's, so reaching both ends' first frame flush takes
-/// dozens of polls. The cap only turns a session that
-/// never gets there into a failure instead of a hang.
+/// Under a waker that never fires, each poll moves a session forward by about
+/// one frame, and one end writes its first frame only after reading dozens of
+/// the other's, so reaching both ends' first frame flush takes dozens of polls.
+/// The cap only turns a session that never gets there into a failure instead of
+/// a hang.
 const MAX_MID_FLIGHT_POLLS: usize = 100_000;
 
 /// Build a party-disjoint pair of the network `network` names, with
 /// [`DIVERGENT_MESSAGES`] unshared messages committed on each side.
 ///
 /// Construction is deterministic for one seed: the seed fixes the network's
-/// secret, versions derive from the bootstrap order, and message identity
-/// from the version alone, so two calls with one seed build pairs whose
-/// gossip sessions are byte-for-byte the same size. The epilogue-residue
-/// test's measure-then-replay rests on this.
+/// secret, versions derive from the bootstrap order, and message identity from
+/// the version alone, so two calls with one seed build pairs whose gossip
+/// sessions are byte-for-byte the same size. The epilogue-residue test's
+/// measure-then-replay rests on this.
 async fn divergent_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
@@ -74,8 +73,8 @@ async fn divergent_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     (a, b)
 }
 
-/// A write half that records, at each successful flush, how many bytes it
-/// had accepted.
+/// A write half that records, at each successful flush, how many bytes it had
+/// accepted.
 struct FlushLog<W> {
     /// The write half the bytes go to.
     inner: W,
@@ -96,8 +95,8 @@ impl<W> FlushLog<W> {
     }
 }
 
-/// Forwards every operation to the inner write half, counting accepted
-/// bytes and logging successful flushes.
+/// Forwards every operation to the inner write half, counting accepted bytes
+/// and logging successful flushes.
 impl<W: AsyncWrite + Unpin> AsyncWrite for FlushLog<W> {
     /// Writes through, counting the bytes accepted.
     fn poll_write(
@@ -140,17 +139,16 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for FlushLog<W> {
     }
 }
 
-/// The flushes an end makes before its first frame, counted from a session
-/// that writes none.
+/// The flushes an end makes before its first frame, counted from a session that
+/// writes none.
 ///
-/// A session between equal replicas compares nothing, so it writes no
-/// frames: every flush either end makes before it writes its completion
-/// marker belongs to the handshake that opens every session. This runs one
-/// such session, over halves that log each flush, and counts the flushes
-/// each end made before the marker's bytes, which are the last it writes.
-/// An end of another session that has flushed more often than this has
-/// flushed frames. The session's two peers are forks of the network
-/// `network` names.
+/// A session between equal replicas compares nothing, so it writes no frames:
+/// every flush either end makes before it writes its completion marker belongs
+/// to the handshake that opens every session. This runs one such session, over
+/// halves that log each flush, and counts the flushes each end made before the
+/// marker's bytes, which are the last it writes. An end of another session that
+/// has flushed more often than this has flushed frames. The session's two peers
+/// are forks of the network `network` names.
 fn handshake_flushes(network: NetworkSeed) -> usize {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
@@ -414,8 +412,8 @@ enum Holds {
 /// How a session ended on the side whose traffic was cut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct CutOutcome {
-    /// The phase of the transport failure that ended the session, or
-    /// `None` if it succeeded.
+    /// The phase of the transport failure that ended the session, or `None` if
+    /// it succeeded.
     failed_in: Option<Phase>,
     /// What the side's replica holds afterwards.
     holds: Holds,
@@ -442,8 +440,8 @@ impl Clean {
     }
 }
 
-/// Run one clean session of a [`divergent_pair`], returning each side's
-/// content afterwards and the bytes it moved, in [`Side`] order.
+/// Run one clean session of a [`divergent_pair`], returning each side's content
+/// afterwards and the bytes it moved, in [`Side`] order.
 fn clean_session(network: NetworkSeed) -> [Clean; 2] {
     let (a, b) = block_on(divergent_pair(network));
     let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
@@ -464,13 +462,13 @@ fn clean_session(network: NetworkSeed) -> [Clean; 2] {
     })
 }
 
-/// What `replica` holds after a session, against `before`, its content
-/// before the session, and `reconciled`, its content after a clean one.
+/// What `replica` holds after a session, against `before`, its content before
+/// the session, and `reconciled`, its content after a clean one.
 ///
 /// # Panics
 ///
-/// If it holds anything else: a session published part of its
-/// reconciliation. `context` names the session in the message.
+/// If it holds anything else: a session published part of its reconciliation.
+/// `context` names the session in the message.
 fn held(
     replica: &Rumors<u64>,
     before: &Snapshot<u64>,
@@ -486,16 +484,15 @@ fn held(
     }
 }
 
-/// Run one session of a [`divergent_pair`] in which `side`'s `direction`
-/// fails once the side has moved `cut` bytes that way, and say how it
-/// ended on that side, against `clean`, the pair's clean session.
+/// Run one session of a [`divergent_pair`] in which `side`'s `direction` fails
+/// once the side has moved `cut` bytes that way, and say how it ended on that
+/// side, against `clean`, the pair's clean session.
 ///
-/// The cut fires as soon as the side moves past `cut` bytes, whatever the
-/// peer does, so it lands at the same point of the side's own traffic
-/// however the peer's bytes are timed. The peer meets the cut as the
-/// side's departure, at a point its own progress decides, so its outcome
-/// is not reported; it must still hold all of the reconciliation or none
-/// of it.
+/// The cut fires as soon as the side moves past `cut` bytes, whatever the peer
+/// does, so it lands at the same point of the side's own traffic however the
+/// peer's bytes are timed. The peer meets the cut as the side's departure, at a
+/// point its own progress decides, so its outcome is not reported; it must
+/// still hold all of the reconciliation or none of it.
 fn cut_session(
     network: NetworkSeed,
     side: Side,
@@ -556,15 +553,15 @@ fn cut_session(
 }
 
 /// The outcome a cut withholding the last `withheld` of the bytes a clean
-/// session moves in `direction` leads to, for a cut no earlier than the
-/// last frame either way.
+/// session moves in `direction` leads to, for a cut no earlier than the last
+/// frame either way.
 ///
-/// The side commits before its closing exchange, which writes its
-/// completion marker and then reads its peer's. A writer has written every
-/// frame of its walk before its marker, so a cut that withholds no more
-/// than the marker meets it after the commit. A reader learns that the
-/// peer's frames have ended only from the marker's first byte, so a cut
-/// that withholds the whole marker meets it during the walk.
+/// The side commits before its closing exchange, which writes its completion
+/// marker and then reads its peer's. A writer has written every frame of its
+/// walk before its marker, so a cut that withholds no more than the marker
+/// meets it after the commit. A reader learns that the peer's frames have ended
+/// only from the marker's first byte, so a cut that withholds the whole marker
+/// meets it during the walk.
 fn tail_outcome(direction: Direction, withheld: usize) -> CutOutcome {
     let after_commit = match direction {
         Direction::Read => withheld < COMPLETION_MARKER.len(),
@@ -578,14 +575,12 @@ fn tail_outcome(direction: Direction, withheld: usize) -> CutOutcome {
     CutOutcome { failed_in, holds }
 }
 
-/// Cut each side's `direction` in turn, at every point from the end of a
-/// clean session's traffic that way to one byte into the last frame, and
-/// once at a point `anywhere` draws from the rest, asserting each
-/// outcome.
+/// Cut each side's `direction` in turn, at every point from the end of a clean
+/// session's traffic that way to one byte into the last frame, and once at a
+/// point `anywhere` draws from the rest, asserting each outcome.
 ///
-/// The tail cuts must end as [`tail_outcome`] says; the earlier cut must
-/// fail before [`Phase::Completion`], the side holding what it held
-/// before.
+/// The tail cuts must end as [`tail_outcome`] says; the earlier cut must fail
+/// before [`Phase::Completion`], the side holding what it held before.
 fn sweep_cuts(network: NetworkSeed, direction: Direction, anywhere: Index) {
     let clean = clean_session(network);
     for (side, own) in [Side::A, Side::B].into_iter().zip(&clean) {

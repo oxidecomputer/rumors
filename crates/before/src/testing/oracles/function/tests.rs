@@ -1,5 +1,5 @@
-//! Cross-checks three ITC implementations by replaying the same operation
-//! trace and comparing their final clock populations.
+//! Cross-checks three ITC implementations by replaying the same operation trace
+//! and comparing their final clock populations.
 //!
 //! The three references are the production impl, the recursive tree [`oracle`],
 //! and the function-space [`super`] model. Laws exercise the function-space
@@ -28,7 +28,8 @@ use num_bigint::BigUint;
 
 // ───────────────────────────── helpers ─────────────────────────────
 
-/// Function equality at granularity `g` (both directions of the order are `Equal`).
+/// Function equality at granularity `g` (both directions of the order are
+/// `Equal`).
 fn ev_eq(a: &Event, b: &Event, g: u32) -> bool {
     ev_order(a, b, g) == Some(Ordering::Equal)
 }
@@ -37,8 +38,8 @@ fn id_eq(a: &Id, b: &Id, g: u32) -> bool {
     id_order(a, b, g) == Some(Ordering::Equal)
 }
 
-/// A grid exponent that resolves an oracle event/id pair, with one level of headroom, capped
-/// at [`GRID_N`].
+/// A grid exponent that resolves an oracle event/id pair, with one level of
+/// headroom, capped at [`GRID_N`].
 ///
 /// The semantic event's step structure sits at the id's fork boundaries, so the
 /// id depth bounds it too; hence both are folded in.
@@ -307,9 +308,9 @@ fn lifted_event_is_constant_within_a_leaf_interval() {
 /// A right comb of depth `d` with one base per node and a ticked tip: the
 /// asymmetric family the known-bad convictions sweep.
 ///
-/// Every level's left child is a zero leaf, so the function climbs
-/// toward `1` and the value at the last grid cell is the full path sum,
-/// nonzero at every depth, and never mirror-symmetric.
+/// Every level's left child is a zero leaf, so the function climbs toward `1`
+/// and the value at the last grid cell is the full path sum, nonzero at every
+/// depth, and never mirror-symmetric.
 fn right_comb(d: u32) -> tree::Version {
     use tree::Version as V;
     let mut v = V::Leaf(1u64.into());
@@ -319,8 +320,7 @@ fn right_comb(d: u32) -> tree::Version {
     v
 }
 
-/// The Riemann sum with one deliberate defect: it drops the final grid
-/// cell.
+/// The Riemann sum with one deliberate defect: it drops the final grid cell.
 ///
 /// This deliberately incorrect implementation demonstrates that the rank
 /// differential detects an omitted cell.
@@ -334,11 +334,11 @@ fn riemann_sum_dropping_the_last_cell(e: &Event, g: u32) -> crate::Rank {
 
 /// The rank differential rejects a Riemann sum that omits the final cell.
 ///
-/// Per depth, the right-comb family stacks its bases down the rightmost
-/// path, so the dropped cell's height is the full path sum and the
-/// truncated total falls short exactly there. The genuine Riemann sum
-/// matches the implementation's rank, while the deliberately incomplete sum
-/// differs at every checked depth.
+/// Per depth, the right-comb family stacks its bases down the rightmost path,
+/// so the dropped cell's height is the full path sum and the truncated total
+/// falls short exactly there. The genuine Riemann sum matches the
+/// implementation's rank, while the deliberately incomplete sum differs at
+/// every checked depth.
 #[test]
 fn rank_differential_rejects_a_cell_dropping_riemann_sum() {
     for d in 1..=6 {
@@ -358,8 +358,8 @@ fn rank_differential_rejects_a_cell_dropping_riemann_sum() {
     }
 }
 
-/// The embedding with one deliberate defect: every descent step descends
-/// into the wrong child (the mirror image of the §4 recursion).
+/// The embedding with one deliberate defect: every descent step descends into
+/// the wrong child (the mirror image of the §4 recursion).
 ///
 /// This deliberately incorrect implementation demonstrates why fixed samples
 /// complement the pointwise-operation differentials.
@@ -387,12 +387,12 @@ fn mirrored_lift_ev(t: tree::Version) -> Event {
 /// Fixed samples reject a mirrored tree embedding that pointwise differentials
 /// cannot distinguish.
 ///
-/// The mirror is a measure-preserving relabeling of `[0,1)`, so it
-/// commutes with every pointwise combinator: substituted on *both* sides
-/// of the meet differential it stays green at every depth (asserted
-/// below). Fixed samples supply the absolute position that pointwise operations
-/// cannot establish. The mirrored lift disagrees with those samples and with
-/// the correct lift at every checked right-comb depth.
+/// The mirror is a measure-preserving relabeling of `[0,1)`, so it commutes
+/// with every pointwise combinator: substituted on *both* sides of the meet
+/// differential it stays green at every depth (asserted below). Fixed samples
+/// supply the absolute position that pointwise operations cannot establish. The
+/// mirrored lift disagrees with those samples and with the correct lift at
+/// every checked right-comb depth.
 #[test]
 fn worked_value_samples_reject_a_mirrored_embedding() {
     use tree::Version as V;
@@ -443,19 +443,19 @@ fn worked_value_samples_reject_a_mirrored_embedding() {
 
 /// Generated traces never reach the resolution cap used by function sampling.
 ///
-/// The test reads both the oracle's tree depth and the function space's
-/// probed resolution. Each grows at most one level per fork, but the random
-/// `fork` deals pieces wherever it likes, so after later sums and forks the
-/// function space's resolution need not track the oracle's depth, and the
-/// larger of the two is the binding constraint.
+/// The test reads both the oracle's tree depth and the function space's probed
+/// resolution. Each grows at most one level per fork, but the random `fork`
+/// deals pieces wherever it likes, so after later sums and forks the function
+/// space's resolution need not track the oracle's depth, and the larger of the
+/// two is the binding constraint.
 ///
 /// The structural guarantee lives in [`GRID_N`]'s derivation from the op cap
 /// (the trace strategy keeps its steps' levels summed under the cap, so every
 /// in-support trace stays under); this generated sweep checks sampled traces,
 /// and [`fork_chain_raises_resolution_one_level_per_fork`] and
 /// [`balanced_split_chain_raises_resolution_by_its_levels`] pin the
-/// derivation's growth-rate premise deterministically on the worst
-/// in-support schedules.
+/// derivation's growth-rate premise deterministically on the worst in-support
+/// schedules.
 ///
 /// Repeatedly splitting one lineage is the worst case for its resolution
 /// growth. One seed therefore suffices and preserves the universe invariant.
@@ -488,22 +488,22 @@ fn grid_cap_is_never_reached() {
     );
 }
 
-/// The grid derivation's premise, met with equality on its worst schedule:
-/// a same-lineage fork chain raises resolution exactly one level per fork,
-/// with both halves nonempty, strictly below the derived [`GRID_N`].
+/// The grid derivation's premise, met with equality on its worst schedule: a
+/// same-lineage fork chain raises resolution exactly one level per fork, with
+/// both halves nonempty, strictly below the derived [`GRID_N`].
 ///
 /// A run of consecutive `Fork(0)`s is inside `world_strategy`'s support but
 /// beyond any sampled sweep's reach (a 10-long chain has ~1e-10 mass per
 /// trace), so the fastest in-support resolution growth is pinned here
 /// deterministically: each fork of a single-piece lineage bisects at its
-/// midpoint, one level finer. If the rate ever exceeded one level per fork,
-/// or a ceiling clamp resurfaced and handed one child an empty half, the
-/// equality or the nonemptiness read here goes red long before the canary
-/// sweep could sample it. The chain stops at 16: past any resolution the
-/// sampled sweeps reach, still cheap to probe (the probe scans
-/// `2^resolution` centers), while the full in-support schedule is covered
-/// by construction: [`GRID_N`] is derived from the op cap, and this test
-/// asserts the derivation clears the deepest in-support bisection level.
+/// midpoint, one level finer. If the rate ever exceeded one level per fork, or
+/// a ceiling clamp resurfaced and handed one child an empty half, the equality
+/// or the nonemptiness read here goes red long before the canary sweep could
+/// sample it. The chain stops at 16: past any resolution the sampled sweeps
+/// reach, still cheap to probe (the probe scans `2^resolution` centers), while
+/// the full in-support schedule is covered by construction: [`GRID_N`] is
+/// derived from the op cap, and this test asserts the derivation clears the
+/// deepest in-support bisection level.
 #[test]
 fn fork_chain_raises_resolution_one_level_per_fork() {
     // The derivation's arithmetic: the deepest in-support bisection level is
@@ -544,17 +544,16 @@ fn fork_chain_raises_resolution_one_level_per_fork() {
     }
 }
 
-/// Splitting a single-piece lineage into `n` shares raises its deepest
-/// share's resolution by exactly the `⌈log₂ n⌉` levels the op traces declare
-/// for that split, and leaves every share nonempty.
+/// Splitting a single-piece lineage into `n` shares raises its deepest share's
+/// resolution by exactly the `⌈log₂ n⌉` levels the op traces declare for that
+/// split, and leaves every share nonempty.
 ///
-/// This is the grid derivation's premise for balanced splits, met with
-/// equality on its worst schedule.
-/// Every fork of a single-piece id bisects it, so a single-piece lineage is
-/// where a split's resolution grows fastest, and each split's deepest share
-/// is again a single piece. The chain splits three times at every share
-/// count a step can deal, from one to one more than [`MAX_FORKS_COUNT`],
-/// staying strictly below [`GRID_N`].
+/// This is the grid derivation's premise for balanced splits, met with equality
+/// on its worst schedule. Every fork of a single-piece id bisects it, so a
+/// single-piece lineage is where a split's resolution grows fastest, and each
+/// split's deepest share is again a single piece. The chain splits three times
+/// at every share count a step can deal, from one to one more than
+/// [`MAX_FORKS_COUNT`], staying strictly below [`GRID_N`].
 #[test]
 fn balanced_split_chain_raises_resolution_by_its_levels() {
     // Every fork here is of a single piece, whose two halves `fork` pins to

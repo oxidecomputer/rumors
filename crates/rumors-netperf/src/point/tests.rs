@@ -35,8 +35,8 @@ proptest! {
     }
 }
 
-/// Counts print in scientific shorthand exactly when they are one digit
-/// times a power of ten of at least a thousand.
+/// Counts print in scientific shorthand exactly when they are one digit times a
+/// power of ten of at least a thousand.
 #[test]
 fn compact_counts() {
     assert_eq!(compact_count(100_000), "1e5");

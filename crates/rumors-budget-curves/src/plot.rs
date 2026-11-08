@@ -1,23 +1,22 @@
-//! Rendering one figure: extra time against budget, measured and estimated,
-//! as an SVG that follows the reader's light or dark theme.
+//! Rendering one figure: extra time against budget, measured and estimated, as
+//! an SVG that follows the reader's light or dark theme.
 //!
 //! # Theming
 //!
 //! `plotters` writes every colour as a literal. The figure is drawn with
-//! placeholder colours, one per role (surface, inks, grid, each series),
-//! and [`theme`] rewrites each placeholder into a CSS custom property that
-//! an embedded stylesheet sets: light values by default, dark values under
-//! `prefers-color-scheme: dark`, and dark values under rustdoc's
-//! `data-theme` attribute when the SVG is inlined into a page, where the
-//! page's theme wins over the system's in both directions.
+//! placeholder colours, one per role (surface, inks, grid, each series), and
+//! [`theme`] rewrites each placeholder into a CSS custom property that an
+//! embedded stylesheet sets: light values by default, dark values under
+//! `prefers-color-scheme: dark`, and dark values under rustdoc's `data-theme`
+//! attribute when the SVG is inlined into a page, where the page's theme wins
+//! over the system's in both directions.
 //!
 //! # Style
 //!
 //! The colours are the dataviz skill's reference palette: its first three
 //! categorical slots, which keep every pair apart under colour vision
-//! deficiency in both themes, and its chart inks. Each series also has its
-//! own marker shape and a direct label, so no series is told apart by
-//! colour alone.
+//! deficiency in both themes, and its chart inks. Each series also has its own
+//! marker shape and a direct label, so no series is told apart by colour alone.
 
 use plotters::coord::Shift;
 use plotters::prelude::*;
@@ -29,9 +28,9 @@ const WIDTH: u32 = 820;
 const HEIGHT: u32 = 500;
 /// The figure's typeface: the system's interface sans.
 const FONT: &str = "system-ui, -apple-system, sans-serif";
-/// The lowest extra time the vertical axis shows, as a power of ten of
-/// percent: 0.1%. Points below it, and points with no extra time, sit on
-/// the axis's floor, labelled as such.
+/// The lowest extra time the vertical axis shows, as a power of ten of percent:
+/// 0.1%. Points below it, and points with no extra time, sit on the axis's
+/// floor, labelled as such.
 const FLOOR_DECADE: f64 = -1.0;
 
 /// A colour role, drawn as a placeholder and themed afterwards.
@@ -88,9 +87,8 @@ pub struct Curve {
     pub measured: Vec<(u64, f64)>,
     /// The estimated slowdown at a budget, in bytes.
     pub estimated: Box<dyn Fn(f64) -> f64>,
-    /// The smallest budget from which up the measured slowdown stays
-    /// within 1%, if any: where the curve starts to rise as the budget
-    /// falls.
+    /// The smallest budget from which up the measured slowdown stays within 1%,
+    /// if any: where the curve starts to rise as the budget falls.
     pub flat_from: Option<u64>,
 }
 
@@ -108,13 +106,13 @@ pub struct Figure {
     pub title: String,
     /// The curves, at most three.
     pub curves: Vec<Curve>,
-    /// The extra times drawn as reference lines, as fractions of the
-    /// unlimited time; the vertical axis labels each.
+    /// The extra times drawn as reference lines, as fractions of the unlimited
+    /// time; the vertical axis labels each.
     pub thresholds: Vec<f64>,
     /// The vertical reference lines.
     pub candidates: Vec<Candidate>,
-    /// The name of the estimate drawn beside each curve, in the
-    /// legend's words, or `None` to draw none.
+    /// The name of the estimate drawn beside each curve, in the legend's words,
+    /// or `None` to draw none.
     pub estimate: Option<String>,
 }
 
@@ -145,9 +143,9 @@ fn decade(slowdown: f64) -> f64 {
     }
 }
 
-/// The vertical axis's ticks: each slowdown and its label. Below a
-/// doubling a tick reads as extra time, from one up as a multiple of the
-/// unlimited time; the floor's tick reads as no measurable extra time.
+/// The vertical axis's ticks: each slowdown and its label. Below a doubling a
+/// tick reads as extra time, from one up as a multiple of the unlimited time;
+/// the floor's tick reads as no measurable extra time.
 const SLOWDOWN_TICKS: [(f64, &str); 10] = [
     (1.001, "none, or < +0.1%"),
     (1.01, "+1%"),
@@ -399,11 +397,10 @@ fn draw(
 }
 
 /// Rewrites the placeholder colours of `svg` into the stylesheet's custom
-/// properties, and labels the document with `title` for assistive
-/// technology.
+/// properties, and labels the document with `title` for assistive technology.
 ///
-/// Each tag's placeholder `fill` and `stroke` attributes become one
-/// `style` attribute, since a tag may carry only one.
+/// Each tag's placeholder `fill` and `stroke` attributes become one `style`
+/// attribute, since a tag may carry only one.
 pub fn theme(svg: &str, title: &str) -> String {
     let mut out = String::with_capacity(svg.len() + 2048);
     let mut rest = svg;
@@ -459,8 +456,7 @@ fn theme_tag(tag: &str) -> String {
     tag
 }
 
-/// The stylesheet that sets each role's custom property for the reader's
-/// theme.
+/// The stylesheet that sets each role's custom property for the reader's theme.
 fn stylesheet() -> String {
     let declarations = |dark: bool| {
         ROLES

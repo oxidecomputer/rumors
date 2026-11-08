@@ -10,9 +10,9 @@ use crate::record::{Placement, Writer};
 /// The library's minimum budget, in the record's unit.
 const MIN: u64 = MIN_SYNC_MEMORY_BUDGET as u64;
 
-/// A grid with every feature the check judges: a point at a budget below
-/// the minimum, points the wire-time limit skips at 10 Mbit/s, and a pair
-/// whose in-flight bytes on the 250 ms link exceed [`SMALL_WINDOW`].
+/// A grid with every feature the check judges: a point at a budget below the
+/// minimum, points the wire-time limit skips at 10 Mbit/s, and a pair whose
+/// in-flight bytes on the 250 ms link exceed [`SMALL_WINDOW`].
 const GRID: &str = r#"
 repetitions = 2
 
@@ -28,8 +28,8 @@ budget = ["0", "default"]
 max_wire_seconds = 1
 "#;
 
-/// A usable window of 1 MiB, which the grid's larger pair exceeds on its
-/// 1 Gbit/s link.
+/// A usable window of 1 MiB, which the grid's larger pair exceeds on its 1
+/// Gbit/s link.
 const SMALL_WINDOW: u64 = 1 << 20;
 
 /// A usable window no point of the grid exceeds.
@@ -44,8 +44,8 @@ fn limits(window: u64) -> TcpLimits {
     }
 }
 
-/// The fixture's host, whose usable window is `window` bytes: one
-/// environment, named `fixture`, for every directory of a run.
+/// The fixture's host, whose usable window is `window` bytes: one environment,
+/// named `fixture`, for every directory of a run.
 fn host(window: u64) -> Environment {
     Environment {
         build: Build {
@@ -183,8 +183,8 @@ proptest! {
 }
 
 /// The clean run's grid exercises what the check judges: some points are
-/// skipped, some sessions run below the minimum budget, and the small
-/// window brings raised-limit reruns.
+/// skipped, some sessions run below the minimum budget, and the small window
+/// brings raised-limit reruns.
 #[test]
 fn clean_run_exercises_every_condition() {
     let results = clean_run(0, SMALL_WINDOW);
@@ -200,8 +200,8 @@ fn clean_run_exercises_every_condition() {
 }
 
 /// A run missing one of its shards fails as incomplete, names every grid
-/// session the lost shard held as missing, and names the raised-limit path
-/// as not run exactly when the lost shard held every rerun.
+/// session the lost shard held as missing, and names the raised-limit path as
+/// not run exactly when the lost shard held every rerun.
 #[test]
 fn lost_shard_is_named() {
     let mut results = clean_run(2, SMALL_WINDOW);
@@ -251,13 +251,12 @@ fn mismatched_plans_are_named() {
     );
 }
 
-/// Shards measured on different hosts make one run when their
-/// environments agree in all but the host's name, and a shard whose
-/// environment differs in any other part is named with exactly that part.
+/// Shards measured on different hosts make one run when their environments
+/// agree in all but the host's name, and a shard whose environment differs in
+/// any other part is named with exactly that part.
 ///
-/// Every part of the identity is changed on the second shard alone, the
-/// build by its executable's digest alone, as a change to the library
-/// alone makes.
+/// Every part of the identity is changed on the second shard alone, the build
+/// by its executable's digest alone, as a change to the library alone makes.
 #[test]
 fn shards_agree_in_all_but_the_host() {
     let base = host(SMALL_WINDOW);
@@ -287,12 +286,11 @@ fn shards_agree_in_all_but_the_host() {
     }
 }
 
-/// The shards of one run on two hosts, written to disk, pass every check
-/// and render one report.
+/// The shards of one run on two hosts, written to disk, pass every check and
+/// render one report.
 ///
-/// The report names both hosts in its title, gives each shard's summary
-/// and host under its own label, and names the one build that measured
-/// them once.
+/// The report names both hosts in its title, gives each shard's summary and
+/// host under its own label, and names the one build that measured them once.
 #[test]
 fn shards_on_two_hosts_render_one_report() {
     let mut results = clean_run(2, SMALL_WINDOW);
@@ -324,8 +322,8 @@ fn shards_on_two_hosts_render_one_report() {
     );
 }
 
-/// A run whose `run.json` is absent, or records no end, as a run cut
-/// short leaves it, is named as unfinished.
+/// A run whose `run.json` is absent, or records no end, as a run cut short
+/// leaves it, is named as unfinished.
 #[test]
 fn unfinished_run_is_named() {
     for run in [
@@ -346,9 +344,8 @@ fn unfinished_run_is_named() {
     }
 }
 
-/// Sentinels are numbered from zero in every shard, so the same sentinel
-/// in two shards' directories is not a duplicate; twice in one directory,
-/// it is.
+/// Sentinels are numbered from zero in every shard, so the same sentinel in two
+/// shards' directories is not a duplicate; twice in one directory, it is.
 #[test]
 fn sentinels_are_duplicates_only_within_a_directory() {
     let mut results = clean_run(2, SMALL_WINDOW);
@@ -401,16 +398,16 @@ fn errored_session_is_named() {
 }
 
 /// A side at the default target that reported any budget but the one it
-/// requested raised to the minimum, or none, is named with the budget it
-/// should have run at.
+/// requested raised to the minimum, or none, is named with the budget it should
+/// have run at.
 ///
 /// That holds whether it requested less than the minimum or the library's
 /// default, which exceeds it.
 ///
-/// The reports tried are each budget's neighbors, the other request's
-/// budget, the minimum, and no report at all. A library that raised a
-/// budget below the minimum but ignored one above it would report the
-/// minimum for the default request.
+/// The reports tried are each budget's neighbors, the other request's budget,
+/// the minimum, and no report at all. A library that raised a budget below the
+/// minimum but ignored one above it would report the minimum for the default
+/// request.
 #[test]
 fn every_budget_not_raised_exactly_to_its_request_is_named() {
     for requested in [Some(0), None] {
@@ -448,8 +445,8 @@ fn every_budget_not_raised_exactly_to_its_request_is_named() {
 /// A side at a target other than the default is not judged by the budget
 /// condition, whatever it reports.
 ///
-/// [`MIN_SYNC_MEMORY_BUDGET`] is the minimum only at the default target,
-/// and a side that states the default target explicitly is still judged.
+/// [`MIN_SYNC_MEMORY_BUDGET`] is the minimum only at the default target, and a
+/// side that states the default target explicitly is still judged.
 #[test]
 fn sub_minimum_budget_at_another_target_is_not_judged() {
     let mut results = clean_run(0, SMALL_WINDOW);
@@ -473,9 +470,9 @@ fn sub_minimum_budget_at_another_target_is_not_judged() {
     );
 }
 
-/// When the host's window binds a planned point, a run with no finished
-/// rerun at raised limits is named, whether it planned none or its reruns
-/// all failed to record.
+/// When the host's window binds a planned point, a run with no finished rerun
+/// at raised limits is named, whether it planned none or its reruns all failed
+/// to record.
 #[test]
 fn missing_raised_rerun_is_named() {
     let mut results = clean_run(0, SMALL_WINDOW);
@@ -498,8 +495,8 @@ fn no_rerun_needed_when_window_covers() {
     assert_eq!(verify(&results), vec![]);
 }
 
-/// An emulated run whose host recorded no usable window is named, since
-/// the run could not tell which points need raised limits.
+/// An emulated run whose host recorded no usable window is named, since the run
+/// could not tell which points need raised limits.
 #[test]
 fn unknown_window_is_named() {
     let mut results = clean_run(0, LARGE_WINDOW);
@@ -512,8 +509,8 @@ fn unknown_window_is_named() {
     );
 }
 
-/// Writes `results` as results directories under a fresh directory named
-/// for `test`, returning their paths.
+/// Writes `results` as results directories under a fresh directory named for
+/// `test`, returning their paths.
 fn store(results: &[Results], test: &str) -> (PathBuf, Vec<PathBuf>) {
     let root = std::env::temp_dir().join(format!("netperf-check-{test}-{}", std::process::id()));
     let dirs = results
@@ -538,8 +535,8 @@ fn store(results: &[Results], test: &str) -> (PathBuf, Vec<PathBuf>) {
     (root, dirs)
 }
 
-/// A clean sharded run, written to disk and read back, passes every check,
-/// its merged report included, and the report lands where `out` names.
+/// A clean sharded run, written to disk and read back, passes every check, its
+/// merged report included, and the report lands where `out` names.
 #[test]
 fn clean_run_on_disk_passes_and_renders() {
     let (root, dirs) = store(&clean_run(2, SMALL_WINDOW), "clean");
@@ -551,8 +548,8 @@ fn clean_run_on_disk_passes_and_renders() {
     assert!(rendered);
 }
 
-/// A report that cannot be written, here because `out` is a file, is named
-/// as the one failure of an otherwise clean run.
+/// A report that cannot be written, here because `out` is a file, is named as
+/// the one failure of an otherwise clean run.
 #[test]
 fn unrenderable_report_is_named() {
     let (root, dirs) = store(&clean_run(0, SMALL_WINDOW), "unrenderable");
@@ -567,16 +564,16 @@ fn unrenderable_report_is_named() {
     );
 }
 
-/// One session's intervals as the phase tests draw them: its
-/// preparation's start and length, and its timed session's, if it had one.
+/// One session's intervals as the phase tests draw them: its preparation's
+/// start and length, and its timed session's, if it had one.
 ///
 /// They are whole seconds, so that intervals often touch, and some have no
 /// length, as the clock's resolution can leave a short one.
 type Spans = ((u8, u8), Option<(u8, u8)>);
 
 /// The results of one directory whose run times `jobs` sessions at once and
-/// records how it prepares them, with a row per entry of `spans`: a clean
-/// row where the entry has a timed session, a failed one where it has not.
+/// records how it prepares them, with a row per entry of `spans`: a clean row
+/// where the entry has a timed session, a failed one where it has not.
 fn phased(spans: &[Spans], jobs: usize) -> Results {
     let mut results = clean_run(0, LARGE_WINDOW).remove(0);
     let template = results.rows[0].clone();
@@ -606,8 +603,8 @@ fn phased(spans: &[Spans], jobs: usize) -> Results {
     results
 }
 
-/// The half-open intervals `[began, ended)` of `spans` that hold any
-/// moment: the preparations, and the timed sessions.
+/// The half-open intervals `[began, ended)` of `spans` that hold any moment:
+/// the preparations, and the timed sessions.
 #[allow(clippy::type_complexity)]
 fn intervals(spans: &[Spans]) -> (Vec<(u32, u32)>, Vec<(u32, u32)>) {
     let half_open = |(began, length): (u8, u8)| {
@@ -653,13 +650,12 @@ proptest! {
     }
 }
 
-/// In a run that records how it prepares sessions, every row whose
-/// intervals are missing or garbled is named.
+/// In a run that records how it prepares sessions, every row whose intervals
+/// are missing or garbled is named.
 ///
 /// A measured row without a timed interval, a row without a preparation
-/// interval, and a row whose timed interval ends before it begins each
-/// fail, so the overlap check cannot pass because the intervals went
-/// unrecorded.
+/// interval, and a row whose timed interval ends before it begins each fail, so
+/// the overlap check cannot pass because the intervals went unrecorded.
 #[test]
 fn unrecorded_intervals_are_named() {
     let mut results = phased(
@@ -685,9 +681,9 @@ fn unrecorded_intervals_are_named() {
     assert_eq!(named, vec!["timed session", "preparation", "timed session"]);
 }
 
-/// A run from a tool that prepared each session just before timing it
-/// records no preparation limits and no intervals, and the phase check
-/// leaves it alone rather than naming every row.
+/// A run from a tool that prepared each session just before timing it records
+/// no preparation limits and no intervals, and the phase check leaves it alone
+/// rather than naming every row.
 #[test]
 fn run_without_preparation_limits_is_not_judged() {
     let mut results = phased(&[((0, 5), Some((1, 1)))], 1);

@@ -2,25 +2,25 @@
 //!
 //! The sampling mechanism is counting-guided generation: at every node the
 //! sampler draws one uniform integer below the exact number of canonical
-//! completions ([`crate::count`]) and decodes it into a choice by walking
-//! the choice weights in a fixed order — every member of the space gets
-//! probability exactly `1 / |space|`, with no backtracking anywhere (a
-//! backtracking generator's retry order would bias the measure).
+//! completions ([`crate::count`]) and decodes it into a choice by walking the
+//! choice weights in a fixed order — every member of the space gets probability
+//! exactly `1 / |space|`, with no backtracking anywhere (a backtracking
+//! generator's retry order would bias the measure).
 //!
 //! One constraint lives outside the tables: the version grammar's
 //! nonnegative-height rule couples every leaf value in the stream, and no
-//! polynomial-state exact count exists for it (the count module's doc
-//! carries the argument). The version sampler therefore draws exact-uniform
-//! members of the sibling-rule family and rejects the whole draw whenever a
-//! running height goes negative. Restricting a uniform measure to a subset
-//! by independent whole-sample rejection is still exactly uniform on the
-//! subset — unlike backtracking, rejection never conditions one part of a
-//! sample on another. The acceptance rate decays only polynomially (the
-//! height walk is a sign-symmetric random walk, so staying nonnegative
-//! costs `Θ(1/sqrt(leaves))`); [`VersionSampler::sample_bytes`] reports the
-//! tries so runs can quote the measured rate. The party grammar has no
-//! cross-cutting constraint: its sampler is pure counting-guided generation
-//! with no rejection at all.
+//! polynomial-state exact count exists for it (the count module's doc carries
+//! the argument). The version sampler therefore draws exact-uniform members of
+//! the sibling-rule family and rejects the whole draw whenever a running height
+//! goes negative. Restricting a uniform measure to a subset by independent
+//! whole-sample rejection is still exactly uniform on the subset — unlike
+//! backtracking, rejection never conditions one part of a sample on another.
+//! The acceptance rate decays only polynomially (the height walk is a
+//! sign-symmetric random walk, so staying nonnegative costs
+//! `Θ(1/sqrt(leaves))`); [`VersionSampler::sample_bytes`] reports the tries so
+//! runs can quote the measured rate. The party grammar has no cross-cutting
+//! constraint: its sampler is pure counting-guided generation with no rejection
+//! at all.
 //!
 //! Uniformity, membership, and counts are pinned in `tests.rs` against
 //! exhaustive enumeration and the real decoders.
@@ -37,9 +37,8 @@ use crate::count::{
 #[cfg(test)]
 mod tests;
 
-/// An encoded bit stream under construction, MSB-first within each byte —
-/// the codec's storage order, so the encoded bytes are exactly what
-/// `decode` reads.
+/// An encoded bit stream under construction, MSB-first within each byte — the
+/// codec's storage order, so the encoded bytes are exactly what `decode` reads.
 #[derive(Default)]
 pub struct BitSink {
     bytes: Vec<u8>,
@@ -69,17 +68,17 @@ impl BitSink {
         self.len == 0
     }
 
-    /// The encoded bytes, sealed behind the canonical padding — one `1`
-    /// marker bit, then zeros to the byte boundary (the canonical
-    /// stored form `decode` accepts).
+    /// The encoded bytes, sealed behind the canonical padding — one `1` marker
+    /// bit, then zeros to the byte boundary (the canonical stored form `decode`
+    /// accepts).
     pub fn into_bytes(mut self) -> Vec<u8> {
         self.push(true);
         self.bytes
     }
 }
 
-/// Split one gamma code value out of its bucket: append `k` zero bits,
-/// then `v + 1 = 2^k + mantissa` in `k + 1` bits, most significant first.
+/// Split one gamma code value out of its bucket: append `k` zero bits, then
+/// `v + 1 = 2^k + mantissa` in `k + 1` bits, most significant first.
 fn push_gamma(sink: &mut BitSink, k: usize, mantissa: &BigUint) {
     for _ in 0..k {
         sink.push(false);
@@ -95,20 +94,20 @@ fn push_gamma(sink: &mut BitSink, k: usize, mantissa: &BigUint) {
 enum Mode {
     /// Unconstrained (a left child, or the root).
     Free,
-    /// A right sibling of a bare leaf: the bare zero-code leaf (the
-    /// collapsible pair's right half) is excluded.
+    /// A right sibling of a bare leaf: the bare zero-code leaf (the collapsible
+    /// pair's right half) is excluded.
     NoZeroLeaf,
-    /// Conditioned internal: every bare leaf is excluded (the sampler
-    /// reaches this branch only after the leaf mass was drawn away).
+    /// Conditioned internal: every bare leaf is excluded (the sampler reaches
+    /// this branch only after the leaf mass was drawn away).
     NoLeaf,
 }
 
 /// The deterministic RNG for one sampling cell.
 ///
-/// The 32-byte ChaCha key mixes the base seed with the cell coordinates
-/// through splitmix64 (a fixed, documented expansion — no entropy from
-/// time or the OS anywhere), so any cell replays exactly and cells are
-/// independent of execution order.
+/// The 32-byte ChaCha key mixes the base seed with the cell coordinates through
+/// splitmix64 (a fixed, documented expansion — no entropy from time or the OS
+/// anywhere), so any cell replays exactly and cells are independent of
+/// execution order.
 pub fn cell_rng(base_seed: u64, op: &str, size: usize, index: usize) -> ChaChaRng {
     let mut h = base_seed ^ 0x9e37_79b9_7f4a_7c15;
     let mut mix = |v: u64| {
@@ -141,9 +140,9 @@ fn splitmix64(mut z: u64) -> u64 {
 /// The interleaved split order `lo, hi, lo+1, hi-1, …` over `lo..=hi`.
 ///
 /// Purely an efficiency choice (any fixed order is uniform): the counting
-/// measure puts most split mass at the extreme splits, so scanning from
-/// both ends reaches the drawn index after O(1) expected weights instead
-/// of O(range).
+/// measure puts most split mass at the extreme splits, so scanning from both
+/// ends reaches the drawn index after O(1) expected weights instead of
+/// O(range).
 fn interleave(lo: usize, hi: usize) -> impl Iterator<Item = usize> {
     let mut a = lo;
     let mut b = hi;
@@ -189,9 +188,8 @@ impl VersionSampler {
         }
     }
 
-    /// [`new`](Self::new), forwarding the table build's per-entry
-    /// progress `(entries done, entries total)` so long builds can
-    /// narrate.
+    /// [`new`](Self::new), forwarding the table build's per-entry progress
+    /// `(entries done, entries total)` so long builds can narrate.
     pub fn new_with_progress(
         max_bytes: usize,
         progress: impl FnMut(usize, usize),
@@ -207,8 +205,8 @@ impl VersionSampler {
     }
 
     /// Draw one version uniformly from the canonical versions whose encoded
-    /// encoding is exactly `bytes` bytes. `None` if the space is empty
-    /// (it is not, for any `bytes >= 1` within the table).
+    /// encoding is exactly `bytes` bytes. `None` if the space is empty (it is
+    /// not, for any `bytes >= 1` within the table).
     pub fn sample_bytes(&self, bytes: usize, rng: &mut ChaChaRng) -> Option<VersionDraw> {
         let window = bit_window(bytes, MIN_VERSION_BITS);
         let total: BigUint = window.clone().map(|m| self.counts.whole(m)).sum();
@@ -244,9 +242,9 @@ impl VersionSampler {
         }
     }
 
-    /// Emit one uniform subtree of exactly `bits` bits into `sink`,
-    /// tracking leaf heights in `walk`. Returns `false` (abandon the whole
-    /// draw) as soon as a height goes negative.
+    /// Emit one uniform subtree of exactly `bits` bits into `sink`, tracking
+    /// leaf heights in `walk`. Returns `false` (abandon the whole draw) as soon
+    /// as a height goes negative.
     fn subtree(
         &self,
         bits: usize,
@@ -322,8 +320,8 @@ impl VersionSampler {
 
 /// The running leaf-height walk the nonnegativity rule constrains.
 struct HeightWalk {
-    /// The current height, kept as (nonnegative magnitude); a subtraction
-    /// below zero is the rejection event, so a signed value never exists.
+    /// The current height, kept as (nonnegative magnitude); a subtraction below
+    /// zero is the rejection event, so a signed value never exists.
     height: BigUint,
     /// Whether the first leaf (absolute height) has been seen.
     seen_leaf: bool,
@@ -339,9 +337,9 @@ impl HeightWalk {
 
     /// Account one leaf: bucket `k`, mantissa, value `v = 2^k - 1 + mantissa`.
     ///
-    /// The first leaf is the absolute height; every later leaf is a
-    /// zigzag delta (`2m -> +m`, `2m - 1 -> -m`). Returns `false` when
-    /// the height would go negative.
+    /// The first leaf is the absolute height; every later leaf is a zigzag
+    /// delta (`2m -> +m`, `2m - 1 -> -m`). Returns `false` when the height
+    /// would go negative.
     fn leaf(&mut self, k: usize, mantissa: &BigUint) -> bool {
         let v = (BigUint::from(1u32) << k) - 1u32 + mantissa;
         if !self.seen_leaf {
@@ -363,8 +361,8 @@ impl HeightWalk {
     }
 }
 
-/// An exact-uniform sampler over encoded parties of an exact byte size:
-/// pure counting-guided generation, no rejection anywhere.
+/// An exact-uniform sampler over encoded parties of an exact byte size: pure
+/// counting-guided generation, no rejection anywhere.
 pub struct PartySampler {
     counts: PartyCounts,
 }
@@ -385,9 +383,8 @@ impl PartySampler {
         }
     }
 
-    /// [`new`](Self::new), forwarding the table build's per-entry
-    /// progress `(entries done, entries total)` so long builds can
-    /// narrate.
+    /// [`new`](Self::new), forwarding the table build's per-entry progress
+    /// `(entries done, entries total)` so long builds can narrate.
     pub fn new_with_progress(max_bytes: usize, progress: impl FnMut(usize, usize)) -> PartySampler {
         PartySampler {
             counts: PartyCounts::build_with_progress(8 * max_bytes, progress),
@@ -426,8 +423,8 @@ impl PartySampler {
     }
 
     /// Emit one uniform id subtree of exactly `bits` bits into `sink`.
-    /// `no_terminal` excludes the bare terminal (the sibling of a terminal,
-    /// or a position whose terminal mass was already drawn away).
+    /// `no_terminal` excludes the bare terminal (the sibling of a terminal, or
+    /// a position whose terminal mass was already drawn away).
     fn subtree(&self, bits: usize, no_terminal: bool, sink: &mut BitSink, rng: &mut ChaChaRng) {
         let terminal_w = if bits == 2 && !no_terminal {
             BigUint::from(1u32)

@@ -2,75 +2,72 @@
 //! buffers, on simulated time.
 //!
 //! [`crate::bench::latency`] models a link's delay alone, on Tokio's paused
-//! clock. This module adds the two quantities a throughput question needs:
-//! the time each byte takes to serialize onto the wire, and the bytes a
-//! sending kernel holds that the application has handed over but the wire
-//! has not yet taken. [`drive`] runs two peers over a [`Link`] on a clock of
-//! its own and reports when every byte left and arrived.
+//! clock. This module adds the two quantities a throughput question needs: the
+//! time each byte takes to serialize onto the wire, and the bytes a sending
+//! kernel holds that the application has handed over but the wire has not yet
+//! taken. [`drive`] runs two peers over a [`Link`] on a clock of its own and
+//! reports when every byte left and arrived.
 //!
 //! # The time unit
 //!
 //! Time counts in *byte-times*: one byte-time is how long the link takes to
-//! serialize one byte, the same in both directions. In that unit the
-//! bandwidth is one byte per byte-time, so a link is described entirely by
-//! its one-way delay, and its bandwidth-delay product is twice that delay,
-//! in bytes. A 1 Gb/s link with a 100 ms round trip and a 100 Gb/s link
-//! with a 1 ms round trip have the same 12.5 MB product, and so are the
-//! same link here; a session's time on either is its byte-time count
-//! divided by the bandwidth in bytes per second. Every quantity is an
-//! integer, so a session's timing is exact.
+//! serialize one byte, the same in both directions. In that unit the bandwidth
+//! is one byte per byte-time, so a link is described entirely by its one-way
+//! delay, and its bandwidth-delay product is twice that delay, in bytes. A 1
+//! Gb/s link with a 100 ms round trip and a 100 Gb/s link with a 1 ms round
+//! trip have the same 12.5 MB product, and so are the same link here; a
+//! session's time on either is its byte-time count divided by the bandwidth in
+//! bytes per second. Every quantity is an integer, so a session's timing is
+//! exact.
 //!
 //! # The model of one direction
 //!
 //! Each direction behaves as a TCP connection's sending kernel, wire, and
 //! receiving kernel, simplified to the parts that set timing:
 //!
-//! 1. A write enters the *unsent* queue: bytes the application has handed
-//!    to the kernel that have not begun to serialize. The queue admits
-//!    bytes while it holds fewer than its limit
-//!    ([`LinkConfig::with_unsent_limit`]) plus one [`SEGMENT_BYTES`]
-//!    segment; a writer finding it full waits. A limit of zero therefore
-//!    models a socket with `TCP_NOTSENT_LOWAT` at one segment, and a limit
-//!    of one bandwidth-delay product a socket whose send buffer holds that
-//!    much beyond what is in flight.
-//! 2. The wire takes the unsent queue's head one segment at a time, in
-//!    order, as soon as it is idle and the in-flight window has room: up to
+//! 1. A write enters the *unsent* queue: bytes the application has handed to
+//!    the kernel that have not begun to serialize. The queue admits bytes while
+//!    it holds fewer than its limit ([`LinkConfig::with_unsent_limit`]) plus
+//!    one [`SEGMENT_BYTES`] segment; a writer finding it full waits. A limit of
+//!    zero therefore models a socket with `TCP_NOTSENT_LOWAT` at one segment,
+//!    and a limit of one bandwidth-delay product a socket whose send buffer
+//!    holds that much beyond what is in flight.
+//! 2. The wire takes the unsent queue's head one segment at a time, in order,
+//!    as soon as it is idle and the in-flight window has room: up to
 //!    [`SEGMENT_BYTES`], fewer if fewer are unsent. A segment of `n` bytes
-//!    occupies the wire for `n` byte-times. Nothing reorders bytes once
-//!    they are written, so whatever an application prioritizes, it can
-//!    prioritize only among bytes it has not yet handed over.
+//!    occupies the wire for `n` byte-times. Nothing reorders bytes once they
+//!    are written, so whatever an application prioritizes, it can prioritize
+//!    only among bytes it has not yet handed over.
 //! 3. A segment arrives whole, one one-way delay after its last byte
-//!    serialized, and waits in the receive buffer until the reader takes
-//!    it.
+//!    serialized, and waits in the receive buffer until the reader takes it.
 //! 4. The receiver acknowledges bytes as its reader takes them, and the
-//!    acknowledgement reaches the sender one one-way delay later. Bytes
-//!    that began to serialize and are not yet acknowledged are *in flight*,
-//!    and the wire starts no segment that would put more than one
-//!    bandwidth-delay product plus two segments in flight. A sender writing
-//!    back to back, to a reader taking bytes as they arrive, never meets
-//!    that limit: its unacknowledged segments are those that finished
-//!    serializing within the last round trip, which carry fewer than one
-//!    product plus one segment of bytes, and its next segment adds one
-//!    more. The limit binds only when the reader stops taking bytes, which
-//!    is how a full receive buffer stops a TCP sender.
+//!    acknowledgement reaches the sender one one-way delay later. Bytes that
+//!    began to serialize and are not yet acknowledged are *in flight*, and the
+//!    wire starts no segment that would put more than one bandwidth-delay
+//!    product plus two segments in flight. A sender writing back to back, to a
+//!    reader taking bytes as they arrive, never meets that limit: its
+//!    unacknowledged segments are those that finished serializing within the
+//!    last round trip, which carry fewer than one product plus one segment of
+//!    bytes, and its next segment adds one more. The limit binds only when the
+//!    reader stops taking bytes, which is how a full receive buffer stops a TCP
+//!    sender.
 //!
 //! The model leaves out loss, congestion control, and the slow start a new
 //! connection pays: the in-flight window starts fully open.
 //!
 //! # The clock
 //!
-//! [`drive`] polls both peers on the calling thread, in a fixed order,
-//! until neither can progress, then advances the clock to the link's next
-//! event (a segment finishing serialization, arriving, or being
-//! acknowledged) and resumes. Computation therefore takes no simulated
-//! time, no timer or thread takes part, and a session's report is a
-//! deterministic function of its fixture and link: machine load cannot
-//! move it.
+//! [`drive`] polls both peers on the calling thread, in a fixed order, until
+//! neither can progress, then advances the clock to the link's next event (a
+//! segment finishing serialization, arriving, or being acknowledged) and
+//! resumes. Computation therefore takes no simulated time, no timer or thread
+//! takes part, and a session's report is a deterministic function of its
+//! fixture and link: machine load cannot move it.
 //!
-//! A link built with [`LinkConfig::latency_only`] serializes in no time and
-//! has no in-flight limit. A session's time over it is its critical path:
-//! the one-way delay times the longest chain of messages each of which
-//! waits for the one before.
+//! A link built with [`LinkConfig::latency_only`] serializes in no time and has
+//! no in-flight limit. A session's time over it is its critical path: the
+//! one-way delay times the longest chain of messages each of which waits for
+//! the one before.
 //!
 //! [`drive`]: crate::bench::link::drive
 //! [`Link`]: crate::bench::link::Link
@@ -88,12 +85,12 @@ use std::task::{Context, Poll, Wake, Waker};
 
 use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
-/// The most bytes the wire takes from the unsent queue as one segment:
-/// 1,448, the TCP payload of a 1,500-byte Ethernet frame with timestamps.
+/// The most bytes the wire takes from the unsent queue as one segment: 1,448,
+/// the TCP payload of a 1,500-byte Ethernet frame with timestamps.
 ///
 /// A segment arrives whole, so timing within a direction resolves to a
-/// segment's serialization time, which stays small beside the round trip
-/// of any link a test scales down to.
+/// segment's serialization time, which stays small beside the round trip of any
+/// link a test scales down to.
 pub const SEGMENT_BYTES: u64 = 1448;
 
 /// One of the two peers on a link.
@@ -109,8 +106,8 @@ impl Side {
     /// Both sides, in the order [`drive`] polls them.
     pub const BOTH: [Self; 2] = [Self::A, Self::B];
 
-    /// This side's position in [`Side::BOTH`], which also indexes the
-    /// direction it writes into.
+    /// This side's position in [`Side::BOTH`], which also indexes the direction
+    /// it writes into.
     pub const fn index(self) -> usize {
         match self {
             Self::A => 0,
@@ -132,11 +129,10 @@ impl Side {
 pub struct LinkConfig {
     /// One-way propagation delay, in byte-times.
     one_way_delay: u64,
-    /// Bytes the unsent queue holds beyond one segment before a writer
-    /// waits.
+    /// Bytes the unsent queue holds beyond one segment before a writer waits.
     unsent_limit: u64,
-    /// Whether a byte occupies the wire for one byte-time; a latency-only
-    /// link serializes in no time.
+    /// Whether a byte occupies the wire for one byte-time; a latency-only link
+    /// serializes in no time.
     serializes: bool,
 }
 
@@ -146,8 +142,8 @@ impl LinkConfig {
     ///
     /// # Panics
     ///
-    /// If `bdp` is zero or odd: the one-way delay is half the product, in
-    /// whole byte-times.
+    /// If `bdp` is zero or odd: the one-way delay is half the product, in whole
+    /// byte-times.
     pub fn with_bdp(bdp: u64) -> Self {
         assert!(
             bdp > 0 && bdp.is_multiple_of(2),
@@ -161,8 +157,8 @@ impl LinkConfig {
         }
     }
 
-    /// The same link, with the unsent queue holding up to `bytes` beyond
-    /// one segment.
+    /// The same link, with the unsent queue holding up to `bytes` beyond one
+    /// segment.
     pub fn with_unsent_limit(self, bytes: u64) -> Self {
         Self {
             unsent_limit: bytes,
@@ -170,8 +166,8 @@ impl LinkConfig {
         }
     }
 
-    /// The same delay with infinite bandwidth: bytes serialize in no time,
-    /// and nothing limits the bytes in flight or unsent.
+    /// The same delay with infinite bandwidth: bytes serialize in no time, and
+    /// nothing limits the bytes in flight or unsent.
     pub fn latency_only(self) -> Self {
         Self {
             serializes: false,
@@ -184,8 +180,8 @@ impl LinkConfig {
         2 * self.one_way_delay
     }
 
-    /// The round-trip time, in byte-times: numerically the
-    /// bandwidth-delay product.
+    /// The round-trip time, in byte-times: numerically the bandwidth-delay
+    /// product.
     pub const fn rtt(&self) -> u64 {
         2 * self.one_way_delay
     }
@@ -208,8 +204,7 @@ impl LinkConfig {
     }
 
     /// The bytes the unsent queue may hold before a writer waits: the
-    /// configured limit plus one segment, or no bound on a latency-only
-    /// link.
+    /// configured limit plus one segment, or no bound on a latency-only link.
     fn unsent_capacity(&self) -> u64 {
         if self.serializes {
             self.unsent_limit + SEGMENT_BYTES
@@ -218,8 +213,8 @@ impl LinkConfig {
         }
     }
 
-    /// The most bytes the wire puts in flight: one bandwidth-delay product
-    /// plus two segments, or no bound on a latency-only link.
+    /// The most bytes the wire puts in flight: one bandwidth-delay product plus
+    /// two segments, or no bound on a latency-only link.
     fn in_flight_capacity(&self) -> u64 {
         if self.serializes {
             self.bdp() + 2 * SEGMENT_BYTES
@@ -236,8 +231,8 @@ impl LinkConfig {
 
 /// Bytes written into one direction and not yet read, in order.
 ///
-/// The link's timing tracks byte counts only; the bytes themselves wait
-/// here from the write that hands them over to the read that takes them.
+/// The link's timing tracks byte counts only; the bytes themselves wait here
+/// from the write that hands them over to the read that takes them.
 #[derive(Debug, Default)]
 struct ByteQueue {
     /// The bytes, of which those before `head` are already read.
@@ -254,8 +249,8 @@ impl ByteQueue {
 
     /// Moves the next `count` bytes into `buf`.
     ///
-    /// Read bytes are discarded once they outnumber the unread, so the
-    /// queue's memory stays within twice what it holds.
+    /// Read bytes are discarded once they outnumber the unread, so the queue's
+    /// memory stays within twice what it holds.
     fn take_into(&mut self, count: usize, buf: &mut ReadBuf<'_>) {
         buf.put_slice(&self.bytes[self.head..self.head + count]);
         self.head += count;
@@ -277,11 +272,11 @@ pub struct Segment {
     pub bytes: u64,
 }
 
-/// One direction of the link: its byte counters, the events pending on
-/// them, and the wakers waiting on them.
+/// One direction of the link: its byte counters, the events pending on them,
+/// and the wakers waiting on them.
 ///
-/// Bytes pass four counters in order, each at most the one before:
-/// `written`, `departed` (began to serialize), `arrived`, and `read`.
+/// Bytes pass four counters in order, each at most the one before: `written`,
+/// `departed` (began to serialize), `arrived`, and `read`.
 #[derive(Debug, Default)]
 struct Direction {
     /// Written and not yet read.
@@ -296,14 +291,14 @@ struct Direction {
     read: u64,
     /// Bytes the sender knows the reader has taken.
     acknowledged: u64,
-    /// The segment serializing now: when it finishes, and `departed` once
-    /// it has.
+    /// The segment serializing now: when it finishes, and `departed` once it
+    /// has.
     serializing: Option<(u64, u64)>,
-    /// Serialized segments in propagation, oldest first: when each
-    /// arrives, and `arrived` once it has.
+    /// Serialized segments in propagation, oldest first: when each arrives, and
+    /// `arrived` once it has.
     propagating: VecDeque<(u64, u64)>,
-    /// Acknowledgements in propagation, oldest first: when each reaches
-    /// the sender, and `acknowledged` once it has.
+    /// Acknowledgements in propagation, oldest first: when each reaches the
+    /// sender, and `acknowledged` once it has.
     acknowledgements: VecDeque<(u64, u64)>,
     /// Whether the writer has shut down or dropped its half.
     closed: bool,
@@ -354,9 +349,8 @@ impl Direction {
         .min()
     }
 
-    /// Applies every event due by `now` and starts every segment that can
-    /// start at `now`, waking the reader on new arrivals and the writer on
-    /// new room.
+    /// Applies every event due by `now` and starts every segment that can start
+    /// at `now`, waking the reader on new arrivals and the writer on new room.
     fn pump(&mut self, now: u64, config: &LinkConfig) {
         loop {
             let mut progressed = false;
@@ -436,8 +430,7 @@ fn lock(shared: &Shared) -> MutexGuard<'_, State> {
         .expect("no link operation panics while holding the lock")
 }
 
-/// A duplex link between two peers, from which each side's halves are
-/// taken.
+/// A duplex link between two peers, from which each side's halves are taken.
 #[derive(Debug, Clone)]
 pub struct Link {
     /// The clock and both directions.
@@ -475,8 +468,8 @@ impl Link {
         lock(&self.shared).now
     }
 
-    /// Advances the clock to the earliest pending event and applies every
-    /// event due then, returning `false` if no event is pending.
+    /// Advances the clock to the earliest pending event and applies every event
+    /// due then, returning `false` if no event is pending.
     fn advance(&self) -> bool {
         let mut state = lock(&self.shared);
         let State {
@@ -511,8 +504,8 @@ impl Link {
 /// One side's halves of a link.
 #[derive(Debug)]
 pub struct End {
-    /// The read half, buffered as a session requires: bytes the peer
-    /// wrote, after their delay.
+    /// The read half, buffered as a session requires: bytes the peer wrote,
+    /// after their delay.
     pub read: BufReader<Reader>,
     /// The write half.
     pub write: Writer,
@@ -529,9 +522,9 @@ pub struct Reader {
 
 /// Reads arrived bytes, waiting for an arrival when none remain.
 impl AsyncRead for Reader {
-    /// Copies arrived bytes into `buf` and schedules their
-    /// acknowledgement, or reports end of stream once the writer has shut
-    /// down and every byte it wrote has been read.
+    /// Copies arrived bytes into `buf` and schedules their acknowledgement, or
+    /// reports end of stream once the writer has shut down and every byte it
+    /// wrote has been read.
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -585,8 +578,7 @@ pub struct Writer {
     into: usize,
 }
 
-/// Hands bytes to the sending kernel, waiting while the unsent queue is
-/// full.
+/// Hands bytes to the sending kernel, waiting while the unsent queue is full.
 impl AsyncWrite for Writer {
     /// Admits as much of `buf` as the unsent queue has room for, and starts
     /// serializing at once if the wire is idle.
@@ -629,8 +621,8 @@ impl AsyncWrite for Writer {
         Poll::Ready(Ok(()))
     }
 
-    /// Marks the direction closed, so the reader sees end of stream after
-    /// the last written byte.
+    /// Marks the direction closed, so the reader sees end of stream after the
+    /// last written byte.
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let mut state = lock(&self.shared);
         let direction = &mut state.directions[self.into];
@@ -682,8 +674,8 @@ impl DirectionReport {
             .unwrap_or(0)
     }
 
-    /// The unsent queue's length integrated over `[from, to)`, in
-    /// byte-times times bytes: divided by `to - from`, its mean length.
+    /// The unsent queue's length integrated over `[from, to)`, in byte-times
+    /// times bytes: divided by `to - from`, its mean length.
     pub fn unsent_area_between(&self, from: u64, to: u64) -> u128 {
         let mut area = 0u128;
         for (index, &(at, unsent)) in self.unsent.iter().enumerate() {
@@ -750,16 +742,15 @@ impl Wake for WakeFlag {
 /// Polls `a` and `b` over `link` until both complete, advancing the link's
 /// clock whenever neither can progress.
 ///
-/// `a` should use [`Side::A`]'s halves and `b` [`Side::B`]'s. Each round
-/// polls every side that was woken, in [`Side::BOTH`] order, and a side's
-/// future is dropped as soon as it completes. When no side was woken, the
-/// clock moves to the link's next event, whose effects wake whichever side
-/// waits on them.
+/// `a` should use [`Side::A`]'s halves and `b` [`Side::B`]'s. Each round polls
+/// every side that was woken, in [`Side::BOTH`] order, and a side's future is
+/// dropped as soon as it completes. When no side was woken, the clock moves to
+/// the link's next event, whose effects wake whichever side waits on them.
 ///
 /// # Panics
 ///
-/// Panics if a side still runs while no side was woken and no event is
-/// pending: the session deadlocked.
+/// Panics if a side still runs while no side was woken and no event is pending:
+/// the session deadlocked.
 pub fn drive<A: Future, B: Future>(link: &Link, a: A, b: B) -> (A::Output, B::Output, Report) {
     let flags = [Arc::new(WakeFlag::default()), Arc::new(WakeFlag::default())];
     let wakers = flags.clone().map(Waker::from);
@@ -804,8 +795,8 @@ pub fn drive<A: Future, B: Future>(link: &Link, a: A, b: B) -> (A::Output, B::Ou
     )
 }
 
-/// Polls the future in `slot`, if it has not completed; on completion,
-/// stores its output in `out` and drops the future in place.
+/// Polls the future in `slot`, if it has not completed; on completion, stores
+/// its output in `out` and drops the future in place.
 ///
 /// Returns `None` if the slot was already empty, and otherwise whether the
 /// future completed.

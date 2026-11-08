@@ -1,14 +1,12 @@
-//! Session throughput over a link with bandwidth and delay, on simulated
-//! time.
+//! Session throughput over a link with bandwidth and delay, on simulated time.
 //!
 //! Each test reconciles deterministic replica pairs over the
 //! [`rumors_testkit::bench::link`] model, whose clock counts byte-times and
-//! advances only when both peers wait on the link. On one platform, a
-//! session's duration is therefore an exact function of its fixture and
-//! link, unmoved by machine load, and its verdicts compare durations
-//! computed in one unit. The
-//! link model's own suite checks that timing, so that the session suites
-//! can trust it; each module's docs state the claim it checks.
+//! advances only when both peers wait on the link. On one platform, a session's
+//! duration is therefore an exact function of its fixture and link, unmoved by
+//! machine load, and its verdicts compare durations computed in one unit. The
+//! link model's own suite checks that timing, so that the session suites can
+//! trust it; each module's docs state the claim it checks.
 
 /// The link model's own timing and delivery.
 #[path = "throughput/model.rs"]

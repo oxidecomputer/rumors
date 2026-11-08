@@ -1,13 +1,13 @@
 //! Probes of the measure folds, comparisons, and ticks over committed
-//! adversarial version families, at the knobs the amplification board does
-//! not scale.
+//! adversarial version families, at the knobs the amplification board does not
+//! scale.
 //!
 //! Every probe checks its answer outside the measured window. Most check an
 //! independent value: a family's closed-form `min_ticks`, which proves the
-//! generator builds the tree the claim reasons about, or the relations its
-//! pair queries must satisfy. The wide-tooth rank, the same-sign train rank,
-//! and the wide-base and wide-ladder probes check only that the measured call
-//! agrees with the same operation's public answer taken before the window.
+//! generator builds the tree the claim reasons about, or the relations its pair
+//! queries must satisfy. The wide-tooth rank, the same-sign train rank, and the
+//! wide-base and wide-ladder probes check only that the measured call agrees
+//! with the same operation's public answer taken before the window.
 
 use std::cmp::Ordering;
 
@@ -18,8 +18,8 @@ use num_bigint::BigUint;
 
 use crate::{measured, measured_per};
 
-/// Converts an exact expected value into a tick count, by doubling and
-/// adding its 64-bit digits from the most significant down.
+/// Converts an exact expected value into a tick count, by doubling and adding
+/// its 64-bit digits from the most significant down.
 fn count_of(value: &BigUint) -> Count {
     let mut digits = value.iter_u64_digits().rev();
     let Some(first) = digits.next() else {
@@ -99,8 +99,8 @@ pub fn rank_wide_tooth(scale: usize, bits: usize) -> u64 {
     )
 }
 
-/// Measures `distance` and both `lag`s of `a` against `b`, which `a`
-/// dominates pointwise, checking them against the rank gap.
+/// Measures `distance` and both `lag`s of `a` against `b`, which `a` dominates
+/// pointwise, checking them against the rank gap.
 fn dominating_pair(a: Version, b: Version) -> u64 {
     let gap = a
         .rank()
@@ -158,8 +158,8 @@ pub fn distance_promotion_rearm(p: usize) -> u64 {
     )
 }
 
-/// Measures `min_ticks` of `version`, checking it against `expected`, in
-/// units of its encoded bytes.
+/// Measures `min_ticks` of `version`, checking it against `expected`, in units
+/// of its encoded bytes.
 fn min_ticks(version: Version, expected: &BigUint) -> u64 {
     let expected = count_of(expected);
     measured_per(
@@ -169,8 +169,8 @@ fn min_ticks(version: Version, expected: &BigUint) -> u64 {
     )
 }
 
-/// `5 · 2^(32·(r − 1))`, the seam families' residue top: a decision-bound
-/// top digit 5 at position `r − 1`.
+/// `5 · 2^(32·(r − 1))`, the seam families' residue top: a decision-bound top
+/// digit 5 at position `r − 1`.
 fn residue_top(r: usize) -> BigUint {
     BigUint::from(5u8) << (32 * (r - 1))
 }
@@ -183,8 +183,8 @@ pub fn seam_plunge(k: usize, r: usize) -> u64 {
     min_ticks(Shape::SeamPlunge.build2(k, r).version(), &expected)
 }
 
-/// Measures `min_ticks` of the seam plunge's leveled control `SPC(k, r)`:
-/// the ascent on the bases, the terminal one rung up.
+/// Measures `min_ticks` of the seam plunge's leveled control `SPC(k, r)`: the
+/// ascent on the bases, the terminal one rung up.
 pub fn seam_plunge_control(k: usize, r: usize) -> u64 {
     let expected = residue_top(r) + (BigUint::from(5u8) << 64usize) * BigUint::from((k + 2) as u64);
     min_ticks(Shape::SeamPlungeControl.build2(k, r).version(), &expected)
@@ -211,8 +211,8 @@ pub fn seam_stop_control(k: usize) -> u64 {
     )
 }
 
-/// Measures `min_ticks` of the latent ladder `LL(w, k)`: the parked pair
-/// over the floor plus `k` ladder leaves one to `k` under the anchor.
+/// Measures `min_ticks` of the latent ladder `LL(w, k)`: the parked pair over
+/// the floor plus `k` ladder leaves one to `k` under the anchor.
 pub fn latent_ladder(w: usize, k: usize) -> u64 {
     let expected = residue_top(w) * BigUint::from((k + 1) as u64) + BigUint::from(1u8)
         - BigUint::from((k * (k + 1) / 2) as u64);
@@ -226,8 +226,8 @@ const TRAIN_WIDTH: usize = 50;
 /// settle's aggregate products dominate the fold's linear work per byte.
 const TRAIN_GAPS: usize = 100;
 
-/// Builds the arming train of `blocks` blocks, in the same-sign schedule or
-/// the alternating one, checking its closed-form `min_ticks`.
+/// Builds the arming train of `blocks` blocks, in the same-sign schedule or the
+/// alternating one, checking its closed-form `min_ticks`.
 fn arming_train(blocks: usize, alternate: bool) -> Version {
     let train = Shape::ArmingTrain
         .build_train(blocks, TRAIN_WIDTH, TRAIN_GAPS, alternate)
@@ -323,9 +323,9 @@ fn fork_parties(seed: Party, n: usize) -> Vec<Party> {
     parties
 }
 
-/// Builds the wide-base tiny-tail version `WT(n, w)`: one raise by `10^w`
-/// over the whole space while the seed still owns it, then `n` single ticks
-/// on alternating forked leaves.
+/// Builds the wide-base tiny-tail version `WT(n, w)`: one raise by `10^w` over
+/// the whole space while the seed still owns it, then `n` single ticks on
+/// alternating forked leaves.
 fn wide_base_tiny_tail(n: usize, w: usize) -> Version {
     let mut version = Version::new();
     let seed = Party::seed();
@@ -349,8 +349,8 @@ fn wide_ladder(n: usize, w: usize) -> Version {
     version
 }
 
-/// Measures `min_ticks` of `version`, checking it against the public
-/// reading taken before the window, in units of its encoded bytes.
+/// Measures `min_ticks` of `version`, checking it against the public reading
+/// taken before the window, in units of its encoded bytes.
 fn measure_min_ticks(version: Version) -> u64 {
     let expected = version.min_ticks();
     measured_per(
@@ -360,8 +360,8 @@ fn measure_min_ticks(version: Version) -> u64 {
     )
 }
 
-/// Measures `rank` of `version`, checking it against the public reading
-/// taken before the window, in units of its encoded bytes.
+/// Measures `rank` of `version`, checking it against the public reading taken
+/// before the window, in units of its encoded bytes.
 fn measure_rank(version: Version) -> u64 {
     let expected = version.rank();
     measured_per(
@@ -397,9 +397,9 @@ const DENSE_DEPTH: usize = 125_000;
 /// The magnitude and depth of the wide tick operands.
 const TICK_CROSS_SCALE: usize = 4_000;
 
-/// Measures `ticks(2^exponent)` on `version` through `party`; after one
-/// public tick first if `grow` is set, checking then that the minimum tick
-/// count grows by exactly the count.
+/// Measures `ticks(2^exponent)` on `version` through `party`; after one public
+/// tick first if `grow` is set, checking then that the minimum tick count grows
+/// by exactly the count.
 fn ticks(version: Version, party: Party, exponent: usize, grow: bool) -> u64 {
     let count = power_of_two(exponent);
     let mut version = version;
@@ -442,8 +442,8 @@ pub fn ticks_dense(exponent: usize, grow: bool) -> u64 {
     )
 }
 
-/// Measures `ticks(2^exponent)` on the big-root version through the
-/// nested-full id.
+/// Measures `ticks(2^exponent)` on the big-root version through the nested-full
+/// id.
 pub fn ticks_nested_wide(exponent: usize, grow: bool) -> u64 {
     ticks(
         Shape::Bigroot
@@ -455,8 +455,8 @@ pub fn ticks_nested_wide(exponent: usize, grow: bool) -> u64 {
     )
 }
 
-/// Measures `ticks(2^exponent)` on the wide-tail version through the
-/// mirror nested-full id.
+/// Measures `ticks(2^exponent)` on the wide-tail version through the mirror
+/// nested-full id.
 pub fn ticks_mirror_wide(exponent: usize, grow: bool) -> u64 {
     ticks(
         Shape::WideTail

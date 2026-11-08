@@ -21,8 +21,8 @@ fn observes_wake_contract() {
     );
 }
 
-/// A future that self-wakes on every poll without ever completing
-/// exhausts the poll budget and is reported as such, not as a stall.
+/// A future that self-wakes on every poll without ever completing exhausts the
+/// poll budget and is reported as such, not as a stall.
 #[test]
 fn runaway_self_waking_exhausts_the_poll_budget() {
     let runaway = std::future::poll_fn(|cx: &mut Context<'_>| {
@@ -35,10 +35,10 @@ fn runaway_self_waking_exhausts_the_poll_budget() {
 /// An inherited Tokio task budget cannot masquerade as protocol quiescence.
 ///
 /// Inside a Tokio task, each unit of cooperative budget a future spends counts
-/// against the task. Once the budget runs out, Tokio yields: the future
-/// returns pending and defers its wake to the runtime, so the closed-world
-/// poller would see a pending poll with no wake and report a stall. Spending
-/// twice one budget inside the poller must instead complete.
+/// against the task. Once the budget runs out, Tokio yields: the future returns
+/// pending and defers its wake to the runtime, so the closed-world poller would
+/// see a pending poll with no wake and report a stall. Spending twice one
+/// budget inside the poller must instead complete.
 #[tokio::test(flavor = "current_thread")]
 async fn ignores_tokio_cooperative_yields() {
     // Twice Tokio's per-task budget, so a constrained budget would run out.

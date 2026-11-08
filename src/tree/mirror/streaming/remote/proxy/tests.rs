@@ -68,8 +68,8 @@ mod transport;
 /// transport backpressure.
 const PREAMBLE_CAPACITY: usize = 64 * 1024;
 
-/// Drive the production topology: each materialized local is the client of
-/// its own proxy, so both physical endpoints execute `Accept` concurrently.
+/// Drive the production topology: each materialized local is the client of its
+/// own proxy, so both physical endpoints execute `Accept` concurrently.
 async fn reconcile_symmetric_accepts(
     a: TreeRoot,
     b: TreeRoot,
@@ -367,8 +367,8 @@ fn symmetric_accept_handshakes_are_live() {
 }
 
 /// The preamble and proxy session share the connection's halves without
-/// consuming each other's bytes; distinct payloads also exercise
-/// supplied-leaf decoding.
+/// consuming each other's bytes; distinct payloads also exercise supplied-leaf
+/// decoding.
 #[test]
 fn preamble_and_proxy_session_share_the_connections_halves() {
     let a_party = nth_party(0);
@@ -539,12 +539,12 @@ proptest! {
 /// A materialized error raised before the responder's opening reply yields
 /// returns over a wire instead of stalling the joint session.
 ///
-/// The responder's opening explodes every disputed root child before it
-/// yields its one reply, so a backend failure there is an error item ahead
-/// of any reply on the walk's response stream. The proxy carrying that
-/// stream must observe the item without waiting on wire progress the
-/// missing reply would have unlocked: the faulted endpoint reports the
-/// injected operation, and its counterparty terminates on the cut.
+/// The responder's opening explodes every disputed root child before it yields
+/// its one reply, so a backend failure there is an error item ahead of any
+/// reply on the walk's response stream. The proxy carrying that stream must
+/// observe the item without waiting on wire progress the missing reply would
+/// have unlocked: the faulted endpoint reports the injected operation, and its
+/// counterparty terminates on the cut.
 #[test]
 fn opening_failure_before_the_first_yield_returns_over_the_wire() {
     let (a, b) = early_first_child_dispute_pair();
@@ -580,16 +580,14 @@ fn opening_failure_before_the_first_yield_returns_over_the_wire() {
 
 /// The streaming wire deadlock's trigger geometry reconciles cleanly.
 ///
-/// The deterministic shape — the radix-first root child disputed with
-/// branching content while six-plus provisions queue behind it — must
-/// reconcile to the materialized oracle's result under closed-world
-/// polling.
+/// The deterministic shape — the radix-first root child disputed with branching
+/// content while six-plus provisions queue behind it — must reconcile to the
+/// materialized oracle's result under closed-world polling.
 ///
-/// This pins the wait-cycle trigger geometry at the tier that owns the
-/// pipe's scheduling. Liveness for this shape may not depend on transport
-/// buffer capacity (the transport requirements admit any positive
-/// capacity), so the standard small capacity here is the demanding case
-/// and loses no coverage.
+/// This pins the wait-cycle trigger geometry at the tier that owns the pipe's
+/// scheduling. Liveness for this shape may not depend on transport buffer
+/// capacity (the transport requirements admit any positive capacity), so the
+/// standard small capacity here is the demanding case and loses no coverage.
 #[test]
 fn early_first_child_dispute_is_live() {
     let (a, b) = early_first_child_dispute_pair();
@@ -600,8 +598,8 @@ fn early_first_child_dispute_is_live() {
     assert_eq!((left, right), expected);
 }
 
-/// Every proxy queue kind is exercised and has its documented capacity in
-/// the serial configuration.
+/// Every proxy queue kind is exercised and has its documented capacity in the
+/// serial configuration.
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
     let (a, b) = disjoint_pair(1, 1);
@@ -638,18 +636,17 @@ fn instrumented_reconcile(
     (result, channels, trace)
 }
 
-/// Every observed proxy queue has its documented capacity at a budget of
-/// zero and drains, and no stage taking a chunk from parking waits to
-/// publish a scope.
+/// Every observed proxy queue has its documented capacity at a budget of zero
+/// and drains, and no stage taking a chunk from parking waits to publish a
+/// scope.
 ///
-/// That a queue never holds more than its capacity is the bounded channel's
-/// own contract, which `channel::bounded`'s tests check directly
+/// That a queue never holds more than its capacity is the bounded channel's own
+/// contract, which `channel::bounded`'s tests check directly
 /// (`try_send_is_full_exactly_at_capacity`), so it is not repeated here.
 ///
-/// The record queue and parking are [`UNBOUNDED`], the scope queue holds a
-/// fan beside the outgoing replies' chunks ([`OUTGOING_REPLY_CHUNKS`]), and
-/// each logical stream's lane to or from the pipe [`LANE_CAPACITY`]
-/// frames.
+/// The record queue and parking are [`UNBOUNDED`], the scope queue holds a fan
+/// beside the outgoing replies' chunks ([`OUTGOING_REPLY_CHUNKS`]), and each
+/// logical stream's lane to or from the pipe [`LANE_CAPACITY`] frames.
 fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     for (role, stats) in report
         .roles()

@@ -1,10 +1,10 @@
 //! Wire helpers for gossip sessions.
 //!
 //! These drive `rumors::Rumors::gossip_once` over an in-memory connection
-//! ([`rumors::testing::memory_connection`]) with both peers polled
-//! concurrently via `tokio::join!`. The two tasks progress directly against
-//! each other through the connection's pipes; no runtime is required unless
-//! a caller explicitly spawns a task.
+//! ([`rumors::testing::memory_connection`]) with both peers polled concurrently
+//! via `tokio::join!`. The two tasks progress directly against each other
+//! through the connection's pipes; no runtime is required unless a caller
+//! explicitly spawns a task.
 
 use std::cell::OnceCell;
 use std::future::Future;
@@ -25,11 +25,11 @@ use serde::de::DeserializeOwned;
 /// room for everything a session writes: 64 KiB.
 ///
 /// [`MEMORY_CAPACITY`] suffices for liveness, since sessions progress at any
-/// positive capacity. Some tests need a write to complete without its reader:
-/// a side that finishes one session and writes its next preamble before its
-/// peer reads, or a side writing to a peer that never reads. The suites'
-/// fixtures write well under 64 KiB per session, so on a connection this
-/// roomy no such write waits on its reader.
+/// positive capacity. Some tests need a write to complete without its reader: a
+/// side that finishes one session and writes its next preamble before its peer
+/// reads, or a side writing to a peer that never reads. The suites' fixtures
+/// write well under 64 KiB per session, so on a connection this roomy no such
+/// write waits on its reader.
 pub const ROOMY_CAPACITY: usize = 64 * 1024;
 // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
 // fallback-TLS lowering (illumos among the gate's targets) and denies
@@ -43,7 +43,8 @@ thread_local! {
     static RT: OnceCell<Runtime> = const { OnceCell::new() };
 }
 
-/// Drive a closed, in-memory future until it completes or stops making progress.
+/// Drive a closed, in-memory future until it completes or stops making
+/// progress.
 ///
 /// A protocol deadlock therefore fails at its source instead of parking the
 /// entire test process indefinitely. Futures which depend on external events
@@ -72,19 +73,18 @@ pub fn tokio_block_on<F: Future>(fut: F) -> F::Output {
 
 /// Assert a completed session drained the connection in both directions.
 ///
-/// The invariant: after any *successful* session, each side has consumed
-/// every byte its peer wrote — nothing rests buffered toward either end. A
-/// leftover byte would sit exactly where the connection's next session
-/// reads, surfacing later as a confusing protocol violation; this assert
-/// turns that latent desynchronization into an immediate failure at the
-/// session that caused it.
+/// The invariant: after any *successful* session, each side has consumed every
+/// byte its peer wrote — nothing rests buffered toward either end. A leftover
+/// byte would sit exactly where the connection's next session reads, surfacing
+/// later as a confusing protocol violation; this assert turns that latent
+/// desynchronization into an immediate failure at the session that caused it.
 ///
-/// Consumes the pair, so it is the last act of a test (or harness) that
-/// owns both ends. The probe is a no-waker poll of each end's read half:
-/// `Pending` (nothing buffered, writer still open) and end-of-stream both
-/// show a drained direction, while any delivered byte fails the assert
-/// with the leftover bytes in the message. Sessions that end in an error
-/// are out of scope: they leave the connection mid-item.
+/// Consumes the pair, so it is the last act of a test (or harness) that owns
+/// both ends. The probe is a no-waker poll of each end's read half: `Pending`
+/// (nothing buffered, writer still open) and end-of-stream both show a drained
+/// direction, while any delivered byte fails the assert with the leftover bytes
+/// in the message. Sessions that end in an error are out of scope: they leave
+/// the connection mid-item.
 #[track_caller]
 pub fn assert_connection_drained(a: MemoryEnd, b: MemoryEnd) {
     let toward_a = unread_bytes(a.read);
@@ -102,11 +102,10 @@ pub fn assert_connection_drained(a: MemoryEnd, b: MemoryEnd) {
 
 /// Collect every byte one read half can yield without waiting.
 ///
-/// Polls with a no-op waker, so the probe never blocks: it stops at
-/// `Pending` (buffer empty, writer still open) or at end-of-stream. The
-/// in-memory connection's duplex pipes deliver written bytes to the
-/// reader's buffer synchronously, so "nothing readable now" is "nothing in
-/// flight".
+/// Polls with a no-op waker, so the probe never blocks: it stops at `Pending`
+/// (buffer empty, writer still open) or at end-of-stream. The in-memory
+/// connection's duplex pipes deliver written bytes to the reader's buffer
+/// synchronously, so "nothing readable now" is "nothing in flight".
 fn unread_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
     let mut cx = Context::from_waker(Waker::noop());
     let mut unread = Vec::new();
@@ -122,12 +121,12 @@ fn unread_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
     }
 }
 
-/// Gossip two async `Rumors` through the on-wire protocol. After this
-/// returns, the two rumor sets hold the same live content and version.
+/// Gossip two async `Rumors` through the on-wire protocol. After this returns,
+/// the two rumor sets hold the same live content and version.
 ///
-/// Both ends drive `gossip_once` concurrently over the two ends of one in-memory
-/// connection, so the session makes real bidirectional progress rather than
-/// serializing one peer behind the other.
+/// Both ends drive `gossip_once` concurrently over the two ends of one
+/// in-memory connection, so the session makes real bidirectional progress
+/// rather than serializing one peer behind the other.
 #[track_caller]
 pub fn wire_gossip<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
@@ -136,8 +135,8 @@ where
     block_on(wire_gossip_async(a, b));
 }
 
-/// Awaitable core of [`wire_gossip`], for callers already inside an async
-/// block on this thread's runtime (where a nested [`block_on`] would panic).
+/// Awaitable core of [`wire_gossip`], for callers already inside an async block
+/// on this thread's runtime (where a nested [`block_on`] would panic).
 pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -145,8 +144,8 @@ where
     let _ = gossip_pair_async(a, b).await;
 }
 
-/// [`wire_gossip_async`], returning both endpoints' session reports so
-/// callers can assert on [`SessionStats`](rumors::SessionStats).
+/// [`wire_gossip_async`], returning both endpoints' session reports so callers
+/// can assert on [`SessionStats`](rumors::SessionStats).
 ///
 /// Checks the connection drained, like every successful in-memory session.
 pub async fn gossip_pair_async<T>(
@@ -168,9 +167,9 @@ where
     (a_report, b_report)
 }
 
-/// Give each side `values_per_side` values the other lacks: `a` draws
-/// from one range, `b` from a disjoint one, so the pair ends fully
-/// divergent (every leaf disputed in their next session).
+/// Give each side `values_per_side` values the other lacks: `a` draws from one
+/// range, `b` from a disjoint one, so the pair ends fully divergent (every leaf
+/// disputed in their next session).
 pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
     a.send_all(0..values_per_side).unwrap();
     b.send_all((0..values_per_side).map(|v| 1_000_000 + v))
@@ -179,9 +178,9 @@ pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
 
 /// Join the parent's network with an independent peer holding its messages.
 ///
-/// The new peer runs in the serial configuration ([`BudgetChoice::Serial`])
-/// to exercise backpressure. The shared driver checks that bootstrap completes
-/// and drains the connection.
+/// The new peer runs in the serial configuration ([`BudgetChoice::Serial`]) to
+/// exercise backpressure. The shared driver checks that bootstrap completes and
+/// drains the connection.
 #[track_caller]
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
@@ -218,8 +217,8 @@ where
     bootstrap_fork_configured(parent, Peer::bootstrap(), budget).await
 }
 
-/// Join through a configured builder, check the connection drained, and set
-/// the budget.
+/// Join through a configured builder, check the connection drained, and set the
+/// budget.
 ///
 /// Accepting a builder lets suites observe bootstrap itself. The budget governs
 /// later sessions; bootstrap has no disputed subtrees to pipeline.
@@ -237,8 +236,8 @@ where
 /// Join through a configured builder, check the connection drained, and
 /// configure the new peer with `configure` before it starts gossiping.
 ///
-/// The general form of [`bootstrap_fork_configured`], for a suite that
-/// sets more of the peer than its budget.
+/// The general form of [`bootstrap_fork_configured`], for a suite that sets
+/// more of the peer than its budget.
 pub async fn bootstrap_fork_then<T>(
     parent: &Rumors<T>,
     bootstrap: Bootstrap<T>,

@@ -1,4 +1,5 @@
-//! Publication preserves concurrent changes, notifications, and payload ownership.
+//! Publication preserves concurrent changes, notifications, and payload
+//! ownership.
 
 use std::cell::{Cell, RefCell};
 use std::convert::Infallible;
@@ -122,9 +123,8 @@ divided_proptest! {
 
 /// One bound of a write batch range: included, excluded, or unbounded.
 ///
-/// Its sizes lie around the conversion's edges (zero, one, the default
-/// segment size, the write buffer's capacity, and the largest size) and
-/// between them.
+/// Its sizes lie around the conversion's edges (zero, one, the default segment
+/// size, the write buffer's capacity, and the largest size) and between them.
 fn batch_bound() -> impl Strategy<Value = Bound<usize>> {
     let size = prop_oneof![
         Just(0usize),
@@ -142,12 +142,12 @@ fn batch_bound() -> impl Strategy<Value = Bound<usize>> {
     ]
 }
 
-/// The write batch range a session applies for the bounds `start` and
-/// `end`, step by step as `Peer::write_batch_range` documents it.
+/// The write batch range a session applies for the bounds `start` and `end`,
+/// step by step as `Peer::write_batch_range` documents it.
 ///
-/// Each bound converts to an inclusive size, the end saturates at the
-/// write buffer's capacity, and the start is lowered to the end, or to the
-/// capacity under an unbounded end.
+/// Each bound converts to an inclusive size, the end saturates at the write
+/// buffer's capacity, and the start is lowered to the end, or to the capacity
+/// under an unbounded end.
 fn applied_range(start: Bound<usize>, end: Bound<usize>) -> (Bound<usize>, Bound<usize>) {
     let start = match start {
         Bound::Included(start) => start,
@@ -168,8 +168,8 @@ fn applied_range(start: Bound<usize>, end: Bound<usize>) -> (Bound<usize>, Bound
 }
 
 /// A peer that never sets a write batch range applies
-/// `default::tls::WRITE_BATCH_RANGE` exactly: neither of its ends moves
-/// in conversion.
+/// `default::tls::WRITE_BATCH_RANGE` exactly: neither of its ends moves in
+/// conversion.
 #[test]
 fn the_default_write_batch_range_applies_as_given() {
     let default = crate::default::tls::WRITE_BATCH_RANGE;
@@ -228,9 +228,9 @@ enum Setting {
     Target(usize),
 }
 
-/// Budgets on both sides of [`MIN_SYNC_MEMORY_BUDGET`], its neighbours
-/// and the extremes included, and across the budgets that afford a target
-/// above the default but not the wire's cap.
+/// Budgets on both sides of [`MIN_SYNC_MEMORY_BUDGET`], its neighbours and the
+/// extremes included, and across the budgets that afford a target above the
+/// default but not the wire's cap.
 fn budgets() -> impl Strategy<Value = usize> {
     prop_oneof![
         0..=2 * MIN_SYNC_MEMORY_BUDGET,
@@ -241,9 +241,8 @@ fn budgets() -> impl Strategy<Value = usize> {
     ]
 }
 
-/// Targets on both sides of [`default::TARGET_MESSAGE_SIZE`] and of the
-/// wire's cap ([`MAX_RUN_BUDGET_BYTES`]), zero and the largest value
-/// included.
+/// Targets on both sides of [`default::TARGET_MESSAGE_SIZE`] and of the wire's
+/// cap ([`MAX_RUN_BUDGET_BYTES`]), zero and the largest value included.
 fn targets() -> impl Strategy<Value = usize> {
     prop_oneof![
         0..=2 * default::TARGET_MESSAGE_SIZE,
@@ -371,9 +370,9 @@ proptest! {
     }
 }
 
-/// The minimum memory budget on the in-memory backend is the "about
-/// 36.4 MiB" its documentation states, on the 64-bit targets the
-/// documentation's figures are measured on.
+/// The minimum memory budget on the in-memory backend is the "about 36.4 MiB"
+/// its documentation states, on the 64-bit targets the documentation's figures
+/// are measured on.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn the_minimum_budget_is_the_documented_figure() {
@@ -384,8 +383,8 @@ fn the_minimum_budget_is_the_documented_figure() {
     );
 }
 
-/// The largest budgeted message and the room for messages on their way, at
-/// the default target, are the figures their documentation states.
+/// The largest budgeted message and the room for messages on their way, at the
+/// default target, are the figures their documentation states.
 ///
 /// Those are "about 512 KiB" and "about 1 MiB", on the 64-bit targets the
 /// documentation's figures are measured on.
@@ -821,8 +820,8 @@ proptest! {
     }
 }
 
-/// Join `provider`'s network over an in-memory connection, returning the
-/// joined peer.
+/// Join `provider`'s network over an in-memory connection, returning the joined
+/// peer.
 fn joined(provider: &Peer<u64>) -> Peer<u64> {
     pollster::block_on(async {
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
@@ -861,12 +860,12 @@ fn live_values(peer: &Peer<u64>) -> Vec<u64> {
     values
 }
 
-/// Messages each side holds before the racing session: the ones both
-/// hold, and the ones each originated since the join.
+/// Messages each side holds before the racing session: the ones both hold, and
+/// the ones each originated since the join.
 const RACED_MESSAGES: u64 = 24;
 
-/// The chunks of `a`'s messages the racing threads redact, one per call of
-/// the publication hook, and the messages one thread sends at each call.
+/// The chunks of `a`'s messages the racing threads redact, one per call of the
+/// publication hook, and the messages one thread sends at each call.
 const RACED_CHUNK: usize = 8;
 
 divided_proptest! {

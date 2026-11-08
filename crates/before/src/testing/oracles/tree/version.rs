@@ -8,7 +8,8 @@ use num_bigint::BigUint;
 
 use super::Party;
 
-/// A feasible inflation's `(expansions, depth)` cost, ordered lexicographically.
+/// A feasible inflation's `(expansions, depth)` cost, ordered
+/// lexicographically.
 ///
 /// The bounded recursive oracle uses exact arithmetic. An absent route is
 /// represented structurally by [`None`], independently of production's packed
@@ -20,7 +21,8 @@ fn descend((expansions, depth): Cost) -> Cost {
     (expansions, depth + 1)
 }
 
-/// Account for turning an event leaf into the branch the recursion just traversed.
+/// Account for turning an event leaf into the branch the recursion just
+/// traversed.
 fn add_expansion((expansions, depth): Cost) -> Cost {
     (expansions + 1, depth)
 }
@@ -36,16 +38,17 @@ fn left_is_cheaper(left: Option<Cost>, right: Option<Cost>) -> bool {
 
 /// Event component.
 ///
-/// Bases are the arbitrary-precision `BigUint`, matching the implementation's leaf
-/// payloads, so large-base differentials lower losslessly; there is no `u64`
-/// truncation point. Literal/`u64` construction still works via
+/// Bases are the arbitrary-precision `BigUint`, matching the implementation's
+/// leaf payloads, so large-base differentials lower losslessly; there is no
+/// `u64` truncation point. Literal/`u64` construction still works via
 /// `Version::leaf`/`Version::node` (both take `impl Into<BigUint>`) and the
 /// [`From<u64>`](Version) conversion.
 ///
 /// Children sit behind [`Arc`] so the derived [`Clone`] is a refcount bump: the
 /// paper's subtree-preserving cases (`shift` rebuilding only a root, `grow`
 /// keeping the sibling it didn't inflate) share structure instead of
-/// deep-copying, which keeps every oracle traversal linear in the tree it visits.
+/// deep-copying, which keeps every oracle traversal linear in the tree it
+/// visits.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Version {
     Leaf(BigUint),
@@ -166,8 +169,8 @@ impl Version {
         Version::node(0u64, l, r)
     }
 
-    /// Lift this event tree into absolute value by adding `off` to its root base
-    /// (every value in the subtree rises by `off`).
+    /// Lift this event tree into absolute value by adding `off` to its root
+    /// base (every value in the subtree rises by `off`).
     ///
     /// Normal form is preserved: the children are untouched, so neither the
     /// one-zero-base nor the non-collapsible invariant can break.
@@ -217,8 +220,8 @@ impl Version {
         self.project_off(id, &BigUint::ZERO)
     }
 
-    /// The minimum number of [`tick`](Self::tick)s that could have produced this
-    /// version: the sum of every base in the event tree, exact at any
+    /// The minimum number of [`tick`](Self::tick)s that could have produced
+    /// this version: the sum of every base in the event tree, exact at any
     /// magnitude. The reference for
     /// [`Version::min_ticks`](crate::Version::min_ticks).
     pub fn min_ticks(&self) -> crate::Count {
@@ -394,13 +397,13 @@ impl Version {
     /// The meet (GLB) of every version in `iter`, or [`None`] for an empty
     /// iterator.
     ///
-    /// The reference for [`Version::meet_all`](crate::Version::meet_all),
-    /// whose differential feeds the production entry point's `{receiver} ∪ items`
+    /// The reference for [`Version::meet_all`](crate::Version::meet_all), whose
+    /// differential feeds the production entry point's `{receiver} ∪ items`
     /// family here as one list.
     ///
     /// The sequential fold of the binary meet; `None` because the
-    /// meet-semilattice has no identity (no version dominates all others),
-    /// the same missing top that makes the production entry point seed its fold
+    /// meet-semilattice has no identity (no version dominates all others), the
+    /// same missing top that makes the production entry point seed its fold
     /// with the receiver.
     pub fn meet_all(iter: impl IntoIterator<Item = Version>) -> Option<Version> {
         iter.into_iter().reduce(|acc, v| acc & v)
@@ -413,11 +416,11 @@ impl Version {
     /// `n` sequential [`tick`](Self::tick)s, literally iterated.
     ///
     /// The paper has no fused form, so the reference for
-    /// [`Version::ticks`](crate::Version::ticks) is the definitionally
-    /// direct loop, `O(n · tree)`, fit for small `n` only (the module
-    /// doc's operating envelope; each differential suite caps the counts
-    /// it hands this side, and wide-`n` coverage lives impl-side on
-    /// composition laws and closed forms).
+    /// [`Version::ticks`](crate::Version::ticks) is the definitionally direct
+    /// loop, `O(n · tree)`, fit for small `n` only (the module doc's operating
+    /// envelope; each differential suite caps the counts it hands this side,
+    /// and wide-`n` coverage lives impl-side on composition laws and closed
+    /// forms).
     pub fn ticks(&mut self, party: &Party, n: impl Into<crate::Count>) {
         let mut left = n.into().0;
         let one = BigUint::from(1u8);

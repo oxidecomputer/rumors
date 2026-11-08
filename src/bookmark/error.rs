@@ -9,9 +9,9 @@ use super::format::BOOKMARK_FORMAT_VERSION;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum FormatError {
-    /// The bytes end inside the frame: a truncated or empty file. (An
-    /// *absent* bookmark is reported by [`load`](super::Bookmark::load)
-    /// returning `None`, never as an empty frame.)
+    /// The bytes end inside the frame: a truncated or empty file. (An *absent*
+    /// bookmark is reported by [`load`](super::Bookmark::load) returning
+    /// `None`, never as an empty frame.)
     #[error("bookmark truncated: the {len} bytes present end inside the frame")]
     Truncated {
         /// How many bytes were actually present.
@@ -45,7 +45,8 @@ pub enum FormatError {
     Read(#[source] std::io::Error),
 
     /// An intact frame contains an invalid record. The source gives CBOR,
-    /// record-shape, or atom-decoding details for diagnosing the writer's error.
+    /// record-shape, or atom-decoding details for diagnosing the writer's
+    /// error.
     #[error("the bookmark payload is not a valid recovery record: {0}")]
     Record(#[source] ciborium::de::Error<std::io::Error>),
 }

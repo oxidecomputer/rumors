@@ -19,8 +19,8 @@ use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::common::sim::assert_parties_partition;
 use rumors_testkit::divided_proptest;
 
-/// In-memory storage one of whose stores, once armed, waits forever before
-/// it stores anything.
+/// In-memory storage one of whose stores, once armed, waits forever before it
+/// stores anything.
 #[derive(Clone, Debug, Default)]
 struct StallingBookmark {
     /// The complete record last stored.
@@ -56,7 +56,8 @@ impl StallingBookmark {
     }
 }
 
-/// Keep the record in memory, stalling the one store [`arm_at`](StallingBookmark::arm_at) names.
+/// Keep the record in memory, stalling the one store
+/// [`arm_at`](StallingBookmark::arm_at) names.
 impl Bookmark for StallingBookmark {
     /// This storage never fails.
     type Error = std::io::Error;
@@ -100,9 +101,9 @@ async fn join_from(server: &Rumors<u64, StallingBookmark>) -> Rumors<u64> {
     peer.into_rumors()
 }
 
-/// Reclaim the peer from `live`'s generation while it has `handles` handles
-/// and `reuniters` reuniters compete, checking that exactly one of them
-/// reclaims it.
+/// Reclaim the peer from `live`'s generation while it has `handles` handles and
+/// `reuniters` reuniters compete, checking that exactly one of them reclaims
+/// it.
 async fn reclaim<B: Bookmark>(
     live: Rumors<u64, B>,
     handles: usize,
@@ -124,19 +125,19 @@ async fn reclaim<B: Bookmark>(
 /// wherever the rounds run out, rather than at its stalled store.
 ///
 /// For the replicas the test builds, the checkpoint's store begins in the
-/// second round and the donation's in about the twentieth, so draws below
-/// this limit leak the service before its fork is reserved, at its
-/// checkpoint's store, and throughout reconciliation.
+/// second round and the donation's in about the twentieth, so draws below this
+/// limit leak the service before its fork is reserved, at its checkpoint's
+/// store, and throughout reconciliation.
 const MAX_LEAK_POLLS: usize = 24;
 
 /// One session serving a joining peer, leaked, and the reunion after it.
 #[derive(Clone, Copy, Debug)]
 struct Leak {
-    /// Which of the session's stores waits forever: its checkpoint's (1) or
-    /// its donation's (2). The donated fork is never sent either way.
+    /// Which of the session's stores waits forever: its checkpoint's (1) or its
+    /// donation's (2). The donated fork is never sent either way.
     stalled_store: usize,
-    /// How many rounds to poll the session and its joiner before leaking it,
-    /// or `None` to poll them until the stalled store begins waiting.
+    /// How many rounds to poll the session and its joiner before leaking it, or
+    /// `None` to poll them until the stalled store begins waiting.
     polls: Option<usize>,
     /// The generation's handles when the peer is reclaimed.
     handles: usize,
@@ -144,8 +145,8 @@ struct Leak {
     reuniters: usize,
 }
 
-/// Leaks at every point of a joiner's service, from before its fork is
-/// reserved through its donation's store.
+/// Leaks at every point of a joiner's service, from before its fork is reserved
+/// through its donation's store.
 fn leak() -> impl Strategy<Value = Leak> {
     (
         1usize..=2,

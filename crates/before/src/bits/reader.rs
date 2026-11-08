@@ -7,8 +7,8 @@
 //! Integer values may exceed 64 bits, so the reader uses the crate's decoder
 //! instead of `dsi-bitstream`'s bounded gamma decoder.
 //!
-//! [`read_gamma`](BitsReader::read_gamma) handles short codes by table or machine
-//! word and longer codes with [`BigUint`].
+//! [`read_gamma`](BitsReader::read_gamma) handles short codes by table or
+//! machine word and longer codes with [`BigUint`].
 
 use dsi_bitstream::impls::BufBitReader;
 use dsi_bitstream::traits::{BitRead as DsiBitRead, BE};
@@ -56,8 +56,8 @@ pub(crate) trait BitRead {
     /// Position immediately after the last bit read.
     fn position(&self) -> u64;
 
-    /// Consume a run of zero bits and its terminating one, returning the
-    /// number of zeros.
+    /// Consume a run of zero bits and its terminating one, returning the number
+    /// of zeros.
     fn read_unary(&mut self) -> Result<u64, Self::Error> {
         let mut zeros = 0u64;
         while !self.read_bit()? {
@@ -190,14 +190,13 @@ impl<'a> BitsReader<'a> {
         Ok(value)
     }
 
-    /// Read the unary prefix without recording a successful run:
-    /// the count of `0` bits before (and consuming) the terminating `1`.
+    /// Read the unary prefix without recording a successful run: the count of
+    /// `0` bits before (and consuming) the terminating `1`.
     ///
-    /// `Truncated` when the live bits end before a `1`: the phantom
-    /// zeros past the live length (the word source masks the tail
-    /// byte's dead bits and zero-fills past the stream) can only
-    /// lengthen an apparent prefix past `len`, never terminate one
-    /// early.
+    /// `Truncated` when the live bits end before a `1`: the phantom zeros past
+    /// the live length (the word source masks the tail byte's dead bits and
+    /// zero-fills past the stream) can only lengthen an apparent prefix past
+    /// `len`, never terminate one early.
     fn unary_raw(&mut self) -> Result<u64, Truncated> {
         match self.reader.read_unary() {
             Err(_) => Err(self.truncated()),
@@ -219,16 +218,15 @@ impl<'a> BitsReader<'a> {
     /// Reject at the live length.
     ///
     /// The cursor parks at the live length, where the per-bit loop's failing
-    /// read leaves its own reader, so a rejecting read leaves the cursor
-    /// where the equivalent per-bit reads would.
+    /// read leaves its own reader, so a rejecting read leaves the cursor where
+    /// the equivalent per-bit reads would.
     fn truncated(&mut self) -> Truncated {
         self.position = self.len;
         Truncated
     }
 
-    /// Skip one Elias-gamma-coded integer without materializing
-    /// its value; `Truncated` exactly where [`read_gamma`](BitRead::read_gamma)
-    /// would be.
+    /// Skip one Elias-gamma-coded integer without materializing its value;
+    /// `Truncated` exactly where [`read_gamma`](BitRead::read_gamma) would be.
     ///
     /// The prefix length alone determines the code's width, so the skip is one
     /// unary read plus a bit discard.
@@ -305,8 +303,7 @@ impl BitRead for BitsReader<'_> {
     }
 
     /// Read one Elias-gamma-coded integer: accepting and rejecting on exactly
-    /// the same inputs as the bitwise reference decoder
-    /// over this cursor.
+    /// the same inputs as the bitwise reference decoder over this cursor.
     ///
     /// Short codes use a lookup table, word-sized codes decode into a `u64`,
     /// and wider codes fill a [`BigUint`] one word at a time. Each fast path is

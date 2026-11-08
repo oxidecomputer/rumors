@@ -6,8 +6,8 @@ use super::*;
 const MIN: u64 = MIN_SYNC_MEMORY_BUDGET as u64;
 
 /// A finished session of a point whose sides request `budget` and report
-/// running at `effective`, and whose larger side's heap rose `heap` bytes
-/// above both its start and its end.
+/// running at `effective`, and whose larger side's heap rose `heap` bytes above
+/// both its start and its end.
 fn session(budget: Option<u64>, effective: u64, heap: u64) -> Row {
     Row {
         link: "emulated".into(),
@@ -27,9 +27,9 @@ fn session(budget: Option<u64>, effective: u64, heap: u64) -> Row {
     }
 }
 
-/// A point at budget 0 whose sides report running at the minimum: the
-/// report takes the minimum as its effective budget, divides its heap by
-/// the minimum, and prints the request beside the minimum it ran at.
+/// A point at budget 0 whose sides report running at the minimum: the report
+/// takes the minimum as its effective budget, divides its heap by the minimum,
+/// and prints the request beside the minimum it ran at.
 #[test]
 fn zero_budget_point_runs_at_the_minimum() {
     let heap = 3 << 20;
@@ -40,11 +40,11 @@ fn zero_budget_point_runs_at_the_minimum() {
     assert_eq!(budget_text(&point.row), "0 → minimum");
 }
 
-/// A point whose sides run unlimited has no bound to compare its heap
-/// against, so it has no heap ratio.
+/// A point whose sides run unlimited has no bound to compare its heap against,
+/// so it has no heap ratio.
 ///
-/// Its effective budget is the largest, so the budget table measures the
-/// other budgets against it, and its budget column reads `unlimited`.
+/// Its effective budget is the largest, so the budget table measures the other
+/// budgets against it, and its budget column reads `unlimited`.
 #[test]
 fn unlimited_point_has_no_heap_ratio() {
     let row = session(Some(UNLIMITED_BUDGET), UNLIMITED_BUDGET, 3 << 20);
@@ -54,12 +54,12 @@ fn unlimited_point_has_no_heap_ratio() {
     assert_eq!(budget_text(&point.row), "unlimited");
 }
 
-/// Points compare across budgets, and across TCP buffer limits, only
-/// within one transport.
+/// Points compare across budgets, and across TCP buffer limits, only within one
+/// transport.
 ///
-/// For each comparison the report makes, two points that differ only in
-/// what it leaves out (the budget, or the buffer limit) share a family
-/// exactly when they ran over the same stack, over every pair of stacks.
+/// For each comparison the report makes, two points that differ only in what it
+/// leaves out (the budget, or the buffer limit) share a family exactly when
+/// they ran over the same stack, over every pair of stacks.
 #[test]
 fn families_never_mix_transports() {
     for (with_budget, with_buffers) in [(false, true), (true, false)] {
@@ -124,13 +124,13 @@ proptest! {
     }
 }
 
-/// Every row of the calibration section's table has a cell for each
-/// header column, and each cell holds its column's quantity.
+/// Every row of the calibration section's table has a cell for each header
+/// column, and each cell holds its column's quantity.
 ///
 /// The columns are the job count, the readings taken, a time, a goodput in
 /// Mbit/s, a time, a busy share in percent, and the two verdicts. The
-/// calibration has a solo level and two concurrent levels of
-/// different reading counts, one failing on fidelity.
+/// calibration has a solo level and two concurrent levels of different reading
+/// counts, one failing on fidelity.
 #[test]
 fn calibration_table_cells_follow_their_header() {
     let (_, point) = crate::grid::Grid::parse("[[group]]\nname = \"g\"\n")

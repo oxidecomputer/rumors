@@ -1,16 +1,15 @@
 //! The payload admission contract, exercised peer-to-peer.
 //!
 //! Send-side admission ([`Rumors::send`]) runs the exact decode every
-//! receiver's wire ingress runs — same payload type, same limit, same
-//! engine — and requires the decoded value to equal the value sent, so
-//! a payload admitted anywhere is transferable everywhere and reads
-//! back everywhere as what its author meant. The boundary pins here
-//! send payloads at exactly the default depth limit through real
-//! gossip sessions (the container spine and the recommended
-//! versioning-`enum` shape, whose decode recursion is type-dependent),
-//! reject one step past the limit at its author, reject a lossy value
-//! (`Some(None)`) at its author, and carry deep content across a fleet
-//! whose limit was raised in concert; the last pin holds that the sender
+//! receiver's wire ingress runs — same payload type, same limit, same engine —
+//! and requires the decoded value to equal the value sent, so a payload
+//! admitted anywhere is transferable everywhere and reads back everywhere as
+//! what its author meant. The boundary pins here send payloads at exactly the
+//! default depth limit through real gossip sessions (the container spine and
+//! the recommended versioning-`enum` shape, whose decode recursion is
+//! type-dependent), reject one step past the limit at its author, reject a
+//! lossy value (`Some(None)`) at its author, and carry deep content across a
+//! fleet whose limit was raised in concert; the last pin holds that the sender
 //! exits with an error when a counterparty aborts mid-session on a decode
 //! failure.
 
@@ -24,8 +23,8 @@ use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
 
-/// Pure CBOR array nesting from a type satisfying the payload contract:
-/// each layer serializes as a one-element array, the innermost empty.
+/// Pure CBOR array nesting from a type satisfying the payload contract: each
+/// layer serializes as a one-element array, the innermost empty.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Arr(Vec<Arr>);
 
@@ -85,10 +84,9 @@ divided_proptest! {
 
 /// A recursive enum in the crate docs' recommended versioning shape.
 ///
-/// Each `N` wrapper is one map scope on the wire, and decoding it as
-/// `E` prices the innermost unit variant one further recursion step —
-/// accounting only the type's own decode can price, which is why
-/// admission runs that decode.
+/// Each `N` wrapper is one map scope on the wire, and decoding it as `E` prices
+/// the innermost unit variant one further recursion step — accounting only the
+/// type's own decode can price, which is why admission runs that decode.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum E {
     A,
@@ -241,13 +239,12 @@ divided_proptest! {
     }
 }
 
-/// A recording observer for the mismatch pin: retains whether a session
-/// elected roles and how many logical *data* streams carried a frame.
+/// A recording observer for the mismatch pin: retains whether a session elected
+/// roles and how many logical *data* streams carried a frame.
 ///
-/// The control stream's two directions open with the session itself, so
-/// they are not counted; what this makes observable is the abort's
-/// placement — after the greetings, before the election and any data
-/// frame.
+/// The control stream's two directions open with the session itself, so they
+/// are not counted; what this makes observable is the abort's placement — after
+/// the greetings, before the election and any data frame.
 #[derive(Default)]
 struct SessionShape {
     elected: std::sync::Mutex<bool>,

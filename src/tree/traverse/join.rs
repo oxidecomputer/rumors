@@ -3,16 +3,16 @@
 //! This is the behavioral oracle for wire reconciliation. At each path:
 //!
 //! - An absent pair stays absent.
-//! - A one-sided subtree is filtered by [`Unknown::unknown`] against the
-//!   absent side's causal ceiling. A leaf that side has seen but no longer
-//!   holds was deleted there.
+//! - A one-sided subtree is filtered by [`Unknown::unknown`] against the absent
+//!   side's causal ceiling. A leaf that side has seen but no longer holds was
+//!   deleted there.
 //! - Equal nodes retain our handle, including its cached hash and bounds.
 //! - Differing nodes merge their sorted child lists and recurse. Reassembly
 //!   through [`Node::branch`] compresses singleton branches again.
 //!
-//! Equality checks shared ownership first, then Merkle hashes under the
-//! trees' one hash key ([`Node::same`]). A divergent branch visits at most
-//! 256 children; equal subtrees need no descent.
+//! Equality checks shared ownership first, then Merkle hashes under the trees'
+//! one hash key ([`Node::same`]). A divergent branch visits at most 256
+//! children; equal subtrees need no descent.
 
 use itertools::{EitherOrBoth, Itertools};
 

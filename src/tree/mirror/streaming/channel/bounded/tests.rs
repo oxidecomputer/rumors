@@ -73,8 +73,8 @@ fn send_with_on_a_closed_channel_returns_the_item() {
     assert!(!full.get());
 }
 
-/// `try_send` on a channel whose receiver is gone returns the item as
-/// `Closed`, even when the channel was full when the receiver went.
+/// `try_send` on a channel whose receiver is gone returns the item as `Closed`,
+/// even when the channel was full when the receiver went.
 #[test]
 fn try_send_on_a_closed_full_channel_returns_closed() {
     let (mut sender, receiver) = channel(1);
@@ -118,8 +118,8 @@ fn keep(send: EdgeSend) {
 /// One step of a [`sends_park_exactly_when_they_fill_the_edge`] case.
 #[derive(Clone, Copy, Debug)]
 enum Step {
-    /// Send one item, letting the receiver take one first if the send finds
-    /// the channel full.
+    /// Send one item, letting the receiver take one first if the send finds the
+    /// channel full.
     Send,
     /// Send one item without waiting, if the channel has room.
     TrySend,

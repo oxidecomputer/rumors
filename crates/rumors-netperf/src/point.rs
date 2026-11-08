@@ -1,29 +1,28 @@
-//! One measurement point: the two replicas, their message sizes, the
-//! `Peer` settings each side runs with, and the link between them.
+//! One measurement point: the two replicas, their message sizes, the `Peer`
+//! settings each side runs with, and the link between them.
 //!
 //! # The replicas
 //!
-//! Two replicas, A and B, reconcile in one session. Five counts describe
-//! them:
+//! Two replicas, A and B, reconcile in one session. Five counts describe them:
 //!
 //! - `shared`, written *s*: messages live on both sides;
-//! - `insert_a` and `insert_b` (*i_A*, *i_B*): messages one side inserted
-//!   that the other has never seen;
-//! - `redact_a` and `redact_b` (*r_A*, *r_B*): messages one side redacted
-//!   that the other still holds live. Rumors keeps no tombstones, so the
-//!   redacting side simply no longer holds them.
+//! - `insert_a` and `insert_b` (*i_A*, *i_B*): messages one side inserted that
+//!   the other has never seen;
+//! - `redact_a` and `redact_b` (*r_A*, *r_B*): messages one side redacted that
+//!   the other still holds live. Rumors keeps no tombstones, so the redacting
+//!   side simply no longer holds them.
 //!
-//! So A holds *n_A = s + i_A + r_B* live messages and B holds
-//! *n_B = s + i_B + r_A*; the keys only A holds number *k_A = i_A + r_B*,
-//! and those only B holds *k_B = i_B + r_A*.
+//! So A holds *n_A = s + i_A + r_B* live messages and B holds *n_B = s + i_B +
+//! r_A*; the keys only A holds number *k_A = i_A + r_B*, and those only B holds
+//! *k_B = i_B + r_A*.
 //!
 //! # What the model predicts
 //!
-//! Under uniform hashing each message's position in the 256-ary tree is
-//! random, and a few quantities follow from the counts alone. The tool uses
-//! them to predict costs (for progress and scheduling) and to read each
-//! session (which resource bound it); [`Point::model`] computes them, and
-//! each field's documentation states its formula.
+//! Under uniform hashing each message's position in the 256-ary tree is random,
+//! and a few quantities follow from the counts alone. The tool uses them to
+//! predict costs (for progress and scheduling) and to read each session (which
+//! resource bound it); [`Point::model`] computes them, and each field's
+//! documentation states its formula.
 
 use std::fmt;
 use std::time::Duration;
@@ -69,8 +68,8 @@ impl Replicas {
         self.insert_b + self.redact_a
     }
 
-    /// The messages A sends before the two replicas part: every shared
-    /// message and every message one side later redacts.
+    /// The messages A sends before the two replicas part: every shared message
+    /// and every message one side later redacts.
     pub fn common(&self) -> u64 {
         self.shared + self.redact_a + self.redact_b
     }
@@ -91,8 +90,8 @@ impl fmt::Display for Replicas {
     }
 }
 
-/// Prints a count as `NeK` when it is a single digit times a power of ten
-/// of at least a thousand, and in full otherwise.
+/// Prints a count as `NeK` when it is a single digit times a power of ten of at
+/// least a thousand, and in full otherwise.
 pub fn compact_count(count: u64) -> String {
     if count >= 1_000 {
         let exponent = count.ilog10();
@@ -104,17 +103,16 @@ pub fn compact_count(count: u64) -> String {
     count.to_string()
 }
 
-/// The budget a grid's `unlimited` spelling requests: the largest byte
-/// count.
+/// The budget a grid's `unlimited` spelling requests: the largest byte count.
 ///
 /// The run passes it to
 /// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) as
-/// `usize::MAX`, so the session's pipelining memory has no bound below
-/// what the host can allocate.
+/// `usize::MAX`, so the session's pipelining memory has no bound below what the
+/// host can allocate.
 pub const UNLIMITED_BUDGET: u64 = u64::MAX;
 
-/// A side's requested budget as text the grid parser reads back to the
-/// same request: `default`, `unlimited`, or a byte count.
+/// A side's requested budget as text the grid parser reads back to the same
+/// request: `default`, `unlimited`, or a byte count.
 pub fn budget_text(budget: Option<u64>) -> String {
     match budget {
         None => "default".into(),
@@ -137,13 +135,13 @@ pub struct SideSettings {
 
 /// Every setting `Peer` offers that can change a session, for both sides.
 ///
-/// The payload depth limit and the session deadline apply to both sides:
-/// the library requires the depth limit to agree across a network, and the
-/// deadline is a property of the measurement, not of one side.
-/// [`Peer::bookmark_size_limit`](rumors::Peer::bookmark_size_limit) is not
-/// here because the tool's peers keep no bookmark, and the gossip policy
-/// and observers are not here because a measured session is one explicit
-/// exchange with nothing observing it.
+/// The payload depth limit and the session deadline apply to both sides: the
+/// library requires the depth limit to agree across a network, and the deadline
+/// is a property of the measurement, not of one side.
+/// [`Peer::bookmark_size_limit`](rumors::Peer::bookmark_size_limit) is not here
+/// because the tool's peers keep no bookmark, and the gossip policy and
+/// observers are not here because a measured session is one explicit exchange
+/// with nothing observing it.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Settings {
     /// Side A's settings.
@@ -152,16 +150,16 @@ pub struct Settings {
     pub b: SideSettings,
     /// [`Peer::payload_depth_limit`](rumors::Peer::payload_depth_limit).
     pub payload_depth_limit: Option<u64>,
-    /// [`Peer::session_deadline`](rumors::Peer::session_deadline): a
-    /// session running longer fails and is recorded as failed.
+    /// [`Peer::session_deadline`](rumors::Peer::session_deadline): a session
+    /// running longer fails and is recorded as failed.
     pub session_deadline: Option<Duration>,
 }
 
 /// The link between the two peers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Link {
-    /// An emulated link: each direction shaped to its rate and delayed by
-    /// half the round trip.
+    /// An emulated link: each direction shaped to its rate and delayed by half
+    /// the round trip.
     Emulated {
         /// The rate in each direction.
         rate: LinkRate,
@@ -182,20 +180,20 @@ impl fmt::Display for Link {
     }
 }
 
-/// Whether a session runs on a connection already open and warm, or on one
-/// it opens.
+/// Whether a session runs on a connection already open and warm, or on one it
+/// opens.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Connection {
-    /// A new TCP connection: the session pays the handshake and slow start,
-    /// as for an application that connects in order to synchronize.
+    /// A new TCP connection: the session pays the handshake and slow start, as
+    /// for an application that connects in order to synchronize.
     Fresh,
-    /// A TCP connection already open and warm, as on the long-lived
-    /// connection an application keeps with `Rumors::gossip`.
+    /// A TCP connection already open and warm, as on the long-lived connection
+    /// an application keeps with `Rumors::gossip`.
     ///
     /// It has carried a bulk transfer each way, so its congestion window is
-    /// open when the session starts, and the session's clock starts after
-    /// setup and warm-up.
+    /// open when the session starts, and the session's clock starts after setup
+    /// and warm-up.
     #[default]
     Warm,
 }
@@ -226,8 +224,8 @@ impl fmt::Display for Connection {
 /// The stack each side runs a session over, from the TCP socket up to the
 /// halves it hands the library.
 ///
-/// Every stack follows the library's transport advice: Nagle's algorithm
-/// off on both ends, and the read half wrapped in a `BufReader`.
+/// Every stack follows the library's transport advice: Nagle's algorithm off on
+/// both ends, and the read half wrapped in a `BufReader`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct Transport {
     /// Whether the session runs over TLS 1.3 (rustls) on the connection.
@@ -263,8 +261,8 @@ pub enum TcpBuffers {
     /// The host's limits, as the kernel gives every new namespace.
     #[default]
     Host,
-    /// The largest autotuned send and receive buffer raised to this many
-    /// bytes inside the session's namespaces only.
+    /// The largest autotuned send and receive buffer raised to this many bytes
+    /// inside the session's namespaces only.
     Raised(u64),
 }
 
@@ -298,8 +296,8 @@ pub struct Point {
 }
 
 impl Point {
-    /// A stable text key naming the point, the same in every run: the
-    /// report groups sessions by it and `--shard` hashes it.
+    /// A stable text key naming the point, the same in every run: the report
+    /// groups sessions by it and `--shard` hashes it.
     pub fn key(&self) -> String {
         let side = |s: &SideSettings| {
             format!(
@@ -335,9 +333,9 @@ impl Point {
     }
 }
 
-/// One-way delays a session spends on its handshake and completion beyond
-/// its descent of the tree: three, as measured on the library's model of a
-/// session over a latency-only link.
+/// One-way delays a session spends on its handshake and completion beyond its
+/// descent of the tree: three, as measured on the library's model of a session
+/// over a latency-only link.
 pub const PROTOCOL_HOPS: f64 = 3.0;
 
 /// Bytes a supplied message adds on the wire beyond its own encoding: its
@@ -357,15 +355,15 @@ pub struct Model {
     /// replicas only through it.
     pub key_pairs: f64,
     /// The expected depth of the deepest disputed node: with
-    /// `P(D ≥ ℓ) = 1 − exp(−K / 256^ℓ)`, the sum of those probabilities
-    /// over ℓ ≥ 1.
+    /// `P(D ≥ ℓ) = 1 − exp(−K / 256^ℓ)`, the sum of those probabilities over ℓ
+    /// ≥ 1.
     pub expected_depth: f64,
-    /// The one-way delays the session needs on a link with no bandwidth
-    /// limit: one per generation of the descent, which reaches one or two
-    /// levels below the deepest disputed node, and [`PROTOCOL_HOPS`] more.
+    /// The one-way delays the session needs on a link with no bandwidth limit:
+    /// one per generation of the descent, which reaches one or two levels below
+    /// the deepest disputed node, and [`PROTOCOL_HOPS`] more.
     ///
-    /// A join from an empty replica needs one generation; identical
-    /// replicas none.
+    /// A join from an empty replica needs one generation; identical replicas
+    /// none.
     pub hops: f64,
     /// Estimated bytes A sends.
     pub bytes_a: f64,

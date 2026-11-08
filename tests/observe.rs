@@ -2,13 +2,14 @@
 //!
 //! Each callback must contain one complete CBOR item. Grouped by directed
 //! stream, those items must reproduce the connection's bytes: a generic CBOR
-//! parse of each direction separates its control items from its frames, and
-//! its frames by the logical stream index each names. The handler set must
-//! match the streams actually used.
+//! parse of each direction separates its control items from its frames, and its
+//! frames by the logical stream index each names. The handler set must match
+//! the streams actually used.
 //!
 //! Generated gossip, bootstrap, and retirement sessions check this contract
 //! alongside session kinds and role elections. A separate property compares
-//! observed and unobserved sessions to ensure attachment leaves the wire intact.
+//! observed and unobserved sessions to ensure attachment leaves the wire
+//! intact.
 
 use rumors_testkit::common;
 
@@ -230,13 +231,12 @@ fn assert_one_item(bytes: &[u8]) {
     );
 }
 
-/// Split one direction's bytes into its CBOR items, parsed without the
-/// Rumors codec, and concatenate them per directed stream: `None` for the
-/// control items, `Some(index)` for the frames naming logical stream
-/// `index`.
+/// Split one direction's bytes into its CBOR items, parsed without the Rumors
+/// codec, and concatenate them per directed stream: `None` for the control
+/// items, `Some(index)` for the frames naming logical stream `index`.
 ///
-/// A frame is an untagged array whose first element is its stream index;
-/// every control item is tagged or a text string.
+/// A frame is an untagged array whose first element is its stream index; every
+/// control item is tagged or a text string.
 fn by_stream(bytes: &[u8]) -> BTreeMap<Option<u8>, Vec<u8>> {
     let mut streams = BTreeMap::from([(None, Vec::new())]);
     let mut rest = bytes;

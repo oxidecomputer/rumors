@@ -1,5 +1,5 @@
-//! The crate's lossless conversion from `usize` to `u64`, and the width of
-//! its counters.
+//! The crate's lossless conversion from `usize` to `u64`, and the width of its
+//! counters.
 //!
 //! A *counter* accumulates a count as events happen, with no bound set by
 //! memory. Library code holds every counter as a `u64` (an `AtomicU64` when
@@ -10,13 +10,12 @@
 //! position in a buffer, the number of items a queue holds at once. Such a
 //! value cannot outgrow the address space it measures.
 //!
-//! [`widen`] is the crate's conversion from a `usize` to a `u64`: library
-//! code converts through it, whether the value enters a counter or a wider
-//! field. It cannot lose information, because the crate compiles only
-//! for targets whose `usize` is at most 64 bits wide: a compile-time
-//! assertion in this module rejects any other target. A counter read back
-//! where a `usize` is needed goes through `usize::try_from`, with its
-//! failure handled at that site.
+//! [`widen`] is the crate's conversion from a `usize` to a `u64`: library code
+//! converts through it, whether the value enters a counter or a wider field. It
+//! cannot lose information, because the crate compiles only for targets whose
+//! `usize` is at most 64 bits wide: a compile-time assertion in this module
+//! rejects any other target. A counter read back where a `usize` is needed goes
+//! through `usize::try_from`, with its failure handled at that site.
 
 // `widen` relies on this: every `usize` value fits a `u64`. A target with a
 // wider `usize` fails to compile here rather than truncate a value.

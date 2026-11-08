@@ -24,9 +24,9 @@ fn seeds_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fuzz/seeds")
 }
 
-/// Every committed seed file is byte-identical to the live derivation:
-/// the corpus cannot drift from the wire format without reddening the
-/// gate, and the fix is one writer run away.
+/// Every committed seed file is byte-identical to the live derivation: the
+/// corpus cannot drift from the wire format without reddening the gate, and the
+/// fix is one writer run away.
 #[test]
 fn committed_seeds_match_the_live_derivation() {
     for seed in fuzz_seed_set::seed_set() {
@@ -46,9 +46,9 @@ fn committed_seeds_match_the_live_derivation() {
 
 /// The seed directories hold exactly the derived seed set, with no strays.
 ///
-/// A leftover file from a renamed or retired seed (or a whole directory
-/// for a renamed or retired target) would seed the fuzzer with bytes
-/// nothing re-derives, which is the rot this suite exists to prevent.
+/// A leftover file from a renamed or retired seed (or a whole directory for a
+/// renamed or retired target) would seed the fuzzer with bytes nothing
+/// re-derives, which is the rot this suite exists to prevent.
 #[test]
 fn seed_directories_hold_exactly_the_derived_seed_set() {
     let mut expected: std::collections::BTreeMap<String, BTreeSet<String>> = Default::default();
@@ -102,11 +102,11 @@ fn seed_directories_hold_exactly_the_derived_seed_set() {
 }
 
 /// Every `fuzz_decode` seed decodes as the type its name declares and
-/// re-encodes byte-identically or, for the corpus's non-canonical
-/// frontier, rejects with exactly its named error class.
+/// re-encodes byte-identically or, for the corpus's non-canonical frontier,
+/// rejects with exactly its named error class.
 ///
-/// Either way the seeds actually exercise the decode paths they were
-/// written for.
+/// Either way the seeds actually exercise the decode paths they were written
+/// for.
 #[test]
 fn decode_seeds_decode_as_named_and_round_trip() {
     for seed in fuzz_seed_set::seed_set() {
@@ -174,11 +174,11 @@ fn decode_seeds_decode_as_named_and_round_trip() {
 
 /// Every `fuzz_decode_differential` seed exercises the case its name declares.
 ///
-/// The accept-frontier seeds decode and round-trip, and each rejection
-/// witness rejects with the exact error class whose precedence the
-/// differential oracle guards, so the committed corpus keeps seeding
-/// the error boundaries it was written for, and an incorrect
-/// verdict-before-padding ordering reddens this gate directly.
+/// The accept-frontier seeds decode and round-trip, and each rejection witness
+/// rejects with the exact error class whose precedence the differential oracle
+/// guards, so the committed corpus keeps seeding the error boundaries it was
+/// written for, and an incorrect verdict-before-padding ordering reddens this
+/// gate directly.
 #[test]
 fn differential_seeds_exercise_their_error_boundaries() {
     for seed in fuzz_seed_set::seed_set() {
@@ -275,9 +275,9 @@ fn differential_seeds_exercise_their_error_boundaries() {
     }
 }
 
-/// The two operation seeds reach both target modes with a canonical clock;
-/// the script seed selects every operation and the message seed carries a
-/// canonical version concurrent with that clock.
+/// The two operation seeds reach both target modes with a canonical clock; the
+/// script seed selects every operation and the message seed carries a canonical
+/// version concurrent with that clock.
 #[test]
 fn operation_seeds_drive_both_modes_and_every_operation() {
     for seed in fuzz_seed_set::seed_set() {
@@ -314,16 +314,16 @@ fn operation_seeds_drive_both_modes_and_every_operation() {
     }
 }
 
-/// Every `fuzz_laws` seed decodes positionally per the target's framing:
-/// three versions, two parties, a clock, then the three variadic list
-/// scripts (version, party, clock pools), nothing left over.
+/// Every `fuzz_laws` seed decodes positionally per the target's framing: three
+/// versions, two parties, a clock, then the three variadic list scripts
+/// (version, party, clock pools), nothing left over.
 ///
 /// So no chunk silently falls back to a default and stops representing the
 /// value it was written for. And the corpus keeps its deliberate tails: the
-/// wide-gamma seed's first version is a magnitude past `u64::MAX` (a
-/// 21+-digit leaf, the decode tier random bytes essentially never reach),
-/// some version script reaches the fold's first regrouping boundary (length
-/// 4..=9), and some crosses its second power-of-two boundary (length 15+).
+/// wide-gamma seed's first version is a magnitude past `u64::MAX` (a 21+-digit
+/// leaf, the decode tier random bytes essentially never reach), some version
+/// script reaches the fold's first regrouping boundary (length 4..=9), and some
+/// crosses its second power-of-two boundary (length 15+).
 #[test]
 fn laws_seeds_decode_per_framing_and_stay_wide() {
     let mut saw_wide = false;

@@ -1,11 +1,11 @@
 //! Sessions run over one real TCP connection.
 //!
-//! A session's transport is one reliable, ordered duplex byte stream, and a
-//! TCP connection is the deployment's usual instance of it. These tests run
-//! divergent replicas through a session over a loopback connection split
-//! into its two halves, at the platform's default socket buffers and at the
-//! smallest the platform allows. Socket I/O uses real deadlines: a paused
-//! clock could expire while the OS is still delivering bytes.
+//! A session's transport is one reliable, ordered duplex byte stream, and a TCP
+//! connection is the deployment's usual instance of it. These tests run
+//! divergent replicas through a session over a loopback connection split into
+//! its two halves, at the platform's default socket buffers and at the smallest
+//! the platform allows. Socket I/O uses real deadlines: a paused clock could
+//! expire while the OS is still delivering bytes.
 
 use rumors_testkit::common;
 
@@ -24,22 +24,22 @@ const SESSION_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Buffer request for the minimal-capacity variant.
 ///
-/// The OS rounds a socket-buffer request up to its floor, so a one-byte
-/// request yields the smallest buffer the platform allows.
+/// The OS rounds a socket-buffer request up to its floor, so a one-byte request
+/// yields the smallest buffer the platform allows.
 const MINIMAL_BUFFER_REQUEST: u32 = 1;
 
-/// Messages each side holds that the other lacks: enough that every level
-/// of the descent carries frames and both directions carry supply runs.
+/// Messages each side holds that the other lacks: enough that every level of
+/// the descent carries frames and both directions carry supply runs.
 const DIVERGENT_MESSAGES: u64 = 2_000;
 
-/// Gossip two fully divergent replicas over one loopback TCP connection,
-/// then gossip again over the same connection, and require both sessions
-/// to converge the replicas.
+/// Gossip two fully divergent replicas over one loopback TCP connection, then
+/// gossip again over the same connection, and require both sessions to converge
+/// the replicas.
 ///
 /// The second session checks that the first left both halves at the session
 /// boundary, ready for reuse. Each session first reads its peer's preamble,
-/// which opens with a fixed prefix, so bytes the first session left unread
-/// fail the second unless they happen to begin with that prefix.
+/// which opens with a fixed prefix, so bytes the first session left unread fail
+/// the second unless they happen to begin with that prefix.
 ///
 /// The replicas are forks of the network `network` names.
 async fn converge_over_tcp(network: NetworkSeed, buffers: Option<u32>) {

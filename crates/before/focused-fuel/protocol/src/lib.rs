@@ -2,13 +2,13 @@
 //!
 //! The host names one [`Probe`] and two integer parameters. The guest builds
 //! the probe's operands, reads Wasmtime fuel around one call of the measured
-//! operation, checks the operation's answer outside that window, and keeps
-//! the reading, and the operation's units of work where the probe states
-//! them, for the host. A wrong answer is a guest panic, which the host
-//! reports with its message.
+//! operation, checks the operation's answer outside that window, and keeps the
+//! reading, and the operation's units of work where the probe states them, for
+//! the host. A wrong answer is a guest panic, which the host reports with its
+//! message.
 //!
-//! Each probe documents what parameters `a` and `b` select. A parameter a
-//! probe does not use must be zero.
+//! Each probe documents what parameters `a` and `b` select. A parameter a probe
+//! does not use must be zero.
 
 #![cfg_attr(not(test), no_std)]
 
@@ -99,8 +99,8 @@ pub enum Probe {
     /// `Span::precedence` of `S | C` against `[empty, S]`: an end strictly
     /// below the probe, refuted at the first interval; `C` is `C(1024, a)`.
     ExitPrecedencePrecededEnd = 53,
-    /// `Span::contains` of `S | C` against `[empty, S]`: a probe above the
-    /// end, refuted at the first interval; `C` is `C(1024, a)`.
+    /// `Span::contains` of `S | C` against `[empty, S]`: a probe above the end,
+    /// refuted at the first interval; `C` is `C(1024, a)`.
     ExitContainsAboveEnd = 54,
     /// `Span::contains` of `S` against `[S | C, above(S | C)]`: a probe below
     /// the start, refuted at the first interval; `C` is `C(1024, a)`.
@@ -112,27 +112,27 @@ pub enum Probe {
     /// 1]`: a contained probe whose start stream is dropped at its first
     /// interval.
     ExitPrecedenceDropsTheStart = 57,
-    /// `Query::from(causally::before(S)).contains(S | C)`: a ceiling refuted
-    /// at the first interval; `C` is `C(1024, a)`.
+    /// `Query::from(causally::before(S)).contains(S | C)`: a ceiling refuted at
+    /// the first interval; `C` is `C(1024, a)`.
     ExitCeilingRefuted = 58,
     /// `causally::since(S).contains(S | C)`: a hole satisfied at the first
     /// interval; `C` is `C(1024, a)`.
     ExitHoleSatisfied = 59,
 
-    /// `x.partial_cmp(y)` over the history of `a` senders;
-    /// `b` packs the snapshots `[x, y]` (see [`pack`]).
+    /// `x.partial_cmp(y)` over the history of `a` senders; `b` packs the
+    /// snapshots `[x, y]` (see [`pack`]).
     HistoryCompare = 100,
-    /// `Query::from(causally::before(x)).contains(y)` over the history of
-    /// `a` senders; `b` packs `[x, y]`.
+    /// `Query::from(causally::before(x)).contains(y)` over the history of `a`
+    /// senders; `b` packs `[x, y]`.
     HistoryBefore = 101,
     /// `causally::before(x).contains(y)`, the ceiling's own membership test,
     /// over the history of `a` senders; `b` packs `[x, y]`.
     HistoryBeforeBound = 102,
-    /// `causally::after(x).contains(y)`, the floor's own membership test,
-    /// over the history of `a` senders; `b` packs `[x, y]`.
+    /// `causally::after(x).contains(y)`, the floor's own membership test, over
+    /// the history of `a` senders; `b` packs `[x, y]`.
     HistoryAfterBound = 103,
-    /// `causally::since(x).contains(y)` over the history of `a` senders;
-    /// `b` packs `[x, y]`.
+    /// `causally::since(x).contains(y)` over the history of `a` senders; `b`
+    /// packs `[x, y]`.
     HistorySince = 104,
     /// `(causally::since(x) & causally::before(y)).contains(z)` over the
     /// history of `a` senders; `b` packs `[x, y, z]`.
@@ -145,8 +145,8 @@ pub enum Probe {
     HistorySpan = 108,
     /// `x.span_all([y])` over the history of `a` senders; `b` packs `[x, y]`.
     HistorySpanAll = 109,
-    /// `Span::new(lo, hi).place(probe)` over the history of `a` senders;
-    /// `b` packs `[lo, hi, probe]`.
+    /// `Span::new(lo, hi).place(probe)` over the history of `a` senders; `b`
+    /// packs `[lo, hi, probe]`.
     SpanPlace = 110,
     /// `Span::new(lo, hi).dominance(probe)` over the history of `a` senders;
     /// `b` packs `[lo, hi, probe]`.
@@ -157,23 +157,23 @@ pub enum Probe {
     /// `Span::new(lo, hi).contains(&probe)` over the history of `a` senders;
     /// `b` packs `[lo, hi, probe]`.
     SpanContains = 113,
-    /// `Span::new(lo, hi).contains(probe.clone())`, an owned argument, over
-    /// the history of `a` senders; `b` packs `[lo, hi, probe]`.
+    /// `Span::new(lo, hi).contains(probe.clone())`, an owned argument, over the
+    /// history of `a` senders; `b` packs `[lo, hi, probe]`.
     SpanContainsOwned = 114,
     /// `Span::new(lo, hi).contains(Span::at(&probe))`, a point-span argument
     /// sharing the probe's buffer, over the history of `a` senders; `b` packs
     /// `[lo, hi, probe]`.
     SpanContainsPoint = 115,
-    /// `Span::new(lo, hi).contains(&coincident)`, where `coincident` spans
-    /// the probe and its byte-equal re-decode, two distinct buffers, over the
+    /// `Span::new(lo, hi).contains(&coincident)`, where `coincident` spans the
+    /// probe and its byte-equal re-decode, two distinct buffers, over the
     /// history of `a` senders; `b` packs `[lo, hi, probe]`.
     SpanContainsDistinctPoint = 116,
     /// `endpoint.span(&endpoint.clone()).place(probe)`, a span whose two
     /// endpoints share one buffer, over the history of `a` senders; `b` packs
     /// `[endpoint, probe]`.
     CoincidentPlace = 117,
-    /// `endpoint.span(&endpoint.clone()).dominance(probe)` over the history
-    /// of `a` senders; `b` packs `[endpoint, probe]`.
+    /// `endpoint.span(&endpoint.clone()).dominance(probe)` over the history of
+    /// `a` senders; `b` packs `[endpoint, probe]`.
     CoincidentDominance = 118,
     /// `Span::new(endpoint, redecoded).place(probe)`, coincident endpoints in
     /// distinct buffers, over the history of `a` senders; `b` packs
@@ -196,13 +196,11 @@ pub enum Probe {
     /// `Span::decode` of the canonical wire bytes of the span `[lo, hi]` over
     /// the history of `a` senders; `b` packs `[lo, hi]`.
     SpanDecode = 124,
-    /// `Version::decode` of the span `[lo, hi]`'s first component, the
-    /// encoding of `lo`, over the history of `a` senders; `b` packs
-    /// `[lo, hi]`.
+    /// `Version::decode` of the span `[lo, hi]`'s first component, the encoding
+    /// of `lo`, over the history of `a` senders; `b` packs `[lo, hi]`.
     SpanDecodeLower = 125,
     /// `Version::decode` of the span `[lo, hi]`'s second component, the
-    /// encoding of `hi`, over the history of `a` senders; `b` packs
-    /// `[lo, hi]`.
+    /// encoding of `hi`, over the history of `a` senders; `b` packs `[lo, hi]`.
     SpanDecodeUpper = 126,
 
     /// `x.join_all(copies)` over the duplicate fixture of `a` shares, with `b`
@@ -300,8 +298,8 @@ pub enum Probe {
     DuplicateOptionSpanProductOwnedSpans = 221,
 
     /// `Clock::sync` of two clocks with empty versions whose parties are the
-    /// delegated pair at depth `a`: two `a`-level spines that share their
-    /// path and split their deep cells.
+    /// delegated pair at depth `a`: two `a`-level spines that share their path
+    /// and split their deep cells.
     SyncDelegated = 300,
     /// `Clock::sync` of two clocks with empty versions whose parties are the
     /// spliced pair at depth `a`: the left half and a deep cell of the right.
@@ -316,15 +314,15 @@ pub enum Probe {
     /// `Party::join` then `Party::fork` of the adjacent pair at depth `a`.
     JoinForkAdjacent = 305,
     /// `Party::without` of a party holding the leftmost `2^-a` cell and the
-    /// right half, less one quarter of the right half: the deep cell lies
-    /// under an unowned cover and survives whole.
+    /// right half, less one quarter of the right half: the deep cell lies under
+    /// an unowned cover and survives whole.
     WithoutSplice = 306,
     /// `Party::without` of a party holding the leftmost `2^-a` cell and the
-    /// right half, less the left half and one quarter: the deep cell lies
-    /// under an owned cover and vanishes whole.
+    /// right half, less the left half and one quarter: the deep cell lies under
+    /// an owned cover and vanishes whole.
     WithoutBlock = 307,
-    /// `Party::seed().without(leftmost)`, carving the leftmost `2^-a` cell
-    /// out of the seed: the walk builds the cell's complement level by level.
+    /// `Party::seed().without(leftmost)`, carving the leftmost `2^-a` cell out
+    /// of the seed: the walk builds the cell's complement level by level.
     WithoutComplement = 308,
 
     /// `later <= empty`, a directed comparison, for the comb `later =
@@ -337,35 +335,34 @@ pub enum Probe {
     DirectedPointDominance = 402,
     /// `causally::after(later).contains(empty)` for the comb `C(1024, a)`.
     DirectedFloorContains = 403,
-    /// `projection <= empty` for the comb `C(1024, a)` viewed through the
-    /// seed.
+    /// `projection <= empty` for the comb `C(1024, a)` viewed through the seed.
     DirectedProjectedLe = 404,
-    /// `projection.partial_cmp(empty)` for the comb `C(1024, a)` viewed
-    /// through the seed.
+    /// `projection.partial_cmp(empty)` for the comb `C(1024, a)` viewed through
+    /// the seed.
     DirectedProjectedCompare = 405,
 
-    /// `flat | spine`, where `spine` is the re-anchoring spine of depth `a`
-    /// and `flat` a one-leaf version of height `2^(10a) − 1`, which dominates
-    /// it; the units are the operands' encoded bits.
+    /// `flat | spine`, where `spine` is the re-anchoring spine of depth `a` and
+    /// `flat` a one-leaf version of height `2^(10a) − 1`, which dominates it;
+    /// the units are the operands' encoded bits.
     ReanchorJoinFlatFirst = 500,
     /// `spine | flat`, the other operand order of
     /// [`ReanchorJoinFlatFirst`](Probe::ReanchorJoinFlatFirst).
     ReanchorJoinSpineFirst = 501,
 
-    /// `join_all` over the staggered population of `a` versions, the first
-    /// as the receiver; the units are the population's encoded bytes.
+    /// `join_all` over the staggered population of `a` versions, the first as
+    /// the receiver; the units are the population's encoded bytes.
     StaggerJoinAll = 600,
     /// `meet_all` over the staggered notch population of `a` versions, the
     /// first as the receiver; the units are its encoded bytes.
     StaggerMeetAll = 601,
-    /// `span_all` over the staggered population of `a` versions, the first
-    /// as the receiver; the units are its encoded bytes.
+    /// `span_all` over the staggered population of `a` versions, the first as
+    /// the receiver; the units are its encoded bytes.
     StaggerSpanAll = 602,
     /// `Party::join_all` over the staggered parties of `a` ids, the first as
     /// the receiver; the units are their encoded bytes.
     StaggerPartyJoinAll = 603,
-    /// `Party::join_all` over the staggered parties of `a` ids, in units of
-    /// the bytes its joins read.
+    /// `Party::join_all` over the staggered parties of `a` ids, in units of the
+    /// bytes its joins read.
     ///
     /// The units are, over every join its balanced fold makes, the encoded
     /// sizes of both operands.
@@ -374,14 +371,14 @@ pub enum Probe {
     /// staggered version, the first as the receiver; the units are their
     /// encoded bytes.
     StaggerClockJoinAll = 604,
-    /// `span_all` over sixteen forks of one dense spine of depth
-    /// `2000 · 2^a`, each ticked once, so every operand is the whole
-    /// skeleton; the units are the population's encoded bytes.
+    /// `span_all` over sixteen forks of one dense spine of depth `2000 · 2^a`,
+    /// each ticked once, so every operand is the whole skeleton; the units are
+    /// the population's encoded bytes.
     SharedSkeletonSpanAll = 605,
 
-    /// `partial_cmp` of the boundary comb `C(a, a)` against the empty
-    /// version, whose running difference crosses the `2^a` carry boundary at
-    /// every delta; the units are the comb's `2a` delta codes.
+    /// `partial_cmp` of the boundary comb `C(a, a)` against the empty version,
+    /// whose running difference crosses the `2^a` carry boundary at every
+    /// delta; the units are the comb's `2a` delta codes.
     CliffCompareEmpty = 700,
     /// The join emission (`testing::meter::version::join`, which bypasses the
     /// public identity shortcuts) of the boundary comb `C(a, a)` with a
@@ -391,20 +388,17 @@ pub enum Probe {
     /// `W(9600 · a, b, 128 · a)`, whose teeth are `b` bits wide; the units are
     /// its encoded bytes.
     RankWideTooth = 702,
-    /// `distance` and both `lag`s of the freeze-position family `FP(a)`
-    /// against its descending unit spine; the units are the pair's encoded
-    /// bytes.
+    /// `distance` and both `lag`s of the freeze-position family `FP(a)` against
+    /// its descending unit spine; the units are the pair's encoded bytes.
     DistanceFreezePosition = 703,
-    /// `distance` and both `lag`s of the promotion re-arm spine `PR(a)`
-    /// against its unit-climb mate `PRM(a)`; the units are the pair's encoded
-    /// bytes.
+    /// `distance` and both `lag`s of the promotion re-arm spine `PR(a)` against
+    /// its unit-climb mate `PRM(a)`; the units are the pair's encoded bytes.
     DistancePromotionRearm = 704,
     /// `min_ticks` of the seam plunge `SP(a, b)`: `a` three-digit boundaries
-    /// dying into one residue `b` digits wide; the units are its encoded
-    /// bytes.
+    /// dying into one residue `b` digits wide; the units are its encoded bytes.
     SeamPlunge = 705,
-    /// `min_ticks` of the seam plunge's leveled control `SPC(a, b)`; the
-    /// units are its encoded bytes.
+    /// `min_ticks` of the seam plunge's leveled control `SPC(a, b)`; the units
+    /// are its encoded bytes.
     SeamPlungeControl = 706,
     /// `min_ticks` of the seam stop `SS(a)`: `a` three-digit residues dying
     /// against one five-digit survivor; the units are its encoded bytes.
@@ -422,43 +416,42 @@ pub enum Probe {
     /// `rank` of the same-sign arming train of `a` blocks, each arming 50
     /// digits wide over 100 window gaps; the units are its encoded bytes.
     SameSignTrainRank = 711,
-    /// `min_ticks` of the wide-base tiny-tail version `WT(a, b)`: one raise
-    /// by `10^b` over the whole space, then `a` single ticks on alternating
-    /// forked leaves; the units are its encoded bytes.
+    /// `min_ticks` of the wide-base tiny-tail version `WT(a, b)`: one raise by
+    /// `10^b` over the whole space, then `a` single ticks on alternating forked
+    /// leaves; the units are its encoded bytes.
     WideBaseTinyTailMinTicks = 712,
-    /// `rank` of the wide-base tiny-tail version `WT(a, b)`; the units are
-    /// its encoded bytes.
+    /// `rank` of the wide-base tiny-tail version `WT(a, b)`; the units are its
+    /// encoded bytes.
     WideBaseTinyTailRank = 713,
     /// `min_ticks` of the wide ladder `WL(a, b)`: `a` forked parties each
     /// raised by `10^b` plus their index; the units are its encoded bytes.
     WideLadderMinTicks = 714,
-    /// `rank` of the wide ladder `WL(a, b)`; the units are its encoded
-    /// bytes.
+    /// `rank` of the wide ladder `WL(a, b)`; the units are its encoded bytes.
     WideLadderRank = 715,
-    /// `ticks(2^a)` on the dense spine of depth 125,000 through the seed;
-    /// with `b` one, a public tick first, so the measured call is the pure
-    /// grow branch.
+    /// `ticks(2^a)` on the dense spine of depth 125,000 through the seed; with
+    /// `b` one, a public tick first, so the measured call is the pure grow
+    /// branch.
     TicksDense = 716,
     /// `ticks(2^a)` on the big-root version `B(4000, 4000)` through the
     /// nested-full id `N(4000)`; with `b` one, a public tick first.
     TicksNestedWide = 717,
-    /// `ticks(2^a)` on the wide-tail version `T(4000, 4000)` through the
-    /// mirror nested-full id `M(4000)`; with `b` one, a public tick first.
+    /// `ticks(2^a)` on the wide-tail version `T(4000, 4000)` through the mirror
+    /// nested-full id `M(4000)`; with `b` one, a public tick first.
     TicksMirrorWide = 718,
 }
 
-/// A snapshot of the history fixture, which a history probe's parameter
-/// `b` names.
+/// A snapshot of the history fixture, which a history probe's parameter `b`
+/// names.
 ///
 /// The fixture is one clock's history with `a` forked senders, in phases of
-/// four rounds per sender, each round a tick and a received send from the
-/// next sender, so every stream has one region per sender and grows with
-/// `a`. In order: [`Start`](Self::Start) after one
-/// phase; [`Middle`](Self::Middle) after a raise of `2^80` and a second phase,
-/// so streams carry wide codes; [`End`](Self::End) after a third phase;
-/// [`Divergent`](Self::Divergent), a fork taken at `Start` and ticked once
-/// per round, concurrent with `Middle` and `End`; and [`Top`](Self::Top), the join
-/// of `End` and `Divergent`. So `Start < Middle < End <= Top`, `Start <=
+/// four rounds per sender, each round a tick and a received send from the next
+/// sender, so every stream has one region per sender and grows with `a`. In
+/// order: [`Start`](Self::Start) after one phase; [`Middle`](Self::Middle)
+/// after a raise of `2^80` and a second phase, so streams carry wide codes;
+/// [`End`](Self::End) after a third phase; [`Divergent`](Self::Divergent), a
+/// fork taken at `Start` and ticked once per round, concurrent with `Middle`
+/// and `End`; and [`Top`](Self::Top), the join of `End` and `Divergent`. So
+/// `Start < Middle < End <= Top`, `Start <=
 /// Divergent <= Top`, and `Divergent` is concurrent with `Middle` and `End`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, FromRepr)]
 #[repr(u8)]
@@ -491,11 +484,11 @@ pub const fn pack<const N: usize>(snapshots: [Snapshot; N]) -> u64 {
     packed
 }
 
-/// Unpacks exactly `N` snapshots from a probe parameter, or `None` if it
-/// holds fewer or more than `N`, or names a snapshot that does not exist.
+/// Unpacks exactly `N` snapshots from a probe parameter, or `None` if it holds
+/// fewer or more than `N`, or names a snapshot that does not exist.
 ///
-/// No snapshot is numbered zero, so an absent snapshot cannot be mistaken
-/// for one, and a parameter packed with one arity never unpacks at another.
+/// No snapshot is numbered zero, so an absent snapshot cannot be mistaken for
+/// one, and a parameter packed with one arity never unpacks at another.
 ///
 /// Inverse to [`pack`].
 pub fn unpack<const N: usize>(mut packed: u64) -> Option<[Snapshot; N]> {
@@ -520,8 +513,8 @@ impl TryFrom<u32> for Probe {
 
     /// Decodes a probe number, the inverse of `u32::from`.
     ///
-    /// Rejects values that name no probe. `FromRepr` derives this decoder
-    /// from the declared numbers, so it cannot disagree with them.
+    /// Rejects values that name no probe. `FromRepr` derives this decoder from
+    /// the declared numbers, so it cannot disagree with them.
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         Self::from_repr(value).ok_or(())
     }

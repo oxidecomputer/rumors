@@ -20,15 +20,15 @@ pub enum Phase {
     IdentityTransfer,
     /// Exchanging confirmation that the session completed.
     ///
-    /// On an existing replica, all local session work has committed before
-    /// this phase. A failure means the peer's commit is unconfirmed; it does
-    /// not undo local changes.
+    /// On an existing replica, all local session work has committed before this
+    /// phase. A failure means the peer's commit is unconfirmed; it does not
+    /// undo local changes.
     ///
-    /// A bootstrap served by a provider has received its whole identity
-    /// before this phase, so a failure here returns its live peer, beside a
-    /// [`Connection::Lost`](crate::Connection::Lost) carrying this error.
-    /// Two bootstrappers exchange no identity, so a failure here returns
-    /// each one's builder in [`Joined::Failed`](crate::Joined::Failed).
+    /// A bootstrap served by a provider has received its whole identity before
+    /// this phase, so a failure here returns its live peer, beside a
+    /// [`Connection::Lost`](crate::Connection::Lost) carrying this error. Two
+    /// bootstrappers exchange no identity, so a failure here returns each one's
+    /// builder in [`Joined::Failed`](crate::Joined::Failed).
     Completion,
 }
 
@@ -81,8 +81,9 @@ pub struct DataStream {
 /// Where a session detected a failure.
 ///
 /// `data_stream` is absent for the preamble, greeting, and closing items, and
-/// for failures detected without a particular data-stream direction. Context describes detection;
-/// it does not establish which peer or transport implementation is at fault.
+/// for failures detected without a particular data-stream direction. Context
+/// describes detection; it does not establish which peer or transport
+/// implementation is at fault.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Context {
@@ -131,8 +132,8 @@ impl fmt::Display for Context {
 /// A transport operation failed or the peer closed before it could complete.
 ///
 /// Inspect `source.kind()` for the I/O category. A clean close before required
-/// bytes arrive is represented by `UnexpectedEof`. The context and
-/// original source remain available for logging; no message parsing is needed.
+/// bytes arrive is represented by `UnexpectedEof`. The context and original
+/// source remain available for logging; no message parsing is needed.
 #[derive(Debug, thiserror::Error)]
 #[error("{operation} failed during {context}: {source}")]
 #[non_exhaustive]
@@ -150,8 +151,8 @@ pub struct TransportError {
 ///
 /// This indicates a bug or incompatible implementation, not an ordinary peer
 /// departure. Report the context and diagnostic source. The diagnostic's
-/// concrete type is not part of the public API; applications handle this as
-/// one failure category rather than depending on individual grammar checks.
+/// concrete type is not part of the public API; applications handle this as one
+/// failure category rather than depending on individual grammar checks.
 #[derive(Debug, thiserror::Error)]
 #[error("protocol violation during {context}: {source}")]
 pub struct ProtocolViolation {

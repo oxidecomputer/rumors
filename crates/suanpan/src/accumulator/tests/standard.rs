@@ -92,8 +92,8 @@ fn display_matches_bigint_near_powers() {
 }
 
 /// Zero formats as `0` in the scalar form, the digit form, and a cancelled
-/// digit form, and in both digit forms negated, which sets the digits' flag
-/// on a zero.
+/// digit form, and in both digit forms negated, which sets the digits' flag on
+/// a zero.
 #[test]
 fn zero_formats_as_zero_in_every_form() {
     let digits = || {

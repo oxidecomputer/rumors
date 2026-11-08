@@ -1,52 +1,51 @@
-//! The budget curves: how a synchronization slows as its memory budget
-//! shrinks below what keeps a link busy, measured on the library's own
-//! session code over the test kit's link model, and plotted against the
-//! estimates in [`rumors_testkit::bench::slowdown`]: the profile estimate,
-//! which stretches each moment of the unlimited session by how far its
-//! memory exceeds the budget, where the unlimited sessions recorded their
-//! profiles, and the analytic lower estimate otherwise.
+//! The budget curves: how a synchronization slows as its memory budget shrinks
+//! below what keeps a link busy, measured on the library's own session code
+//! over the test kit's link model, and plotted against the estimates in
+//! [`rumors_testkit::bench::slowdown`]: the profile estimate, which stretches
+//! each moment of the unlimited session by how far its memory exceeds the
+//! budget, where the unlimited sessions recorded their profiles, and the
+//! analytic lower estimate otherwise.
 //!
-//! Every session is deterministic: the link model's clock counts
-//! byte-times and advances only when both peers wait, so on one platform
-//! each point is an exact function of its pair, link, and budget, unmoved
-//! by machine load. Across platforms the points can differ slightly: the
-//! same sessions measured on Linux and on illumos differ in their heap
-//! figures and admission counts, and occasionally in duration.
+//! Every session is deterministic: the link model's clock counts byte-times and
+//! advances only when both peers wait, so on one platform each point is an
+//! exact function of its pair, link, and budget, unmoved by machine load.
+//! Across platforms the points can differ slightly: the same sessions measured
+//! on Linux and on illumos differ in their heap figures and admission counts,
+//! and occasionally in duration.
 //!
-//! - `simulate` runs the grid and appends one JSON document per session to
-//!   its output file. For each pair and link it first runs the session
-//!   with an unlimited budget, which reads the budget no smaller one beats
-//!   (`Λ`, the largest excess either side's ledger holds: what its kinds
-//!   and depths of unit hold beyond their bounds),
-//!   then a ladder of budgets from `Λ` down to
+//! - `simulate` runs the grid and appends one JSON document per session to its
+//!   output file. For each pair and link it first runs the session with an
+//!   unlimited budget, which reads the budget no smaller one beats (`Λ`, the
+//!   largest excess either side's ledger holds: what its kinds and depths of
+//!   unit hold beyond their bounds), then a ladder of budgets from `Λ` down to
 //!   [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), the least
-//!   budget the public setter runs a session on, each run beside the floor
-//!   and session allowances every memory budget sets aside, since `Λ` and
-//!   the rungs below it are what a ledger admits work against. Explicit
-//!   budgets run as given, below the minimum included, so analysis can
-//!   probe the regime the setter rules out. A rerun with the same output
-//!   file skips every session the file already holds. Every
-//!   unlimited session records each side's budget-counted bytes over time,
-//!   its profile, which the profile estimate reads; with `--detail`, every
-//!   session records its profile, each wait for admission, and each
-//!   admission, dated, to show when and where a budget held work back.
+//!   budget the public setter runs a session on, each run beside the floor and
+//!   session allowances every memory budget sets aside, since `Λ` and the rungs
+//!   below it are what a ledger admits work against. Explicit budgets run as
+//!   given, below the minimum included, so analysis can probe the regime the
+//!   setter rules out. A rerun with the same output file skips every session
+//!   the file already holds. Every unlimited session records each side's
+//!   budget-counted bytes over time, its profile, which the profile estimate
+//!   reads; with `--detail`, every session records its profile, each wait for
+//!   admission, and each admission, dated, to show when and where a budget held
+//!   work back.
 //! - `render` reads such a file and writes the plots (SVG) and the tables
 //!   (Markdown) beside them.
 //! - `compare` overlays several simulations' curves, one figure per pair.
-//! - `model` runs each shape's unlimited sessions, over a latency-only link
-//!   and over each link with bandwidth, and writes the budget model's
-//!   quantities: the hop count, the bytes each side sent, the unlimited
-//!   duration, and each side's `Λ` and share peak with where and when each
-//!   occurred. Shapes name insertions and redactions on each side.
-//! - `count` prints the grants of the depth-1 questions a session's root
-//!   answer asks, the budget that opens every top-level subtree at once,
-//!   stopping each session after its first round trip, so it reaches
-//!   replica sizes whole sessions cannot.
+//! - `model` runs each shape's unlimited sessions, over a latency-only link and
+//!   over each link with bandwidth, and writes the budget model's quantities:
+//!   the hop count, the bytes each side sent, the unlimited duration, and each
+//!   side's `Λ` and share peak with where and when each occurred. Shapes name
+//!   insertions and redactions on each side.
+//! - `count` prints the grants of the depth-1 questions a session's root answer
+//!   asks, the budget that opens every top-level subtree at once, stopping each
+//!   session after its first round trip, so it reaches replica sizes whole
+//!   sessions cannot.
 //!
-//! `simulate`, `model`, and `count` run each session in a child process of
-//! its own ([`child`]), because a large session leaves the allocator in a
-//! state that slows the next large session in the same process. The parent
-//! writes each session's document exactly as its child printed it.
+//! `simulate`, `model`, and `count` run each session in a child process of its
+//! own ([`child`]), because a large session leaves the allocator in a state
+//! that slows the next large session in the same process. The parent writes
+//! each session's document exactly as its child printed it.
 
 mod child;
 mod grid;
@@ -102,32 +101,30 @@ enum Command {
         /// Halvings the ladder spans below `Λ`.
         #[arg(long, default_value_t = 10)]
         octaves: u32,
-        /// Leave out the minimum's rung, `MIN_SYNC_MEMORY_BUDGET`, where
-        /// the ladder starts.
+        /// Leave out the minimum's rung, `MIN_SYNC_MEMORY_BUDGET`, where the
+        /// ladder starts.
         #[arg(long)]
         no_minimum: bool,
-        /// The smallest power of two to run among the ladder's candidates,
-        /// in bytes beside the floor and session allowances.
+        /// The smallest power of two to run among the ladder's candidates, in
+        /// bytes beside the floor and session allowances.
         #[arg(long, default_value_t = grid::SMALLEST_CANDIDATE)]
         smallest_candidate: u64,
-        /// Run exactly these memory budgets, in bytes, instead of the
-        /// ladder, below the minimum included; the unlimited session runs
-        /// first unless the output holds it.
+        /// Run exactly these memory budgets, in bytes, instead of the ladder,
+        /// below the minimum included; the unlimited session runs first unless
+        /// the output holds it.
         #[arg(long, value_delimiter = ',')]
         budgets: Vec<u64>,
-        /// The bytes each fixture message encodes in, its CBOR head
-        /// included.
+        /// The bytes each fixture message encodes in, its CBOR head included.
         #[arg(long, default_value_t = MESSAGE_BYTES)]
         message_bytes: usize,
-        /// Record every session in detail: each side's profile, every
-        /// wait, and every admission, dated. Without it only unlimited
-        /// sessions record their profiles, which the profile estimate
-        /// reads.
+        /// Record every session in detail: each side's profile, every wait, and
+        /// every admission, dated. Without it only unlimited sessions record
+        /// their profiles, which the profile estimate reads.
         #[arg(long)]
         detail: bool,
     },
-    /// Overlay several simulations' curves, one figure per pair, each
-    /// series given as `label=path`.
+    /// Overlay several simulations' curves, one figure per pair, each series
+    /// given as `label=path`.
     Compare {
         /// The series, `label=path`, at most three plotted per figure.
         #[arg(long, value_delimiter = ',')]
@@ -136,9 +133,9 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Print the grants of the depth-1 questions the responder's root
-    /// answer asks, and their total, one JSON line per size: the budget a
-    /// session needs to open every top-level subtree at once.
+    /// Print the grants of the depth-1 questions the responder's root answer
+    /// asks, and their total, one JSON line per size: the budget a session
+    /// needs to open every top-level subtree at once.
     Count {
         /// Messages each replica holds.
         #[arg(long, value_delimiter = ',')]
@@ -146,21 +143,20 @@ enum Command {
         /// The share of each replica the other holds too, in percent.
         #[arg(long, default_value_t = 99)]
         overlap: u64,
-        /// The bytes each fixture message encodes in, its CBOR head
-        /// included.
+        /// The bytes each fixture message encodes in, its CBOR head included.
         #[arg(long, default_value_t = MESSAGE_BYTES)]
         message_bytes: usize,
     },
-    /// Run each shape's unlimited sessions over a latency-only link and
-    /// over each link, appending the model's quantities, one JSON line per
-    /// session; sessions the file holds are skipped.
+    /// Run each shape's unlimited sessions over a latency-only link and over
+    /// each link, appending the model's quantities, one JSON line per session;
+    /// sessions the file holds are skipped.
     Model {
         /// The file to append sessions to.
         #[arg(long)]
         out: PathBuf,
-        /// The shapes, each `s:iA:iB` or `s:iA:iB:rA:rB`: messages both
-        /// hold, messages each side inserted that the other never saw,
-        /// and messages both received that each side redacted.
+        /// The shapes, each `s:iA:iB` or `s:iA:iB:rA:rB`: messages both hold,
+        /// messages each side inserted that the other never saw, and messages
+        /// both received that each side redacted.
         ///
         /// A suffix `@draw` builds another tree for the same counts.
         #[arg(long, value_delimiter = ',', value_parser = model::ShapeSpec::parse, required = true)]
@@ -168,12 +164,11 @@ enum Command {
         /// Links with bandwidth, by bandwidth-delay product, in bytes.
         #[arg(long, value_delimiter = ',', default_values_t = grid::LINKS)]
         links: Vec<u64>,
-        /// The latency-only link's bandwidth-delay product, twice its
-        /// one-way delay, in bytes.
+        /// The latency-only link's bandwidth-delay product, twice its one-way
+        /// delay, in bytes.
         #[arg(long, default_value_t = rumors_testkit::bench::session::LONG_HAUL_BDP)]
         latency_bdp: u64,
-        /// The bytes each fixture message encodes in, its CBOR head
-        /// included.
+        /// The bytes each fixture message encodes in, its CBOR head included.
         #[arg(long, default_value_t = MESSAGE_BYTES)]
         message_bytes: usize,
         /// Sessions to run at once.
@@ -189,8 +184,8 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Run one session, given as JSON, and print its document: the other
-    /// modes run each session in a child process through this command.
+    /// Run one session, given as JSON, and print its document: the other modes
+    /// run each session in a child process through this command.
     #[command(hide = true)]
     Session {
         /// The session, as JSON.
@@ -275,10 +270,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// Counts the grants of the depth-1 questions the responder's root answer
-/// asks in the pair of `messages` per replica, `overlap` percent shared,
-/// every message encoding in `message_bytes`, and returns them as a JSON
-/// document.
+/// Counts the grants of the depth-1 questions the responder's root answer asks
+/// in the pair of `messages` per replica, `overlap` percent shared, every
+/// message encoding in `message_bytes`, and returns them as a JSON document.
 fn count(messages: u64, overlap: u64, message_bytes: usize) -> String {
     let started = Instant::now();
     let shape = Shape::overlapping(messages, overlap).with_message_bytes(message_bytes);

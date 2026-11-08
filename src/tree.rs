@@ -1,41 +1,38 @@
-//! The content tree: a sparse Merkle radix trie that makes replica
-//! difference *observable* and replica union *cheap*.
+//! The content tree: a sparse Merkle radix trie that makes replica difference
+//! *observable* and replica union *cheap*.
 //!
-//! End-user documentation lives in the [crate docs](crate); here we discuss
-//! the design.
+//! End-user documentation lives in the [crate docs](crate); here we discuss the
+//! design.
 //!
 //! # Shape
 //!
-//! Branching factor 256, fixed depth 32: a leaf's path is its 32-byte
-//! version address, one byte per level — the full-width hash of the
-//! leaf's version, keyed by the network's secret
-//! ([`Path::for_leaf`](typed::Path::for_leaf)). Message
-//! bytes enter no path and no digest; identity rests on the invariant the
-//! protocol already requires everywhere, that no two messages ever share
-//! a version. Version addressing buys three properties at once:
+//! Branching factor 256, fixed depth 32: a leaf's path is its 32-byte version
+//! address, one byte per level — the full-width hash of the leaf's version,
+//! keyed by the network's secret ([`Path::for_leaf`](typed::Path::for_leaf)).
+//! Message bytes enter no path and no digest; identity rests on the invariant
+//! the protocol already requires everywhere, that no two messages ever share a
+//! version. Version addressing buys three properties at once:
 //!
-//! - **The set is the tree.** Where a leaf lives is fully determined by
-//!   the version stamped on it, so two replicas holding the same messages
-//!   hold the same tree, regardless of insertion order or which peer sent
-//!   what. Union is well-defined node-by-node.
-//! - **Equal hash ⟹ equal subtree.** Each node memoizes a Merkle hash of
-//!   its subtree — a pure function of the version set under the network's
-//!   hash key, blind to message bytes — so replicas can prune agreement
-//!   wholesale: the engine of the [`mirror`] protocol's
-//!   divergence-proportional cost. The Merkle hash is a 16-byte truncation,
-//!   deliberately narrower than the 32-byte version address: a comparison
-//!   signal tolerates truncation that an identity cannot (see
-//!   [`typed::Hash`] for the asymmetry argument).
+//! - **The set is the tree.** Where a leaf lives is fully determined by the
+//!   version stamped on it, so two replicas holding the same messages hold the
+//!   same tree, regardless of insertion order or which peer sent what. Union is
+//!   well-defined node-by-node.
+//! - **Equal hash ⟹ equal subtree.** Each node memoizes a Merkle hash of its
+//!   subtree — a pure function of the version set under the network's hash key,
+//!   blind to message bytes — so replicas can prune agreement wholesale: the
+//!   engine of the [`mirror`] protocol's divergence-proportional cost. The
+//!   Merkle hash is a 16-byte truncation, deliberately narrower than the
+//!   32-byte version address: a comparison signal tolerates truncation that an
+//!   identity cannot (see [`typed::Hash`] for the asymmetry argument).
 //! - **Uniform spread.** Hashed paths are uniform, so the trie is
-//!   expected-balanced; and keyed by a secret no one outside the network
-//!   holds, no one can choose versions that crowd one subtree or collide
-//!   in a digest. Depth bounds are real bounds.
+//!   expected-balanced; and keyed by a secret no one outside the network holds,
+//!   no one can choose versions that crowd one subtree or collide in a digest.
+//!   Depth bounds are real bounds.
 //!
 //! Single-child spines are path-compressed away, and each node's hash is a
-//! single keyed preimage committing its height, compressed prefix and
-//! children together (see [`HashKey::branch`](typed::HashKey::branch)).
-//! Hash agreement across
-//! peers therefore rests on the tree's *canonical shape*: equal content
+//! single keyed preimage committing its height, compressed prefix and children
+//! together (see [`HashKey::branch`](typed::HashKey::branch)). Hash agreement
+//! across peers therefore rests on the tree's *canonical shape*: equal content
 //! yields equal compression, by the same ≥ 2-children maximal-compression
 //! invariant enforced by the node constructors.
 //!
@@ -53,13 +50,13 @@
 //!
 //! # The traversal trio
 //!
-//! All mutation and reconciliation is three inductive traversals over the
-//! same structure ([`traverse`]): [`act`](Tree::act) applies a local batch
-//! in one pass; [`join`](Tree::join) merges two in-memory trees;
-//! [`mirror`] reconciles two trees over a wire. `join` and `mirror` must produce
-//! the same live set and causal history. Their deletion filters are separate
-//! implementations: tests check `join` against a flat, leaf-by-leaf survivor
-//! rule, then compare wire reconciliation with `join`.
+//! All mutation and reconciliation is three inductive traversals over the same
+//! structure ([`traverse`]): [`act`](Tree::act) applies a local batch in one
+//! pass; [`join`](Tree::join) merges two in-memory trees; [`mirror`] reconciles
+//! two trees over a wire. `join` and `mirror` must produce the same live set
+//! and causal history. Their deletion filters are separate implementations:
+//! tests check `join` against a flat, leaf-by-leaf survivor rule, then compare
+//! wire reconciliation with `join`.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -75,44 +72,45 @@ pub(crate) use typed::hash::MERKLE_HASH_LEN;
 
 pub mod mirror;
 
-/// The fully-owned, lifetime-free leaf walk and the leaf handle it yields;
-/// the engine beneath [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
+/// The fully-owned, lifetime-free leaf walk and the leaf handle it yields; the
+/// engine beneath
+/// [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
 /// streams built over it.
 pub use typed::{Leaf, RangeOwned};
 
-/// A sparse Merkle radix trie with transparent path compression, whose
-/// leaves store versioned [`Message`]s.
+/// A sparse Merkle radix trie with transparent path compression, whose leaves
+/// store versioned [`Message`]s.
 ///
 /// The tree has a branching factor of 256 and a depth of 32, so a leaf's
 /// 32-byte path is the full-width hash of its version, keyed by the secret of
 /// the network the tree belongs to (see
-/// [`Path::for_leaf`](typed::Path::for_leaf)). Versions are unique per
-/// send — locally by tick, globally by party disjointness — so two
-/// content-identical messages sent at distinct moments occupy distinct
-/// leaves, and two leaves collide only when a version has been reused,
-/// which conforming peers cannot do.
+/// [`Path::for_leaf`](typed::Path::for_leaf)). Versions are unique per send —
+/// locally by tick, globally by party disjointness — so two content-identical
+/// messages sent at distinct moments occupy distinct leaves, and two leaves
+/// collide only when a version has been reused, which conforming peers cannot
+/// do.
 pub struct Tree<T> {
     /// The live nodes and the causal history used to honor redactions.
     pub(crate) root: Root,
     /// The keys of the network this tree belongs to, whose path key places
     /// every leaf in it.
     ///
-    /// Two trees' paths agree only under one secret, so only trees with
-    /// equal keys may be joined. Shared, so every clone of a tree, and the
-    /// peer it belongs to, hold one copy of the keys.
+    /// Two trees' paths agree only under one secret, so only trees with equal
+    /// keys may be joined. Shared, so every clone of a tree, and the peer it
+    /// belongs to, hold one copy of the keys.
     keys: Arc<NetworkKeys>,
     /// The payload type this tree's typed faces read leaves at.
     ///
-    /// Storage is erased ([`Message`] holds `dyn Any`); the facade's `T`
-    /// names the type its faces downcast to (as `fn() -> T`, so
-    /// auto-traits never descend into `T`).
+    /// Storage is erased ([`Message`] holds `dyn Any`); the facade's `T` names
+    /// the type its faces downcast to (as `fn() -> T`, so auto-traits never
+    /// descend into `T`).
     payload: PhantomData<fn() -> T>,
 }
 
 /// The live nodes and the latest version observed by the tree.
 ///
-/// The ceiling survives redactions, even when no nodes remain. Joins use it
-/// to distinguish messages not yet seen from messages already redacted.
+/// The ceiling survives redactions, even when no nodes remain. Joins use it to
+/// distinguish messages not yet seen from messages already redacted.
 ///
 /// A root carries no keys, so it compares through the tree that holds it
 /// ([`same`](Self::same)).
@@ -125,8 +123,8 @@ pub struct Root {
 }
 
 /// The empty root: the empty [`Version`] over no nodes. The state a mirror
-/// exchange starts from when the local side holds nothing yet: a
-/// bootstrapping peer mirrors the provider's tree into it.
+/// exchange starts from when the local side holds nothing yet: a bootstrapping
+/// peer mirrors the provider's tree into it.
 impl Default for Root {
     fn default() -> Self {
         Root {
@@ -142,9 +140,9 @@ impl Root {
         self.node.as_ref().map(typed::Node::len).unwrap_or_default()
     }
 
-    /// Whether `self` and `other`, roots of trees of the network whose hash
-    /// key is `key`, hold the same causal history and the same live
-    /// version set ([`typed::Node::same`]).
+    /// Whether `self` and `other`, roots of trees of the network whose hash key
+    /// is `key`, hold the same causal history and the same live version set
+    /// ([`typed::Node::same`]).
     pub(crate) fn same(&self, other: &Self, key: &typed::HashKey) -> bool {
         self.ceiling == other.ceiling
             && match (&self.node, &other.node) {
@@ -159,9 +157,9 @@ impl Root {
 /// does under their hash key.
 ///
 /// Test-only: every test that compares bare roots builds them under
-/// [`NetworkKeys::fixture`], the keys streaming test sessions run under. A
-/// root of another network must be compared through its tree, since its
-/// nodes cache their digests under that network's key.
+/// [`NetworkKeys::fixture`], the keys streaming test sessions run under. A root
+/// of another network must be compared through its tree, since its nodes cache
+/// their digests under that network's key.
 #[cfg(test)]
 impl PartialEq for Root {
     fn eq(&self, other: &Self) -> bool {
@@ -190,7 +188,8 @@ impl<T> Tree<T> {
     ///
     /// A sufficient check for a conditional swap that never hashes under the
     /// replica lock. Equal trees with distinct allocations may fail this check
-    /// and require a retry; full content-and-ceiling equality would also be safe.
+    /// and require a retry; full content-and-ceiling equality would also be
+    /// safe.
     pub(crate) fn root_is(&self, snapshot: &Self) -> bool {
         let same_node = match (&self.root.node, &snapshot.root.node) {
             (None, None) => true,
@@ -236,8 +235,8 @@ pub struct Acted {
     /// `false` only if neither content nor history changed; `true` is
     /// conservative, as [`Tree::act`] explains.
     pub changed: bool,
-    /// How many leaves the tree held before the batch and holds no longer:
-    /// the messages the batch's forgets removed.
+    /// How many leaves the tree held before the batch and holds no longer: the
+    /// messages the batch's forgets removed.
     pub removed: usize,
 }
 
@@ -254,8 +253,8 @@ pub enum Action {
 /// depth-first walk over every live message as `(&Version, Arc<T>)`, in
 /// unspecified order.
 ///
-/// The version is borrowed from the tree; the payload is an owned handle
-/// into the shared storage.
+/// The version is borrowed from the tree; the payload is an owned handle into
+/// the shared storage.
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`]. Once exhausted, it remains exhausted.
@@ -301,12 +300,12 @@ impl<'a, T: Send + Sync + 'static> ExactSizeIterator for Iter<'a, T> {}
 impl<'a, T: Send + Sync + 'static> std::iter::FusedIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {
-    /// Creates a new, empty tree of the network with `keys`, carrying the
-    /// empty [`Version`].
+    /// Creates a new, empty tree of the network with `keys`, carrying the empty
+    /// [`Version`].
     ///
     /// A tree owns no party identity: advancing the version is driven by a
-    /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller (the
-    /// [`Peer`](crate::Peer) that owns the party). Forking a tree is a
+    /// [`Party`](before::Party) passed into [`act`](Self::act) by the caller
+    /// (the [`Peer`](crate::Peer) that owns the party). Forking a tree is a
     /// plain [`clone`](Clone); any party split happens on the owning
     /// [`Peer`](crate::Peer).
     pub fn new(keys: impl Into<Arc<NetworkKeys>>) -> Self {
@@ -334,8 +333,8 @@ impl<T> Tree<T> {
         self.keys.path()
     }
 
-    /// The keyed hash that digests this tree's nodes: the one key their
-    /// memos are filled under.
+    /// The keyed hash that digests this tree's nodes: the one key their memos
+    /// are filled under.
     pub(crate) fn hash_key(&self) -> &typed::HashKey {
         self.keys.hash()
     }
@@ -360,13 +359,13 @@ impl<T> Tree<T> {
         self.root.len()
     }
 
-    /// The largest canonical version encoding among every bound the
-    /// tree holds — leaf versions and every branch's ceiling and floor —
-    /// in bytes; zero for the empty tree.
+    /// The largest canonical version encoding among every bound the tree holds
+    /// — leaf versions and every branch's ceiling and floor — in bytes; zero
+    /// for the empty tree.
     ///
-    /// A read of a per-node aggregate maintained exactly, memoized like
-    /// the bounds it covers: redacting the version that carries the
-    /// maximum resizes it down.
+    /// A read of a per-node aggregate maintained exactly, memoized like the
+    /// bounds it covers: redacting the version that carries the maximum resizes
+    /// it down.
     #[cfg(test)]
     pub(crate) fn max_version_bytes(&self) -> usize {
         self.root
@@ -376,14 +375,13 @@ impl<T> Tree<T> {
             .unwrap_or_default()
     }
 
-    /// The largest canonical encoding among every *per-node* version
-    /// bound the tree holds, recomputed by direct walk with no aggregate
-    /// memo: the oracle [`max_version_bytes`](Self::max_version_bytes)
-    /// is pinned against.
+    /// The largest canonical encoding among every *per-node* version bound the
+    /// tree holds, recomputed by direct walk with no aggregate memo: the oracle
+    /// [`max_version_bytes`](Self::max_version_bytes) is pinned against.
     ///
-    /// Deliberately excludes the root ceiling riding outside the nodes:
-    /// that value is the greeting version, one per tree, priced outside
-    /// the per-node memory model. Test instrumentation.
+    /// Deliberately excludes the root ceiling riding outside the nodes: that
+    /// value is the greeting version, one per tree, priced outside the per-node
+    /// memory model. Test instrumentation.
     #[cfg(test)]
     pub(crate) fn max_bound_bytes(&self) -> usize {
         self.root
@@ -418,11 +416,11 @@ impl<T> Tree<T> {
         self.message(version).is_some()
     }
 
-    /// Looks up the live message stamped with `version`, by its
-    /// version-derived path.
+    /// Looks up the live message stamped with `version`, by its version-derived
+    /// path.
     ///
-    /// The stored version is not echoed back: a leaf's path derives from
-    /// its version, so the hit's version is the queried one.
+    /// The stored version is not echoed back: a leaf's path derives from its
+    /// version, so the hit's version is the queried one.
     pub fn get(&self, version: &Version) -> Option<Arc<T>>
     where
         T: Send + Sync + 'static,
@@ -446,7 +444,8 @@ impl<T> Tree<T> {
             .unwrap_or_else(typed::Iter::empty)
     }
 
-    /// Compute hashes, version bounds, and encoded-version size before publication.
+    /// Compute hashes, version bounds, and encoded-version size before
+    /// publication.
     ///
     /// Accessors recurse only through cold nodes. Unchanged subtrees retain
     /// their memos, so an incremental commit pays for its new spine. Warming
@@ -470,9 +469,9 @@ impl<T> Tree<T> {
     /// Creates an owned walk over the live leaves whose versions the causal
     /// `query` admits.
     ///
-    /// The lifetime-free counterpart of [`range`](Self::range), holdable
-    /// across awaits and in long-lived state, pinning only its unvisited
-    /// frontier. The query's bounds are settled owned
+    /// The lifetime-free counterpart of [`range`](Self::range), holdable across
+    /// awaits and in long-lived state, pinning only its unvisited frontier. The
+    /// query's bounds are settled owned
     /// ([`Query::into_owned`](causally::Query::into_owned)), so the walk
     /// carries no lifetime.
     pub fn range_owned<'q, P: causally::Polarity>(
@@ -485,10 +484,10 @@ impl<T> Tree<T> {
     /// Lazily iterates the live leaves whose versions the causal `query`
     /// admits.
     ///
-    /// Subtrees wholly outside the query are pruned by their memoized
-    /// version bounds without being entered, so iterating a small delta
-    /// against a large tree costs work proportional to the delta (plus the
-    /// pruning frontier), not the tree.
+    /// Subtrees wholly outside the query are pruned by their memoized version
+    /// bounds without being entered, so iterating a small delta against a large
+    /// tree costs work proportional to the delta (plus the pruning frontier),
+    /// not the tree.
     ///
     /// Unlike [`iter`](Self::iter), not an [`ExactSizeIterator`]: how many
     /// leaves pass is unknown until they are visited.
@@ -601,12 +600,12 @@ impl<T> Tree<T> {
 
     /// Merge `other` into this tree, honoring deletions by causal version.
     ///
-    /// This is the in-memory oracle for wire reconciliation. A leaf absent
-    /// from a side whose ceiling includes its version was deleted there.
+    /// This is the in-memory oracle for wire reconciliation. A leaf absent from
+    /// a side whose ceiling includes its version was deleted there.
     ///
-    /// Returns whether the live set changed, as detected by the traversal.
-    /// The causal ceiling can advance even when the result is `false`.
-    /// Panics during the walk or ceiling merge leave this tree untouched.
+    /// Returns whether the live set changed, as detected by the traversal. The
+    /// causal ceiling can advance even when the result is `false`. Panics
+    /// during the walk or ceiling merge leave this tree untouched.
     ///
     /// # Panics
     ///
@@ -652,10 +651,10 @@ impl<T> Tree<T> {
 ///
 /// A read may be answered from the node memos, but a *fresh* tree spine (the
 /// copy-on-write path every commit rebuilds) has no memo, so a read inside a
-/// commit's critical section re-hashes that spine while the watch lock is
-/// held. The pinned tests over this counter (`root_hash_read_meter_is_live`
-/// and the commit-path pins beside it in `crate::tests`) enforce how many
-/// such reads each commit path performs.
+/// commit's critical section re-hashes that spine while the watch lock is held.
+/// The pinned tests over this counter (`root_hash_read_meter_is_live` and the
+/// commit-path pins beside it in `crate::tests`) enforce how many such reads
+/// each commit path performs.
 ///
 /// Thread-local, because every commit critical section runs synchronously on
 /// its caller's thread: a test brackets the operation on its own thread and
@@ -684,20 +683,20 @@ pub(crate) mod meter {
     }
 }
 
-/// Test-only panic injection for the commit critical sections of
-/// `Tree::join` and `Tree::react`.
+/// Test-only panic injection for the commit critical sections of `Tree::join`
+/// and `Tree::react`.
 ///
-/// The fuse-based unwind pins in [`crate::tree::tests`] arm this to make
-/// the merge and apply walks unwind mid-commit. [`traverse::join`] and
-/// [`traverse::act`] each burn one fuse step at the walk's entry and one
-/// per branch-level step, so a fuse armed at `n` unwinds only after `n`
-/// earlier fire points ran: deep enough to land after copy-on-write work
-/// has begun. The fuse models an internal panic; separate tests use a
-/// panicking payload destructor to exercise the caller-reachable unwind path.
+/// The fuse-based unwind pins in [`crate::tree::tests`] arm this to make the
+/// merge and apply walks unwind mid-commit. [`traverse::join`] and
+/// [`traverse::act`] each burn one fuse step at the walk's entry and one per
+/// branch-level step, so a fuse armed at `n` unwinds only after `n` earlier
+/// fire points ran: deep enough to land after copy-on-write work has begun. The
+/// fuse models an internal panic; separate tests use a panicking payload
+/// destructor to exercise the caller-reachable unwind path.
 ///
-/// Thread-local for the same reason as [`meter`]: every commit critical
-/// section runs synchronously on its caller's thread, so a test arms and
-/// burns a fuse no concurrent test can perturb.
+/// Thread-local for the same reason as [`meter`]: every commit critical section
+/// runs synchronously on its caller's thread, so a test arms and burns a fuse
+/// no concurrent test can perturb.
 #[cfg(test)]
 pub(crate) mod panic_injection {
     use std::cell::Cell;
@@ -710,9 +709,9 @@ pub(crate) mod panic_injection {
         static FUSE: Cell<Option<u64>> = const { Cell::new(None) };
     }
 
-    /// Disarms the fuse when dropped; returned by [`arm`] so a pin that
-    /// fails before the fuse burns down cannot leak an armed fuse into the
-    /// next test on the same thread.
+    /// Disarms the fuse when dropped; returned by [`arm`] so a pin that fails
+    /// before the fuse burns down cannot leak an armed fuse into the next test
+    /// on the same thread.
     pub(crate) struct Armed;
 
     impl Drop for Armed {
@@ -729,8 +728,8 @@ pub(crate) mod panic_injection {
         Armed
     }
 
-    /// Burns one fuse step, panicking when the fuse reaches zero (and
-    /// disarming first, so the unwind is one-shot).
+    /// Burns one fuse step, panicking when the fuse reaches zero (and disarming
+    /// first, so the unwind is one-shot).
     pub(crate) fn fire_if_armed() {
         FUSE.with(|c| match c.get() {
             None => {}

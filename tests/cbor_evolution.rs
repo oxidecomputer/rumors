@@ -1,25 +1,24 @@
 //! Pins the payload-evolution properties Rumors relies on: CBOR identifies
 //! fields and variants by name rather than position.
 //!
-//! Two struct types with reordered fields, and two enum types with
-//! reordered variants, exchange messages end to end — a `Peer` of one type
-//! gossiping with a `Peer` of the other over an in-memory connection, in both
-//! directions — so the property is pinned through the crate's own encode
-//! and decode paths, not against a serializer in isolation. A future
-//! payload-encoding change that breaks name-keyed decoding (for example, a
-//! positional struct encoding) fails these tests loudly.
+//! Two struct types with reordered fields, and two enum types with reordered
+//! variants, exchange messages end to end — a `Peer` of one type gossiping with
+//! a `Peer` of the other over an in-memory connection, in both directions — so
+//! the property is pinned through the crate's own encode and decode paths, not
+//! against a serializer in isolation. A future payload-encoding change that
+//! breaks name-keyed decoding (for example, a positional struct encoding) fails
+//! these tests loudly.
 //!
 //! The same path shows that a narrower receiver ignores fields it does not
 //! define. Whether a payload type accepts missing fields remains that type's
 //! Serde contract; Rumors adds no separate rule.
 //!
-//! The complement is pinned too: payload bytes that do *not* decode
-//! as the receiving type fail the session cleanly — a decode error at the
-//! receiver's wire ingress, never a panic, moving nothing into its set.
-//! Ingress decodes every payload through the receiving peer's own
-//! deserializer, so no wire input can reach the typed-read downcast with
-//! a foreign payload; these tests are the committed demonstration of that
-//! claim.
+//! The complement is pinned too: payload bytes that do *not* decode as the
+//! receiving type fail the session cleanly — a decode error at the receiver's
+//! wire ingress, never a panic, moving nothing into its set. Ingress decodes
+//! every payload through the receiving peer's own deserializer, so no wire
+//! input can reach the typed-read downcast with a foreign payload; these tests
+//! are the committed demonstration of that claim.
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -63,9 +62,9 @@ enum EventV2 {
     Ping(u64),
 }
 
-/// Send `payload` from the first `Peer<A>` of the network `network` names
-/// and receive it on a bootstrapped `Peer<B>` over an in-memory connection:
-/// the crate's whole encode/decode path, across two payload *types*.
+/// Send `payload` from the first `Peer<A>` of the network `network` names and
+/// receive it on a bootstrapped `Peer<B>` over an in-memory connection: the
+/// crate's whole encode/decode path, across two payload *types*.
 async fn exchanged<A, B>(network: NetworkSeed, payload: A) -> B
 where
     A: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,

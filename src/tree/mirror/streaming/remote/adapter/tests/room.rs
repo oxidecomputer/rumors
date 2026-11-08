@@ -1,12 +1,11 @@
-//! The room a question sets aside for its reply's chunks covers every
-//! chunk the decoder parks, whatever the peer sends.
+//! The room a question sets aside for its reply's chunks covers every chunk the
+//! decoder parks, whatever the peer sends.
 //!
-//! The decoder returns the room beyond what a reply can still deliver as
-//! soon as the reply shows it, so each later chunk must fit what is left.
-//! These tests decode replies against a room charged on a ledger of their
-//! own and read the ledger's count of bytes items needed beyond the room
-//! they were built out of: an oracle independent of how the decoder prices
-//! what is left.
+//! The decoder returns the room beyond what a reply can still deliver as soon
+//! as the reply shows it, so each later chunk must fit what is left. These
+//! tests decode replies against a room charged on a ledger of their own and
+//! read the ledger's count of bytes items needed beyond the room they were
+//! built out of: an oracle independent of how the decoder prices what is left.
 
 use std::{collections::BTreeSet, convert::Infallible, sync::OnceLock};
 
@@ -40,9 +39,9 @@ struct Decoded {
     short: u64,
 }
 
-/// Decode `frames` as the reply to the opening question listing `asked`,
-/// whose replier's grandchild count of the root is `count`, out of the room
-/// such a question sets aside, on a ledger of its own.
+/// Decode `frames` as the reply to the opening question listing `asked`, whose
+/// replier's grandchild count of the root is `count`, out of the room such a
+/// question sets aside, on a ledger of its own.
 fn decode_in_room(asked: &[Listed], count: usize, frames: Vec<Frame>) -> Decoded {
     let scope = Scope::opening(
         asked,
@@ -159,9 +158,8 @@ enum Step {
     Query(usize),
 }
 
-/// Questions of one to ten children at any radixes, each with one child
-/// up to a full fan of them, and any replier's count up to a few fans of
-/// fans.
+/// Questions of one to ten children at any radixes, each with one child up to a
+/// full fan of them, and any replier's count up to a few fans of fans.
 fn questions() -> impl Strategy<Value = (Vec<Listed>, usize)> {
     (
         prop::collection::vec(any::<u8>(), 1..=10),
@@ -180,9 +178,8 @@ fn questions() -> impl Strategy<Value = (Vec<Listed>, usize)> {
         })
 }
 
-/// Replies of one to a dozen reactions of every kind, in any order, at
-/// any radixes and with any listing: mostly replies no conforming peer
-/// sends.
+/// Replies of one to a dozen reactions of every kind, in any order, at any
+/// radixes and with any listing: mostly replies no conforming peer sends.
 ///
 /// Supplies favor the top of the radix range, where a supply ahead of a
 /// position leaves the fewest radixes above it, and queries favor empty
@@ -198,8 +195,7 @@ fn steps() -> impl Strategy<Value = Vec<Step>> {
     )
 }
 
-/// The wire reactions `steps` stand for, against the question listing
-/// `asked`.
+/// The wire reactions `steps` stand for, against the question listing `asked`.
 fn reactions(asked: &[Listed], steps: &[Step]) -> Vec<WireReaction> {
     steps
         .iter()
@@ -243,16 +239,15 @@ proptest! {
     }
 }
 
-/// A query listing more than the replier's count leaves beside the child
-/// counts of the children the reply matched and covered fails at its frame.
+/// A query listing more than the replier's count leaves beside the child counts
+/// of the children the reply matched and covered fails at its frame.
 ///
-/// Those children's listings never come, so their counts are counted as
-/// listed.
+/// Those children's listings never come, so their counts are counted as listed.
 ///
-/// The question lists children at radixes 253, 254 and 255, the first two
-/// with 200 children each, and the replier counts 200 grandchildren. The
-/// reply matches 253 covering 254, which leaves nothing for a listing, and
-/// then queries 255 listing 200 children.
+/// The question lists children at radixes 253, 254 and 255, the first two with
+/// 200 children each, and the replier counts 200 grandchildren. The reply
+/// matches 253 covering 254, which leaves nothing for a listing, and then
+/// queries 255 listing 200 children.
 #[test]
 fn a_listing_past_what_matched_children_leave_fails() {
     let asked = [ours(253, 200), ours(254, 200), ours(255, 1)];
@@ -278,13 +273,13 @@ fn a_listing_past_what_matched_children_leave_fails() {
     assert_eq!(decoded.short, 0, "no chunk falls short of its room");
 }
 
-/// A positional reaction below a supply's radix fails at its frame: a
-/// reply's reactions ascend by radix.
+/// A positional reaction below a supply's radix fails at its frame: a reply's
+/// reactions ascend by radix.
 ///
-/// The question lists children at radixes 10 and 20. The reply supplies a
-/// node at radix 255 first, which leaves no radix above it for a later
-/// reaction, then requests 10 and matches 20; the request's chunk holds
-/// the supply and the request.
+/// The question lists children at radixes 10 and 20. The reply supplies a node
+/// at radix 255 first, which leaves no radix above it for a later reaction,
+/// then requests 10 and matches 20; the request's chunk holds the supply and
+/// the request.
 #[test]
 fn a_position_below_a_supply_fails() {
     let asked = [ours(10, 1), ours(20, 1)];
@@ -311,13 +306,13 @@ fn a_position_below_a_supply_fails() {
     assert_eq!(decoded.short, 0, "no chunk falls short of its room");
 }
 
-/// A reply to a leaf request that matches or asks fails at its frame, and
-/// parks nothing beyond the request's room.
+/// A reply to a leaf request that matches or asks fails at its frame, and parks
+/// nothing beyond the request's room.
 ///
-/// The request reserved room for one supplied leaf, and its record lists
-/// no position: the reply supplies the leaf by its radix, or omits it. An
-/// empty query and a match, the only positional reactions a reply about a
-/// leaf's parent can carry, each fail as having no position to take.
+/// The request reserved room for one supplied leaf, and its record lists no
+/// position: the reply supplies the leaf by its radix, or omits it. An empty
+/// query and a match, the only positional reactions a reply about a leaf's
+/// parent can carry, each fail as having no position to take.
 #[test]
 fn a_leaf_request_reply_takes_no_position() {
     let leaf = &leaves_by_radix()[0];

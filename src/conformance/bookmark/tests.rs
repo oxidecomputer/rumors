@@ -39,7 +39,8 @@ enum Behavior {
     LoseRetry,
 }
 
-/// In-process storage whose returned futures require no `Sync` bound on the adapter.
+/// In-process storage whose returned futures require no `Sync` bound on the
+/// adapter.
 struct Memory {
     /// The complete record, except in deliberately broken modes.
     bytes: RefCell<Option<Vec<u8>>>,
@@ -139,7 +140,8 @@ fn reliable_storage_conforms() {
     run_to_quiescence(check(async || Memory::new(Behavior::Reliable, 0), pending)).unwrap();
 }
 
-/// Failed stores may leave either complete record, but later writes take precedence.
+/// Failed stores may leave either complete record, but later writes take
+/// precedence.
 #[test]
 fn complete_error_outcomes_conform() {
     for mode in [Behavior::FailBefore, Behavior::FailAfter] {
@@ -147,7 +149,8 @@ fn complete_error_outcomes_conform() {
     }
 }
 
-/// Cancellation may leave either complete record, with future writes still usable.
+/// Cancellation may leave either complete record, with future writes still
+/// usable.
 #[test]
 fn complete_cancellation_outcomes_conform() {
     for mode in [Behavior::PauseBefore, Behavior::PauseAfter] {
@@ -178,7 +181,8 @@ proptest! {
     }
 }
 
-/// Loads cannot consume storage, stores cannot append, and empty bytes remain present.
+/// Loads cannot consume storage, stores cannot append, and empty bytes remain
+/// present.
 #[test]
 fn broken_storage_semantics_are_rejected() {
     for mode in [Behavior::Consume, Behavior::Append, Behavior::LoseEmpty] {

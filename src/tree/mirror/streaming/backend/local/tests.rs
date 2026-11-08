@@ -1,17 +1,16 @@
-//! `Local`'s bulk `leaves`/`assemble` overrides against the default chain,
-//! and its check of the coordinates erased handles are re-tagged and read
-//! at.
+//! `Local`'s bulk `leaves`/`assemble` overrides against the default chain, and
+//! its check of the coordinates erased handles are re-tagged and read at.
 //!
 //! The overrides skip per-level work along compressed paths. Their required
 //! property is observational equivalence: for deep paths, dense branches, and
-//! multiple same-height runs, each override must produce the same stream as
-//! the level-by-level [`Convert`] default.
+//! multiple same-height runs, each override must produce the same stream as the
+//! level-by-level [`Convert`] default.
 //!
 //! A handle hides as many of its stored node's path bytes as its height
 //! decides, so the coordinate checks are what keep a wrong height from
-//! selecting other bytes; which coordinates they accept is a property of
-//! the untyped view's placement, tested there. These tests show the backend
-//! panics on one it rejects.
+//! selecting other bytes; which coordinates they accept is a property of the
+//! untyped view's placement, tested there. These tests show the backend panics
+//! on one it rejects.
 
 use std::collections::BTreeSet;
 use std::convert::Infallible;
@@ -185,12 +184,12 @@ proptest! {
     }
 }
 
-/// A leaf two levels below its top, under the path bytes `[TOP, NEXT]`,
-/// listed one level down: the handle at height one, which hides `TOP`,
-/// erased, with its coordinate.
+/// A leaf two levels below its top, under the path bytes `[TOP, NEXT]`, listed
+/// one level down: the handle at height one, which hides `TOP`, erased, with
+/// its coordinate.
 ///
-/// The tree above it is all zero bytes, so its coordinate is zeros ending
-/// in `TOP`.
+/// The tree above it is all zero bytes, so its coordinate is zeros ending in
+/// `TOP`.
 fn erased_inside_its_path() -> (Prefix<S<Z>>, <Local as Backend>::Erased) {
     let leaf = typed::Node::leaf(Version::new(), Message::new(()));
     let node = typed::Node::beneath(typed::Node::beneath(leaf, NEXT), TOP);
@@ -212,11 +211,11 @@ const NEXT: u8 = 0x7c;
 /// node's own levels.
 ///
 /// Height zero lies between the leaf's body and its top, so only the
-/// coordinate's bytes can tell it wrong: the handle there would hide
-/// `NEXT` as well, and the coordinate claims another byte in its place.
+/// coordinate's bytes can tell it wrong: the handle there would hide `NEXT` as
+/// well, and the coordinate claims another byte in its place.
 ///
-/// The check runs in debug builds alone, so builds without debug
-/// assertions ignore the test.
+/// The check runs in debug builds alone, so builds without debug assertions
+/// ignore the test.
 #[test]
 #[cfg_attr(
     not(debug_assertions),
@@ -234,11 +233,11 @@ fn re_tagging_at_a_wrong_height_inside_the_path_panics() {
     let _wrong = <Local as Backend>::assume(&at.push(NEXT ^ 1), erased);
 }
 
-/// Re-tagging an erased handle at a height above its stored node's top
-/// panics: the node has no path byte to hide there.
+/// Re-tagging an erased handle at a height above its stored node's top panics:
+/// the node has no path byte to hide there.
 ///
-/// The check runs in debug builds alone, so builds without debug
-/// assertions ignore the test.
+/// The check runs in debug builds alone, so builds without debug assertions
+/// ignore the test.
 #[test]
 #[cfg_attr(
     not(debug_assertions),
@@ -252,11 +251,11 @@ fn re_tagging_above_the_nodes_top_panics() {
     let _wrong = <Local as Backend>::assume(&above, erased);
 }
 
-/// Reading what an erased handle's children are at a coordinate off its
-/// stored node's path panics, as re-tagging there does.
+/// Reading what an erased handle's children are at a coordinate off its stored
+/// node's path panics, as re-tagging there does.
 ///
-/// The check runs in debug builds alone, so builds without debug
-/// assertions ignore the test.
+/// The check runs in debug builds alone, so builds without debug assertions
+/// ignore the test.
 #[test]
 #[cfg_attr(
     not(debug_assertions),

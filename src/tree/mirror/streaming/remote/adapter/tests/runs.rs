@@ -1,12 +1,11 @@
 //! The supply-run batching contract: byte-budget chunking at the encoder.
 //!
-//! The decoder accepts any batching (its record loop is chunking-agnostic),
-//! so every law here is stated against the *encoder*: records accumulate
-//! greedily until the frame's wire size — the [`SUPPLY_FRAME_OVERHEAD`]
-//! envelope plus the run body — would outgrow the [`RunBudget`], a run never
-//! dips below one record, and a run never spans reactions. Round trips are
-//! asserted through the same
-//! decode → re-encode path the session uses, with the decode side fed
+//! The decoder accepts any batching (its record loop is chunking-agnostic), so
+//! every law here is stated against the *encoder*: records accumulate greedily
+//! until the frame's wire size — the [`SUPPLY_FRAME_OVERHEAD`] envelope plus
+//! the run body — would outgrow the [`RunBudget`], a run never dips below one
+//! record, and a run never spans reactions. Round trips are asserted through
+//! the same decode → re-encode path the session uses, with the decode side fed
 //! deliberately unbatched input to prove batching is the encoder's choice.
 
 use std::pin::pin;
@@ -86,8 +85,8 @@ fn decode_opening(frames: Vec<Frame>) -> Reply<<Local as Backend>::Erased> {
     })
 }
 
-/// Decode `frames` as one reply to the opening scope, then re-encode it
-/// under `budget`, returning the emitted wire frames.
+/// Decode `frames` as one reply to the opening scope, then re-encode it under
+/// `budget`, returning the emitted wire frames.
 fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
     let decoded = decode_opening(frames);
     runtime().block_on(async {
@@ -245,8 +244,8 @@ proptest! {
     }
 }
 
-/// The supply-only reply of `count` colliding leaves, over `backend`'s
-/// nodes: one supply reaction per leaf's subtree.
+/// The supply-only reply of `count` colliding leaves, over `backend`'s nodes:
+/// one supply reaction per leaf's subtree.
 fn supply_reply(count: usize) -> Reply<FailingNode<<Local as Backend>::Erased>> {
     let decoded = decode_opening(unbatched_frames(&colliding_leaves(count)));
     Reply {
@@ -314,9 +313,9 @@ proptest! {
     }
 }
 
-/// A single record larger than the budget ships alone in its own run,
-/// exceeding the budget: the minimum-one-record rule keeps every leaf
-/// shippable under any setting, including a zero budget.
+/// A single record larger than the budget ships alone in its own run, exceeding
+/// the budget: the minimum-one-record rule keeps every leaf shippable under any
+/// setting, including a zero budget.
 #[test]
 fn an_oversized_record_ships_alone() {
     let leaves = colliding_leaves(3);
@@ -335,8 +334,8 @@ fn an_oversized_record_ships_alone() {
 }
 
 /// Runs never span reactions: two supplied subtrees whose records would
-/// comfortably share one run still ship as two runs, because batching scope
-/// is one reaction's leaf enumeration.
+/// comfortably share one run still ship as two runs, because batching scope is
+/// one reaction's leaf enumeration.
 #[test]
 fn runs_never_span_reactions() {
     let leaves = separated_leaves();

@@ -2,29 +2,27 @@
 //! memos, on fixed sessions.
 //!
 //! A session reassembles each scope it explores, and publishing its result
-//! computes every memo a reassembled node lacks: its hash, its version
-//! bounds, and the largest encoded version beneath it. On small sessions
-//! that work is a large share of the session's time, and unlike time it is
-//! deterministic, so this suite counts it ([`memo_work`]): a change to how a
-//! session reassembles or how a node computes its memos moves a committed
-//! number.
+//! computes every memo a reassembled node lacks: its hash, its version bounds,
+//! and the largest encoded version beneath it. On small sessions that work is a
+//! large share of the session's time, and unlike time it is deterministic, so
+//! this suite counts it ([`memo_work`]): a change to how a session reassembles
+//! or how a node computes its memos moves a committed number.
 //!
-//! Each session runs both peers in their own tasks on a current-thread
-//! runtime over an in-memory connection, as `tests/transport_calls.rs`
-//! runs its fixtures, and the counts cover both sides, their commits
-//! included.
+//! Each session runs both peers in their own tasks on a current-thread runtime
+//! over an in-memory connection, as `tests/transport_calls.rs` runs its
+//! fixtures, and the counts cover both sides, their commits included.
 
 use rumors::default;
 use rumors::testing::{MemoWork, memo_work, memo_work_reset, memory_connection};
 use rumors_testkit::bench::session::{Shape, pair};
 
-/// Bytes each direction of the connection buffers: more than any fixture
-/// sends in one direction, so no write waits for its reader.
+/// Bytes each direction of the connection buffers: more than any fixture sends
+/// in one direction, so no write waits for its reader.
 const CAPACITY: usize = 4 << 20;
 
-/// Reconcile the pair `shape` describes once, each peer in its own task,
-/// and return the work both sides did on tree nodes, from the session's
-/// start through both commits.
+/// Reconcile the pair `shape` describes once, each peer in its own task, and
+/// return the work both sides did on tree nodes, from the session's start
+/// through both commits.
 ///
 /// Building the pair runs the peers' own joining sessions, before counting
 /// starts.
@@ -47,9 +45,9 @@ fn session(shape: Shape) -> MemoWork {
     memo_work()
 }
 
-/// The fixed sessions, each a name and its pair: identical replicas, one
-/// and a hundred differences beside a shared set, a catch-up, two disjoint
-/// sets, and a shared set of which one side has redacted a tenth.
+/// The fixed sessions, each a name and its pair: identical replicas, one and a
+/// hundred differences beside a shared set, a catch-up, two disjoint sets, and
+/// a shared set of which one side has redacted a tenth.
 fn fixtures() -> [(&'static str, Shape); 6] {
     let shared = 10_000;
     [
@@ -86,11 +84,11 @@ fn fixtures() -> [(&'static str, Shape); 6] {
 
 /// The fixed sessions' work on tree nodes equals the committed baseline.
 ///
-/// The counts are deterministic: the fixtures' networks are seeded, the
-/// runtime polls its tasks in a fixed order, and nothing a session builds
-/// or computes depends on a clock. They move when how a session reassembles
-/// its scopes or how a node computes its memos changes, or a fixture does,
-/// and a commit that moves them says why.
+/// The counts are deterministic: the fixtures' networks are seeded, the runtime
+/// polls its tasks in a fixed order, and nothing a session builds or computes
+/// depends on a clock. They move when how a session reassembles its scopes or
+/// how a node computes its memos changes, or a fixture does, and a commit that
+/// moves them says why.
 #[test]
 fn memo_work_matches_the_baseline() {
     // The bounds counts, in order: computed in full, seeded whole, seeded

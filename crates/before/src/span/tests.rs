@@ -200,10 +200,10 @@ fn at_builds_a_point_span_with_shared_storage() {
 
 /// Binary and iterator construction produce the tightest containing span.
 ///
-/// An empty iterator's hull is the point `[self, self]`; a comparable
-/// pair's is its validated span from either operand order (binary and n-ary
-/// alike); a concurrent pair's is a hull whose fresh endpoints strictly bracket
-/// both inputs; and owned items behave like references in the multi-input form.
+/// An empty iterator's hull is the point `[self, self]`; a comparable pair's is
+/// its validated span from either operand order (binary and n-ary alike); a
+/// concurrent pair's is a hull whose fresh endpoints strictly bracket both
+/// inputs; and owned items behave like references in the multi-input form.
 #[test]
 fn span_derives_the_hull() {
     let ([a1, a2, _, _, _], b1) = span_fixtures();
@@ -234,9 +234,9 @@ fn span_derives_the_hull() {
 ///
 /// A strictly crossed pair, a concurrent pair (both orders), a non-canonical
 /// component on each side of the boundary, truncation at every byte boundary
-/// (inside the meet, with the join missing entirely, and inside the
-/// join), a trailing byte after the complete composite, and a set padding bit
-/// inside each component's final byte.
+/// (inside the meet, with the join missing entirely, and inside the join), a
+/// trailing byte after the complete composite, and a set padding bit inside
+/// each component's final byte.
 #[test]
 fn span_decode_rejects_each_malformed_input_class() {
     use crate::error::Decode;
@@ -528,8 +528,8 @@ fn span_decode_structural_errors_outrank_the_pair_verdict() {
 /// byte-identical.
 ///
 /// Equal endpoints share storage only after both components have validated. A
-/// bad padding bit or trailing byte therefore remains `TrailingBits`, and a
-/// cut second endpoint remains `Truncated`.
+/// bad padding bit or trailing byte therefore remains `TrailingBits`, and a cut
+/// second endpoint remains `Truncated`.
 #[test]
 fn span_decode_validates_equal_components_before_sharing_storage() {
     use crate::error::Decode;
@@ -758,8 +758,8 @@ fn decoded_point_span_shares_one_buffer() {
 /// A strictly-dominating wire span keeps two distinct endpoint streams: the
 /// sharing applies only when the endpoints are equal.
 ///
-/// Each endpoint owns its own buffer, so the two never read as clones, and
-/// each equals the endpoint that was encoded.
+/// Each endpoint owns its own buffer, so the two never read as clones, and each
+/// equals the endpoint that was encoded.
 #[test]
 fn decoded_strict_span_keeps_distinct_endpoints() {
     let mut clock = Clock::seed();
@@ -1026,8 +1026,8 @@ fn own_span_projects_both_endpoints() {
 
 // ───────────────────────── against the flat model ─────────────────────────
 
-/// The placement the verdict docs give a version whose causal relations to
-/// a span's endpoints are `to_lo` and `to_hi`.
+/// The placement the verdict docs give a version whose causal relations to a
+/// span's endpoints are `to_lo` and `to_hi`.
 fn placement_of(to_lo: Option<Ordering>, to_hi: Option<Ordering>) -> Placement {
     use Ordering::{Equal, Greater, Less};
     match (to_lo, to_hi) {

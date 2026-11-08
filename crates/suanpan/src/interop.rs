@@ -1,9 +1,10 @@
 //! Conversions to and from `num-bigint`'s integers, and their use as operands.
 //!
 //! Enabled by the `num-bigint` feature. A big integer enters as a stream of
-//! 64-bit limbs, exactly as [`add_shifted_limbs`](Accumulator::add_shifted_limbs)
-//! takes it, and leaves through the normalizing
-//! [`signed_magnitude`](Accumulator::signed_magnitude) read.
+//! 64-bit limbs, exactly as
+//! [`add_shifted_limbs`](Accumulator::add_shifted_limbs) takes it, and leaves
+//! through the normalizing [`signed_magnitude`](Accumulator::signed_magnitude)
+//! read.
 
 use core::cmp::Ordering;
 use core::fmt;

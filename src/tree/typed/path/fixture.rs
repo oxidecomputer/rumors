@@ -1,10 +1,10 @@
 //! Scoped leaf addresses for wire fixtures with chosen tree geometry.
 //!
-//! This exists only to construct placements that hashing cannot reach. A
-//! leaf's path is its version's keyed hash, so two replicas that dispute a
-//! node one byte above the leaves need leaf paths sharing 31 bytes, a
-//! 248-bit collision. It is compiled only into test builds and builds with
-//! the `test-internals` feature, never into a default or release build.
+//! This exists only to construct placements that hashing cannot reach. A leaf's
+//! path is its version's keyed hash, so two replicas that dispute a node one
+//! byte above the leaves need leaf paths sharing 31 bytes, a 248-bit collision.
+//! It is compiled only into test builds and builds with the `test-internals`
+//! feature, never into a default or release build.
 
 use std::{
     cell::RefCell,
@@ -40,9 +40,9 @@ impl Path {
     /// Run a fixture with a distinct address assigned to each leaf version.
     ///
     /// Build, use, and drop its trees inside `run`, and drive both wire
-    /// endpoints on this thread. The decoder uses this same mapping to
-    /// recover each received leaf's address. An unlisted version panics.
-    /// Nested calls restore the enclosing mapping even if `run` panics.
+    /// endpoints on this thread. The decoder uses this same mapping to recover
+    /// each received leaf's address. An unlisted version panics. Nested calls
+    /// restore the enclosing mapping even if `run` panics.
     pub(crate) fn with_leaf_paths<R>(
         paths: impl IntoIterator<Item = (Version, Self)>,
         run: impl FnOnce() -> R,

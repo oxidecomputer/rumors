@@ -1,29 +1,27 @@
-//! Meta-test: the shadow simulator inside `schedule::arb` agrees
-//! with the live executor.
+//! Meta-test: the shadow simulator inside `schedule::arb` agrees with the live
+//! executor.
 //!
 //! The schedule generator is *valid by construction* — every `Redact`
-//! references an `Insert` the redacting peer has already observed.
-//! That guarantee rests on a shadow simulator (`SimState`) that the
-//! generator drives in lockstep with the choices it emits. If that
-//! shadow disagrees with the real protocol, the generator silently
-//! emits wrong events and every multi-peer property in the suite
-//! loses its grounding.
+//! references an `Insert` the redacting peer has already observed. That
+//! guarantee rests on a shadow simulator (`SimState`) that the generator drives
+//! in lockstep with the choices it emits. If that shadow disagrees with the
+//! real protocol, the generator silently emits wrong events and every
+//! multi-peer property in the suite loses its grounding.
 //!
-//! The invariants checked against the live executor, for the
-//! membership-free alphabet and the membership alphabet alike:
+//! The invariants checked against the live executor, for the membership-free
+//! alphabet and the membership alphabet alike:
 //!
-//! * `observed_log` — the set of `EventIdx`s the shadow predicts
-//!   each peer's `on_message` callback would have fired for must
-//!   match the set the live executor actually fired (for a retired
-//!   peer, its complete lifetime log).
-//! * `live` — the set of `EventIdx`s the shadow predicts each peer
-//!   still holds at the end of the schedule must match the live
-//!   peer's readout (translated through `resolved_versions`).
-//! * `alive` — under membership events, exactly the slots the shadow
-//!   predicts alive must have survived.
+//! * `observed_log` — the set of `EventIdx`s the shadow predicts each peer's
+//!   `on_message` callback would have fired for must match the set the live
+//!   executor actually fired (for a retired peer, its complete lifetime log).
+//! * `live` — the set of `EventIdx`s the shadow predicts each peer still holds
+//!   at the end of the schedule must match the live peer's readout (translated
+//!   through `resolved_versions`).
+//! * `alive` — under membership events, exactly the slots the shadow predicts
+//!   alive must have survived.
 //!
-//! Comparison is set-wise: callback order within a batch is
-//! unspecified, so a sequence-wise comparison would over-constrain.
+//! Comparison is set-wise: callback order within a batch is unspecified, so a
+//! sequence-wise comparison would over-constrain.
 
 use rumors_testkit::common;
 

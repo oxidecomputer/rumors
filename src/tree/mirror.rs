@@ -1,8 +1,8 @@
 //! Mirror-sync between two replicas of the typed tree.
 //!
-//! [`streaming`] is the wire protocol; its behavioral oracle in this
-//! crate's tests is the in-memory merge (`Tree::join`). The two walks have
-//! separate deletion filters whose agreement is checked differentially.
+//! [`streaming`] is the wire protocol; its behavioral oracle in this crate's
+//! tests is the in-memory merge (`Tree::join`). The two walks have separate
+//! deletion filters whose agreement is checked differentially.
 //!
 //! # Malformed input
 //!
@@ -13,12 +13,12 @@
 //! session waiting; applications impose deadlines on that wait. Under the
 //! trusted-counterparty model (see the crate docs), validation detects
 //! implementation defects rather than enforcing a security boundary. A
-//! declared-length body read allocates by the declared length up front
-//! only once that length is judged and its bytes set aside: a supply run's
-//! body, once the run budget admits its length, or its heads show one
-//! record spanning it, and the receive pool has granted its permit. Every
-//! other body read grows its buffer only as bytes arrive (see
-//! [`framing`]). Every ingress has malformed-input tests beside its parser.
+//! declared-length body read allocates by the declared length up front only
+//! once that length is judged and its bytes set aside: a supply run's body,
+//! once the run budget admits its length, or its heads show one record spanning
+//! it, and the receive pool has granted its permit. Every other body read grows
+//! its buffer only as bytes arrive (see [`framing`]). Every ingress has
+//! malformed-input tests beside its parser.
 
 pub mod streaming;
 
@@ -36,9 +36,9 @@ pub(crate) mod secret;
 /// ingestion, against both greetings.
 ///
 /// Named because version order is partial and the callers branch on the
-/// *negation*: a bound that is incomparable with the declared version is
-/// just as uncontained as one strictly above it, which a bare `!(a <= b)`
-/// reads as easily getting wrong.
+/// *negation*: a bound that is incomparable with the declared version is just
+/// as uncontained as one strictly above it, which a bare `!(a <= b)` reads as
+/// easily getting wrong.
 pub(crate) fn contained(bound: &crate::Version, declared: &crate::Version) -> bool {
     bound <= declared
 }
@@ -58,8 +58,8 @@ impl<C, S> Error<C, S> {
     /// The same fault, seen from the counterparty's frame.
     ///
     /// The drivers run the descent in initiator/responder order regardless of
-    /// which side is the local client; when the role election swaps the
-    /// roles, the error's sides swap back with it.
+    /// which side is the local client; when the role election swaps the roles,
+    /// the error's sides swap back with it.
     pub(crate) fn flip(self) -> Error<S, C> {
         match self {
             Error::Client(client) => Error::Server(client),
@@ -70,14 +70,13 @@ impl<C, S> Error<C, S> {
 
 /// A first-position error lifts into the sum.
 ///
-/// Only the first position can have this impl: its second-position mirror
-/// would overlap with it when `C = S`, and coherence permits one. This
-/// asymmetry shapes how the streaming driver uses the sum — each party runs
-/// its session at the *frame-relative* instantiation with its own error
-/// first, so `?` lifts either party's backend errors through this one impl,
-/// and the party boundary [flips](Error::flip) errors between frames as they
-/// cross (the same flip the drivers apply when the role election swaps the
-/// roles).
+/// Only the first position can have this impl: its second-position mirror would
+/// overlap with it when `C = S`, and coherence permits one. This asymmetry
+/// shapes how the streaming driver uses the sum — each party runs its session
+/// at the *frame-relative* instantiation with its own error first, so `?` lifts
+/// either party's backend errors through this one impl, and the party boundary
+/// [flips](Error::flip) errors between frames as they cross (the same flip the
+/// drivers apply when the role election swaps the roles).
 impl<C, S> From<C> for Error<C, S> {
     fn from(client: C) -> Self {
         Error::Client(client)

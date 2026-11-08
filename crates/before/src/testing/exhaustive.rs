@@ -47,19 +47,18 @@
 //! The deep variant runs the *verdict* pair legs (`is_disjoint`, `covers`,
 //! borrowed operands, no allocation) and `tick` with the brute-force
 //! grow-minimality pin (the pin's irreplaceable value: `grow`'s DP held to the
-//! global optimum over all 65536 deep ids). The *structural* pair legs
-//! (`join`, `without`) run at the small bound only: each builds a result tree
-//! per pair (plus the oracle's boxed clones and the lowering for the
-//! structural compare), which prices at roughly seven eighths of the pair
-//! worker (measured on a stride-sampled quarter of the deep corpus,
-//! aarch64-apple-darwin, 16 cores, release: the difference leg
-//! ~66 and the join leg ~12 of a ~91 ns/pair wall worker), and at the full
-//! corpus the allocate-per-pair legs additionally contend the allocator
-//! across the pool, all to re-check structure the small scope already pins
-//! exhaustively. What deep deliberately does not re-check (`join`/`without`
-//! result *structure* on ids deeper than [`ID_SMALL_DEPTH`]) is covered by
-//! the sampled differentials: the arbitrary-tree strategies reach the same
-//! depth 4 with committed regression seeds, and the op-trace histories
+//! global optimum over all 65536 deep ids). The *structural* pair legs (`join`,
+//! `without`) run at the small bound only: each builds a result tree per pair
+//! (plus the oracle's boxed clones and the lowering for the structural
+//! compare), which prices at roughly seven eighths of the pair worker (measured
+//! on a stride-sampled quarter of the deep corpus, aarch64-apple-darwin, 16
+//! cores, release: the difference leg ~66 and the join leg ~12 of a ~91 ns/pair
+//! wall worker), and at the full corpus the allocate-per-pair legs additionally
+//! contend the allocator across the pool, all to re-check structure the small
+//! scope already pins exhaustively. What deep deliberately does not re-check
+//! (`join`/`without` result *structure* on ids deeper than [`ID_SMALL_DEPTH`])
+//! is covered by the sampled differentials: the arbitrary-tree strategies reach
+//! the same depth 4 with committed regression seeds, and the op-trace histories
 //! compose the public ops far past it.
 
 #[cfg(test)]
@@ -85,9 +84,9 @@ pub(crate) const EV_SMALL_DEPTH: usize = 2;
 /// Inclusive id depth bound for the `#[ignore]`d deep enumeration: 65536 ids.
 ///
 /// The id cross-product is `O(corpus²)` (~4.3 billion pairs); the leg split
-/// above holds this bound to the non-allocating verdict legs plus `tick`,
-/// and the verdict pair product still dominates, hour-scale. The measured
-/// state lives on [`tests::exhaustive_deep`].
+/// above holds this bound to the non-allocating verdict legs plus `tick`, and
+/// the verdict pair product still dominates, hour-scale. The measured state
+/// lives on [`tests::exhaustive_deep`].
 pub(crate) const ID_DEEP_DEPTH: usize = 4;
 
 /// Inclusive event depth bound for the deep enumeration. Stays at 691 events:
@@ -151,8 +150,8 @@ pub(crate) fn all_normal_ids(depth: usize) -> Vec<tree::Party> {
 /// in [`BASES`].
 ///
 /// Built and deduped exactly as [`all_normal_ids`], folding each raw node
-/// through [`tree::Version::node`] (which enforces the zero-base-child rule
-/// and collapses equal leaves).
+/// through [`tree::Version::node`] (which enforces the zero-base-child rule and
+/// collapses equal leaves).
 pub(crate) fn all_normal_events(depth: usize) -> Vec<tree::Version> {
     use std::collections::BTreeSet;
     use tree::Version as V;
@@ -181,9 +180,9 @@ pub(crate) fn all_normal_events(depth: usize) -> Vec<tree::Version> {
     pool
 }
 
-/// Every height vector over `cells` cells with each height in
-/// `0..=max_height`, read as the digits of a counter in base
-/// `max_height + 1` with cell 0 least significant.
+/// Every height vector over `cells` cells with each height in `0..=max_height`,
+/// read as the digits of a counter in base `max_height + 1` with cell 0 least
+/// significant.
 ///
 /// Paired with [`cell_event`], this enumerates every version that is constant
 /// on each cell of a uniform dyadic partition: the two-party tick grid is the

@@ -61,7 +61,8 @@ fn survivors<const N: usize>(roots: &[Root; N]) -> BTreeSet<Vec<u8>> {
         .collect()
 }
 
-/// Both merge directions must produce the independently calculated set and history.
+/// Both merge directions must produce the independently calculated set and
+/// history.
 fn check_survivors(roots: [Root; 2]) -> Result<(), TestCaseError> {
     let expected = survivors(&roots);
     let ceiling = &roots[0].ceiling | &roots[1].ceiling;

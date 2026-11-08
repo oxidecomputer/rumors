@@ -104,18 +104,18 @@ pub enum Decode {
     /// The input ended before the value did: mid-tree, mid-integer, or cut
     /// ahead of the final padding a complete tree still owes.
     ///
-    /// A stream whose live bits end flush against a byte boundary carries
-    /// its padding in a whole final byte, and that byte is required: an
-    /// input cut just before it is truncated, not trailing-malformed.
+    /// A stream whose live bits end flush against a byte boundary carries its
+    /// padding in a whole final byte, and that byte is required: an input cut
+    /// just before it is truncated, not trailing-malformed.
     #[error("unexpected end of input")]
     Truncated,
-    /// The input holds bits or bytes outside the value's minimal packing,
-    /// after the value or inside it.
+    /// The input holds bits or bytes outside the value's minimal packing, after
+    /// the value or inside it.
     ///
-    /// For marker-padded values this includes a cleared marker, nonzero padding,
-    /// and bytes after the padded value. For a [`Rank`](crate::Rank) it also
-    /// includes an all-zero final fraction group. An input that ends before
-    /// required padding arrives is [`Decode::Truncated`] instead.
+    /// For marker-padded values this includes a cleared marker, nonzero
+    /// padding, and bytes after the padded value. For a [`Rank`](crate::Rank)
+    /// it also includes an all-zero final fraction group. An input that ends
+    /// before required padding arrives is [`Decode::Truncated`] instead.
     #[error("malformed or spurious trailing input")]
     TrailingBits,
     /// The input is readable but violates the requested type's canonical-form
@@ -124,8 +124,8 @@ pub enum Decode {
     NotCanonical,
     /// The input is too large for its bit count to fit a `u64`.
     ///
-    /// A decoder returns this, rather than miscount, when a bit count it
-    /// needs would reach 2^64: the input's length, a field's length, or a
+    /// A decoder returns this, rather than miscount, when a bit count it needs
+    /// would reach 2^64: the input's length, a field's length, or a
     /// [`Rank`](crate::Rank)'s fraction depth. Only an input of 2^61 bytes or
     /// more has that many bits, so in practice this is unreachable: no machine
     /// can hold an input that large in memory.

@@ -39,9 +39,9 @@ pub(crate) struct ErasedPrefix {
 impl ErasedPrefix {
     /// Re-tag this prefix at height `H`.
     ///
-    /// `H` must match [`Self::height`]. A mismatch
-    /// indicates an internal dispatch error: wire decoding obtains prefix
-    /// lengths from the typed context before erasing them.
+    /// `H` must match [`Self::height`]. A mismatch indicates an internal
+    /// dispatch error: wire decoding obtains prefix lengths from the typed
+    /// context before erasing them.
     ///
     /// # Panics
     ///

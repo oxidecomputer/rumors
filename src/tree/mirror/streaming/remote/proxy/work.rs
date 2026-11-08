@@ -1,11 +1,10 @@
 //! Background work accumulated by the remote protocol states.
 //!
-//! [`Work`] owns the translation tasks created as the typestate advances,
-//! and the session's pipe. [`stages`] wires each transition, [`encode`]
-//! writes local replies, and [`queues`] owns the internal channel
-//! capacities. The terminal operation drives these tasks together with the
-//! pipe's multiplexer and demultiplexer, as members of one task set
-//! ([`drive`]).
+//! [`Work`] owns the translation tasks created as the typestate advances, and
+//! the session's pipe. [`stages`] wires each transition, [`encode`] writes
+//! local replies, and [`queues`] owns the internal channel capacities. The
+//! terminal operation drives these tasks together with the pipe's multiplexer
+//! and demultiplexer, as members of one task set ([`drive`]).
 
 use crate::tree::mirror::streaming::ledger::Charge;
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
@@ -57,20 +56,19 @@ where
     backend: B,
     /// What every supplied leaf's version must satisfy.
     bounds: SupplyBounds,
-    /// The leaves the peer can still supply, counted against the set length
-    /// its greeting declared.
+    /// The leaves the peer can still supply, counted against the set length its
+    /// greeting declared.
     ledger: SupplyLedger,
-    /// The peer's declared grandchild count of its root, which bounds its
-    /// reply to the local opening question when it responds.
+    /// The peer's declared grandchild count of its root, which bounds its reply
+    /// to the local opening question when it responds.
     root_grandchildren: Grandchildren,
     /// The codec used to decode supplied messages.
     codec: PayloadCodec,
-    /// The network's keys, whose path key places supplied leaves; `None`
-    /// admits no supply.
+    /// The network's keys, whose path key places supplied leaves; `None` admits
+    /// no supply.
     ///
-    /// Shared, because the keyed hash states are a few hundred bytes and
-    /// this handle moves through every greeting state into the session's
-    /// future.
+    /// Shared, because the keyed hash states are a few hundred bytes and this
+    /// handle moves through every greeting state into the session's future.
     keys: Option<Arc<NetworkKeys>>,
 }
 
@@ -109,12 +107,12 @@ where
     /// Byte budget for each outgoing supply run, also enforced on every
     /// incoming one.
     budget: RunBudget,
-    /// The session's wire pools: each run's bytes, in either direction,
-    /// from before they exist until they are gone.
+    /// The session's wire pools: each run's bytes, in either direction, from
+    /// before they exist until they are gone.
     pools: WirePools,
     /// The remote greeting's root-fan listing, which
-    /// [`initiator`](Self::initiator) replays as the remote's opening
-    /// question when the remote initiates.
+    /// [`initiator`](Self::initiator) replays as the remote's opening question
+    /// when the remote initiates.
     remote_listing: Vec<Listed>,
     /// The pipe and the tasks that connect logical streams to it.
     physical: Physical<R, W>,
@@ -122,8 +120,8 @@ where
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     /// The session's stats recorder: the pipe's frame counts.
     stats: Recorder,
-    /// The session's observation handle, through which the pipe delivers
-    /// each frame to its logical stream's observer.
+    /// The session's observation handle, through which the pipe delivers each
+    /// frame to its logical stream's observer.
     observe: SessionHandle,
     /// Records reply and scope publication order in tests.
     progress: Progress,
@@ -131,11 +129,11 @@ where
 
 /// The pipe's two halves and the logical streams bound to them.
 pub struct Physical<R, W> {
-    /// The pipe's read half, read by the demultiplexer during
-    /// reconciliation and returned for the closing exchange.
+    /// The pipe's read half, read by the demultiplexer during reconciliation
+    /// and returned for the closing exchange.
     pub read: R,
-    /// The pipe's write half, written by the multiplexer during
-    /// reconciliation and returned for the closing exchange.
+    /// The pipe's write half, written by the multiplexer during reconciliation
+    /// and returned for the closing exchange.
     pub write: W,
     /// The remote elected speaker, whose logical streams arrive here.
     pub remote: Speaker,
@@ -204,19 +202,19 @@ where
             .lane(stream_at::<H>(local), H::HEIGHT)
     }
 
-    /// Decode the remote replies at height `H`, park them, and expose them
-    /// to the stage that takes them.
+    /// Decode the remote replies at height `H`, park them, and expose them to
+    /// the stage that takes them.
     ///
     /// Each reply is decoded against the record of the local question it
-    /// answers, taken from `questions` in order, by an independent task
-    /// that parks each chunk of it as its reactions decode
+    /// answers, taken from `questions` in order, by an independent task that
+    /// parks each chunk of it as its reactions decode
     /// ([`Ingress::decode_and_park`]), so decoding never waits on the walk.
     /// When the stage takes a parked chunk, the returned stream derives the
     /// scopes the chunk's questions create, at the level of height `H`, and
     /// publishes them through `publish`, then hands the chunk over. The
-    /// responder's terminal replies ask nothing and publish nothing. The
-    /// typed height alone chooses the [`ReplyLevel`], in decoding and as
-    /// the stage takes each chunk, so the two cannot disagree on it.
+    /// responder's terminal replies ask nothing and publish nothing. The typed
+    /// height alone chooses the [`ReplyLevel`], in decoding and as the stage
+    /// takes each chunk, so the two cannot disagree on it.
     fn respond<H>(
         &mut self,
         questions: Receiver<Outstanding>,
@@ -291,20 +289,20 @@ where
     }
 
     /// Drive the protocol and the pipe together, as members of one task set
-    /// ([`drive`]), whose module docs give the rules that turn their
-    /// failures into the session's outcome.
+    /// ([`drive`]), whose module docs give the rules that turn their failures
+    /// into the session's outcome.
     ///
     /// The demultiplexer reports only failures; it runs until the protocol
-    /// completes and is then dropped between frames, leaving every byte it
-    /// has not consumed in the read half's buffer for the closing exchange.
-    /// Every failure it reports fails the session, the peer's departure
-    /// included. A frame the demultiplexer had begun but not delivered is a
-    /// frame no question invited, so it fails the session too.
+    /// completes and is then dropped between frames, leaving every byte it has
+    /// not consumed in the read half's buffer for the closing exchange. Every
+    /// failure it reports fails the session, the peer's departure included. A
+    /// frame the demultiplexer had begun but not delivered is a frame no
+    /// question invited, so it fails the session too.
     ///
-    /// This boxes `finish` and takes the work apart before building the
-    /// future it returns, which therefore holds each part once: an `async
-    /// fn` would keep its arguments, the terminal future among them, for
-    /// its whole run.
+    /// This boxes `finish` and takes the work apart before building the future
+    /// it returns, which therefore holds each part once: an `async
+    /// fn` would keep its arguments, the terminal future among them, for its
+    /// whole run.
     fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -358,26 +356,26 @@ fn stream_at<H: Height>(speaker: Speaker) -> LogicalStream {
         .expect("the typestate binds each speaker only at heights on its parity")
 }
 
-/// A question this side asked, from its encoder's publication until the
-/// decoder has decoded its reply.
+/// A question this side asked, from its encoder's publication until the decoder
+/// has decoded its reply.
 ///
-/// The question's chunk carried its record's charge and its reply's room to
-/// the encoder ([`Carried::Question`]), which publishes them here with the
-/// record once the question's frame is in the multiplexer's channel.
+/// The question's chunk carried its record's charge and its reply's room to the
+/// encoder ([`Carried::Question`]), which publishes them here with the record
+/// once the question's frame is in the multiplexer's channel.
 ///
 /// [`Carried::Question`]: crate::tree::mirror::streaming::message::Carried::Question
 pub(crate) struct Outstanding {
     /// The record the question's reply is validated against.
     pub(crate) scope: Scope,
-    /// The charge for the record, which returns once the stage has taken
-    /// the reply's last chunk, and for the records derived from the reply's
+    /// The charge for the record, which returns once the stage has taken the
+    /// reply's last chunk, and for the records derived from the reply's
     /// questions, each of which takes its part.
     pub(crate) record: Charge,
     /// The room the reply's chunks take while they park.
     ///
-    /// The decoder charges each chunk its part out of it, and returns the
-    /// room beyond what the reply can still deliver as each frame narrows
-    /// that, so none of it outlives the reply.
+    /// The decoder charges each chunk its part out of it, and returns the room
+    /// beyond what the reply can still deliver as each frame narrows that, so
+    /// none of it outlives the reply.
     pub(crate) room: Charge,
 }
 
@@ -387,36 +385,31 @@ pub(crate) struct Parked<E> {
     chunk: erased::Reply<E>,
     /// On a reply's first chunk, the record of the local question the reply
     /// answers, from which the proxy derives the scopes the reply's own
-    /// questions create as the stage takes the reply, and the record's
-    /// charge.
+    /// questions create as the stage takes the reply, and the record's charge.
     opens: Option<(Arc<Scope>, Charge)>,
 }
 
-/// The reply the stage is part way through taking: the record it answers,
-/// how far its taken chunks replayed against the record, and the record's
-/// charge.
+/// The reply the stage is part way through taking: the record it answers, how
+/// far its taken chunks replayed against the record, and the record's charge.
 struct Taking {
     /// The record of the question the reply answers.
     answered: Arc<Scope>,
     /// How far the reply's taken chunks replayed against the record.
     replay: Replay,
     /// The charge for the record and for the records the reply's questions
-    /// derive: each derived record takes its part as the proxy derives it,
-    /// and the rest returns once the stage has taken the reply's last
-    /// chunk.
+    /// derive: each derived record takes its part as the proxy derives it, and
+    /// the rest returns once the stage has taken the reply's last chunk.
     record: Charge,
 }
 
 /// A record derived from a question in the peer's reply, on its way to the
 /// encoder that answers it, with its charge.
 ///
-/// The charge is the record's part of the records part of the reservation
-/// of the question whose reply asked it
-/// ([`derived_bytes`]).
-/// It returns once the encoder drops the record, having handed the last
-/// frame of its answer to the multiplexer, so a record waiting in the
-/// queue to the encoder is charged whatever the walk that derived it has
-/// finished.
+/// The charge is the record's part of the records part of the reservation of
+/// the question whose reply asked it ([`derived_bytes`]). It returns once the
+/// encoder drops the record, having handed the last frame of its answer to the
+/// multiplexer, so a record waiting in the queue to the encoder is charged
+/// whatever the walk that derived it has finished.
 pub(crate) struct Derived {
     /// The record of the peer's question.
     pub(crate) scope: Scope,

@@ -20,13 +20,13 @@ use crate::{Count, Party};
 use crate::version::io::regions::{RegionReader, VersionRegionReader};
 use crate::Version;
 
-/// A shape walk over one Version stream: [`VersionRegionReader`] plus the pending
-/// rise entering its current leaf.
+/// A shape walk over one Version stream: [`VersionRegionReader`] plus the
+/// pending rise entering its current leaf.
 pub struct VersionWalk<'a> {
     cursor: VersionRegionReader<'a>,
-    /// The rise entering the current plateau, until consumed; the
-    /// stream's first payload is an absolute height, which is exactly
-    /// the first rise (the walk enters at height 0).
+    /// The rise entering the current plateau, until consumed; the stream's
+    /// first payload is an absolute height, which is exactly the first rise
+    /// (the walk enters at height 0).
     pending: Option<Rise>,
 }
 
@@ -56,9 +56,9 @@ impl<'a> VersionWalk<'a> {
 
     /// The rise entering the current plateau, consumed.
     ///
-    /// The first take after a plateau entry yields it, every later take
-    /// yields `None`, which is what makes a refinement cell carry an
-    /// input's rise only on its plateau's first fragment.
+    /// The first take after a plateau entry yields it, every later take yields
+    /// `None`, which is what makes a refinement cell carry an input's rise only
+    /// on its plateau's first fragment.
     pub fn take_rise(&mut self) -> Option<Rise> {
         self.pending.take()
     }
@@ -88,22 +88,22 @@ impl<'a> PartyWalk<'a> {
 /// Operations required to refine several shape walks together.
 ///
 /// The `&mut` blanket impl lets a heterogeneous pair enter
-/// [`advance_refinement`] as a slice of `&mut dyn Refine`, so the law
-/// has one implementation for the homogeneous combiner and the
-/// version × party overlay alike.
+/// [`advance_refinement`] as a slice of `&mut dyn Refine`, so the law has one
+/// implementation for the homogeneous combiner and the version × party overlay
+/// alike.
 pub trait Refine {
     /// The current plateau's depth: its interval has width `2^-depth`.
     fn depth(&self) -> u64;
 
-    /// Whether the current plateau is the walk's last (its interval ends
-    /// at the unit interval's right edge).
+    /// Whether the current plateau is the walk's last (its interval ends at the
+    /// unit interval's right edge).
     fn done(&self) -> bool;
 
-    /// Advance past the current plateau, arming any pending rise;
-    /// returns the flip level for the law's tie test.
+    /// Advance past the current plateau, arming any pending rise; returns the
+    /// flip level for the law's tie test.
     ///
-    /// Never called on a final plateau ([`advance_refinement`]'s guards
-    /// hold it off; the cursor underneath panics if violated).
+    /// Never called on a final plateau ([`advance_refinement`]'s guards hold it
+    /// off; the cursor underneath panics if violated).
     fn advance(&mut self) -> u64;
 }
 
@@ -158,11 +158,11 @@ impl<T: Refine + ?Sized> Refine for &mut T {
 /// After it advances, every other region ending at the same boundary advances
 /// in the same round. Returns `true` when all walks are on their final region.
 ///
-/// An exhausted walk's plateau runs to the unit interval's right edge,
-/// so it is never the deepest side and never reaches a flip level (both
-/// would put its end strictly inside the interval); it simply spans
-/// every remaining cell. The empty slice reports done immediately: with
-/// no boundaries to cross, the single all-interval cell is final.
+/// An exhausted walk's plateau runs to the unit interval's right edge, so it is
+/// never the deepest side and never reaches a flip level (both would put its
+/// end strictly inside the interval); it simply spans every remaining cell. The
+/// empty slice reports done immediately: with no boundaries to cross, the
+/// single all-interval cell is final.
 pub fn advance_refinement<W: Refine>(walks: &mut [W]) -> bool {
     let mut deepest: Option<(usize, u64)> = None;
     for (slot, walk) in walks.iter().enumerate() {

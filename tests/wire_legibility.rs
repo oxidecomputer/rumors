@@ -1,9 +1,10 @@
 //! Check that each direction of a session's connection is a CBOR sequence.
 //!
 //! A generic parser walks both directions' captured bytes, control items and
-//! frames alike, using only `ciborium::Value`. It follows containers and tags, decoding tag 63's
-//! byte string as an embedded sequence and tag 24's as exactly one embedded
-//! item. Every byte at each level must belong to a complete CBOR item.
+//! frames alike, using only `ciborium::Value`. It follows containers and tags,
+//! decoding tag 63's byte string as an embedded sequence and tag 24's as
+//! exactly one embedded item. Every byte at each level must belong to a
+//! complete CBOR item.
 //!
 //! Generated gossip, bootstrap, and retirement sessions supply the captures.
 //! This complements wire snapshots: even an accepted snapshot change must still

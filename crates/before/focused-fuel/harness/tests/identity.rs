@@ -1,5 +1,5 @@
-//! The identity fast paths: operands that are clones of one another,
-//! byte-equal in distinct buffers, or empty.
+//! The identity fast paths: operands that are clones of one another, byte-equal
+//! in distinct buffers, or empty.
 //!
 //! The at-rest form's shared buffer makes clone identity observable, and the
 //! identity-law fast paths dispatch on it, each citing its law in
@@ -16,11 +16,10 @@ const DEPTHS: [u64; 3] = [1_000, 4_000, 16_000];
 
 /// Clone operands answer every identity-law fast path without a walk.
 ///
-/// The fast paths are comparison (`order_reflexive`), join and meet
-/// idempotence (`merge_idempotent`, `meet_idempotent`), the coincident hull
+/// The fast paths are comparison (`order_reflexive`), join and meet idempotence
+/// (`merge_idempotent`, `meet_idempotent`), the coincident hull
 /// (`span_with_self_is_coincident`), the n-ary folds' collapse of adjacent
-/// clones, and the metrics (`distance_to_self_is_zero`,
-/// `lag_to_self_is_zero`).
+/// clones, and the metrics (`distance_to_self_is_zero`, `lag_to_self_is_zero`).
 ///
 /// Form: equal fuel (F-eq) over the operands' depth, for each operation.
 #[test]
@@ -40,12 +39,12 @@ fn clone_operands_answer_without_a_walk() {
     }
 }
 
-/// Comparing byte-equal operands in distinct buffers takes the full sweep:
-/// the clone fast path must not fire across buffers.
+/// Comparing byte-equal operands in distinct buffers takes the full sweep: the
+/// clone fast path must not fire across buffers.
 ///
-/// Form: strict saving (F-lt) of the clone comparison under the byte-equal
-/// one at every depth, and of each depth's byte-equal comparison under the
-/// next, so the sweep's cost grows with the operands.
+/// Form: strict saving (F-lt) of the clone comparison under the byte-equal one
+/// at every depth, and of each depth's byte-equal comparison under the next, so
+/// the sweep's cost grows with the operands.
 #[test]
 fn distinct_buffers_take_the_comparison_sweep() {
     let mut previous = None;
@@ -68,14 +67,14 @@ fn distinct_buffers_take_the_comparison_sweep() {
     }
 }
 
-/// Byte-equal operands in distinct buffers answer join, meet, span,
-/// distance, and lag by comparing their bytes, not by walking their streams
-/// or folding through the accumulator.
+/// Byte-equal operands in distinct buffers answer join, meet, span, distance,
+/// and lag by comparing their bytes, not by walking their streams or folding
+/// through the accumulator.
 ///
 /// The comparison of the same operands must take the full sweep (the test
-/// above), and each of these operations, without its byte-equality rung,
-/// would take at least that sweep. Form: strict saving (F-lt) of each
-/// operation under the comparison of the same operands, at every depth.
+/// above), and each of these operations, without its byte-equality rung, would
+/// take at least that sweep. Form: strict saving (F-lt) of each operation under
+/// the comparison of the same operands, at every depth.
 #[test]
 fn byte_equal_operands_answer_by_the_byte_compare() {
     for depth in DEPTHS {
@@ -96,16 +95,16 @@ fn byte_equal_operands_answer_by_the_byte_compare() {
     }
 }
 
-/// An empty operand answers every lattice identity and absorption rung
-/// without a walk, in both orders, at every entry point.
+/// An empty operand answers every lattice identity and absorption rung without
+/// a walk, in both orders, at every entry point.
 ///
 /// The entry points are the operators, the `|=` and `&=` assignments
 /// (`acc |= v` on an empty `acc` is the first join every fold accumulator
 /// makes), `span`, and two-element folds.
 ///
-/// Without these rungs the general walks produce identical values, so no
-/// value law can tell whether they exist; only their cost can. Form: equal
-/// fuel (F-eq) over the nonempty operand's depth, for each entry point.
+/// Without these rungs the general walks produce identical values, so no value
+/// law can tell whether they exist; only their cost can. Form: equal fuel
+/// (F-eq) over the nonempty operand's depth, for each entry point.
 #[test]
 fn empty_operands_answer_without_a_walk() {
     for probe in [

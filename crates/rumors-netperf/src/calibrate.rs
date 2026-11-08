@@ -1,90 +1,87 @@
-//! Self-calibrated parallelism: the largest number of sessions this host
-//! can run at once without changing what they measure.
+//! Self-calibrated parallelism: the largest number of sessions this host can
+//! run at once without changing what they measure.
 //!
-//! Running sessions side by side shortens a run, but each session then
-//! shares processors, memory bandwidth, and the kernel's network stack
-//! with the others, which can slow its computation (noise) or distort the
-//! emulated link (fidelity). Calibration measures both effects directly
-//! and picks the largest job count at which neither is distinguishable
-//! from the variation of sessions run alone.
+//! Running sessions side by side shortens a run, but each session then shares
+//! processors, memory bandwidth, and the kernel's network stack with the
+//! others, which can slow its computation (noise) or distort the emulated link
+//! (fidelity). Calibration measures both effects directly and picks the largest
+//! job count at which neither is distinguishable from the variation of sessions
+//! run alone.
 //!
 //! # The probes
 //!
-//! - **Noise:** the run's heaviest replica pair, with that point's
-//!   settings and transport, on an uncapped link at the run's shortest
-//!   round trip, where the session is bound by computation, so any
-//!   slowdown from sharing the host shows in its wall time.
-//! - **Fidelity:** a raw TCP bulk transfer and ping-pong
-//!   ([`crate::probe`]) on the run's fastest shaped link, which stresses
-//!   the kernel's shaping hardest. It judges the emulator alone,
-//!   independently of the library and of this tool's fixtures. It runs
-//!   without TLS whatever the sessions' transport: TLS adds computation and
-//!   per-record bytes to a session, not to the link, and the noise probe
-//!   and the sessions themselves measure that cost.
+//! - **Noise:** the run's heaviest replica pair, with that point's settings and
+//!   transport, on an uncapped link at the run's shortest round trip, where the
+//!   session is bound by computation, so any slowdown from sharing the host
+//!   shows in its wall time.
+//! - **Fidelity:** a raw TCP bulk transfer and ping-pong ([`crate::probe`]) on
+//!   the run's fastest shaped link, which stresses the kernel's shaping
+//!   hardest. It judges the emulator alone, independently of the library and of
+//!   this tool's fixtures. It runs without TLS whatever the sessions'
+//!   transport: TLS adds computation and per-record bytes to a session, not to
+//!   the link, and the noise probe and the sessions themselves measure that
+//!   cost.
 //!
 //! # The criterion
 //!
 //! First each probe runs [`SOLO_RUNS`] times alone, which measures its own
-//! *spread*: the range of those readings once the most extreme reading at
-//! each end is set aside. Then, at 2, 4, 8, … jobs, as many copies of each
-//! probe run at once, all starting their measured part together, in as
-//! many rounds as give the level at least [`LEVEL_READINGS`] readings. A
-//! level *passes* when, for the noise probe's wall time and for the
-//! fidelity probe's goodput and round trip alike, the median of the level's
-//! readings lies within one spread of the solo median. That is: concurrency
-//! may move a reading by no more than the host already varies it, a
-//! criterion relative to measured noise rather than a fixed percentage.
-//! The ladder stops at the first level that fails, and the run uses the
-//! last level that passed.
+//! *spread*: the range of those readings once the most extreme reading at each
+//! end is set aside. Then, at 2, 4, 8, … jobs, as many copies of each probe run
+//! at once, all starting their measured part together, in as many rounds as
+//! give the level at least [`LEVEL_READINGS`] readings. A level *passes* when,
+//! for the noise probe's wall time and for the fidelity probe's goodput and
+//! round trip alike, the median of the level's readings lies within one spread
+//! of the solo median. That is: concurrency may move a reading by no more than
+//! the host already varies it, a criterion relative to measured noise rather
+//! than a fixed percentage. The ladder stops at the first level that fails, and
+//! the run uses the last level that passed.
 //!
-//! The sample counts keep any one reading from deciding the verdict. A host
-//! now and then gives a reading far from the rest, alone as at any job
-//! count: a slow session, or a transfer whose goodput dips. Such a solo
-//! reading lands at an end of the solo readings, where the spread sets it
-//! aside, so it cannot widen the band. A median of three or more readings,
-//! with every other reading inside the band, stays inside it however far
-//! the one reading strays, and a level's median leaves the band only when
-//! at least half its readings do. The constants' docs give the reason for
-//! each count.
+//! The sample counts keep any one reading from deciding the verdict. A host now
+//! and then gives a reading far from the rest, alone as at any job count: a
+//! slow session, or a transfer whose goodput dips. Such a solo reading lands at
+//! an end of the solo readings, where the spread sets it aside, so it cannot
+//! widen the band. A median of three or more readings, with every other reading
+//! inside the band, stays inside it however far the one reading strays, and a
+//! level's median leaves the band only when at least half its readings do. The
+//! constants' docs give the reason for each count.
 //!
-//! When a level fails on fidelity while at least one job's worth of
-//! processors sat idle, the shaping, not the processors, is the limit: the
-//! kernel serializes it. Then more jobs on this host cannot help, and
-//! `--shard` spreads the run across hosts instead.
+//! When a level fails on fidelity while at least one job's worth of processors
+//! sat idle, the shaping, not the processors, is the limit: the kernel
+//! serializes it. Then more jobs on this host cannot help, and `--shard`
+//! spreads the run across hosts instead.
 //!
 //! The job count governs only timed sessions, which is all the criterion
 //! judges: the run never times a session while it prepares others
-//! ([`crate::schedule`]), just as each level here prepares its copies
-//! first and then starts them together.
+//! ([`crate::schedule`]), just as each level here prepares its copies first and
+//! then starts them together.
 //!
 //! # Preparation
 //!
-//! Preparation measures nothing, so how many preparations run at once is
-//! a question of throughput, not fidelity, and calibration answers it from
-//! three measurements ([`PreparationProbe`]):
+//! Preparation measures nothing, so how many preparations run at once is a
+//! question of throughput, not fidelity, and calibration answers it from three
+//! measurements ([`PreparationProbe`]):
 //!
-//! - **Cores per preparation.** The solo noise preparations' processes
-//!   report their CPU time, and both sides together spend some number of
-//!   processors' worth of it per second of building and joining: side A
-//!   alone computes while it builds, and both while B joins. The run
-//!   prepares as many sessions at once as fill the host's processors at
-//!   that rate.
-//! - **Memory.** An empty pair's preparation and the noise pair's each
-//!   report their processes' peak resident bytes, and the line through the
-//!   two ([`MemoryModel::fit`]) predicts every session's, which bounds what
-//!   the run's prepared sessions hold.
-//! - **Rates at that count.** As many noise preparations as the run will
-//!   run at once, within the memory bound, run together, and their build
-//!   and join times give the cost model's preparation rates, so the
-//!   predicted wall time accounts for preparations sharing the host. The
-//!   empty pair's preparation gives the overhead every preparation pays.
+//! - **Cores per preparation.** The solo noise preparations' processes report
+//!   their CPU time, and both sides together spend some number of processors'
+//!   worth of it per second of building and joining: side A alone computes
+//!   while it builds, and both while B joins. The run prepares as many sessions
+//!   at once as fill the host's processors at that rate.
+//! - **Memory.** An empty pair's preparation and the noise pair's each report
+//!   their processes' peak resident bytes, and the line through the two
+//!   ([`MemoryModel::fit`]) predicts every session's, which bounds what the
+//!   run's prepared sessions hold.
+//! - **Rates at that count.** As many noise preparations as the run will run at
+//!   once, within the memory bound, run together, and their build and join
+//!   times give the cost model's preparation rates, so the predicted wall time
+//!   accounts for preparations sharing the host. The empty pair's preparation
+//!   gives the overhead every preparation pays.
 //!
 //! # The cache
 //!
 //! A calibration is kept per environment fingerprint and probe pair in the
-//! user's cache directory, so later runs of the same build on the same
-//! host and grid shape reuse it. `--recalibrate` discards it, and
-//! `--jobs N` skips calibration altogether.
+//! user's cache directory, so later runs of the same build on the same host and
+//! grid shape reuse it. `--recalibrate` discards it, and `--jobs N` skips
+//! calibration altogether.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -106,25 +103,25 @@ use crate::probe::ProbeResult;
 use crate::stats::summarize;
 use crate::units::{LinkRate, Rate, Rtt};
 
-/// Readings of each probe taken alone, whose spread sets the band, as
-/// [the module docs](self#the-criterion) explain.
+/// Readings of each probe taken alone, whose spread sets the band, as [the
+/// module docs](self#the-criterion) explain.
 ///
 /// With eleven readings, the spread (the second largest less the second
-/// smallest) averages about 2.1 standard deviations of a normally
-/// distributed reading: twice the expected second largest of eleven
-/// standard normal draws, 1.06. So a level with no effect seldom fails on
-/// its sampling alone, and a level that moves readings by more than about
-/// two of the host's own standard deviations fails. Each solo noise
-/// reading costs one preparation and session of the run's heaviest pair.
+/// smallest) averages about 2.1 standard deviations of a normally distributed
+/// reading: twice the expected second largest of eleven standard normal draws,
+/// 1.06. So a level with no effect seldom fails on its sampling alone, and a
+/// level that moves readings by more than about two of the host's own standard
+/// deviations fails. Each solo noise reading costs one preparation and session
+/// of the run's heaviest pair.
 pub const SOLO_RUNS: usize = 11;
 
-/// The fewest readings of each probe a concurrent level takes: it runs
-/// rounds of its job count until it has at least this many.
+/// The fewest readings of each probe a concurrent level takes: it runs rounds
+/// of its job count until it has at least this many.
 ///
-/// A level's median leaves the band only when at least half its readings
-/// do, so with eight a verdict that a level fails rests on four or more
-/// readings, never on one slow session or one dipped transfer. A level of
-/// at least that many jobs takes one round.
+/// A level's median leaves the band only when at least half its readings do, so
+/// with eight a verdict that a level fails rests on four or more readings,
+/// never on one slow session or one dipped transfer. A level of at least that
+/// many jobs takes one round.
 pub const LEVEL_READINGS: usize = 8;
 
 // A median of at least three readings stays within the range of all but
@@ -156,11 +153,10 @@ pub struct Level {
     pub goodput: Vec<f64>,
     /// The fidelity probe's round trips, in seconds.
     pub rtt: Vec<f64>,
-    /// The host's busy share of processor time during the fidelity probes:
-    /// the largest of its rounds'.
+    /// The host's busy share of processor time during the fidelity probes: the
+    /// largest of its rounds'.
     pub busy_share: f64,
-    /// Whether concurrency stayed within the solo spread for the noise
-    /// probe.
+    /// Whether concurrency stayed within the solo spread for the noise probe.
     pub noise_passed: bool,
     /// Whether it did for the fidelity probe.
     pub fidelity_passed: bool,
@@ -174,18 +170,18 @@ pub struct PreparationProbe {
     pub empty_seconds: Vec<f64>,
     /// The most resident bytes an empty pair's two processes reached.
     pub empty_bytes: u64,
-    /// The most resident bytes the noise pair's two processes reached in
-    /// a preparation alone.
+    /// The most resident bytes the noise pair's two processes reached in a
+    /// preparation alone.
     pub noise_bytes: u64,
     /// The processors' worth of CPU time both processes of a solo noise
-    /// preparation spent per second of building and joining: the median
-    /// over the solo preparations.
+    /// preparation spent per second of building and joining: the median over
+    /// the solo preparations.
     pub cores_per_preparation: f64,
-    /// Preparations the run runs at once: the host's processors divided by
-    /// the cores each preparation keeps busy, at least one.
+    /// Preparations the run runs at once: the host's processors divided by the
+    /// cores each preparation keeps busy, at least one.
     pub prepare_jobs: usize,
-    /// Noise preparations run together to measure the rates: the
-    /// preparation count, or fewer if the memory bound holds fewer.
+    /// Noise preparations run together to measure the rates: the preparation
+    /// count, or fewer if the memory bound holds fewer.
     pub copies: usize,
     /// Each copy's build seconds.
     pub build_seconds: Vec<f64>,
@@ -212,16 +208,16 @@ pub struct Calibration {
     pub max_jobs: usize,
     /// Why the ladder stopped, in words.
     pub verdict: String,
-    /// What calibration measured of preparation; empty in a calibration
-    /// from a tool that prepared each session just before timing it.
+    /// What calibration measured of preparation; empty in a calibration from a
+    /// tool that prepared each session just before timing it.
     #[serde(default)]
     pub preparation: PreparationProbe,
-    /// Per-message rates: preparation's from the copies prepared together
-    /// and the empty pair, the session's from the solo noise sessions.
+    /// Per-message rates: preparation's from the copies prepared together and
+    /// the empty pair, the session's from the solo noise sessions.
     pub costs: CostModel,
-    /// The memory model fitted to the empty and noise preparations; the
-    /// default in a calibration from a tool that prepared each session
-    /// just before timing it.
+    /// The memory model fitted to the empty and noise preparations; the default
+    /// in a calibration from a tool that prepared each session just before
+    /// timing it.
     #[serde(default)]
     pub memory: MemoryModel,
 }
@@ -230,9 +226,9 @@ impl Calibration {
     /// The slowest session the calibration saw at the chosen job count or
     /// alone: the bound the run's sentinels are held to.
     ///
-    /// Calibration accepted every one of those sessions as undisturbed, so
-    /// a sentinel median above all of them means the host now runs slower
-    /// than anything calibration accepted.
+    /// Calibration accepted every one of those sessions as undisturbed, so a
+    /// sentinel median above all of them means the host now runs slower than
+    /// anything calibration accepted.
     pub fn sentinel_bound(&self) -> f64 {
         self.solo
             .session_seconds
@@ -249,8 +245,8 @@ impl Calibration {
 }
 
 /// The two probe points for a run of `sessions`: the heaviest pair on an
-/// uncapped link at the shortest round trip, and the fastest shaped link
-/// at its shortest round trip.
+/// uncapped link at the shortest round trip, and the fastest shaped link at its
+/// shortest round trip.
 pub fn probe_points(sessions: &[Session]) -> Result<(Point, Point)> {
     let emulated: Vec<(&Point, LinkRate, Rtt)> = sessions
         .iter()
@@ -343,8 +339,8 @@ pub struct Setup<'a> {
     pub max_jobs: usize,
     /// The host's logical processors, which preparations fill.
     pub logical_cpus: usize,
-    /// The most predicted bytes the run's prepared sessions may hold,
-    /// which bounds the noise copies prepared together.
+    /// The most predicted bytes the run's prepared sessions may hold, which
+    /// bounds the noise copies prepared together.
     pub memory_bytes: u64,
 }
 
@@ -360,8 +356,8 @@ fn bulk_bytes(point: &Point) -> u64 {
     }
 }
 
-/// Runs `jobs` noise sessions at once, all gossiping together, and
-/// returns each one's measurements.
+/// Runs `jobs` noise sessions at once, all gossiping together, and returns each
+/// one's measurements.
 fn noise_level(setup: &Setup, point: &Point, jobs: usize) -> Result<Vec<Measured>> {
     let window = emulate::window(point, setup.window, setup.payload_share);
     let ready: Vec<emulate::Ready> = thread::scope(|scope| {
@@ -387,8 +383,8 @@ fn noise_level(setup: &Setup, point: &Point, jobs: usize) -> Result<Vec<Measured
     })
 }
 
-/// Runs `jobs` fidelity probes at once and returns each one's result, with
-/// the host's busy share while they ran.
+/// Runs `jobs` fidelity probes at once and returns each one's result, with the
+/// host's busy share while they ran.
 fn fidelity_level(setup: &Setup, point: &Point, jobs: usize) -> Result<(Vec<ProbeResult>, f64)> {
     let window = emulate::window(point, setup.window, setup.payload_share);
     let bulk = bulk_bytes(point);
@@ -446,9 +442,9 @@ fn prepared_bytes(prepared: &Prepared) -> Option<u64> {
     prepared.usage.map(|[a, b]| a.rss_peak + b.rss_peak)
 }
 
-/// Measures preparation as [the module docs](self#preparation) describe,
-/// from the solo noise sessions' preparations and new preparations of an
-/// empty pair and of copies of `noise_point`.
+/// Measures preparation as [the module docs](self#preparation) describe, from
+/// the solo noise sessions' preparations and new preparations of an empty pair
+/// and of copies of `noise_point`.
 fn probe_preparation(
     setup: &Setup,
     noise_point: &Point,
@@ -524,15 +520,14 @@ fn session_seconds(measured: &[Measured]) -> Result<Vec<f64>> {
 struct Band {
     /// The solo median.
     median: f64,
-    /// The solo readings' range once the most extreme at each end is set
-    /// aside: the second largest less the second smallest. With fewer than
-    /// three readings nothing can be set aside, and it is the full range.
+    /// The solo readings' range once the most extreme at each end is set aside:
+    /// the second largest less the second smallest. With fewer than three
+    /// readings nothing can be set aside, and it is the full range.
     spread: f64,
 }
 
 impl Band {
-    /// The band of `solo` readings; readings that are not finite are left
-    /// out.
+    /// The band of `solo` readings; readings that are not finite are left out.
     fn of(solo: &[f64]) -> Self {
         let mut sorted: Vec<f64> = solo.iter().copied().filter(|x| x.is_finite()).collect();
         sorted.sort_by(f64::total_cmp);
@@ -547,15 +542,15 @@ impl Band {
         }
     }
 
-    /// Whether the median of `concurrent` readings lies within one spread
-    /// of the solo median.
+    /// Whether the median of `concurrent` readings lies within one spread of
+    /// the solo median.
     fn admits(&self, concurrent: &[f64]) -> bool {
         (median(concurrent) - self.median).abs() <= self.spread
     }
 }
 
-/// Rounds a level of `jobs` runs: the fewest whose readings, `jobs` a
-/// round, number at least [`LEVEL_READINGS`].
+/// Rounds a level of `jobs` runs: the fewest whose readings, `jobs` a round,
+/// number at least [`LEVEL_READINGS`].
 fn rounds(jobs: usize) -> usize {
     LEVEL_READINGS.div_ceil(jobs.max(1))
 }

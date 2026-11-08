@@ -2,8 +2,8 @@
 //!
 //! Most Version algorithms need decoded heights. A structural rewrite instead
 //! needs exact payload and subtree ranges so unchanged storage can be copied.
-//! [`VersionSpliceReader`] provides that narrower interface without exposing bit
-//! positions or codec readers to the rewriting algorithm.
+//! [`VersionSpliceReader`] provides that narrower interface without exposing
+//! bit positions or codec readers to the rewriting algorithm.
 
 use crate::version::io::tree::{VersionNode, VersionTreeReader};
 use crate::version::io::PayloadRange;

@@ -285,14 +285,14 @@ fn version_of(p: &Encoding) -> Version {
 /// fit read work linear in the tooth count as superlinear, and the
 /// value-content denominator reads it linear.
 ///
-/// This is the premise the comb-scatter exponent re-denomination rests on.
-/// The denominators are measured: at a fixed 1000-bit tooth magnitude, a
-/// version and its ticked successor store under x1.5 more bytes across a
-/// tooth-count doubling, because the fixed magnitude dominates their size,
-/// while their value content doubles. The work is constructed, a fixed
-/// amount per tooth, and the board's own `trend` fits it against each
-/// denominator: against stored bytes it reads more than twice the exponent
-/// bound, and against value content it reads within the bound.
+/// This is the premise the comb-scatter exponent re-denomination rests on. The
+/// denominators are measured: at a fixed 1000-bit tooth magnitude, a version
+/// and its ticked successor store under x1.5 more bytes across a tooth-count
+/// doubling, because the fixed magnitude dominates their size, while their
+/// value content doubles. The work is constructed, a fixed amount per tooth,
+/// and the board's own `trend` fits it against each denominator: against stored
+/// bytes it reads more than twice the exponent bound, and against value content
+/// it reads within the bound.
 #[test]
 fn flat_denominator_stored_fit_manufactures_an_exponent() {
     /// Work units per tooth: any fixed amount shows the separation.
@@ -351,8 +351,8 @@ fn heap_sample(denom: usize, heap: u64) -> super::measure::Sample {
     }
 }
 
-/// The heap ceiling accepts its inclusive boundary and rejects the next byte
-/// at either sample, including when only the smaller input exceeds its budget.
+/// The heap ceiling accepts its inclusive boundary and rejects the next byte at
+/// either sample, including when only the smaller input exceeds its budget.
 #[test]
 fn heap_ceiling_checks_both_samples_without_hiding_raw_cost() {
     use super::judge::evaluate;
@@ -376,8 +376,8 @@ fn heap_ceiling_checks_both_samples_without_hiding_raw_cost() {
     }
 }
 
-/// Growth below the heap fit's resolution still faces the affine ceiling;
-/// above that resolution, sustained quadratic growth trips the trend.
+/// Growth below the heap fit's resolution still faces the affine ceiling; above
+/// that resolution, sustained quadratic growth trips the trend.
 #[test]
 fn heap_trend_resolution_does_not_exempt_peaks_from_the_ceiling() {
     use super::judge::evaluate_acceptance;
@@ -414,8 +414,8 @@ fn heap_trend_resolution_does_not_exempt_peaks_from_the_ceiling() {
     }
 }
 
-/// Nearly fixed denominators cannot support a useful growth fit, while the
-/// same fivefold growth across a doubling remains a scaling failure.
+/// Nearly fixed denominators cannot support a useful growth fit, while the same
+/// fivefold growth across a doubling remains a scaling failure.
 ///
 /// Both readings sit above the heap trend resolution, so the fit sees them
 /// unclamped.
@@ -436,15 +436,15 @@ fn exponent_guard_depends_on_denominator_span() {
 /// points, so a single generator lump cannot define the estimate, while a
 /// genuine super-linearity bends every point and still reads red.
 ///
-/// The exponent policy's check, in both directions. The lump ladder is a
-/// linear counter with one bumped point (the shape of a sparse counter over
-/// an organic control rebuilt per scale): its first window's own two-point
-/// fit reads over the ceiling (the committed proof that the per-window ratio
-/// would have manufactured a failure), while the four-point trend reads it
-/// linear, in both windows. The quadratic ladder grows as the square of the
-/// denominator at every point: the trend reads it a full class over the
-/// ceiling, red in both windows, so the policy cannot be softened into an
-/// exemption for real amplifiers.
+/// The exponent policy's check, in both directions. The lump ladder is a linear
+/// counter with one bumped point (the shape of a sparse counter over an organic
+/// control rebuilt per scale): its first window's own two-point fit reads over
+/// the ceiling (the committed proof that the per-window ratio would have
+/// manufactured a failure), while the four-point trend reads it linear, in both
+/// windows. The quadratic ladder grows as the square of the denominator at
+/// every point: the trend reads it a full class over the ceiling, red in both
+/// windows, so the policy cannot be softened into an exemption for real
+/// amplifiers.
 #[test]
 fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
     use super::floors::na;
@@ -800,7 +800,8 @@ fn rendered_row(worst_value: f64, runner_up_value: f64) -> String {
     String::from_utf8(out).expect("the map renders UTF-8")
 }
 
-/// The `~near-tie` flag fires exactly under [`NEAR_TIE_RATIO`](super::NEAR_TIE_RATIO).
+/// The `~near-tie` flag fires exactly under
+/// [`NEAR_TIE_RATIO`](super::NEAR_TIE_RATIO).
 ///
 /// A margin strictly inside the band is flagged, and a margin at the boundary
 /// or beyond is not: the flag marks rank orders a reader must not over-read,
@@ -828,8 +829,8 @@ fn worst_row_flags_near_ties_strictly_under_the_ratio() {
 /// board row order, and every pinned worst set is name-sorted, duplicate-free
 /// rostered family names (or the dead-row `-`, or the
 /// [`TARGET_DEPENDENT`](super::worst::TARGET_DEPENDENT) marker). The
-/// deserialization rows and their pin entries compile under the same
-/// features, so the comparison is exact under every feature set.
+/// deserialization rows and their pin entries compile under the same features,
+/// so the comparison is exact under every feature set.
 ///
 /// The cheap structural half of the pin's tamper evidence; the readings half,
 /// the argmax itself, is the release-profile entry-compare inside the board's
@@ -909,10 +910,10 @@ fn pin_feature_compiled(feature: &str) -> bool {
 ///
 /// The marker's rule admits a cell only when such a path changes which family
 /// reads worst between the hosts the pin is checked on. Whether a named path
-/// does so is for review; this test makes an entry that names no path fail.
-/// It scans the pin's source, skipping the entries whose feature this build
-/// omits, as the table does, and checks that the scan finds one marked line
-/// per marked table entry, which keeps a scan that finds nothing from passing.
+/// does so is for review; this test makes an entry that names no path fail. It
+/// scans the pin's source, skipping the entries whose feature this build omits,
+/// as the table does, and checks that the scan finds one marked line per marked
+/// table entry, which keeps a scan that finds nothing from passing.
 #[test]
 fn target_dependent_pin_entries_name_their_code_path() {
     use super::worst::{TARGET_DEPENDENT, WORST_RANKINGS};

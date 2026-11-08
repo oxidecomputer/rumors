@@ -1,6 +1,5 @@
-//! The minimum-tick fold's wide-hop guards and parked-latent decision, at
-//! the knobs the board's propagate-seam and latent-ladder families hold
-//! fixed.
+//! The minimum-tick fold's wide-hop guards and parked-latent decision, at the
+//! knobs the board's propagate-seam and latent-ladder families hold fixed.
 
 use focused_fuel_harness::{assert_flat, assert_less, assert_mixed_below, measure_per, Probe};
 
@@ -25,18 +24,17 @@ const GRID_RESIDUES: [u64; 2] = [10, 640];
 ///
 /// The domination hops never read the surviving residue across its width.
 ///
-/// A hop that read the residue's width would add at least one instruction
-/// per site per residue digit, so over sites 1,024 and 2,048 and residue
-/// widths 10 and 640 the plunge's mixed second difference would reach
-/// `1024 · 630`. The residue's own wide codes cost input-proportional work
-/// once per run, which an additive term absorbs. The bound sits at half that
-/// term, so it catches the term whatever amortized wobble of either sign the
-/// honest cost carries, up to half the term. The two runs share every
-/// consume and arm, so the cost each extra site adds, the k-marginal, isolates
-/// the hops against the parks. Forms: flat per unit (F-lin) per encoded byte
-/// across a site doubling at the minimal clearance; no product term (F-mix)
-/// below half that derived term; and strict saving (F-lt) of the plunge's
-/// k-marginal under the control's, at each width.
+/// A hop that read the residue's width would add at least one instruction per
+/// site per residue digit, so over sites 1,024 and 2,048 and residue widths 10
+/// and 640 the plunge's mixed second difference would reach `1024 · 630`. The
+/// residue's own wide codes cost input-proportional work once per run, which an
+/// additive term absorbs. The bound sits at half that term, so it catches the
+/// term whatever amortized wobble of either sign the honest cost carries, up to
+/// half the term. The two runs share every consume and arm, so the cost each
+/// extra site adds, the k-marginal, isolates the hops against the parks. Forms:
+/// flat per unit (F-lin) per encoded byte across a site doubling at the minimal
+/// clearance; no product term (F-mix) below half that derived term; and strict
+/// saving (F-lt) of the plunge's k-marginal under the control's, at each width.
 #[test]
 fn descending_cascade_costs_a_constant_per_site() {
     assert_flat(
@@ -67,14 +65,14 @@ fn descending_cascade_costs_a_constant_per_site() {
     }
 }
 
-/// The wide-hop guards decide at their minimal clearance: fuel per byte
-/// agrees within ×1.25 in both directions between hops with two digits of
-/// daylight and hops with five, at equal site count and dying widths.
+/// The wide-hop guards decide at their minimal clearance: fuel per byte agrees
+/// within ×1.25 in both directions between hops with two digits of daylight and
+/// hops with five, at equal site count and dying widths.
 ///
 /// A guard that demanded more daylight would reroute exactly the
-/// minimal-clearance point's hops onto the comparable-scale fold, inflating
-/// it against the wide point. Form: flat per unit (F-lin) per encoded byte,
-/// in both directions.
+/// minimal-clearance point's hops onto the comparable-scale fold, inflating it
+/// against the wide point. Form: flat per unit (F-lin) per encoded byte, in
+/// both directions.
 #[test]
 fn wide_hop_guards_decide_at_their_minimal_clearance() {
     let tight = measure_per(Probe::SeamPlunge, 2 * SMALL_SITES, TIGHT_CLEARANCE);
@@ -83,14 +81,13 @@ fn wide_hop_guards_decide_at_their_minimal_clearance() {
     assert_flat("wide over tight clearance per byte", tight, wide);
 }
 
-/// The stopping arm uses O(1) work per hop beside the retiring fold: the
-/// stop's cost, and its excess over its control, stay flat per site.
+/// The stopping arm uses O(1) work per hop beside the retiring fold: the stop's
+/// cost, and its excess over its control, stay flat per site.
 ///
 /// The two runs share every consume, arm, and residue; the excess holds the
 /// stop's hops, freezes, and merges, so a per-hop read of the surviving
-/// boundary's width lands whole in it. Form: flat per unit (F-lin) of the
-/// stop per encoded byte, and of the excess per site, across a site
-/// doubling.
+/// boundary's width lands whole in it. Form: flat per unit (F-lin) of the stop
+/// per encoded byte, and of the excess per site, across a site doubling.
 #[test]
 fn stopping_arm_is_flat_per_site() {
     let stop = [SMALL_SITES, 2 * SMALL_SITES].map(|sites| measure_per(Probe::SeamStop, sites, 0));
@@ -110,22 +107,21 @@ fn stopping_arm_is_flat_per_site() {
     );
 }
 
-/// Width of the latent ladder's parked latent at the narrow point, in
-/// digits; the wide point doubles it.
+/// Width of the latent ladder's parked latent at the narrow point, in digits;
+/// the wide point doubles it.
 const LADDER_WIDTH: u64 = 64;
 
-/// Decision leaves of the latent ladder's base runs; the marginal doubles
-/// them.
+/// Decision leaves of the latent ladder's base runs; the marginal doubles them.
 const LADDER_DECISIONS: u64 = 512;
 
-/// The parked-latent undercut decision answers scale-disparate drops in
-/// O(1): the marginal cost of the extra decision leaves agrees within ×1.25,
-/// in both directions, across a doubling of the parked latent's width.
+/// The parked-latent undercut decision answers scale-disparate drops in O(1):
+/// the marginal cost of the extra decision leaves agrees within ×1.25, in both
+/// directions, across a doubling of the parked latent's width.
 ///
-/// The marginal `T(w, 2k) − T(w, k)` isolates the extra decision leaves, as
-/// the parked boundary's own work cancels; a decision, or a reference merge,
-/// that read the latent across its width would double the marginal with the
-/// width. Form: flat per unit (F-lin) of the marginal, in both directions.
+/// The marginal `T(w, 2k) − T(w, k)` isolates the extra decision leaves, as the
+/// parked boundary's own work cancels; a decision, or a reference merge, that
+/// read the latent across its width would double the marginal with the width.
+/// Form: flat per unit (F-lin) of the marginal, in both directions.
 #[test]
 fn latent_ladder_decisions_are_independent_of_the_latent_width() {
     let marginal = |width: u64| {

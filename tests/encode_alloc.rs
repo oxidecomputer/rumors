@@ -1,42 +1,41 @@
 //! Allocator metering for the streaming codec's frame writer.
 //!
-//! A counting global allocator prices each frame write in allocation
-//! events, holding the encoder to the buffers a frame genuinely needs:
-//! a frame's fixed heads are a few bytes with a known maximum width, so
-//! writing them must not cost a heap allocation per frame, and a supply
-//! run is borrowed, not copied. A query's listing is the one variable body
-//! the writer renders, and it is priced as exactly one buffer. The
-//! meter counts only the thread driving the write, so test-harness work on
-//! other threads cannot perturb an exact result.
+//! A counting global allocator prices each frame write in allocation events,
+//! holding the encoder to the buffers a frame genuinely needs: a frame's fixed
+//! heads are a few bytes with a known maximum width, so writing them must not
+//! cost a heap allocation per frame, and a supply run is borrowed, not copied.
+//! A query's listing is the one variable body the writer renders, and it is
+//! priced as exactly one buffer. The meter counts only the thread driving the
+//! write, so test-harness work on other threads cannot perturb an exact result.
 
 use alloc_meter::{Stats, measure};
 use rumors::testing::{FrameShape, PreparedFrame, prepare_frame, write_prepared_frame};
 
-/// Capacity reserved for the written frame ahead of the meter: above any
-/// frame these shapes produce, so the output vector never grows inside
-/// the metered region.
+/// Capacity reserved for the written frame ahead of the meter: above any frame
+/// these shapes produce, so the output vector never grows inside the metered
+/// region.
 const OUT_CAPACITY: usize = 128 * 1024;
 
-/// Allocation events the meter's own harness performs inside every
-/// metered region: `pollster::block_on` allocates its waker once.
+/// Allocation events the meter's own harness performs inside every metered
+/// region: `pollster::block_on` allocates its waker once.
 ///
-/// Calibrated by `harness_allocations`, so the frame constants below
-/// state the writer's allocations alone.
+/// Calibrated by `harness_allocations`, so the frame constants below state the
+/// writer's allocations alone.
 const HARNESS_ALLOCATIONS: usize = 1;
 
 /// Allocation events a body-free frame's write performs.
 const BODY_FREE_ALLOCATIONS: usize = 0;
 
-/// Allocation events a supply frame's write performs: the run is
-/// borrowed and its heads are rendered on the stack.
+/// Allocation events a supply frame's write performs: the run is borrowed and
+/// its heads are rendered on the stack.
 const SUPPLY_ALLOCATIONS: usize = 0;
 
-/// Allocation events a full-fan query's write performs: the rendered
-/// listing alone.
+/// Allocation events a full-fan query's write performs: the rendered listing
+/// alone.
 const QUERY_ALLOCATIONS: usize = 1;
 
-/// Reallocation events a full-fan query's write performs: none, the
-/// listing being reserved at its exact rendered length.
+/// Reallocation events a full-fan query's write performs: none, the listing
+/// being reserved at its exact rendered length.
 const QUERY_REALLOCATIONS: usize = 0;
 
 /// The run length of the metered supply frame: wide enough that the run's
@@ -68,8 +67,8 @@ fn harness_allocations() {
 /// A body-free frame's write performs exactly `BODY_FREE_ALLOCATIONS`
 /// allocation events and no reallocation.
 ///
-/// The frame is the most frequent one a session writes; the written
-/// length is asserted positive so the count cannot pass vacuously.
+/// The frame is the most frequent one a session writes; the written length is
+/// asserted positive so the count cannot pass vacuously.
 #[test]
 fn body_free_frame_allocations() {
     let frame = prepare_frame(FrameShape::BodyFree);
@@ -82,8 +81,8 @@ fn body_free_frame_allocations() {
     assert_eq!(change.reallocations, 0);
 }
 
-/// A supply frame's write performs exactly `SUPPLY_ALLOCATIONS`
-/// allocation events and no reallocation: the run travels borrowed.
+/// A supply frame's write performs exactly `SUPPLY_ALLOCATIONS` allocation
+/// events and no reallocation: the run travels borrowed.
 #[test]
 fn supply_frame_allocations() {
     let frame = prepare_frame(FrameShape::Supply {
@@ -98,9 +97,9 @@ fn supply_frame_allocations() {
     assert_eq!(change.reallocations, 0);
 }
 
-/// A full-fan query's write performs exactly `QUERY_ALLOCATIONS`
-/// allocation events and `QUERY_REALLOCATIONS` reallocations: the listing
-/// is the one variable body the writer renders.
+/// A full-fan query's write performs exactly `QUERY_ALLOCATIONS` allocation
+/// events and `QUERY_REALLOCATIONS` reallocations: the listing is the one
+/// variable body the writer renders.
 #[test]
 fn full_fan_query_allocations() {
     let frame = prepare_frame(FrameShape::Query {

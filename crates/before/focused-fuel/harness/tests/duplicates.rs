@@ -1,14 +1,14 @@
-//! The n-ary folds' duplicate filter: a run of copies sharing one buffer
-//! folds like one copy.
+//! The n-ary folds' duplicate filter: a run of copies sharing one buffer folds
+//! like one copy.
 
 use focused_fuel_harness::{assert_equal_difference, Probe};
 
 /// The duplicate fixture's two widths in shares, a fourfold step apart.
 const SHARES: [u64; 2] = [16, 64];
 
-/// Every fold entry point folds a run of shared-buffer copies of one input
-/// as it folds that input once, plus a cost per copy that does not depend on
-/// the copy's size.
+/// Every fold entry point folds a run of shared-buffer copies of one input as
+/// it folds that input once, plus a cost per copy that does not depend on the
+/// copy's size.
 ///
 /// Each fold reads `x` and then `k` clones of `d`, a version concurrent with
 /// `x`. With the filter, the balanced counter sees `x` and one `d` at every

@@ -1,13 +1,13 @@
-//! Emulation mode: each session's two peers in network namespaces of their
-//! own, joined by a shaped virtual link (Linux only).
+//! Emulation mode: each session's two peers in network namespaces of their own,
+//! joined by a shaped virtual link (Linux only).
 //!
 //! A session runs in a *slot*, an index that keeps concurrent sessions'
 //! interface names apart. [`prepare`] starts the two peer processes, joins
-//! their namespaces with an unshaped veth, raises the TCP buffer limits in
-//! both namespaces if the point asks, builds the pair and moves side B's
-//! replica, and only then shapes the link; the two processes then wait,
-//! idle, holding their replicas. [`finish`] runs the measured session and
-//! returns once both processes have exited.
+//! their namespaces with an unshaped veth, raises the TCP buffer limits in both
+//! namespaces if the point asks, builds the pair and moves side B's replica,
+//! and only then shapes the link; the two processes then wait, idle, holding
+//! their replicas. [`finish`] runs the measured session and returns once both
+//! processes have exited.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
@@ -34,29 +34,29 @@ pub fn addresses() -> Addresses {
 
 /// The most sessions one window of a run holds ([`crate::schedule`]).
 ///
-/// Each holds two processes and their pipes, and choosing a window's
-/// length weighs every prefix of it, at a cost that grows with the square
-/// of its length; a window this long already holds far more preparation
-/// than the workers need to stay busy.
+/// Each holds two processes and their pipes, and choosing a window's length
+/// weighs every prefix of it, at a cost that grows with the square of its
+/// length; a window this long already holds far more preparation than the
+/// workers need to stay busy.
 pub const MAX_WINDOW: usize = 512;
 
 /// File descriptors one prepared or preparing session holds open in the
 /// orchestrator: each of its two processes' standard input and output.
 const DESCRIPTORS_PER_SESSION: u64 = 4;
 
-/// File descriptors each running preparation may open besides its
-/// session's own: the pipes of the command it runs at that moment.
+/// File descriptors each running preparation may open besides its session's
+/// own: the pipes of the command it runs at that moment.
 const DESCRIPTORS_PER_PREPARATION: u64 = 4;
 
-/// File descriptors kept for everything else: the standard streams, the
-/// results files, and the libraries' own.
+/// File descriptors kept for everything else: the standard streams, the results
+/// files, and the libraries' own.
 const RESERVED_DESCRIPTORS: u64 = 64;
 
 /// The longest window this process's descriptor limit allows with
 /// `prepare_jobs` preparations running.
 ///
-/// It is at most [`MAX_WINDOW`] and at least one, after raising the soft
-/// limit toward the hard one as far as the longest window needs.
+/// It is at most [`MAX_WINDOW`] and at least one, after raising the soft limit
+/// toward the hard one as far as the longest window needs.
 pub fn descriptor_window(prepare_jobs: usize) -> usize {
     use nix::sys::resource::{Resource, getrlimit, setrlimit};
     let reserved = RESERVED_DESCRIPTORS + DESCRIPTORS_PER_PREPARATION * prepare_jobs as u64;
@@ -75,8 +75,8 @@ pub fn descriptor_window(prepare_jobs: usize) -> usize {
         .clamp(1, MAX_WINDOW)
 }
 
-/// A run's sessions on emulated links on this host, as [`Executor`]
-/// prepares and times them.
+/// A run's sessions on emulated links on this host, as [`Executor`] prepares
+/// and times them.
 #[derive(Clone, Copy, Debug)]
 pub struct Emulation<'a> {
     /// The peer executable.
@@ -110,15 +110,15 @@ impl Executor for Emulation<'_> {
     }
 }
 
-/// The smallest warm-up transfer: enough to grow any congestion window past
-/// its initial ten segments many times over.
+/// The smallest warm-up transfer: enough to grow any congestion window past its
+/// initial ten segments many times over.
 const MIN_WARM_BYTES: u64 = 1 << 20;
 
 /// The largest warm-up transfer.
 const MAX_WARM_BYTES: u64 = 256 << 20;
 
-/// The window a connection in a session of `point` can use: the raised
-/// limit's share if the point raises it, else the host's usable window.
+/// The window a connection in a session of `point` can use: the raised limit's
+/// share if the point raises it, else the host's usable window.
 pub fn window(point: &Point, host_window: u64, payload_share: f64) -> u64 {
     match point.tcp_buffers {
         TcpBuffers::Host => host_window,
@@ -128,9 +128,9 @@ pub fn window(point: &Point, host_window: u64, payload_share: f64) -> u64 {
 
 /// Bytes each side sends before a warm session.
 ///
-/// The warm-up carries two bandwidth-delay products, so slow start ends and
-/// the window opens to what the link sustains, within [`MIN_WARM_BYTES`]
-/// and [`MAX_WARM_BYTES`]; on an uncapped link, two windows.
+/// The warm-up carries two bandwidth-delay products, so slow start ends and the
+/// window opens to what the link sustains, within [`MIN_WARM_BYTES`] and
+/// [`MAX_WARM_BYTES`]; on an uncapped link, two windows.
 pub fn warm_bytes(point: &Point, window: u64) -> u64 {
     let Link::Emulated { rate, rtt } = point.link else {
         return MIN_WARM_BYTES;
@@ -153,8 +153,8 @@ pub fn queues(point: &Point, window: u64) -> Result<(Netem, Netem)> {
     ))
 }
 
-/// A session prepared: both peers running and idle, the pair in place, and
-/// the link shaped.
+/// A session prepared: both peers running and idle, the pair in place, and the
+/// link shaped.
 #[derive(Debug)]
 pub struct Ready {
     /// Side A's process.
@@ -168,15 +168,14 @@ pub struct Ready {
 /// Prepares a session of `point` in slot `slot`, with `program` as the peer
 /// executable, and reads what each process used doing it.
 ///
-/// The slot names the link's interfaces only while they are created in
-/// the sandbox, before each end moves to its peer's namespace, so
-/// preparations running at once need distinct slots, and a prepared
-/// session holds none.
+/// The slot names the link's interfaces only while they are created in the
+/// sandbox, before each end moves to its peer's namespace, so preparations
+/// running at once need distinct slots, and a prepared session holds none.
 ///
 /// # Errors
 ///
-/// If a namespace, link, or shaping step fails (the error names the
-/// command), or the preparation fails.
+/// If a namespace, link, or shaping step fails (the error names the command),
+/// or the preparation fails.
 pub fn prepare(program: &Path, slot: usize, point: &Point, window: u64) -> Result<Ready> {
     let mut a = Namespaced::spawn(program, &["peer"])?;
     let mut b = Namespaced::spawn(program, &["peer"])?;
@@ -200,9 +199,9 @@ pub fn prepare(program: &Path, slot: usize, point: &Point, window: u64) -> Resul
     Ok(Ready { a, b, prepared })
 }
 
-/// Runs a prepared session's measured exchange, and returns once both
-/// peers have exited after it, so their memory is free again; their
-/// namespaces and link vanish with them.
+/// Runs a prepared session's measured exchange, and returns once both peers
+/// have exited after it, so their memory is free again; their namespaces and
+/// link vanish with them.
 ///
 /// # Errors
 ///
@@ -221,8 +220,8 @@ impl Ready {
     }
 }
 
-/// A link probe prepared in its slot: both probe processes running on a
-/// shaped link.
+/// A link probe prepared in its slot: both probe processes running on a shaped
+/// link.
 #[derive(Debug)]
 pub struct ReadyProbe {
     /// Side A's probe process.

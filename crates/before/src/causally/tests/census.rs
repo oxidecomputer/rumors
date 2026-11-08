@@ -1,14 +1,13 @@
 //! Exact coverage beyond complete grids, judged by the flat model's census.
 //!
-//! The parent module's exact-coverage tests enumerate complete grids of
-//! shallow versions with small heights, whose antichains are narrow. This
-//! module judges queries over pools of deep versions with wide heights, and
-//! queries whose holes form antichains wider than a small grid holds, against
-//! [`census`](crate::testing::oracles::flat::census), which counts a finite
-//! set of covered versions holding a witness for every verdict. The pools
-//! are flat versions; production meets them only through the independent
-//! encoder's bytes, and the census reads them only through
-//! [`Grid::order_view`].
+//! The parent module's exact-coverage tests enumerate complete grids of shallow
+//! versions with small heights, whose antichains are narrow. This module judges
+//! queries over pools of deep versions with wide heights, and queries whose
+//! holes form antichains wider than a small grid holds, against
+//! [`census`](crate::testing::oracles::flat::census), which counts a finite set
+//! of covered versions holding a witness for every verdict. The pools are flat
+//! versions; production meets them only through the independent encoder's
+//! bytes, and the census reads them only through [`Grid::order_view`].
 //!
 //! The properties share the clause enums of the parent module:
 //!
@@ -49,8 +48,8 @@ use crate::{Span, Version};
 // ─────────────────────────────── anchors ───────────────────────────────
 
 impl BoundClause {
-    /// The pool indices of the versions this bound compares a probe with:
-    /// its one anchor.
+    /// The pool indices of the versions this bound compares a probe with: its
+    /// one anchor.
     fn anchors(&self) -> Vec<usize> {
         match *self {
             Self::After(at) | Self::Before(at) => vec![at],
@@ -125,8 +124,8 @@ impl Clauses {
         }
     }
 
-    /// Whether query `which` admits `probe`, evaluated directly from the
-    /// order on `grid`, the pool its clauses' anchors index.
+    /// Whether query `which` admits `probe`, evaluated directly from the order
+    /// on `grid`, the pool its clauses' anchors index.
     fn admits<T: CausalOrder>(&self, which: Which, probe: &T, grid: &[T]) -> bool {
         let bounded = self.bounds.iter().all(|bound| bound.admits(probe, grid));
         bounded
@@ -138,8 +137,8 @@ impl Clauses {
     }
 }
 
-/// Draws clauses anchored at the pool indices `anchors` draws: up to
-/// `bounds` inclusive bounds, and one to `forms` forms of each polarity.
+/// Draws clauses anchored at the pool indices `anchors` draws: up to `bounds`
+/// inclusive bounds, and one to `forms` forms of each polarity.
 fn arb_clauses(
     anchors: Range<usize>,
     bounds: usize,
@@ -153,8 +152,8 @@ fn arb_clauses(
         .prop_map(|(bounds, down, up)| Clauses { bounds, down, up })
 }
 
-/// The pool indices a clause strategy draws for the deep pools, reduced
-/// modulo each pool's size by [`selected`].
+/// The pool indices a clause strategy draws for the deep pools, reduced modulo
+/// each pool's size by [`selected`].
 const POOL_PICKS: Range<usize> = 0..64;
 
 // ─────────────────────────────── sites ───────────────────────────────
@@ -162,9 +161,9 @@ const POOL_PICKS: Range<usize> = 0..64;
 /// Pairwise disjoint dyadic cells at chosen depths: the siblings, off one
 /// root-to-leaf path, of the path's nodes at those depths.
 ///
-/// Two sites never overlap: the deeper one lies inside the path's node at
-/// the shallower one's depth, which the shallower site, that node's
-/// sibling, does not meet.
+/// Two sites never overlap: the deeper one lies inside the path's node at the
+/// shallower one's depth, which the shallower site, that node's sibling, does
+/// not meet.
 #[derive(Clone, Debug)]
 struct Sites {
     /// The path's steps from the root: `true` steps to the right child.
@@ -173,23 +172,23 @@ struct Sites {
     depths: Vec<u64>,
 }
 
-/// The path lengths [`arb_sites`] draws, long enough that sites often lie
-/// past depth 32, where a cell is narrower than a 32-bit fraction resolves.
+/// The path lengths [`arb_sites`] draws, long enough that sites often lie past
+/// depth 32, where a cell is narrower than a 32-bit fraction resolves.
 ///
-/// Each site's depth is uniform along a path of uniform length, so about
-/// half of all sites lie that deep; the floor census checks that the
-/// antichain cases keep placing one there.
+/// Each site's depth is uniform along a path of uniform length, so about half
+/// of all sites lie that deep; the floor census checks that the antichain cases
+/// keep placing one there.
 const SITE_PATH: RangeInclusive<usize> = 3..=160;
 
 impl Sites {
-    /// The partition the path cuts: every sibling off the path, and the
-    /// path's last node, left to right, each as its depth and the index of
-    /// the site it is, if any.
+    /// The partition the path cuts: every sibling off the path, and the path's
+    /// last node, left to right, each as its depth and the index of the site it
+    /// is, if any.
     ///
-    /// A step to the right leaves its sibling on the left of everything
-    /// deeper, and a step to the left leaves it on the right, so the left
-    /// siblings come first in increasing depth, then the last node, then the
-    /// right siblings in decreasing depth.
+    /// A step to the right leaves its sibling on the left of everything deeper,
+    /// and a step to the left leaves it on the right, so the left siblings come
+    /// first in increasing depth, then the last node, then the right siblings
+    /// in decreasing depth.
     fn partition(&self) -> Vec<(u64, Option<usize>)> {
         let (mut left, mut right) = (Vec::new(), Vec::new());
         for (depth, &steps_right) in (1u64..).zip(&self.path) {
@@ -230,15 +229,14 @@ impl Sites {
     /// One bump of `base` per site, pairwise concurrent, and `top`: `base`
     /// raised on every site by its amount.
     ///
-    /// Read the sites as a cycle, in depth order. Bump `j` raises `base` on
-    /// the *window* of `width` consecutive sites starting at site `j`, each
-    /// by its amount. `pick` selects `width` from one through one less than
-    /// the site count, or one when there is a single site, so distinct
-    /// bumps' windows are distinct sets of one size, and each holds a site
-    /// the other lacks.
+    /// Read the sites as a cycle, in depth order. Bump `j` raises `base` on the
+    /// *window* of `width` consecutive sites starting at site `j`, each by its
+    /// amount. `pick` selects `width` from one through one less than the site
+    /// count, or one when there is a single site, so distinct bumps' windows
+    /// are distinct sets of one size, and each holds a site the other lacks.
     /// Every amount is at least one, so each bump lies strictly above every
-    /// other on some site and strictly below it on another: no bump lies at
-    /// or below another.
+    /// other on some site and strictly below it on another: no bump lies at or
+    /// below another.
     ///
     /// At width one each bump raises its own site alone, and at one short of
     /// the site count each is `top` with one site dropped back to `base`.
@@ -265,8 +263,8 @@ impl Sites {
     }
 }
 
-/// Draws a path from [`SITE_PATH`] and `count` distinct site depths along
-/// it, as many as the path allows.
+/// Draws a path from [`SITE_PATH`] and `count` distinct site depths along it,
+/// as many as the path allows.
 fn arb_sites(count: RangeInclusive<usize>) -> impl Strategy<Value = Sites> {
     SITE_PATH.prop_flat_map(move |len| {
         let depths: Vec<u64> =
@@ -280,8 +278,8 @@ fn arb_sites(count: RangeInclusive<usize>) -> impl Strategy<Value = Sites> {
     })
 }
 
-/// Draws `count` amounts a bump moves its site by: one and two, values on
-/// both sides of the 32- and 64-bit word boundaries, and far past them.
+/// Draws `count` amounts a bump moves its site by: one and two, values on both
+/// sides of the 32- and 64-bit word boundaries, and far past them.
 fn arb_amounts(count: usize) -> impl Strategy<Value = Vec<BigUint>> {
     let pow2 = |k: u32| BigUint::from(1u8) << k;
     let amount = prop::sample::select(vec![
@@ -299,8 +297,8 @@ fn arb_amounts(count: usize) -> impl Strategy<Value = Vec<BigUint>> {
 
 // ─────────────────────────────── cases ───────────────────────────────
 
-/// A pool of flat versions and the clauses of one neutral, one downward,
-/// and one upward query over it.
+/// A pool of flat versions and the clauses of one neutral, one downward, and
+/// one upward query over it.
 #[derive(Clone, Debug)]
 struct QueryCase {
     /// The pool the clauses' anchors index.
@@ -323,15 +321,15 @@ fn arb_hole_spellings() -> impl Strategy<Value = (u8, u8)> {
     (0u8..3, 0u8..3)
 }
 
-/// Draws a case whose downward and upward holes sit on an antichain of
-/// three to eight bumps of one deep version, at pairwise disjoint sites.
+/// Draws a case whose downward and upward holes sit on an antichain of three to
+/// eight bumps of one deep version, at pairwise disjoint sites.
 ///
 /// The pool is the base version, `top` (the base raised on every site), the
 /// bumps, each raising the base on its own window of sites (see
-/// [`Sites::bumps`]), and the empty version, so its segments run from below
-/// the antichain to above it. Each site carries one hole of each polarity at
-/// its bump, in a drawn spelling, and both queries hold up to two inclusive
-/// bounds at pool versions, which may prune the holes they make vacuous.
+/// [`Sites::bumps`]), and the empty version, so its segments run from below the
+/// antichain to above it. Each site carries one hole of each polarity at its
+/// bump, in a drawn spelling, and both queries hold up to two inclusive bounds
+/// at pool versions, which may prune the holes they make vacuous.
 fn arb_antichain_case() -> impl Strategy<Value = QueryCase> {
     (
         arb_deep_version(),
@@ -381,12 +379,11 @@ const QUERY_SITES: RangeInclusive<usize> = 1..=3;
 
 /// Draws a case of conjunctions of every public form over a deep triple.
 ///
-/// The pool is a deep triple, related by construction so equal and nearly
-/// equal versions are common, every pairwise join and meet, and an antichain
-/// of one to three bumps of the first version at deep sites, with `top`.
-/// Each query holds up to five inclusive bounds; the downward and upward
-/// queries also hold one to five forms of their polarity, anchored anywhere
-/// in the pool.
+/// The pool is a deep triple, related by construction so equal and nearly equal
+/// versions are common, every pairwise join and meet, and an antichain of one
+/// to three bumps of the first version at deep sites, with `top`. Each query
+/// holds up to five inclusive bounds; the downward and upward queries also hold
+/// one to five forms of their polarity, anchored anywhere in the pool.
 fn arb_query_case() -> impl Strategy<Value = QueryCase> {
     (
         arb_deep_version_triple(),
@@ -423,8 +420,7 @@ fn arb_query_case() -> impl Strategy<Value = QueryCase> {
 struct Judged {
     /// The pool decoded from the encoder's bytes, once.
     versions: Vec<Version>,
-    /// The pool decoded again, so no version shares a buffer with
-    /// `versions`.
+    /// The pool decoded again, so no version shares a buffer with `versions`.
     fresh: Vec<Version>,
     /// The pool's order view.
     view: Vec<Heights>,
@@ -530,9 +526,9 @@ fn assert_case(case: &QueryCase) -> Result<(), TestCaseError> {
 
 // ─────────────────────────────── the census's own check ───────────────────────────────
 
-/// The coarse partitions [`arb_small_grid`] draws, each with the largest
-/// height its grid takes: few enough cells and heights that the finer pool
-/// stays small.
+/// The coarse partitions [`arb_small_grid`] draws, each with the largest height
+/// its grid takes: few enough cells and heights that the finer pool stays
+/// small.
 const SMALL_PARTITIONS: [(&[u64], u64); 4] = [
     (&[1, 1], 3),
     (&[1, 2, 2], 2),
@@ -542,8 +538,8 @@ const SMALL_PARTITIONS: [(&[u64], u64); 4] = [
 
 /// Draws one of [`SMALL_PARTITIONS`] and returns every version on it with
 /// heights up to its largest: a complete grid, so segments between grid
-/// versions nest in every arrangement and hold grid versions strictly
-/// inside them.
+/// versions nest in every arrangement and hold grid versions strictly inside
+/// them.
 fn arb_small_grid() -> impl Strategy<Value = Vec<FlatVersion>> {
     prop::sample::select(SMALL_PARTITIONS.to_vec()).prop_map(|(depths, max)| {
         let cells =
@@ -585,8 +581,7 @@ fn finer_pool(pool: &[FlatVersion]) -> FinerPool {
 
 /// Whether some segment of `finer` rejects both its endpoints under query
 /// `which` yet holds a finer member the query admits: a segment on which a
-/// census that missed its interior witness would answer `Empty` for
-/// `Partial`.
+/// census that missed its interior witness would answer `Empty` for `Partial`.
 fn has_interior_witness(finer: &FinerPool, clauses: &Clauses, which: Which) -> bool {
     let admits = |probe: &Heights| clauses.admits(which, probe, &finer.lifted);
     finer.segments.iter().any(|segment| {
@@ -596,9 +591,9 @@ fn has_interior_witness(finer: &FinerPool, clauses: &Clauses, which: Which) -> b
     })
 }
 
-/// The case divisor of [`census_agrees_with_a_finer_pool`]: one, so it runs
-/// the full case count. Each case is cheap, and only a minority of cases
-/// hold a segment that can expose a census missing its witness.
+/// The case divisor of [`census_agrees_with_a_finer_pool`]: one, so it runs the
+/// full case count. Each case is cheap, and only a minority of cases hold a
+/// segment that can expose a census missing its witness.
 const VALIDATOR_DIVISOR: u32 = 1;
 
 divided_proptest! {
@@ -656,13 +651,11 @@ divided_proptest! {
 // ─────────────────────────────── production against the census ───────────────────────────────
 
 /// The case divisor of [`antichain_holes_cover_exactly`]: each case holds a
-/// pool of deep versions and judges two queries on every segment between
-/// them.
+/// pool of deep versions and judges two queries on every segment between them.
 const ANTICHAIN_DIVISOR: u32 = 4;
 
-/// The case divisor of [`deep_queries_cover_exactly`]: each case holds a
-/// pool of deep versions and judges three queries on every segment between
-/// them.
+/// The case divisor of [`deep_queries_cover_exactly`]: each case holds a pool
+/// of deep versions and judges three queries on every segment between them.
 const QUERY_DIVISOR: u32 = 6;
 
 divided_proptest! {
@@ -717,9 +710,9 @@ divided_proptest! {
 /// The floor census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
 ///
-/// Fixed because the census measures its generators
-/// deterministically: a regime it counts has no mass derived from the
-/// generators' weights, so its floors hold for this corpus alone.
+/// Fixed because the census measures its generators deterministically: a regime
+/// it counts has no mass derived from the generators' weights, so its floors
+/// hold for this corpus alone.
 const FLOOR_SEED: u64 = 17;
 
 /// The depth past which a site or a version counts as deep: a cell there is
@@ -731,8 +724,8 @@ fn floor_corpus<T>(strategy: impl Strategy<Value = T>) -> Vec<T> {
     sample(&strategy, FLOOR_SEED).collect()
 }
 
-/// What a case reaches: the holes production stores in its downward and
-/// upward queries, and whether its pool is deep and wide.
+/// What a case reaches: the holes production stores in its downward and upward
+/// queries, and whether its pool is deep and wide.
 struct Reach {
     /// The holes the downward query stores.
     down_holes: usize,
@@ -748,9 +741,9 @@ struct Reach {
 
 /// Measures a case's reach.
 ///
-/// Production stores a query's holes as an antichain, so the holes it
-/// stores are pairwise concurrent; the count reads them through `Debug`,
-/// the one structural window [`Query`] offers.
+/// Production stores a query's holes as an antichain, so the holes it stores
+/// are pairwise concurrent; the count reads them through `Debug`, the one
+/// structural window [`Query`] offers.
 fn reach(case: &QueryCase) -> Reach {
     let versions: Vec<Version> = case.pool.iter().map(FlatVersion::production).collect();
     let (_, down, up) = queries(case, &versions);
@@ -771,17 +764,17 @@ fn reach(case: &QueryCase) -> Reach {
 /// cases there.
 ///
 /// [`census_agrees_with_a_finer_pool`] claims the segments that can expose a
-/// census missing its witness: for each query, a segment that rejects both
-/// its endpoints yet holds a version the query admits.
+/// census missing its witness: for each query, a segment that rejects both its
+/// endpoints yet holds a version the query admits.
 ///
-/// [`antichain_holes_cover_exactly`] claims antichains of three or more
-/// holes on deep cells, beside wide heights: its downward and its upward
-/// query each store three or more holes, on a pool whose sites reach past
-/// depth 32 and whose heights reach `2^64`. [`deep_queries_cover_exactly`]
-/// claims deep, wide pools and holed queries of both polarities: a pool
-/// version past depth 32 beside a height of `2^64` or more, and downward
-/// and upward queries that each store a hole. Each floor follows from that
-/// premise and its property's case count.
+/// [`antichain_holes_cover_exactly`] claims antichains of three or more holes
+/// on deep cells, beside wide heights: its downward and its upward query each
+/// store three or more holes, on a pool whose sites reach past depth 32 and
+/// whose heights reach `2^64`. [`deep_queries_cover_exactly`] claims deep, wide
+/// pools and holed queries of both polarities: a pool version past depth 32
+/// beside a height of `2^64` or more, and downward and upward queries that each
+/// store a hole. Each floor follows from that premise and its property's case
+/// count.
 #[test]
 fn census_cases_keep_mass_on_their_regimes() {
     assert_default_case_count();

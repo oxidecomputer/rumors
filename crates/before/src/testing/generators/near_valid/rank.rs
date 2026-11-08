@@ -10,9 +10,9 @@ use crate::testing::oracles::codec::{pack, rank_bits};
 
 /// A normalized rank.
 ///
-/// The integral part is below 4, any `u64`, or `2^k` or `2^k - 1` for `k`
-/// from 60 to 399. The fraction draws up to 199 digits, or 200 to 2,999 one
-/// time in five, and loses its trailing zeros.
+/// The integral part is below 4, any `u64`, or `2^k` or `2^k - 1` for `k` from
+/// 60 to 399. The fraction draws up to 199 digits, or 200 to 2,999 one time in
+/// five, and loses its trailing zeros.
 fn arb_rank_value() -> impl Strategy<Value = (BigUint, u64)> {
     (
         prop_oneof![
@@ -41,17 +41,17 @@ fn arb_rank_value() -> impl Strategy<Value = (BigUint, u64)> {
 /// The damage done to a rank encoding.
 #[derive(Clone, Debug)]
 enum RankDamage {
-    /// Prefixes a run of this many ones, at least 64 where the format allows
-    /// at most 63, and its terminating zero.
+    /// Prefixes a run of this many ones, at least 64 where the format allows at
+    /// most 63, and its terminating zero.
     TooWideHeader(u8),
-    /// Replaces the closing bit with one more group of eight zero digits,
-    /// then closes.
+    /// Replaces the closing bit with one more group of eight zero digits, then
+    /// closes.
     ZeroFinalGroup,
     /// Sets the last byte's padding bits where this nonzero byte's high bits
     /// are set, or appends the byte when the stream ends on a byte boundary.
     ///
-    /// A byte whose high bits are all zero sets nothing and leaves the
-    /// encoding canonical.
+    /// A byte whose high bits are all zero sets nothing and leaves the encoding
+    /// canonical.
     DirtyPadding(u8),
     /// Edits the stream's bits before packing.
     Bits(BitEdit),

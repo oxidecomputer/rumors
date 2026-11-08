@@ -1,4 +1,5 @@
-//! Application-owned deadlines bound active exchanges without timing idle connections.
+//! Application-owned deadlines bound active exchanges without timing idle
+//! connections.
 
 use rumors_testkit::common;
 
@@ -15,7 +16,8 @@ use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
 
-/// Hand-controlled deadlines, retained by generation to detect accidental resets.
+/// Hand-controlled deadlines, retained by generation to detect accidental
+/// resets.
 #[derive(Clone, Default)]
 struct Deadlines(Arc<Mutex<Vec<Option<oneshot::Sender<()>>>>>);
 
@@ -33,7 +35,8 @@ impl Deadlines {
         self.0.lock().unwrap().len()
     }
 
-    /// Expire a particular session's deadline, proving it is still being awaited.
+    /// Expire a particular session's deadline, proving it is still being
+    /// awaited.
     fn expire(&self, generation: usize) {
         self.0.lock().unwrap()[generation]
             .take()

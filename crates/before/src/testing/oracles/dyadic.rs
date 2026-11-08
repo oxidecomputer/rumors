@@ -1,12 +1,12 @@
 //! Reference oracle for exact ranks: a dyadic rational held unnormalized.
 //!
-//! A [`Dyadic`] is the pair `(num, exp)` meaning `num / 2^exp`. It compares
-//! by cross-multiplication and adds by aligning exponents, so it never
-//! normalizes and shares nothing with production's alignment, accumulator,
-//! or class-first comparison. [`Dyadic::render`] writes a value's canonical
-//! binary text from the pair alone, so [`Dyadic::rank`] builds a production
-//! rank without production's printer, and comparing production's `Display`
-//! with the rendered text checks the printer without production's parser.
+//! A [`Dyadic`] is the pair `(num, exp)` meaning `num / 2^exp`. It compares by
+//! cross-multiplication and adds by aligning exponents, so it never normalizes
+//! and shares nothing with production's alignment, accumulator, or class-first
+//! comparison. [`Dyadic::render`] writes a value's canonical binary text from
+//! the pair alone, so [`Dyadic::rank`] builds a production rank without
+//! production's printer, and comparing production's `Display` with the rendered
+//! text checks the printer without production's parser.
 
 use core::cmp::Ordering;
 

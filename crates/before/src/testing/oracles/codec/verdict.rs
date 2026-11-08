@@ -1,23 +1,23 @@
-//! Reads any byte string as the wire formats lay it out, and gives the
-//! verdict a strict decoder owes it.
+//! Reads any byte string as the wire formats lay it out, and gives the verdict
+//! a strict decoder owes it.
 //!
 //! Each function here reads an input as its format lays it out and returns a
-//! [`Verdict`]: the canonical value the input encodes, or every class of
-//! defect it carries. `Decode`'s rustdoc says that an input may have more
-//! than one defect and that, unless a decoder documents a precedence rule,
-//! callers should handle any applicable variant. So a rejection here lists
-//! every applicable class, never only the one a sequential parse meets first.
-//! The one documented precedence, a span's structural errors before its
-//! endpoint ordering, narrows the span's list ([`span`]).
+//! [`Verdict`]: the canonical value the input encodes, or every class of defect
+//! it carries. `Decode`'s rustdoc says that an input may have more than one
+//! defect and that, unless a decoder documents a precedence rule, callers
+//! should handle any applicable variant. So a rejection here lists every
+//! applicable class, never only the one a sequential parse meets first. The one
+//! documented precedence, a span's structural errors before its endpoint
+//! ordering, narrows the span's list ([`span`]).
 //!
 //! The layouts are the encoder's, from the parent module. The class of each
 //! defect follows `Decode`'s variant docs and each decoder's `# Errors`
 //! section:
 //!
-//! | Defect | Class |
-//! |---|---|
-//! | the input ends inside a tree, an integer, or a rank, or before a field's padding byte | [`Class::Truncated`] |
-//! | a cleared marker, a set padding bit, an all-zero final rank group, or bytes after the value | [`Class::TrailingBits`] |
+//! | Defect                                                                                                                                                                                            | Class                   |
+//! |---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------|
+//! | the input ends inside a tree, an integer, or a rank, or before a field's padding byte                                                                                                             | [`Class::Truncated`]    |
+//! | a cleared marker, a set padding bit, an all-zero final rank group, or bytes after the value                                                                                                       | [`Class::TrailingBits`] |
 //! | a collapsible sibling pair, a negative height, a rank header that declares a width that does not fit `u64`, crossed or concurrent span endpoints, or a ranked key whose rank is not its version's | [`Class::NotCanonical`] |
 //!
 //! The reading is lenient, so that a defect early in the input never hides a
@@ -26,14 +26,14 @@
 //! - A tree that breaks canonical form still has a shape, so reading goes on
 //!   past a collapsible pair or a negative height, to the tree's end and its
 //!   padding.
-//! - A marker-padded field ends at the byte boundary after its tree's last
-//!   live bit and the marker's place, whether or not that padding is well
-//!   formed, so a composite's second field starts there. A rank stream ends
-//!   at the byte boundary after its closing bit.
+//! - A marker-padded field ends at the byte boundary after its tree's last live
+//!   bit and the marker's place, whether or not that padding is well formed, so
+//!   a composite's second field starts there. A rank stream ends at the byte
+//!   boundary after its closing bit.
 //! - Running out of input ends the reading: no later field exists.
 //!
-//! Like the encoder, the reading shares no code with production and keeps
-//! its trees flat, so no input depth can exhaust the stack.
+//! Like the encoder, the reading shares no code with production and keeps its
+//! trees flat, so no input depth can exhaust the stack.
 
 use std::collections::BTreeSet;
 use std::iter;
@@ -43,25 +43,24 @@ use num_bigint::{BigInt, BigUint, Sign};
 use super::{pack, Party, Version};
 use crate::testing::oracles::flat;
 
-/// The fewest ones that make a rank's header declare a width that does not
-/// fit `u64`.
+/// The fewest ones that make a rank's header declare a width that does not fit
+/// `u64`.
 ///
 /// For a rank's integral part `I`, the header gives the width `w` of
 /// `m = I + 1`: `rho` ones, a zero, then the `rho` low bits of `w`. The
-/// *mantissa*, `m`'s `w - 1` low bits, follows it. A header of 64 ones or
-/// more declares `w >= 2^64`.
+/// *mantissa*, `m`'s `w - 1` low bits, follows it. A header of 64 ones or more
+/// declares `w >= 2^64`.
 ///
 /// `Rank::decode` calls a header `NotCanonical` when it declares "a mantissa
-/// width outside the format's `u64` range", which is ambiguous at
-/// `w = 2^64` exactly: `w` does not fit `u64`, while the mantissa's `w - 1`
-/// bits do. Under either reading the mantissa runs past the end of any
-/// input, so the specification's set for every such header holds both
-/// `NotCanonical` and `Truncated`, and a decoder following either reading
-/// passes.
+/// width outside the format's `u64` range", which is ambiguous at `w = 2^64`
+/// exactly: `w` does not fit `u64`, while the mantissa's `w - 1` bits do. Under
+/// either reading the mantissa runs past the end of any input, so the
+/// specification's set for every such header holds both `NotCanonical` and
+/// `Truncated`, and a decoder following either reading passes.
 const RANK_HEADER_ONES: u64 = u64::BITS as u64;
 
-/// A class of decoding defect: one for each `Decode` variant that describes
-/// the input rather than the reader.
+/// A class of decoding defect: one for each `Decode` variant that describes the
+/// input rather than the reader.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Class {
     /// The input ends before the value does.
@@ -86,8 +85,8 @@ pub(crate) enum Ending {
     /// The encoding is the whole input, so bytes after it are a defect: the
     /// reader decodes, hexadecimal text, and the serde impls.
     Whole,
-    /// The encoding opens a stream whose later bytes belong to the next
-    /// field: borsh.
+    /// The encoding opens a stream whose later bytes belong to the next field:
+    /// borsh.
     Stream,
 }
 
@@ -102,8 +101,8 @@ pub(crate) enum Verdict<T> {
         /// The encoding's length in bytes.
         len: usize,
     },
-    /// The input encodes no value. A decoder may report any of these
-    /// classes, and the set is never empty.
+    /// The input encodes no value. A decoder may report any of these classes,
+    /// and the set is never empty.
     Reject(BTreeSet<Class>),
 }
 
@@ -118,8 +117,7 @@ impl<T> Verdict<T> {
 
 /// A reading position in an input, in bits from its first byte's high bit.
 ///
-/// Positions are `u64`, so a bit count never depends on the width of
-/// `usize`.
+/// Positions are `u64`, so a bit count never depends on the width of `usize`.
 struct Cursor<'a> {
     /// The whole input.
     bytes: &'a [u8],
@@ -169,8 +167,8 @@ impl<'a> Cursor<'a> {
         Some(uint_from_bits(&self.bits(count)?))
     }
 
-    /// Reads ones up to the first zero or the end of the input, and returns
-    /// how many it read, leaving the zero unread.
+    /// Reads ones up to the first zero or the end of the input, and returns how
+    /// many it read, leaving the zero unread.
     fn ones(&mut self) -> u64 {
         let start = self.at;
         while self.at < self.len() && self.bit_at(self.at) {
@@ -191,8 +189,7 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// The unsigned integer whose binary digits are `bits`, most significant
-/// first.
+/// The unsigned integer whose binary digits are `bits`, most significant first.
 fn uint_from_bits(bits: &[bool]) -> BigUint {
     let lead = (8 - bits.len() % 8) % 8;
     let aligned: Vec<bool> = iter::repeat_n(false, lead)
@@ -231,8 +228,8 @@ impl Slot {
         right: false,
     };
 
-    /// A branch's two child slots, right first, so a stack fills the left
-    /// one first.
+    /// A branch's two child slots, right first, so a stack fills the left one
+    /// first.
     fn children(self) -> [Slot; 2] {
         let depth = self.depth + 1;
         [
@@ -253,8 +250,8 @@ struct TreeRead<T> {
     /// Whether the leaves read hold a collapsible sibling pair or a negative
     /// height.
     non_canonical: bool,
-    /// The position after the tree's last live bit, or `None` if the input
-    /// ends inside the tree.
+    /// The position after the tree's last live bit, or `None` if the input ends
+    /// inside the tree.
     end: Option<u64>,
 }
 
@@ -268,8 +265,8 @@ impl<T: PartialEq> TreeRead<T> {
         }
     }
 
-    /// Places a leaf in `slot`, noting a collapsible pair: a right child
-    /// whose left sibling is a leaf of the same value.
+    /// Places a leaf in `slot`, noting a collapsible pair: a right child whose
+    /// left sibling is a leaf of the same value.
     ///
     /// The left sibling's subtree ends with the previous leaf, which lies at
     /// the slot's own depth exactly when that sibling is a single leaf.
@@ -284,8 +281,8 @@ impl<T: PartialEq> TreeRead<T> {
     }
 }
 
-/// Reads one version tree: preorder, a `0` for each branch and a `1` for
-/// each leaf followed by its Elias gamma code.
+/// Reads one version tree: preorder, a `0` for each branch and a `1` for each
+/// leaf followed by its Elias gamma code.
 ///
 /// The first leaf's code is its height plus one; each later leaf's is its
 /// zigzag-coded change from the previous height, plus one. A running height
@@ -348,19 +345,18 @@ fn read_party(cursor: &mut Cursor) -> TreeRead<bool> {
 struct Sealed<T> {
     /// The tree's leaves, left to right, each with its depth.
     leaves: Vec<(u64, T)>,
-    /// The byte after the field's padding, or `None` if the input ends
-    /// before the padding's byte.
+    /// The byte after the field's padding, or `None` if the input ends before
+    /// the padding's byte.
     next: Option<usize>,
 }
 
-/// Reads a marker-padded field that starts at byte `start`, adding its
-/// defects to `defects`, or returns `None` if the input ends inside its
-/// tree.
+/// Reads a marker-padded field that starts at byte `start`, adding its defects
+/// to `defects`, or returns `None` if the input ends inside its tree.
 ///
 /// The padding is a `1` marker after the tree's last live bit, then zeros to
-/// the byte boundary. A cleared marker or a set padding bit is
-/// `TrailingBits`; an input that ends before the padding's byte is
-/// `Truncated`, as `Decode::Truncated` documents.
+/// the byte boundary. A cleared marker or a set padding bit is `TrailingBits`;
+/// an input that ends before the padding's byte is `Truncated`, as
+/// `Decode::Truncated` documents.
 fn sealed<T: PartialEq>(
     bytes: &[u8],
     start: usize,
@@ -398,15 +394,15 @@ fn sealed<T: PartialEq>(
 
 // ───────────────────────────── ranks ─────────────────────────────
 
-/// Reads a rank stream from the input's start, as the `rank` module doc
-/// lays it out, adding its defects to `defects`.
+/// Reads a rank stream from the input's start, as the `rank` module doc lays it
+/// out, adding its defects to `defects`.
 ///
-/// Returns the normalized rank `(num, exp)` and the byte after the stream,
-/// or `None` if the input ends inside the stream. A header of
-/// [`RANK_HEADER_ONES`] ones or more declares a width that does not fit
-/// `u64`, which is non-canonical; such a header still says where the stream
-/// goes on, so reading continues, and an input that ends inside the declared
-/// mantissa is truncated as well.
+/// Returns the normalized rank `(num, exp)` and the byte after the stream, or
+/// `None` if the input ends inside the stream. A header of [`RANK_HEADER_ONES`]
+/// ones or more declares a width that does not fit `u64`, which is
+/// non-canonical; such a header still says where the stream goes on, so reading
+/// continues, and an input that ends inside the declared mantissa is truncated
+/// as well.
 fn rank_field(bytes: &[u8], defects: &mut BTreeSet<Class>) -> Option<((BigUint, u64), usize)> {
     let mut cursor = Cursor::at_byte(bytes, 0);
     let rank = read_rank(&mut cursor, defects);
@@ -423,8 +419,8 @@ fn rank_field(bytes: &[u8], defects: &mut BTreeSet<Class>) -> Option<((BigUint, 
     Some((rank, next))
 }
 
-/// Reads a rank stream through its closing bit, or returns `None` if the
-/// input ends first; see [`rank_field`].
+/// Reads a rank stream through its closing bit, or returns `None` if the input
+/// ends first; see [`rank_field`].
 ///
 /// The digits lose their trailing zeros, so the rank comes out normalized.
 fn read_rank(cursor: &mut Cursor, defects: &mut BTreeSet<Class>) -> Option<(BigUint, u64)> {
@@ -460,8 +456,8 @@ fn read_rank(cursor: &mut Cursor, defects: &mut BTreeSet<Class>) -> Option<(BigU
 
 // ───────────────────────────── verdicts ─────────────────────────────
 
-/// Adds the defect of bytes after a value's last field, which ends before
-/// byte `next`: trailing under [`Ending::Whole`], and the next field's under
+/// Adds the defect of bytes after a value's last field, which ends before byte
+/// `next`: trailing under [`Ending::Whole`], and the next field's under
 /// [`Ending::Stream`].
 fn check_trailing(defects: &mut BTreeSet<Class>, ending: Ending, bytes: &[u8], next: usize) {
     if ending == Ending::Whole && next < bytes.len() {
@@ -509,8 +505,7 @@ pub(crate) fn party(bytes: &[u8], ending: Ending) -> Verdict<Party> {
     conclude(defects, || Party::from_leaves(leaves), next)
 }
 
-/// The verdict on a rank encoding, whose value is the normalized
-/// `(num, exp)`.
+/// The verdict on a rank encoding, whose value is the normalized `(num, exp)`.
 pub(crate) fn rank(bytes: &[u8], ending: Ending) -> Verdict<(BigUint, u64)> {
     let mut defects = BTreeSet::new();
     let Some((rank, next)) = rank_field(bytes, &mut defects) else {
@@ -545,13 +540,13 @@ pub(crate) fn clock(bytes: &[u8], ending: Ending) -> Verdict<(Party, Version)> {
     )
 }
 
-/// The verdict on a span encoding: a lower endpoint, then an upper endpoint
-/// at or above it.
+/// The verdict on a span encoding: a lower endpoint, then an upper endpoint at
+/// or above it.
 ///
 /// `Span::decode` documents that structural errors take precedence over
 /// endpoint ordering, so endpoints out of order add
-/// [`NotCanonical`](Class::NotCanonical) only when no structural class
-/// applies. A non-canonical endpoint adds it in any case.
+/// [`NotCanonical`](Class::NotCanonical) only when no structural class applies.
+/// A non-canonical endpoint adds it in any case.
 pub(crate) fn span(bytes: &[u8], ending: Ending) -> Verdict<(Version, Version)> {
     let mut defects = BTreeSet::new();
     let Some(Sealed {

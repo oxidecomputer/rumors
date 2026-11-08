@@ -2,9 +2,8 @@
 //! [`Unknown`](crate::tree::traverse::unknown::Unknown) oracle, and with a
 //! leaf-by-leaf causal sieve that reads no subtree bounds.
 //!
-//! Combs judge descents mixed at every level, to thirty levels deep,
-//! against the leaves their construction places beyond the counterparty's
-//! version.
+//! Combs judge descents mixed at every level, to thirty levels deep, against
+//! the leaves their construction places beyond the counterparty's version.
 
 use std::collections::BTreeSet;
 use std::task::{Context, Poll};
@@ -62,14 +61,13 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
     (act(None, actions, &mut |_, _| ()), known)
 }
 
-/// Build a root of `flags.len()` sibling leaves under one 31-byte prefix,
-/// each on its own party, plus a `known` version that is the join of the
-/// leaf versions flagged `true`.
+/// Build a root of `flags.len()` sibling leaves under one 31-byte prefix, each
+/// on its own party, plus a `known` version that is the join of the leaf
+/// versions flagged `true`.
 ///
-/// The leaves are mutually concurrent, so with both flag values present
-/// the parent's span classifies as mixed and the prune descends to judge
-/// each leaf on its own: the one shape in which the leaf-height verdict
-/// decides.
+/// The leaves are mutually concurrent, so with both flag values present the
+/// parent's span classifies as mixed and the prune descends to judge each leaf
+/// on its own: the one shape in which the leaf-height verdict decides.
 fn sibling_tree_and_known(flags: &[bool]) -> (Option<typed::node::Root>, Version) {
     let mut actions: Vec<(Path, Version, Action)> = Vec::new();
     let mut known = Version::new();
@@ -88,8 +86,8 @@ fn sibling_tree_and_known(flags: &[bool]) -> (Option<typed::node::Root>, Version
     (act(None, actions, &mut |_, _| ()), known)
 }
 
-/// Prune an optional root through the single-node streaming filter, driving
-/// the future to completion with a trivial executor.
+/// Prune an optional root through the single-node streaming filter, driving the
+/// future to completion with a trivial executor.
 fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<typed::node::Root> {
     root.and_then(|node| {
         pollster::block_on(unknown::<Local>(
@@ -154,11 +152,11 @@ fn held(ceiling: &Version, node: Option<typed::node::Root>) -> BTreeSet<Vec<u8>>
         .collect()
 }
 
-/// The leaves of `root` that a counterparty at `known` lacks, each judged
-/// by the causal order of its own version alone.
+/// The leaves of `root` that a counterparty at `known` lacks, each judged by
+/// the causal order of its own version alone.
 ///
-/// The reconciliation docs say the subtree-wise prune is semantically
-/// identical to this sieve.
+/// The reconciliation docs say the subtree-wise prune is semantically identical
+/// to this sieve.
 fn sieve(root: &crate::tree::Root, known: &Version) -> BTreeSet<Vec<u8>> {
     Tree::<()>::from_root(NetworkKeys::fixture(), root.clone())
         .iter()
@@ -167,14 +165,13 @@ fn sieve(root: &crate::tree::Root, known: &Version) -> BTreeSet<Vec<u8>> {
         .collect()
 }
 
-/// The counterparty versions that stress the prune's case analysis on
-/// `roots`.
+/// The counterparty versions that stress the prune's case analysis on `roots`.
 ///
 /// They are every replica's ceiling and every pair's join, which dominate
-/// shared leaves and are concurrent with the other replicas' own; every
-/// leaf's version, which a subtree's floor or ceiling can equal exactly;
-/// the empty version, which dominates nothing; and a tick on a party no
-/// replica uses, concurrent with every leaf.
+/// shared leaves and are concurrent with the other replicas' own; every leaf's
+/// version, which a subtree's floor or ceiling can equal exactly; the empty
+/// version, which dominates nothing; and a tick on a party no replica uses,
+/// concurrent with every leaf.
 fn counterparty_versions(roots: &[crate::tree::Root]) -> Vec<Version> {
     let mut known = vec![Version::new()];
     let mut beside = Version::new();
@@ -269,29 +266,28 @@ proptest! {
 }
 
 /// The deepest comb [`a_deep_mixed_descent_keeps_what_the_counterparty_lacks`]
-/// prunes: one level short of the leaves' parents, so that every side
-/// subtree of every level can hold several leaves.
+/// prunes: one level short of the leaves' parents, so that every side subtree
+/// of every level can hold several leaves.
 const COMB_DEEPEST: usize = 30;
 
-/// The leaves each side subtree of a branching comb holds: the fewest the
-/// tree stores as a branch rather than as a compressed path to one leaf.
+/// The leaves each side subtree of a branching comb holds: the fewest the tree
+/// stores as a branch rather than as a compressed path to one leaf.
 const COMB_SIDE_LEAVES: usize = 2;
 
-/// A comb: a root whose all-zero path is mixed at each of its first
-/// `depth` levels, so the filter descends it that deep, beside full fans of
-/// side subtrees it settles whole.
+/// A comb: a root whose all-zero path is mixed at each of its first `depth`
+/// levels, so the filter descends it that deep, beside full fans of side
+/// subtrees it settles whole.
 ///
-/// At each level the node on the all-zero path holds the all-zero child,
-/// which continues the comb, beside one subtree for every other radix, each
-/// of `side` leaves, and the comb ends at the leaf on the all-zero path. One
-/// party stamps every leaf, so the versions are totally ordered: the leaves
-/// under odd radices come first, and the counterparty's version is the one
-/// that knows exactly them, so each subtree under an odd radix is wholly
-/// known to it and each under an even radix wholly unknown. Every node on
-/// the path holds both, so the filter must descend it, and no side subtree
-/// does, so it never descends one. Returns the root, its ceiling, the
-/// counterparty's version, and the canonical versions of the leaves it
-/// lacks.
+/// At each level the node on the all-zero path holds the all-zero child, which
+/// continues the comb, beside one subtree for every other radix, each of `side`
+/// leaves, and the comb ends at the leaf on the all-zero path. One party stamps
+/// every leaf, so the versions are totally ordered: the leaves under odd
+/// radices come first, and the counterparty's version is the one that knows
+/// exactly them, so each subtree under an odd radix is wholly known to it and
+/// each under an even radix wholly unknown. Every node on the path holds both,
+/// so the filter must descend it, and no side subtree does, so it never
+/// descends one. Returns the root, its ceiling, the counterparty's version, and
+/// the canonical versions of the leaves it lacks.
 fn comb(depth: usize, side: usize) -> (typed::node::Root, Version, Version, BTreeSet<Vec<u8>>) {
     let side_path = |level: usize, radix: u8, leaf: usize| {
         let mut path = [0; 32];
@@ -333,25 +329,24 @@ fn comb(depth: usize, side: usize) -> (typed::node::Root, Version, Version, BTre
 }
 
 /// A deep mixed descent keeps exactly the leaves its counterparty lacks,
-/// credits every other leaf as shed, and holds a full fan of children and
-/// of their survivors at every level it descends.
+/// credits every other leaf as shed, and holds a full fan of children and of
+/// their survivors at every level it descends.
 ///
-/// Every comb ([`comb`]) is mixed at each of its first `depth` levels, so
-/// the filter descends it that deep, recursing once per level, while it
-/// settles every side subtree from its version bounds alone. The test
-/// exhausts the depths from one to [`COMB_DEEPEST`], with side subtrees of
-/// one leaf, which the tree stores as compressed paths, and of
-/// [`COMB_SIDE_LEAVES`], which it stores as branches.
+/// Every comb ([`comb`]) is mixed at each of its first `depth` levels, so the
+/// filter descends it that deep, recursing once per level, while it settles
+/// every side subtree from its version bounds alone. The test exhausts the
+/// depths from one to [`COMB_DEEPEST`], with side subtrees of one leaf, which
+/// the tree stores as compressed paths, and of [`COMB_SIDE_LEAVES`], which it
+/// stores as branches.
 ///
-/// The filter holds each level's children and the group of their
-/// survivors until it reassembles the level, so at the deepest level of a
-/// descent it holds both for every level above, each vector a full fan's
-/// capacity. The peak heap of the prune must therefore reach both vectors
-/// per level of the descent, which the budget leaves out and which this
-/// floor shows grow with the descent's depth. No ceiling is asserted:
-/// test builds of the in-memory backend wrap each listing and reassembly
-/// in a schedule that allocates, so a ceiling measured here would bound
-/// that wrapper as much as the filter.
+/// The filter holds each level's children and the group of their survivors
+/// until it reassembles the level, so at the deepest level of a descent it
+/// holds both for every level above, each vector a full fan's capacity. The
+/// peak heap of the prune must therefore reach both vectors per level of the
+/// descent, which the budget leaves out and which this floor shows grow with
+/// the descent's depth. No ceiling is asserted: test builds of the in-memory
+/// backend wrap each listing and reassembly in a schedule that allocates, so a
+/// ceiling measured here would bound that wrapper as much as the filter.
 #[test]
 fn a_deep_mixed_descent_keeps_what_the_counterparty_lacks() {
     let per_level = FAN

@@ -43,19 +43,19 @@ mod tests;
 /// advancing a [`Version`] with [`tick`](Party::tick) or
 /// [`ticks`](Party::ticks).
 ///
-/// | Operation                                              | Meaning                                                                   |
-/// |--------------------------------------------------------|---------------------------------------------------------------------------|
-/// | [`Party::seed()`]                                      | create the initial [`Party`], which owns all of `[0, 1)`                  |
-/// | [`p.tick(v)`](Party::tick)                             | advance [`Version`] `v` for [`Party`] `p`                                |
-/// | [`p.ticks(v, k)`](Party::ticks)                        | advance `v` by `k` events for `p` in one pass                            |
-/// | [`p.fork()`](Party::fork)/[`p.forks(k)`](Party::forks) | fork off one disjoint child, or `k` balanced children                     |
-/// | [`p.join(q)`](Party::join)                             | reunite disjoint [`Party`]s; return `q` unchanged if they overlap         |
-/// | [`p.is_disjoint(&q)`](Party::is_disjoint)              | test whether the [`Party`]s share no identity region                      |
-/// | `p == q`                                               | test whether both values represent the same party                         |
+/// | Operation                                              | Meaning                                                           |
+/// |--------------------------------------------------------|-------------------------------------------------------------------|
+/// | [`Party::seed()`]                                      | create the initial [`Party`], which owns all of `[0, 1)`          |
+/// | [`p.tick(v)`](Party::tick)                             | advance [`Version`] `v` for [`Party`] `p`                         |
+/// | [`p.ticks(v, k)`](Party::ticks)                        | advance `v` by `k` events for `p` in one pass                     |
+/// | [`p.fork()`](Party::fork)/[`p.forks(k)`](Party::forks) | fork off one disjoint child, or `k` balanced children             |
+/// | [`p.join(q)`](Party::join)                             | reunite disjoint [`Party`]s; return `q` unchanged if they overlap |
+/// | [`p.is_disjoint(&q)`](Party::is_disjoint)              | test whether the [`Party`]s share no identity region              |
+/// | `p == q`                                               | test whether both values represent the same party                 |
 ///
 /// Parties are not ordered, and overlap has no meaningful ordering. Use
-/// [`Party::is_disjoint`] before operations that require separate
-/// identity shares; [`join`](Party::join) performs this check itself.
+/// [`Party::is_disjoint`] before operations that require separate identity
+/// shares; [`join`](Party::join) performs this check itself.
 ///
 /// [`Display`](core::fmt::Display) and [`FromStr`](core::str::FromStr) use the
 /// lowercase hexadecimal form of the canonical bytes. Parsing also accepts
@@ -140,8 +140,7 @@ impl Eq for Party {}
 /// Hashes exactly as its byte view, [`as_bytes`](Party::as_bytes), does.
 ///
 /// Under any hasher, a party and its canonical bytes feed the same data, so
-/// they hash equally. This is consistent with `Eq`, which compares those
-/// bytes.
+/// they hash equally. This is consistent with `Eq`, which compares those bytes.
 ///
 /// # Complexity
 ///
@@ -310,11 +309,11 @@ impl Party {
     /// [`Party`] produced here has size `O(|self| + log k)`: the balanced plan
     /// adds only `O(log k)` levels.
     ///
-    /// A [`Party`] is never empty, so `self` retains one residual share. It also
-    /// retains every share the iterator has not returned.
+    /// A [`Party`] is never empty, so `self` retains one residual share. It
+    /// also retains every share the iterator has not returned.
     ///
-    /// `k` may be a [`Count`] or any standard unsigned integer type.
-    /// Suffix integer literals to select an unsigned type, as in `3u64`.
+    /// `k` may be a [`Count`] or any standard unsigned integer type. Suffix
+    /// integer literals to select an unsigned type, as in `3u64`.
     ///
     /// To fork a [`Party`] into exactly `N` shares with no residual, see
     /// [`From<Party>`](Party) for `[Party; N]`.
@@ -419,11 +418,11 @@ impl Party {
 
     /// Tests whether `self` and `other` are *disjoint*.
     ///
-    /// All live descendants of a single [`Party::seed`], evolved by
-    /// linear [`fork`](Party::fork) and [`join`](Party::join), are pairwise
-    /// disjoint. The converse *does not hold*: just because two parties are
-    /// disjoint, it does not mean they descended from the same seed, or that
-    /// they evolved linearly!
+    /// All live descendants of a single [`Party::seed`], evolved by linear
+    /// [`fork`](Party::fork) and [`join`](Party::join), are pairwise disjoint.
+    /// The converse *does not hold*: just because two parties are disjoint, it
+    /// does not mean they descended from the same seed, or that they evolved
+    /// linearly!
     ///
     /// Disjoint [`Party`]s may always be [`join`](Party::join)ed without error.
     ///
@@ -486,8 +485,8 @@ impl Party {
     /// Returns `None` when `other` [`covers`](Party::covers) `self` and nothing
     /// remains. Otherwise, returns the remainder.
     ///
-    /// This is a partial inverse of [`join`](Party::join): where `join`
-    /// folds a disjoint share in, `without` cuts a share back out.
+    /// This is a partial inverse of [`join`](Party::join): where `join` folds a
+    /// disjoint share in, `without` cuts a share back out.
     ///
     /// # Complexity
     ///
@@ -527,8 +526,8 @@ impl Party {
     /// left to right.
     ///
     /// Each item describes one interval in the party's canonical dyadic
-    /// partition. Adjacent items may have the same ownership when the
-    /// canonical partition retains a boundary between them.
+    /// partition. Adjacent items may have the same ownership when the canonical
+    /// partition retains a boundary between them.
     ///
     /// # Complexity
     ///
@@ -642,9 +641,9 @@ impl Party {
         writer.write_all(self.as_bytes())
     }
 
-    /// The exact length in bits of [`encode`](Self::encode) before its
-    /// padding (the marker bit and zero-pad to the byte boundary), so
-    /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
+    /// The exact length in bits of [`encode`](Self::encode) before its padding
+    /// (the marker bit and zero-pad to the byte boundary), so `encode().len()`
+    /// is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// This method is available under the `meter` feature for exact
     /// representation measurements. Applications ordinarily want
@@ -675,8 +674,8 @@ impl Party {
     /// # Warning
     ///
     /// Decoding can recreate a party that is still live elsewhere, bypassing
-    /// its `!Clone` linearity. Treat transfer through bytes as a move: never let
-    /// the source and decoded party participate in the same system.
+    /// its `!Clone` linearity. Treat transfer through bytes as a move: never
+    /// let the source and decoded party participate in the same system.
     ///
     /// # Errors
     ///

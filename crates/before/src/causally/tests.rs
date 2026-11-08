@@ -11,8 +11,8 @@ use std::sync::LazyLock;
 
 mod census;
 
-/// The organic witness set: a three-step chain on one party, a
-/// concurrent line on a second, and their join.
+/// The organic witness set: a three-step chain on one party, a concurrent line
+/// on a second, and their join.
 struct Witnesses {
     bottom: Version,
     a1: Version,
@@ -45,12 +45,12 @@ fn witnesses() -> Witnesses {
 ///
 /// The grid is not the whole interval from the empty version to its top: that
 /// interval also holds canonical versions off the grid, such as one in which
-/// one party's identity, split in two, has ticked twice on one half and once
-/// on the other. A census over the grid still decides coverage exactly for
-/// queries anchored on it, because the grid holds a witness for every verdict
-/// a segment between grid versions supports;
-/// `grid_census_agrees_with_a_finer_pool` checks that premise against every
-/// version the segments cover, up to the clauses' verdicts.
+/// one party's identity, split in two, has ticked twice on one half and once on
+/// the other. A census over the grid still decides coverage exactly for queries
+/// anchored on it, because the grid holds a witness for every verdict a segment
+/// between grid versions supports; `grid_census_agrees_with_a_finer_pool`
+/// checks that premise against every version the segments cover, up to the
+/// clauses' verdicts.
 fn two_party_grid() -> Vec<Version> {
     let mut alice = Clock::seed();
     let mut bob = alice.fork();
@@ -90,8 +90,8 @@ fn selected<T>(grid: &[T], index: usize) -> &T {
 /// Versions use production's causal order. Height vectors use the pointwise
 /// order, which equals the causal order on the versions they describe and
 /// shares no code with production: the finer-pool tests read the heights of
-/// versions constant on each cell of one shared partition, and the census
-/// tests read height vectors off the flat model.
+/// versions constant on each cell of one shared partition, and the census tests
+/// read height vectors off the flat model.
 trait CausalOrder {
     /// Whether `self` lies at or below `other`.
     fn le(&self, other: &Self) -> bool;
@@ -111,8 +111,8 @@ impl CausalOrder for Version {
     }
 }
 
-/// The pointwise order on height vectors over one partition, which equals
-/// the causal order of the versions they describe.
+/// The pointwise order on height vectors over one partition, which equals the
+/// causal order of the versions they describe.
 impl CausalOrder for Heights {
     fn le(&self, other: &Self) -> bool {
         Heights::le(self, other)
@@ -123,15 +123,15 @@ impl CausalOrder for Heights {
     }
 }
 
-/// Whether bit `k` of `sides` puts the `k`th conjoined item on the left of
-/// the conjunction so far, rather than on its right.
+/// Whether bit `k` of `sides` puts the `k`th conjoined item on the left of the
+/// conjunction so far, rather than on its right.
 fn on_left(sides: u64, k: usize) -> bool {
     sides >> (k % 64) & 1 == 1
 }
 
 /// The bit of `sides` that makes [`down_query`] and [`up_query`] conjoin their
-/// bounds as one neutral query instead of one atom at a time, so the typed
-/// `&` between a neutral query and a polar one occurs.
+/// bounds as one neutral query instead of one atom at a time, so the typed `&`
+/// between a neutral query and a polar one occurs.
 ///
 /// The polar fold reads bits from zero upward, one per later form and per
 /// bound, so it reaches this bit and [`NEUTRAL_BLOCK_SIDE`] only for
@@ -189,8 +189,8 @@ impl BoundClause {
         }
     }
 
-    /// Conjoins this bound in front of an upward-polar query, the operand
-    /// order [`Self::add_to_up`] reverses.
+    /// Conjoins this bound in front of an upward-polar query, the operand order
+    /// [`Self::add_to_up`] reverses.
     fn prepend_to_up<'a>(&self, query: Query<'a, Up>, grid: &'a [Version]) -> Query<'a, Up> {
         match *self {
             Self::After(at) => after(selected(grid, at)) & query,
@@ -206,8 +206,8 @@ impl BoundClause {
         }
     }
 
-    /// Conjoins this bound with another as atoms, `self & other`, without
-    /// first lifting either into a query.
+    /// Conjoins this bound with another as atoms, `self & other`, without first
+    /// lifting either into a query.
     fn conjoin_atoms<'a>(&self, other: &Self, grid: &'a [Version]) -> Query<'a> {
         let at = |index| selected(grid, index);
         match (self, other) {
@@ -243,8 +243,8 @@ fn bound_clause_among(anchors: Range<usize>) -> impl Strategy<Value = BoundClaus
 
 /// One public downward-polar query form.
 ///
-/// `Since` and `NotBefore` denote one predicate in its two public
-/// spellings, `since(v)` and `!before(v)`.
+/// `Since` and `NotBefore` denote one predicate in its two public spellings,
+/// `since(v)` and `!before(v)`.
 #[derive(Clone, Debug)]
 enum DownClause {
     Since(usize),
@@ -353,8 +353,8 @@ fn up_clause() -> impl Strategy<Value = UpClause> {
     up_clause_among(0..9)
 }
 
-/// Generates every public upward-polar query form, anchored at the pool
-/// indices `anchors` draws.
+/// Generates every public upward-polar query form, anchored at the pool indices
+/// `anchors` draws.
 fn up_clause_among(anchors: Range<usize>) -> impl Strategy<Value = UpClause> {
     prop_oneof![
         anchors.clone().prop_map(UpClause::Until),
@@ -368,8 +368,7 @@ fn up_clause_among(anchors: Range<usize>) -> impl Strategy<Value = UpClause> {
 /// Classifies a segment by the admission verdicts of the versions it covers:
 /// `Full` when all admit, `Empty` when none do, and `Partial` otherwise.
 ///
-/// The verdicts must include the segment's endpoints, so they are never
-/// empty.
+/// The verdicts must include the segment's endpoints, so they are never empty.
 fn coverage_of(mut admitted: impl Iterator<Item = bool>) -> Coverage {
     let first = admitted
         .next()
@@ -385,9 +384,8 @@ fn coverage_of(mut admitted: impl Iterator<Item = bool>) -> Coverage {
     }
 }
 
-/// The census coverage of the segment from `lo` to `hi`: the admission
-/// verdicts of exactly the pool's versions inside it, classified by
-/// [`coverage_of`].
+/// The census coverage of the segment from `lo` to `hi`: the admission verdicts
+/// of exactly the pool's versions inside it, classified by [`coverage_of`].
 ///
 /// The census equals the exact coverage only when the pool holds a witness for
 /// each verdict the whole segment supports: an admitted version whenever any
@@ -446,8 +444,8 @@ fn assert_denotes<P: Polarity>(
 /// Builds a neutral conjunction from public inclusive bounds, starting from
 /// `all()`.
 ///
-/// Bound `k` joins the conjunction on the side [`on_left`] reads from bit
-/// `k` of `sides`, so both operand orders of each typed `&` occur.
+/// Bound `k` joins the conjunction on the side [`on_left`] reads from bit `k`
+/// of `sides`, so both operand orders of each typed `&` occur.
 fn neutral_query<'a>(bounds: &[BoundClause], sides: u64, versions: &'a [Version]) -> Query<'a> {
     bounds.iter().enumerate().fold(all(), |query, (k, bound)| {
         if on_left(sides, k) {
@@ -654,9 +652,9 @@ fn rendered_holes<P: Polarity>(q: &Query<'_, P>) -> usize {
     format!("{q:?}").matches('!').count()
 }
 
-/// Every atom, negation, widening, and strict form keeps exactly its
-/// advertised relation on an organic witness set: the point verdicts
-/// the quantified laws sweep, pinned here against named versions.
+/// Every atom, negation, widening, and strict form keeps exactly its advertised
+/// relation on an organic witness set: the point verdicts the quantified laws
+/// sweep, pinned here against named versions.
 #[test]
 fn forms_keep_their_relations() {
     let w = witnesses();
@@ -702,11 +700,10 @@ fn forms_keep_their_relations() {
 
 /// Conjunction normalizes to the collapse laws.
 ///
-/// Elementary bounds join and meet, comparable holes absorb, holes
-/// the merged bounds avoid are pruned, and strictness dissolves
-/// across concurrent bounds, because the join sits strictly above
-/// both. The hole census is read through the `Debug` window, the
-/// module's one structural surface.
+/// Elementary bounds join and meet, comparable holes absorb, holes the merged
+/// bounds avoid are pruned, and strictness dissolves across concurrent bounds,
+/// because the join sits strictly above both. The hole census is read through
+/// the `Debug` window, the module's one structural surface.
 #[test]
 fn conjunction_normalizes() {
     let w = witnesses();
@@ -745,9 +742,9 @@ fn conjunction_normalizes() {
     assert!(!antichain.contains(&w.b1));
 }
 
-/// Coverage's three verdicts on an organic witness matrix: full,
-/// empty (by floor, by ceiling, and by hole), and genuinely mixed,
-/// with the coincident span degenerating to membership.
+/// Coverage's three verdicts on an organic witness matrix: full, empty (by
+/// floor, by ceiling, and by hole), and genuinely mixed, with the coincident
+/// span degenerating to membership.
 #[test]
 fn coverage_witness_matrix() {
     let w = witnesses();
@@ -796,12 +793,10 @@ fn coverage_witness_matrix() {
     }
 }
 
-/// The clamp refinement decides emptiness the endpoint folds alone
-/// cannot see.
+/// The clamp refinement decides emptiness the endpoint folds alone cannot see.
 ///
-/// A crossed clamp (floor and ceiling each straddling the segment but
-/// jointly empty) and a hole holding the clamped top both read
-/// `Empty`, exactly.
+/// A crossed clamp (floor and ceiling each straddling the segment but jointly
+/// empty) and a hole holding the clamped top both read `Empty`, exactly.
 #[test]
 fn coverage_clamp_refinement_is_exact() {
     let mut alice = Clock::seed();
@@ -925,9 +920,9 @@ fn coverage_is_exact_on_the_two_party_grid() {
     /// segment holds `off_grid`, its soundness at that version. `Partial`
     /// promises nothing about any one version.
     ///
-    /// The census counts membership over the grid versions the segment
-    /// covers. It is the exact coverage because the grid holds a witness for
-    /// every verdict these queries can produce, a premise
+    /// The census counts membership over the grid versions the segment covers.
+    /// It is the exact coverage because the grid holds a witness for every
+    /// verdict these queries can produce, a premise
     /// `grid_census_agrees_with_a_finer_pool` checks over the same clause
     /// forms.
     fn check<P: Polarity>(q: &Query<'_, P>, span: &Span<'_>, grid: &[Version], off_grid: &Version) {
@@ -980,8 +975,8 @@ fn coverage_is_exact_on_the_two_party_grid() {
 }
 
 /// The boolean cube: the sixteen versions whose four quarter cells each hold
-/// height 0 or 1, indexed so that bit `c` of a version's index is its height
-/// on cell `c`.
+/// height 0 or 1, indexed so that bit `c` of a version's index is its height on
+/// cell `c`.
 fn boolean_cube() -> Vec<Version> {
     cell_heights(4, 1)
         .iter()
@@ -989,8 +984,8 @@ fn boolean_cube() -> Vec<Version> {
         .collect()
 }
 
-/// One clause of the cube's query family: an inclusive bound, or a form of
-/// one polarity.
+/// One clause of the cube's query family: an inclusive bound, or a form of one
+/// polarity.
 #[derive(Clone, Debug)]
 enum CubeClause {
     Bound(BoundClause),
@@ -1010,8 +1005,7 @@ impl CubeClause {
 }
 
 /// Every clause the cube's family conjoins: each inclusive bound, and each
-/// strict, negated, and widened form of either polarity, at every cube
-/// version.
+/// strict, negated, and widened form of either polarity, at every cube version.
 ///
 /// The two-anchor forms, `delta` and `toward`, stay out: their pairs would
 /// multiply the family by sixteen, and the two-party grid tests cover them.
@@ -1032,8 +1026,8 @@ fn cube_clauses() -> Vec<CubeClause> {
         .collect()
 }
 
-/// One query of the cube's family: a clause alone, or two clauses conjoined
-/// in order, as indices into [`cube_clauses`].
+/// One query of the cube's family: a clause alone, or two clauses conjoined in
+/// order, as indices into [`cube_clauses`].
 #[derive(Clone, Copy, Debug)]
 struct CubeQuery {
     first: usize,
@@ -1073,8 +1067,8 @@ fn cube_queries(clauses: &[CubeClause]) -> Vec<CubeQuery> {
     singles.chain(pairs).collect()
 }
 
-/// Each clause's verdict on each pool member, with the clauses anchored at
-/// the cube's members.
+/// Each clause's verdict on each pool member, with the clauses anchored at the
+/// cube's members.
 fn admission_table<T: CausalOrder>(
     clauses: &[CubeClause],
     cube: &[T],
@@ -1131,8 +1125,8 @@ fn cube_verdicts(
     }
 }
 
-/// The valid segments of the cube, as `(lo, hi)` index pairs with `lo`'s
-/// cells a subset of `hi`'s.
+/// The valid segments of the cube, as `(lo, hi)` index pairs with `lo`'s cells
+/// a subset of `hi`'s.
 fn cube_segments() -> Vec<(usize, usize)> {
     (0..16)
         .flat_map(|lo| (0..16).map(move |hi| (lo, hi)))
@@ -1143,10 +1137,10 @@ fn cube_segments() -> Vec<(usize, usize)> {
 /// Coverage is exact over the boolean cube.
 ///
 /// The cube holds the sixteen versions whose four quarter cells each have
-/// height 0 or 1, so its widest antichain has six versions, where the
-/// two-party grid's has three. For every cube version, every one of the 81
-/// segments between cube versions, and every query of the cube's family, the
-/// test checks two things:
+/// height 0 or 1, so its widest antichain has six versions, where the two-party
+/// grid's has three. For every cube version, every one of the 81 segments
+/// between cube versions, and every query of the cube's family, the test checks
+/// two things:
 ///
 /// - membership agrees with the conjunction of the clauses' relations;
 /// - `Full`, `Partial`, and `Empty` each hold exactly when the census over the
@@ -1157,8 +1151,8 @@ fn cube_segments() -> Vec<(usize, usize)> {
 /// from both sides.
 ///
 /// The census is exact because every clause admits an up-closed or a
-/// down-closed set and the cube is a sublattice: a segment's verdict is
-/// decided by its endpoints and by the clauses' anchors clamped into it,
+/// down-closed set and the cube is a sublattice: a segment's verdict is decided
+/// by its endpoints and by the clauses' anchors clamped into it,
 /// `(lo | anchor) & hi`, and the cube holds every such clamp. The test first
 /// checks that production orders, joins, and meets the cube as the boolean
 /// lattice on its cells, and `cube_census_agrees_with_a_finer_pool` checks the
@@ -1221,34 +1215,34 @@ fn lifted(heights: &[u64]) -> Heights {
     )
 }
 
-/// The indices of the members of `pool` that lie between `lo` and `hi` in
-/// the pointwise order.
+/// The indices of the members of `pool` that lie between `lo` and `hi` in the
+/// pointwise order.
 fn members_between(pool: &[Heights], lo: &Heights, hi: &Heights) -> Vec<usize> {
     (0..pool.len())
         .filter(|&m| lo.le(&pool[m]) && pool[m].le(hi))
         .collect()
 }
 
-/// A pool of versions constant on each cell of one partition, read on its
-/// cells halved, beside the *finer pool*: every height vector on the halved
-/// cells with heights up to the pool's largest.
+/// A pool of versions constant on each cell of one partition, read on its cells
+/// halved, beside the *finer pool*: every height vector on the halved cells
+/// with heights up to the pool's largest.
 ///
 /// The finer pool realizes every verdict that a version covered by a segment
-/// between pool versions can receive from a conjunction of clauses anchored
-/// at pool versions. Each clause compares a probe with an anchor constant on
-/// every cell of the partition, and `p <= a` holds exactly when `p`'s maximum
-/// on each cell is at most `a`'s height there, `a <= p` exactly when `p`'s
-/// minimum is at least it; the strict forms and equality combine the two. So
-/// a conjunction's verdict depends only on the probe's minimum and maximum on
+/// between pool versions can receive from a conjunction of clauses anchored at
+/// pool versions. Each clause compares a probe with an anchor constant on every
+/// cell of the partition, and `p <= a` holds exactly when `p`'s maximum on each
+/// cell is at most `a`'s height there, `a <= p` exactly when `p`'s minimum is
+/// at least it; the strict forms and equality combine the two. So a
+/// conjunction's verdict depends only on the probe's minimum and maximum on
 /// each cell. A version inside a segment takes integer heights between the
 /// endpoints' on each cell, and the finer pool holds every combination of
 /// heights on the halves, so the two halves of each cell realize every such
 /// pair of a minimum and a maximum, on all cells at once.
 ///
-/// That is: a census over a segment agrees with the count over the finer
-/// pool's members inside it exactly when the census is exact on the segment.
-/// The finer-pool tests judge membership by the clauses' relations in the
-/// pointwise order on height vectors, so no production code takes part.
+/// That is: a census over a segment agrees with the count over the finer pool's
+/// members inside it exactly when the census is exact on the segment. The
+/// finer-pool tests judge membership by the clauses' relations in the pointwise
+/// order on height vectors, so no production code takes part.
 struct FinerPool {
     /// Each pool version's heights on the halved cells, in pool order.
     lifted: Vec<Heights>,
@@ -1271,9 +1265,9 @@ struct Segment {
 }
 
 impl FinerPool {
-    /// Reads a pool given as each version's heights on the partition's
-    /// cells, and lists every segment between two of its versions, bottom
-    /// index outermost.
+    /// Reads a pool given as each version's heights on the partition's cells,
+    /// and lists every segment between two of its versions, bottom index
+    /// outermost.
     ///
     /// # Panics
     ///
@@ -1315,11 +1309,11 @@ impl FinerPool {
 /// The cube holds a witness for every coverage verdict its query family
 /// produces.
 ///
-/// A segment between cube versions also covers versions outside the cube,
-/// such as one ticked on a single eighth of the unit interval. For every
-/// query of the cube's family and every segment between cube versions, the
-/// census over the cube must agree with the count over its [`FinerPool`]:
-/// the 256 height vectors holding 0 or 1 on each eighth.
+/// A segment between cube versions also covers versions outside the cube, such
+/// as one ticked on a single eighth of the unit interval. For every query of
+/// the cube's family and every segment between cube versions, the census over
+/// the cube must agree with the count over its [`FinerPool`]: the 256 height
+/// vectors holding 0 or 1 on each eighth.
 #[test]
 fn cube_census_agrees_with_a_finer_pool() {
     let FinerPool {
@@ -1354,9 +1348,8 @@ fn cube_census_agrees_with_a_finer_pool() {
 /// The two-party grid read on quarters beside its [`FinerPool`], built once
 /// because every case reads the same pools.
 ///
-/// The grid's heights are listed index for index with [`two_party_grid`]:
-/// each party owns one half, so its height fills both of that half's
-/// quarters.
+/// The grid's heights are listed index for index with [`two_party_grid`]: each
+/// party owns one half, so its height fills both of that half's quarters.
 static GRID_IN_FINER_POOL: LazyLock<FinerPool> = LazyLock::new(|| {
     let grid: Vec<Vec<u64>> = (0..=2u64)
         .flat_map(|a| (0..=2u64).map(move |b| vec![a, b]))
@@ -1410,9 +1403,9 @@ proptest! {
     }
 }
 
-/// A degenerate hole, one nothing can fall into, rides through
-/// inert: it subtracts nothing on every path, and no corner-case
-/// machinery exists (or is needed) to strip it.
+/// A degenerate hole, one nothing can fall into, rides through inert: it
+/// subtracts nothing on every path, and no corner-case machinery exists (or is
+/// needed) to strip it.
 #[test]
 fn degenerate_holes_are_inert() {
     let w = witnesses();
@@ -1432,10 +1425,9 @@ fn degenerate_holes_are_inert() {
     assert!(s.contains(&w.b1));
 }
 
-/// The conversions denote what they claim: a span converts to its
-/// segment's query, a version to the singleton admitting exactly
-/// itself, and `into_owned` preserves behavior while erasing the
-/// borrows.
+/// The conversions denote what they claim: a span converts to its segment's
+/// query, a version to the singleton admitting exactly itself, and `into_owned`
+/// preserves behavior while erasing the borrows.
 #[test]
 fn conversions_denote() {
     let w = witnesses();
@@ -1463,8 +1455,8 @@ fn conversions_denote() {
     assert!(!owned.contains(&w.b1));
 }
 
-/// `Debug` renders the expression vocabulary (the module's one
-/// structural window), with holes as the negated atoms they equal.
+/// `Debug` renders the expression vocabulary (the module's one structural
+/// window), with holes as the negated atoms they equal.
 #[test]
 fn debug_renders_expressions() {
     let w = witnesses();

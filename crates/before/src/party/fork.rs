@@ -9,9 +9,9 @@
 //! Repeated fork choices can be applied in one descent: the walk copies each
 //! shared one-child chain and consumes a choice only where ownership divides.
 //! Removing the resulting share instead takes a spatial path, with one
-//! direction for every tree level, including those one-child chains. Both
-//! walks avoid building intermediate parties; removal retains compact ancestor
-//! state to rebuild the remainder.
+//! direction for every tree level, including those one-child chains. Both walks
+//! avoid building intermediate parties; removal retains compact ancestor state
+//! to rebuild the remainder.
 
 mod remove;
 

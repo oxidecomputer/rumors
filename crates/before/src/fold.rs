@@ -67,8 +67,8 @@ pub(crate) fn balanced_try_fold<T>(
 /// discarded.
 ///
 /// Success means `receiver` and the inputs were pairwise disjoint: the fold
-/// tests every pair of inputs within one group, and the absorb tests each
-/// group against `receiver`, which by then holds every earlier group.
+/// tests every pair of inputs within one group, and the absorb tests each group
+/// against `receiver`, which by then holds every earlier group.
 ///
 /// # Errors
 ///
@@ -85,20 +85,20 @@ pub(crate) fn join_all<T>(
     absorb_groups(receiver, groups, join)
 }
 
-/// Folds `iter` into at most `O(log k)` groups, `k` the input count, by
-/// joining pairs of groups with `join`, the first step of [`join_all`].
+/// Folds `iter` into at most `O(log k)` groups, `k` the input count, by joining
+/// pairs of groups with `join`, the first step of [`join_all`].
 ///
-/// `join` has [`join_all`]'s contract. The fold runs on
-/// [`balanced_try_fold`], so a group forms only when `join` finds two smaller
-/// groups disjoint, and each group is therefore the union of
-/// pairwise-disjoint inputs. The groups may overlap one another: the counter
-/// joins only groups that represent equally many inputs, and the groups it
-/// returns each represent a different count, so it never tests any two of
-/// them against each other. [`absorb_groups`] tests that.
+/// `join` has [`join_all`]'s contract. The fold runs on [`balanced_try_fold`],
+/// so a group forms only when `join` finds two smaller groups disjoint, and
+/// each group is therefore the union of pairwise-disjoint inputs. The groups
+/// may overlap one another: the counter joins only groups that represent
+/// equally many inputs, and the groups it returns each represent a different
+/// count, so it never tests any two of them against each other.
+/// [`absorb_groups`] tests that.
 ///
 /// The fold reads no receiver. A caller that must join into a copy of its
-/// receiver can therefore make the copy after the fold returns, keeping it
-/// out of the fold's peak heap.
+/// receiver can therefore make the copy after the fold returns, keeping it out
+/// of the fold's peak heap.
 ///
 /// # Errors
 ///

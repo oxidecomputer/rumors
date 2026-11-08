@@ -3,9 +3,9 @@
 //!
 //! Each step runs natively first (denominator, expected return), then in the
 //! guest (fuel). Any disagreement — return code, or the end-of-program
-//! byte-compare of every live register — panics: with a deterministic guest
-//! the disagreement is a harness bug or a genuine wasm-vs-native divergence,
-//! and both must stop the run loudly.
+//! byte-compare of every live register — panics: with a deterministic guest the
+//! disagreement is a harness bug or a genuine wasm-vs-native divergence, and
+//! both must stop the run loudly.
 
 use proptest::strategy::{Strategy, ValueTree};
 use proptest::test_runner::TestRunner;
@@ -14,15 +14,15 @@ use crate::ops::{Malformed, Mirror, Op};
 use crate::strategies::{any_family, build, Family, BOOTSTRAP_MAX_ROUNDS, BOOTSTRAP_PROGRAMS};
 use crate::wasm::Guest;
 
-/// One measured step: the band key (kernel × outcome), the denominated
-/// size, and the fuel.
+/// One measured step: the band key (kernel × outcome), the denominated size,
+/// and the fuel.
 #[derive(Debug, Clone, Copy)]
 pub struct Sample {
     /// The kernel name (with `rejected`, the band key).
     pub kernel: &'static str,
     /// Whether the step's outcome is an operation rejection (the mirror's
-    /// prediction, asserted against the guest): rejection arms are priced
-    /// as their own bands.
+    /// prediction, asserted against the guest): rejection arms are priced as
+    /// their own bands.
     pub rejected: bool,
     /// The step's denominated size in bits.
     pub denom_bits: u64,
@@ -35,8 +35,8 @@ pub struct Sample {
 /// # Panics
 ///
 /// Panics when the guest's return code or any live register's final bytes
-/// disagree with the mirror (a differential failure), or when a kernel
-/// traps. Returns `Err` only for malformed programs (generator bugs).
+/// disagree with the mirror (a differential failure), or when a kernel traps.
+/// Returns `Err` only for malformed programs (generator bugs).
 pub fn run_program(program: &[Op]) -> Result<Vec<Sample>, Malformed> {
     let mut mirror = Mirror::new();
     let mut guest = Guest::new();
@@ -94,16 +94,16 @@ pub fn run_program(program: &[Op]) -> Result<Vec<Sample>, Malformed> {
 ///
 /// The family stream comes from proptest's deterministic runner and each
 /// program's seed is its case index, so any two consumers observe
-/// byte-identical samples for the same `programs` count. The calibration
-/// sweep pins bands from this stream; the enforcement suite's staleness
-/// cross-check refits a prefix of it, and the two agree exactly because
-/// they are the same stream.
+/// byte-identical samples for the same `programs` count. The calibration sweep
+/// pins bands from this stream; the enforcement suite's staleness cross-check
+/// refits a prefix of it, and the two agree exactly because they are the same
+/// stream.
 ///
 /// # Panics
 ///
-/// Propagates [`run_program`]'s differential panics; a malformed program
-/// (a generator bug) also panics, since the deterministic stream is the
-/// corpus both consumers read and must be entirely runnable.
+/// Propagates [`run_program`]'s differential panics; a malformed program (a
+/// generator bug) also panics, since the deterministic stream is the corpus
+/// both consumers read and must be entirely runnable.
 pub fn for_each_deterministic_program(
     programs: usize,
     mut visit: impl FnMut(usize, &Family, &[Sample]),
@@ -124,21 +124,20 @@ pub fn for_each_deterministic_program(
 
 /// Drive the deterministic small-operand corpus.
 ///
-/// The corpus is [`BOOTSTRAP_PROGRAMS`] programs of
-/// [`Family::Bootstrap`], rounds cycling `1..=BOOTSTRAP_MAX_ROUNDS` and
-/// each program's seed its case index, so any two consumers observe
-/// byte-identical samples.
+/// The corpus is [`BOOTSTRAP_PROGRAMS`] programs of [`Family::Bootstrap`],
+/// rounds cycling `1..=BOOTSTRAP_MAX_ROUNDS` and each program's seed its case
+/// index, so any two consumers observe byte-identical samples.
 ///
-/// The calibration sweep derives the small-operand bands from this
-/// stream (pooled with the main corpus's own sub-floor samples); the
-/// enforcement suite replays the same stream and judges it, and the two
-/// agree exactly because they are the same stream.
+/// The calibration sweep derives the small-operand bands from this stream
+/// (pooled with the main corpus's own sub-floor samples); the enforcement suite
+/// replays the same stream and judges it, and the two agree exactly because
+/// they are the same stream.
 ///
 /// # Panics
 ///
-/// Propagates [`run_program`]'s differential panics; a malformed program
-/// (a generator bug) also panics, since this corpus is a calibration
-/// input and must be entirely runnable.
+/// Propagates [`run_program`]'s differential panics; a malformed program (a
+/// generator bug) also panics, since this corpus is a calibration input and
+/// must be entirely runnable.
 pub fn for_each_bootstrap_program(mut visit: impl FnMut(usize, &[Sample])) {
     for case in 0..BOOTSTRAP_PROGRAMS {
         let rounds = (case as u32 % BOOTSTRAP_MAX_ROUNDS) + 1;

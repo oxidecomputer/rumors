@@ -21,11 +21,11 @@ use super::Integrator;
 /// Every implementor's `sigma` must be monotone over `Less`, `Equal`,
 /// `Greater`, so that when `D` changes sign the correction
 /// `(sigma' - sigma) * D'` that [`Integrator::jump`] adds is never negative.
-/// The trait is private to the measures, and a test checks every sign change
-/// of each implementor it lists; a new implementor joins that list.
+/// The trait is private to the measures, and a test checks every sign change of
+/// each implementor it lists; a new implementor joins that list.
 pub trait Integrand {
-    /// Return `sigma`, the coefficient this integrand applies to a
-    /// difference of sign `sign`.
+    /// Return `sigma`, the coefficient this integrand applies to a difference
+    /// of sign `sign`.
     fn sigma(sign: Ordering) -> i8;
 }
 
@@ -65,8 +65,8 @@ impl Integrand for Signed {
 }
 
 /// Return the side from which a delta of `side` folds into an integrand of
-/// coefficient `sigma`: `side` itself when `sigma` is positive, the other
-/// side when it is negative, and none when it is zero.
+/// coefficient `sigma`: `side` itself when `sigma` is positive, the other side
+/// when it is negative, and none when it is zero.
 fn oriented(side: Side, sigma: i8) -> Option<Side> {
     match sigma.cmp(&0) {
         Ordering::Greater => Some(side),
@@ -75,7 +75,8 @@ fn oriented(side: Side, sigma: i8) -> Option<Side> {
     }
 }
 
-/// Drive the integral from two Versions while retaining their running height difference.
+/// Drive the integral from two Versions while retaining their running height
+/// difference.
 impl Integrator {
     /// Integrate a nonnegative function of the pointwise height difference.
     pub fn pair_rank<I: Integrand>(a: &Version, b: &Version) -> Rank {

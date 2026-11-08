@@ -2,14 +2,14 @@
 //! redaction honored, cursor resume and portability), checkpoint semantics,
 //! termination, and non-interference with the actor handles.
 //!
-//! (The `Snapshot::range` differential proptest lives with the walk
-//! machinery in `src/tree/tests.rs`.)
+//! (The `Snapshot::range` differential proptest lives with the walk machinery
+//! in `src/tree/tests.rs`.)
 //!
 //! The observer is pull-based, so "the listener is parked" is simply "the
 //! caller has not asked": these tests drive observers step-by-step with
-//! `now_or_never`, distinguishing an *item*, a *quiet* observer (pending:
-//! no change to report, actors still live), and an *ended* one (no further
-//! change possible, complete final state already yielded).
+//! `now_or_never`, distinguishing an *item*, a *quiet* observer (pending: no
+//! change to report, actors still live), and an *ended* one (no further change
+//! possible, complete final state already yielded).
 
 use rumors_testkit::common;
 
@@ -434,27 +434,26 @@ divided_proptest! {
 /// The network of [`folding_delivered_versions_can_lose_a_message`]'s
 /// counterexample.
 ///
-/// Chosen as the first seed, counting up from zero, under which that
-/// test's search finds a later version sorting first within its sends;
-/// the search's own `expect` checks that it still does.
+/// Chosen as the first seed, counting up from zero, under which that test's
+/// search finds a later version sorting first within its sends; the search's
+/// own `expect` checks that it still does.
 const COUNTEREXAMPLE_NETWORK: NetworkSeed = NetworkSeed::new(0);
 
-/// (negative control): folding *delivered* versions is not a sound
-/// resume point.
+/// (negative control): folding *delivered* versions is not a sound resume
+/// point.
 ///
-/// Delivery is in path order (the version's keyed hash), not causal
-/// order, so a stopped
-/// pass can have delivered a later version but not the earliest one; the
-/// fold then causally contains the earliest, and resuming from it skips
+/// Delivery is in path order (the version's keyed hash), not causal order, so a
+/// stopped pass can have delivered a later version but not the earliest one;
+/// the fold then causally contains the earliest, and resuming from it skips
 /// that message forever — loss, not re-delivery.
 /// `UnorderedMessages::checkpoint()` (the last *completed* pass's frontier)
-/// re-delivers instead, which is why the API exposes the pass checkpoint
-/// and not a per-item fold.
+/// re-delivers instead, which is why the API exposes the pass checkpoint and
+/// not a per-item fold.
 ///
-/// This is an existence proof: it exhibits one counterexample, under the
-/// one network seed [`COUNTEREXAMPLE_NETWORK`], not a property of every
-/// network. Under another seed the earliest message's path can sort first
-/// through every send the search makes, and that network shows nothing.
+/// This is an existence proof: it exhibits one counterexample, under the one
+/// network seed [`COUNTEREXAMPLE_NETWORK`], not a property of every network.
+/// Under another seed the earliest message's path can sort first through every
+/// send the search makes, and that network shows nothing.
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
     // The counterexample shape: a later-created message is delivered

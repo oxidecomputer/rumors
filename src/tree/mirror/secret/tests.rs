@@ -2,9 +2,9 @@
 //! suite and bindings, and the typed defect or transport error each failure
 //! maps to.
 //!
-//! What HPKE itself guarantees (confidentiality, integrity, binding to the
-//! key pair, and the public-key validation its deserialization makes) is the
-//! `hpke` crate's to test, not this module's.
+//! What HPKE itself guarantees (confidentiality, integrity, binding to the key
+//! pair, and the public-key validation its deserialization makes) is the `hpke`
+//! crate's to test, not this module's.
 
 use hpke::{
     Deserializable, Kem as _, OpModeR, OpModeS, Serializable, aead::AesGcm256, kdf::HkdfSha256,
@@ -54,8 +54,8 @@ fn fixed_secret() -> NetworkSecret {
 /// HPKE's `info` as the module documents it: the label `"rumors bootstrap
 /// network secret"`, then protocol version 2 as a big-endian `u64`.
 ///
-/// Both parts are spelled out as literals, so that a change to either in
-/// the module is one these tests disagree with.
+/// Both parts are spelled out as literals, so that a change to either in the
+/// module is one these tests disagree with.
 fn documented_info() -> Vec<u8> {
     [
         b"rumors bootstrap network secret".as_slice(),
@@ -164,9 +164,9 @@ proptest! {
     }
 }
 
-/// A key item whose opening has any one byte altered is a malformed key
-/// item, and one carrying the all-zero string, which encodes no public key,
-/// is an invalid key in the key item.
+/// A key item whose opening has any one byte altered is a malformed key item,
+/// and one carrying the all-zero string, which encodes no public key, is an
+/// invalid key in the key item.
 #[test]
 fn malformed_and_invalid_key_items_are_typed_defects() {
     for altered in with_one_prefix_byte_altered(Joining::new().item()) {
@@ -183,9 +183,9 @@ fn malformed_and_invalid_key_items_are_typed_defects() {
     );
 }
 
-/// A sealed item whose opening has any one byte altered is a malformed
-/// sealed item, and one whose encapsulated key is the all-zero string is an
-/// invalid key in the sealed item.
+/// A sealed item whose opening has any one byte altered is a malformed sealed
+/// item, and one whose encapsulated key is the all-zero string is an invalid
+/// key in the sealed item.
 ///
 /// A sealed item that does not open, here by a flipped bit in its
 /// authentication tag, is unauthentic.
@@ -217,9 +217,9 @@ fn malformed_invalid_and_unauthentic_sealed_items_are_typed_defects() {
     );
 }
 
-/// The identifier check still runs after the seal opens: a provider that
-/// seals one network's secret while declaring another fails as
-/// `WrongNetwork`, naming both identifiers.
+/// The identifier check still runs after the seal opens: a provider that seals
+/// one network's secret while declaring another fails as `WrongNetwork`, naming
+/// both identifiers.
 #[test]
 fn a_secret_of_another_network_fails_the_identifier_check() {
     let sealed = NetworkSecret::from_bytes([1; NETWORK_BYTES]);
@@ -238,12 +238,11 @@ fn a_secret_of_another_network_fails_the_identifier_check() {
     assert_eq!(received, sealed.network());
 }
 
-/// A stream that ends anywhere inside the sealed item is a transport
-/// truncation of the read in the identity-transfer phase, never a decode or
-/// a hang.
+/// A stream that ends anywhere inside the sealed item is a transport truncation
+/// of the read in the identity-transfer phase, never a decode or a hang.
 ///
-/// The preamble exchange reads the key item, and its tests cover that
-/// item's truncation.
+/// The preamble exchange reads the key item, and its tests cover that item's
+/// truncation.
 #[test]
 fn a_truncated_sealed_item_is_a_transport_truncation() {
     let secret = fixed_secret();
@@ -269,9 +268,9 @@ fn a_truncated_sealed_item_is_a_transport_truncation() {
     }
 }
 
-/// A write that fails while the provider sends the sealed item is a
-/// transport error of the write in the identity-transfer phase, carrying
-/// the writer's error.
+/// A write that fails while the provider sends the sealed item is a transport
+/// error of the write in the identity-transfer phase, carrying the writer's
+/// error.
 #[test]
 fn a_failed_send_is_a_transport_write_error() {
     let secret = fixed_secret();
@@ -296,11 +295,11 @@ fn a_failed_send_is_a_transport_write_error() {
     );
 }
 
-/// The joiner opens by the documented suite and bindings: a sealed item
-/// built by calling the `hpke` crate directly opens to the sealed secret.
+/// The joiner opens by the documented suite and bindings: a sealed item built
+/// by calling the `hpke` crate directly opens to the sealed secret.
 ///
-/// The item is sealed under the documented suite, with the documented
-/// `info` and the declared network as associated data.
+/// The item is sealed under the documented suite, with the documented `info`
+/// and the declared network as associated data.
 #[test]
 fn a_joiner_opens_a_seal_built_by_the_documented_bindings() {
     let secret = fixed_secret();
@@ -329,12 +328,11 @@ fn a_joiner_opens_a_seal_built_by_the_documented_bindings() {
     assert!(opened == secret);
 }
 
-/// The provider seals by the documented suite and bindings: its sealed
-/// item opens, by calling the `hpke` crate directly, to the secret it
-/// sealed.
+/// The provider seals by the documented suite and bindings: its sealed item
+/// opens, by calling the `hpke` crate directly, to the secret it sealed.
 ///
-/// The item is opened under the documented suite, with the documented
-/// `info` and the declared network as associated data.
+/// The item is opened under the documented suite, with the documented `info`
+/// and the declared network as associated data.
 #[test]
 fn a_providers_seal_opens_by_the_documented_bindings() {
     let secret = fixed_secret();

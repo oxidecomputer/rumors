@@ -1,16 +1,16 @@
 //! The accumulator's two representations and the boundary between them.
 //!
-//! Small values live directly in an `i128`. Once an operation needs more
-//! range, the value moves into redundant signed digits. It stays there until
-//! cleared, even if cancellation later makes the value small again. This
-//! one-way transition prevents an alternating workload from repeatedly paying
-//! to convert the same value. An owned operator that reuses its other
-//! operand's storage returns that operand's representation instead.
+//! Small values live directly in an `i128`. Once an operation needs more range,
+//! the value moves into redundant signed digits. It stays there until cleared,
+//! even if cancellation later makes the value small again. This one-way
+//! transition prevents an alternating workload from repeatedly paying to
+//! convert the same value. An owned operator that reuses its other operand's
+//! storage returns that operand's representation instead.
 //!
 //! Every update to the wide representation passes through
 //! [`Digits`](digits::Digits). That single write boundary maintains the digit
-//! bounds and the record of written positions that later comparisons with
-//! zero need to skip untouched zeros.
+//! bounds and the record of written positions that later comparisons with zero
+//! need to skip untouched zeros.
 //!
 //! [`Accumulator`] holds its [`Value`] in a `RefCell`, so that reads, which
 //! compact what they touch, can take `&self`.
@@ -48,13 +48,13 @@ const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 ///
 /// Every read compacts the cancellation it touches, so no later operation pays
 /// for it again. A read can therefore change the stored form, and with it the
-/// bound that [`stored_bits`](Self::stored_bits) reports, but never the
-/// value. Reads take `&self`: the stored form lives in a [`RefCell`]. As a
-/// result an accumulator is [`Send`] but not [`Sync`].
+/// bound that [`stored_bits`](Self::stored_bits) reports, but never the value.
+/// Reads take `&self`: the stored form lives in a [`RefCell`]. As a result an
+/// accumulator is [`Send`] but not [`Sync`].
 ///
 /// Cloning normalizes the source in place first, so a copy starts with no
-/// deferred cancellation and costs the value's own width, whatever
-/// cancellation the source holds.
+/// deferred cancellation and costs the value's own width, whatever cancellation
+/// the source holds.
 ///
 /// ```compile_fail
 /// fn shared<T: Sync>(_: &T) {}
@@ -62,16 +62,16 @@ const DIGIT_MASK: u64 = (1 << DIGIT_BITS) - 1;
 /// ```
 ///
 /// See the [crate documentation](crate) for operation costs and input guidance.
-/// `Default` creates zero without allocating. [`clear`](Self::clear) sets
-/// the value to zero and keeps its storage for reuse.
+/// `Default` creates zero without allocating. [`clear`](Self::clear) sets the
+/// value to zero and keeps its storage for reuse.
 pub struct Accumulator {
     /// The value, in a cell so that reads through `&self` can compact it.
     ///
-    /// Only [`read`](Self::read) and [`peek`](Self::peek) borrow the cell,
-    /// each for one call of a closure that runs `Value` code, so no borrow
-    /// outlives its call or is held while another accumulator method or
-    /// caller code runs. An operation on two accumulators nests their borrows
-    /// only after it has checked that they differ.
+    /// Only [`read`](Self::read) and [`peek`](Self::peek) borrow the cell, each
+    /// for one call of a closure that runs `Value` code, so no borrow outlives
+    /// its call or is held while another accumulator method or caller code
+    /// runs. An operation on two accumulators nests their borrows only after it
+    /// has checked that they differ.
     value: RefCell<Value>,
 }
 
@@ -98,10 +98,9 @@ pub struct Accumulator {
 ///
 /// # Complexity
 ///
-/// The cost of a magnitude read, amortized O(1 + `Q`) time, plus O(`Q`) for
-/// the copy, where `Q` is the value's width.
-/// [`clone_from`](Clone::clone_from) reuses the receiver's allocation when it
-/// suffices.
+/// The cost of a magnitude read, amortized O(1 + `Q`) time, plus O(`Q`) for the
+/// copy, where `Q` is the value's width. [`clone_from`](Clone::clone_from)
+/// reuses the receiver's allocation when it suffices.
 impl Clone for Accumulator {
     fn clone(&self) -> Self {
         let mut copy = Value::new();
@@ -152,8 +151,8 @@ impl Accumulator {
 
     /// Add little-endian 64-bit limbs multiplied by `2^shift`.
     ///
-    /// The stream is consumed directly, without a normalized or shifted copy
-    /// of the operand. An empty stream changes nothing. High zero limbs are
+    /// The stream is consumed directly, without a normalized or shifted copy of
+    /// the operand. An empty stream changes nothing. High zero limbs are
     /// permitted, but every yielded limb counts toward `L` in the cost below.
     ///
     /// # Complexity
@@ -165,8 +164,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if the limbs are nonzero and the result needs more storage than
-    /// a buffer can address. Zero limbs never panic.
+    /// Panics if the limbs are nonzero and the result needs more storage than a
+    /// buffer can address. Zero limbs never panic.
     pub fn add_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
         self.value
             .get_mut()
@@ -175,8 +174,8 @@ impl Accumulator {
 
     /// Subtract little-endian 64-bit limbs multiplied by `2^shift`.
     ///
-    /// The stream is consumed directly, without a normalized or shifted copy
-    /// of the operand. An empty stream changes nothing. High zero limbs are
+    /// The stream is consumed directly, without a normalized or shifted copy of
+    /// the operand. An empty stream changes nothing. High zero limbs are
     /// permitted, but every yielded limb counts toward `L` in the cost below.
     ///
     /// # Complexity
@@ -188,8 +187,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if the limbs are nonzero and the result needs more storage than
-    /// a buffer can address. Zero limbs never panic.
+    /// Panics if the limbs are nonzero and the result needs more storage than a
+    /// buffer can address. Zero limbs never panic.
     pub fn sub_shifted_limbs<I: IntoIterator<Item = u64>>(&mut self, shift: u64, limbs: I) {
         self.value
             .get_mut()
@@ -200,8 +199,8 @@ impl Accumulator {
     ///
     /// The operand is read directly, without first shifting it into another
     /// accumulator. The read may compact `other`'s stored form, never its
-    /// value. The receiver is borrowed mutably, so `other` is
-    /// always a different accumulator:
+    /// value. The receiver is borrowed mutably, so `other` is always a
+    /// different accumulator:
     ///
     /// ```compile_fail
     /// let mut total = suanpan::Accumulator::from(3);
@@ -212,8 +211,8 @@ impl Accumulator {
     ///
     /// Amortized O(1 + `n`) time for an operand `n` limbs wide, plus one
     /// logarithm of the storage width at a nonzero shift, as the [cost
-    /// rules](crate#costs) state; growing the storage to a new width costs
-    /// that width, once. Growing it may briefly hold both the old and the new
+    /// rules](crate#costs) state; growing the storage to a new width costs that
+    /// width, once. Growing it may briefly hold both the old and the new
     /// allocation. A zero operand grows no storage at any shift.
     ///
     /// # Panics
@@ -229,8 +228,8 @@ impl Accumulator {
     ///
     /// The operand is read directly, without first shifting it into another
     /// accumulator. The read may compact `other`'s stored form, never its
-    /// value. The receiver is borrowed mutably, so `other` is
-    /// always a different accumulator:
+    /// value. The receiver is borrowed mutably, so `other` is always a
+    /// different accumulator:
     ///
     /// ```compile_fail
     /// let mut total = suanpan::Accumulator::from(3);
@@ -241,8 +240,8 @@ impl Accumulator {
     ///
     /// Amortized O(1 + `n`) time for an operand `n` limbs wide, plus one
     /// logarithm of the storage width at a nonzero shift, as the [cost
-    /// rules](crate#costs) state; growing the storage to a new width costs
-    /// that width, once. Growing it may briefly hold both the old and the new
+    /// rules](crate#costs) state; growing the storage to a new width costs that
+    /// width, once. Growing it may briefly hold both the old and the new
     /// allocation. A zero operand grows no storage at any shift.
     ///
     /// # Panics
@@ -257,11 +256,11 @@ impl Accumulator {
     /// Set the value to zero, keeping the storage, as `Vec::clear` keeps a
     /// vector's capacity.
     ///
-    /// The storage keeps its width, so growing the value back to a width it
-    /// has reached costs nothing more. Replacing the accumulator with
+    /// The storage keeps its width, so growing the value back to a width it has
+    /// reached costs nothing more. Replacing the accumulator with
     /// [`new`](Self::new) releases the storage instead, and the replacement's
-    /// first update at a large shift grows storage from bit zero again.
-    /// Reusing one accumulator through `clear` pays for that growth once.
+    /// first update at a large shift grows storage from bit zero again. Reusing
+    /// one accumulator through `clear` pays for that growth once.
     ///
     /// ```
     /// use suanpan::Accumulator;
@@ -285,20 +284,19 @@ impl Accumulator {
         self.value.get_mut().clear();
     }
 
-    /// Reserve allocation for values up to `bits` bits wide, if the request
-    /// can be honored.
+    /// Reserve allocation for values up to `bits` bits wide, if the request can
+    /// be honored.
     ///
     /// This allocation hint does not change the value, and the reservation may
     /// round the request up. Reserving the expected width avoids repeated
-    /// reallocation and its transient memory use; the storage width still
-    /// grows only as updates write higher bits.
-    /// [`clear`](Self::clear) retains the reservation; a nontrivial
-    /// `<<=` may release it.
+    /// reallocation and its transient memory use; the storage width still grows
+    /// only as updates write higher bits. [`clear`](Self::clear) retains the
+    /// reservation; a nontrivial `<<=` may release it.
     ///
-    /// A request that cannot be honored, because it is too large to address
-    /// or because the allocator refuses it, is ignored: the call returns
-    /// normally and keeps the existing allocation, and later updates grow
-    /// storage as they would without the hint.
+    /// A request that cannot be honored, because it is too large to address or
+    /// because the allocator refuses it, is ignored: the call returns normally
+    /// and keeps the existing allocation, and later updates grow storage as
+    /// they would without the hint.
     ///
     /// ```
     /// use suanpan::Accumulator;
@@ -365,16 +363,15 @@ impl Accumulator {
         self.sign() == Ordering::Less
     }
 
-    /// Return the order of `self` against `other`, and the magnitude of
-    /// their difference.
+    /// Return the order of `self` against `other`, and the magnitude of their
+    /// difference.
     ///
     /// Like the primitive integers' `abs_diff`, the second element is
-    /// `|self − other|`; the first says which operand was larger, so the
-    /// signed difference is recoverable. The comparison and the subtraction
-    /// are one pass: the wider operand's storage receives the narrower one,
-    /// and the result's sign decides the order. Comparing first and then
-    /// subtracting would read the operands twice, or subtract into a
-    /// temporary.
+    /// `|self − other|`; the first says which operand was larger, so the signed
+    /// difference is recoverable. The comparison and the subtraction are one
+    /// pass: the wider operand's storage receives the narrower one, and the
+    /// result's sign decides the order. Comparing first and then subtracting
+    /// would read the operands twice, or subtract into a temporary.
     ///
     /// ```
     /// use core::cmp::Ordering;
@@ -387,10 +384,10 @@ impl Accumulator {
     ///
     /// # Complexity
     ///
-    /// Amortized O(1 + `n`) time, where `n` is the narrower operand's width
-    /// in limbs, since of two owned operands only the narrower is read. When
-    /// the wider operand is the smaller value, the result is negated in
-    /// place, which costs O(1). The result keeps the wider operand's storage.
+    /// Amortized O(1 + `n`) time, where `n` is the narrower operand's width in
+    /// limbs, since of two owned operands only the narrower is read. When the
+    /// wider operand is the smaller value, the result is negated in place,
+    /// which costs O(1). The result keeps the wider operand's storage.
     pub fn abs_diff(self, other: Accumulator) -> (Ordering, Accumulator) {
         let (mut wide, narrow, swapped) = if self.reads_other(&other) {
             (self, other, false)
@@ -413,18 +410,17 @@ impl Accumulator {
     /// The result is exact and is always `Less` or `Greater`.
     ///
     /// To compare against another accumulator, pass its working-width bound
-    /// from [`stored_bits`](Self::stored_bits). For example, a
-    /// `Some(Greater)` result guarantees that both adding and subtracting the
-    /// other accumulator leave this value positive. Comparing two accumulators
-    /// with `<` or [`cmp`](Ord::cmp) uses this query to avoid reading the
-    /// narrower one when the widths differ greatly.
+    /// from [`stored_bits`](Self::stored_bits). For example, a `Some(Greater)`
+    /// result guarantees that both adding and subtracting the other accumulator
+    /// leave this value positive. Comparing two accumulators with `<` or
+    /// [`cmp`](Ord::cmp) uses this query to avoid reading the narrower one when
+    /// the widths differ greatly.
     ///
     /// `None` makes no claim about the answer: the smaller operand may or may
     /// not change it. The scan nevertheless compacts what it reads. When `bits`
     /// comes from another accumulator's [`stored_bits`](Self::stored_bits), a
     /// `None` result leaves this accumulator's
-    /// [`stored_bits`](Self::stored_bits) at most 64 bits above that
-    /// operand's.
+    /// [`stored_bits`](Self::stored_bits) at most 64 bits above that operand's.
     ///
     /// ```
     /// use core::cmp::Ordering;
@@ -469,17 +465,17 @@ impl Accumulator {
         self.peek(Value::is_known_zero)
     }
 
-    /// Return whether `other` is the operand to read of `self` and `other`:
-    /// the narrower value, within two digits, and `other` on a tie.
+    /// Return whether `other` is the operand to read of `self` and `other`: the
+    /// narrower value, within two digits, and `other` on a tie.
     ///
     /// Comparing with zero compacts a cancelled top and only lowers a working
     /// width, so only the operand of greater working width, `self` on a tie,
     /// can change the choice. We compact that operand, and compact the other
     /// too only if the first compaction hands it the greater working width.
-    /// Then the operand read has a value width at most its working width,
-    /// which is at most the compacted operand's, which lies within two digits
-    /// of that operand's value width. A small value, whose working width is
-    /// exact, is never scanned.
+    /// Then the operand read has a value width at most its working width, which
+    /// is at most the compacted operand's, which lies within two digits of that
+    /// operand's value width. A small value, whose working width is exact, is
+    /// never scanned.
     fn reads_other(&self, other: &Accumulator) -> bool {
         let (mut self_compacted, mut other_compacted) = (false, false);
         loop {
@@ -513,9 +509,8 @@ impl Accumulator {
     /// `2^(stored_bits() + 2)`. The bound can far exceed the value's width
     /// after cancellation, until a read compacts the stored form to within 64
     /// bits of that width. Its granularity is unspecified. It is not the
-    /// storage width of the [cost rules](crate#costs), which only rises: a
-    /// read can lower the working width, and leaves the storage width as it
-    /// is.
+    /// storage width of the [cost rules](crate#costs), which only rises: a read
+    /// can lower the working width, and leaves the storage width as it is.
     ///
     /// # Complexity
     ///
@@ -527,10 +522,10 @@ impl Accumulator {
 
     /// Return the comparison with zero and the magnitude's [`Limbs`].
     ///
-    /// The limbs are minimal and empty exactly when the comparison is
-    /// `Equal`. The read keeps the normalized form it computes, which holds
-    /// the same value in the value's own width, so a repeated read costs only
-    /// the result's width.
+    /// The limbs are minimal and empty exactly when the comparison is `Equal`.
+    /// The read keeps the normalized form it computes, which holds the same
+    /// value in the value's own width, so a repeated read costs only the
+    /// result's width.
     ///
     /// # Complexity
     ///

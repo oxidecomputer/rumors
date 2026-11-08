@@ -11,9 +11,9 @@
 //! - The innermost positive boundary, when it is wide, stays *live*: its
 //!   accumulator waits outside the columns until another positive boundary
 //!   covers it.
-//! - A covered boundary whose working width is at most
-//!   [`INLINE_BOUNDARY_BITS`] is *copied*: its limbs enter the packed column,
-//!   and a pop rebuilds an accumulator from them.
+//! - A covered boundary whose working width is at most [`INLINE_BOUNDARY_BITS`]
+//!   is *copied*: its limbs enter the packed column, and a pop rebuilds an
+//!   accumulator from them.
 //! - A wider covered boundary moves *whole*: its accumulator goes onto a
 //!   vector, unread.
 //!
@@ -41,12 +41,12 @@ use super::boundary::Boundary;
 /// The widest working width, in bits, at which a covered wide boundary is
 /// copied into packed storage instead of moving whole.
 ///
-/// Any fixed bound keeps a copy's cost constant; this one sets how many bits
-/// a whole boundary holds at least, against its accumulator's fixed size.
+/// Any fixed bound keeps a copy's cost constant; this one sets how many bits a
+/// whole boundary holds at least, against its accumulator's fixed size.
 ///
 /// The bound compares working width, and a value is below `2^(w + 2)` for a
-/// working width of `w` bits, so a copied boundary can be up to two bits
-/// wider than the bound and take five limbs.
+/// working width of `w` bits, so a copied boundary can be up to two bits wider
+/// than the bound and take five limbs.
 pub const INLINE_BOUNDARY_BITS: u64 = 256;
 
 /// One logical record, starting with the innermost boundary when popped.
@@ -60,8 +60,7 @@ pub(super) enum Entry {
 /// Synchronized storage columns for zero runs and positive boundaries.
 ///
 /// The records form one stack: the columns hold the older records, then the
-/// live wide boundary if there is one, then the top zero run if it is
-/// nonzero.
+/// live wide boundary if there is one, then the top zero run if it is nonzero.
 pub(super) struct Boundaries {
     /// Whether each stored record is positive rather than an equal-minimum run.
     positive: BitStack,
@@ -134,7 +133,8 @@ impl Boundaries {
         }
     }
 
-    /// Copy a positive value's limbs, least significant first, then their count.
+    /// Copy a positive value's limbs, least significant first, then their
+    /// count.
     fn push_copied(&mut self, value: Accumulator) {
         let (_, magnitude) = value.signed_magnitude();
         for &limb in magnitude.as_ref() {

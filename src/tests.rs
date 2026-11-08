@@ -1,8 +1,8 @@
 //! Crate-level tests that need private internals.
 //!
 //! These cover party ownership across joining and leaving, failure at exact
-//! retirement wire boundaries, protocol rejection through a peer session,
-//! the network secret's delivery and redaction, and root-hash metering.
+//! retirement wire boundaries, protocol rejection through a peer session, the
+//! network secret's delivery and redaction, and root-hash metering.
 
 use std::sync::Arc;
 
@@ -40,8 +40,8 @@ fn party_of<B: Bookmark>(k: &Peer<u64, B>) -> Party {
     k.inner.borrow().party.dangerously_alias()
 }
 
-/// Drive `child.retire` against `survivor.gossip` over a memory connection, asserting
-/// the child retired, and return the (party-grown) survivor.
+/// Drive `child.retire` against `survivor.gossip` over a memory connection,
+/// asserting the child retired, and return the (party-grown) survivor.
 fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
     pollster::block_on(async {
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
@@ -268,8 +268,8 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     crate::tree::mirror::streaming::remote::codec::greeting::encode_greeting(&greeting).len()
 }
 
-/// The wire length of `retiree`'s trailing party frame, so a write budget
-/// can land on an exact protocol boundary.
+/// The wire length of `retiree`'s trailing party frame, so a write budget can
+/// land on an exact protocol boundary.
 fn party_frame_len(retiree: &Peer<u64>) -> usize {
     // The hand-off is the party-atom tag wrapping a byte string of the
     // canonical party encoding.
@@ -281,8 +281,8 @@ fn party_frame_len(retiree: &Peer<u64>) -> usize {
 /// Drive `retiree.retire` against `peer.gossip` over a connection whose
 /// retiree-side write half takes `budget` bytes, then fails every write.
 ///
-/// That severs the connection at that point of the retiree's outgoing
-/// bytes, whatever item the next byte belongs to.
+/// That severs the connection at that point of the retiree's outgoing bytes,
+/// whatever item the next byte belongs to.
 ///
 /// Each side's halves are owned by its future, so the failing side's drop
 /// surfaces as end-of-stream to the other rather than deadlocking the join.
@@ -463,8 +463,8 @@ fn joined_party<R, W>(joined: crate::Joined<u64, R, W>) -> Option<Party> {
     }
 }
 
-/// One bootstrap from a fresh peer of `network` holding three messages, over
-/// a connection whose joiner-side halves fail as `fault` says.
+/// One bootstrap from a fresh peer of `network` holding three messages, over a
+/// connection whose joiner-side halves fail as `fault` says.
 ///
 /// Returns the provider after its session, the joiner's party if the join
 /// returned a peer, and the joiner's transport report: how many of the
@@ -553,8 +553,8 @@ divided_proptest! {
     }
 }
 
-/// A session deadline that expires on its `expires_at`-th poll, counting
-/// every poll in `polls`.
+/// A session deadline that expires on its `expires_at`-th poll, counting every
+/// poll in `polls`.
 ///
 /// A session polls its deadline only after the session itself returns
 /// `Pending`, so the deadline's polls count the session's suspensions, and
@@ -600,8 +600,8 @@ fn expire_at_poll(
     }
 }
 
-/// What one cancelled bootstrap left on each side, and how often each
-/// side's session suspended.
+/// What one cancelled bootstrap left on each side, and how often each side's
+/// session suspended.
 struct Cancelled {
     /// The provider's party after its session.
     provider: Party,
@@ -610,19 +610,19 @@ struct Cancelled {
     provider_failed_in: Option<crate::error::Phase>,
     /// The joiner's party, if the join returned a peer.
     joiner: Option<Party>,
-    /// Whether the join returned a peer whose session then failed, so that
-    /// its provider never confirmed completion.
+    /// Whether the join returned a peer whose session then failed, so that its
+    /// provider never confirmed completion.
     connection_lost: bool,
     /// Suspensions of the joiner's session, then of the provider's.
     suspensions: [usize; 2],
 }
 
-/// One bootstrap from a fresh peer of `network` holding three messages,
-/// whose joiner's session is cancelled at its `joiner_at`-th suspension and
-/// whose provider's at its `provider_at`-th (`usize::MAX` for never).
+/// One bootstrap from a fresh peer of `network` holding three messages, whose
+/// joiner's session is cancelled at its `joiner_at`-th suspension and whose
+/// provider's at its `provider_at`-th (`usize::MAX` for never).
 ///
-/// Each side owns its halves, so a cancelled side's drop reaches the other
-/// as end of stream rather than leaving it waiting.
+/// Each side owns its halves, so a cancelled side's drop reaches the other as
+/// end of stream rather than leaving it waiting.
 fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usize) -> Cancelled {
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
     let provider = with_messages(
@@ -725,8 +725,8 @@ divided_proptest! {
 
 /// What one cancelled retirement returned to the retiree.
 enum RetireOutcome {
-    /// The retiree left with its connection reusable: the absorber
-    /// confirmed the retirement.
+    /// The retiree left with its connection reusable: the absorber confirmed
+    /// the retirement.
     Confirmed,
     /// The retirement failed before the handoff began, returning the peer.
     Recovered(Peer<u64>),
@@ -735,8 +735,8 @@ enum RetireOutcome {
     Lost,
 }
 
-/// What one cancelled retirement left on each side, and how often each
-/// side's session suspended.
+/// What one cancelled retirement left on each side, and how often each side's
+/// session suspended.
 struct CancelledRetire {
     /// The absorber, after its session.
     absorber: Peer<u64>,
@@ -748,14 +748,14 @@ struct CancelledRetire {
     suspensions: [usize; 2],
 }
 
-/// Retire a peer joined from a fresh peer of `network` into the peer it
-/// joined from, cancelling the retiree's session at its `retiree_at`-th
-/// suspension and the absorber's at its `absorber_at`-th.
+/// Retire a peer joined from a fresh peer of `network` into the peer it joined
+/// from, cancelling the retiree's session at its `retiree_at`-th suspension and
+/// the absorber's at its `absorber_at`-th.
 ///
 /// `usize::MAX` cancels never. Each side holds messages the other lacks.
 ///
-/// Each side owns its halves, so a cancelled side's drop reaches the other
-/// as end of stream rather than leaving it waiting.
+/// Each side owns its halves, so a cancelled side's drop reaches the other as
+/// end of stream rather than leaving it waiting.
 fn cancelled_retire(
     network: NetworkSeed,
     retiree_at: usize,
@@ -882,15 +882,15 @@ enum GossipSide {
 }
 
 /// Gossip between a fresh peer of `network` and a peer joined from it,
-/// cancelling the first's session at its `a_at`-th suspension and the
-/// second's at its `b_at`-th.
+/// cancelling the first's session at its `a_at`-th suspension and the second's
+/// at its `b_at`-th.
 ///
-/// `usize::MAX` cancels never. Each side holds messages the other lacks,
-/// and the first has redacted a message both held.
+/// `usize::MAX` cancels never. Each side holds messages the other lacks, and
+/// the first has redacted a message both held.
 ///
-/// Checks that each side ends holding its own set or the reconciled one,
-/// and that with the deadlines lifted the two then converge on the
-/// reconciled set. Returns each side's outcome and suspensions.
+/// Checks that each side ends holding its own set or the reconciled one, and
+/// that with the deadlines lifted the two then converge on the reconciled set.
+/// Returns each side's outcome and suspensions.
 fn cancelled_gossip(
     network: NetworkSeed,
     a_at: usize,
@@ -1174,8 +1174,8 @@ divided_proptest! {
 
 // ---- the network secret --------------------------------------------------
 
-/// Every item observed across a peer's sessions, in observation order, with
-/// its stream and direction.
+/// Every item observed across a peer's sessions, in observation order, with its
+/// stream and direction.
 #[derive(Default)]
 struct ObservedItems(std::sync::Mutex<Vec<(StreamId, Direction, Vec<u8>)>>);
 
@@ -1217,8 +1217,8 @@ impl StreamObserver for RecordStream {
     }
 }
 
-/// Every rendering of `secret`'s bytes a log line could carry: lowercase
-/// and uppercase hex, and Rust's array `Debug` form.
+/// Every rendering of `secret`'s bytes a log line could carry: lowercase and
+/// uppercase hex, and Rust's array `Debug` form.
 fn renderings(secret: &NetworkSecret) -> [String; 3] {
     let bytes = secret.as_bytes();
     [

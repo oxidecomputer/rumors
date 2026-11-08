@@ -3,27 +3,27 @@
 //! [`HeightReferences`] keeps recent height changes in one live accumulator
 //! `L`. Freezing moves `L` into a new *reference*: the height `F_j`, measured
 //! from the first leaf's height, that the leaves had reached when it froze. A
-//! leaf is then recorded as an offset from the newest reference, and a
-//! subtree minimum keeps that offset until it is settled.
+//! leaf is then recorded as an offset from the newest reference, and a subtree
+//! minimum keeps that offset until it is settled.
 //!
 //! # Two jobs, two rules
 //!
-//! Freezing serves two purposes that want opposite schedules. A stored
-//! offset should be narrow, which wants eager freezes; each freeze creates a
-//! reference to retain, which wants rare ones. This module separates them.
+//! Freezing serves two purposes that want opposite schedules. A stored offset
+//! should be narrow, which wants eager freezes; each freeze creates a reference
+//! to retain, which wants rare ones. This module separates them.
 //!
 //! - The *record trigger* in [`HeightReferences::add_leaf`] freezes whenever
 //!   `L` is wider than the change that reached the leaf by more than
-//!   [`RECORD_SLACK_BITS`]. Every stored offset is therefore at most that
-//!   many bits wider than its own leaf's encoded change. When `L`'s working
-//!   width alone exceeds the change by more than [`UNREAD_FREEZE_BITS`], its
-//!   value is certainly too wide, and it freezes without being read.
+//!   [`RECORD_SLACK_BITS`]. Every stored offset is therefore at most that many
+//!   bits wider than its own leaf's encoded change. When `L`'s working width
+//!   alone exceeds the change by more than [`UNREAD_FREEZE_BITS`], its value is
+//!   certainly too wide, and it freezes without being read.
 //! - The top reference, which receives every new leaf, stays even while no
 //!   record refers to it; a reference below the top is retained only while a
-//!   live minimum record refers to it. Records form a stack in leaf order,
-//!   and settlement always removes the top record, so the references in use
-//!   are monotone along the record stack. Settling the last record at the
-//!   top reference only marks it unreferenced. Settling the last record at a
+//!   live minimum record refers to it. Records form a stack in leaf order, and
+//!   settlement always removes the top record, so the references in use are
+//!   monotone along the record stack. Settling the last record at the top
+//!   reference only marks it unreferenced. Settling the last record at a
 //!   reference below the top releases it: it is then the second-highest
 //!   reference, and it merges into the top. A freeze that finds the top
 //!   reference unreferenced merges it into the new top at once.
@@ -32,14 +32,14 @@
 //! and a coefficient: the leaves recorded at it, less the subtree closes
 //! charged to it, plus coefficients moved to it by merges. The fold owes
 //! `Σ_j coefficient_j · F_j`. Removing reference `j`, between an older
-//! neighbour `i` and the top `t`, keeps both neighbours' heights and moves
-//! its coefficient using either identity
+//! neighbour `i` and the top `t`, keeps both neighbours' heights and moves its
+//! coefficient using either identity
 //!
 //! `c_j · F_j = c_j · F_i + c_j · chunk_j = c_j · F_t − c_j · chunk_t`.
 //!
-//! A removed reference's coefficient is final, because no record refers to
-//! it and it receives no further leaves. Below the oldest reference the
-//! height is zero, so a coefficient moved there is settled outright.
+//! A removed reference's coefficient is final, because no record refers to it
+//! and it receives no further leaves. Below the oldest reference the height is
+//! zero, so a coefficient moved there is settled outright.
 //!
 //! # The first leaf's height
 //!
@@ -54,13 +54,12 @@
 //!
 //! A merge adds the narrower chunk into the wider one's storage and moves the
 //! coefficient through whichever chunk is narrower, so it reads only the
-//! narrower operand. The sum is at most one digit wider than the wider
-//! operand, so the total stored width of live chunks falls by at least the
-//! width read, less one digit. Freezes add only drifts the input paid for.
-//! Total merge work is therefore linear in the input. Burying the top
-//! reference and exposing it again cost a constant: a chunk is copied only
-//! when it is at most [`INLINE_CHUNK_BITS`] wide, and wider chunks move
-//! whole without being read.
+//! narrower operand. The sum is at most one digit wider than the wider operand,
+//! so the total stored width of live chunks falls by at least the width read,
+//! less one digit. Freezes add only drifts the input paid for. Total merge work
+//! is therefore linear in the input. Burying the top reference and exposing it
+//! again cost a constant: a chunk is copied only when it is at most
+//! [`INLINE_CHUNK_BITS`] wide, and wider chunks move whole without being read.
 
 use core::cmp::Ordering;
 
@@ -72,8 +71,8 @@ use super::records::Popped;
 use crate::bits::stack::{BitStack, PackedU64Stack};
 use crate::version::range_minima::INLINE_BOUNDARY_BITS;
 
-/// Bits a stored offset may exceed its leaf's height change by before the
-/// live change freezes into a new reference.
+/// Bits a stored offset may exceed its leaf's height change by before the live
+/// change freezes into a new reference.
 ///
 /// The record trigger in [`HeightReferences::add_leaf`] keeps the live change
 /// `L` only while its value is at most this many bits wider than the change
@@ -87,42 +86,41 @@ use crate::version::range_minima::INLINE_BOUNDARY_BITS;
 /// - A narrower allowance freezes more often, and every freeze creates a
 ///   reference that a later merge reads.
 ///
-/// The value 4 is a choice within that trade, not a derived bound: it caps
-/// each stored offset at its leaf's change plus 4 bits.
+/// The value 4 is a choice within that trade, not a derived bound: it caps each
+/// stored offset at its leaf's change plus 4 bits.
 pub const RECORD_SLACK_BITS: u64 = 4;
 
 /// The widest working width, in bits, at which a buried chunk is copied into
 /// packed storage instead of moving whole.
 ///
-/// Copying a chunk costs at most this many bits per move, a constant. A
-/// chunk that moves whole costs nothing per move but keeps its accumulator:
-/// a fixed-size structure, plus digits that take twice its working width. The
-/// bound confines that form to chunks this wide, whose height changes the
-/// input paid for in a stretch no other live reference shares.
+/// Copying a chunk costs at most this many bits per move, a constant. A chunk
+/// that moves whole costs nothing per move but keeps its accumulator: a
+/// fixed-size structure, plus digits that take twice its working width. The
+/// bound confines that form to chunks this wide, whose height changes the input
+/// paid for in a stretch no other live reference shares.
 ///
 /// The bound compares working width, while the integer stack's
-/// [`PACKED_BITS`](super::integers::PACKED_BITS) compares the value's width.
-/// A copied chunk's value is below `2^(INLINE_CHUNK_BITS + 2)`, so it can be
-/// up to two bits wider than that bound and take its own allocation in the
-/// stack; a copy still costs at most a constant.
+/// [`PACKED_BITS`](super::integers::PACKED_BITS) compares the value's width. A
+/// copied chunk's value is below `2^(INLINE_CHUNK_BITS + 2)`, so it can be up
+/// to two bits wider than that bound and take its own allocation in the stack;
+/// a copy still costs at most a constant.
 ///
 /// The bound is [`INLINE_BOUNDARY_BITS`], up to which
-/// [`RangeMinima`](crate::version::range_minima::RangeMinima) copies a
-/// covered boundary, because both bounds make the same trade: a copy costs
-/// at most the bound per move, and a value that moves whole is wide enough
-/// that its accumulator's fixed size is at most a constant per bit it holds.
+/// [`RangeMinima`](crate::version::range_minima::RangeMinima) copies a covered
+/// boundary, because both bounds make the same trade: a copy costs at most the
+/// bound per move, and a value that moves whole is wide enough that its
+/// accumulator's fixed size is at most a constant per bit it holds.
 pub const INLINE_CHUNK_BITS: u64 = INLINE_BOUNDARY_BITS;
 
 /// Bits a live change's working width may exceed the leaf's height change by
 /// before the change freezes without being read.
 ///
-/// A read leaves the live change's working width within one 32-bit digit of
-/// its value's width, and the fold reads it at every leaf it does not freeze.
+/// A read leaves the live change's working width within one 32-bit digit of its
+/// value's width, and the fold reads it at every leaf it does not freeze.
 /// Adding a change of `k` bits widens it by at most one digit past the wider
-/// operand. A working width more than this many bits above `k` therefore
-/// means a value more than `k + 192` bits wide, which the record trigger
-/// would freeze anyway; freezing first skips reading a value the freeze
-/// moves whole.
+/// operand. A working width more than this many bits above `k` therefore means
+/// a value more than `k + 192` bits wide, which the record trigger would freeze
+/// anyway; freezing first skips reading a value the freeze moves whole.
 pub const UNREAD_FREEZE_BITS: u64 = 256;
 
 #[cfg(test)]
@@ -195,23 +193,23 @@ struct Top {
     referenced: bool,
 }
 
-/// The references of the running height, their coefficients, and the
-/// recent change above the newest.
+/// The references of the running height, their coefficients, and the recent
+/// change above the newest.
 pub struct HeightReferences {
     /// `L`: the height changes since the newest reference froze.
     live: Accumulator,
     /// The newest reference.
     top: Top,
-    /// Coefficient of the reference directly below the top, if one exists.
-    /// It is explicit because settlements below the top charge it.
+    /// Coefficient of the reference directly below the top, if one exists. It
+    /// is explicit because settlements below the top charge it.
     second_coefficient: Option<i128>,
     /// Chunks of every reference below the top, oldest first.
     chunks: ChunkStack,
-    /// Coefficients of the references below the second, oldest first, as
-    /// zigzag codes split into two words.
+    /// Coefficients of the references below the second, oldest first, as zigzag
+    /// codes split into two words.
     coefficients: PackedU64Stack,
-    /// Coefficients settled against the zero below the oldest reference.
-    /// With the top's coefficient they sum to one when the fold ends.
+    /// Coefficients settled against the zero below the oldest reference. With
+    /// the top's coefficient they sum to one when the fold ends.
     resolved: i128,
 }
 
@@ -247,8 +245,8 @@ impl HeightReferences {
     /// A live change whose working width exceeds `change`'s bits by more than
     /// [`UNREAD_FREEZE_BITS`] freezes without being read.
     ///
-    /// `change` is the height change that reached this leaf, already folded
-    /// in by [`advance`](Self::advance); the first leaf passes zero.
+    /// `change` is the height change that reached this leaf, already folded in
+    /// by [`advance`](Self::advance); the first leaf passes zero.
     pub fn add_leaf(&mut self, change: &BigInt, total: &mut Accumulator) -> LeafHeight {
         let change_bits = change.bits();
         let leaf = if self.live.stored_bits() > change_bits + UNREAD_FREEZE_BITS {
@@ -314,17 +312,17 @@ impl HeightReferences {
         MAX_BURIED.with(|most| most.set(most.get().max(self.chunks.len())));
     }
 
-    /// Note a new minimum record at the top reference, returning whether it
-    /// is the first live record there.
+    /// Note a new minimum record at the top reference, returning whether it is
+    /// the first live record there.
     pub fn reference_top(&mut self) -> bool {
         !core::mem::replace(&mut self.top.referenced, true)
     }
 
     /// Settle the top minimum record: subtract `closes` uses of its height.
     ///
-    /// The record lies at the top reference if any record does, and
-    /// otherwise at the second. `first` marks the last record at its
-    /// reference to be settled, which releases that reference.
+    /// The record lies at the top reference if any record does, and otherwise
+    /// at the second. `first` marks the last record at its reference to be
+    /// settled, which releases that reference.
     pub fn settle_record(&mut self, record: Popped, total: &mut Accumulator) {
         let Popped {
             sign,
@@ -355,9 +353,9 @@ impl HeightReferences {
 
     /// Remove the unreferenced reference directly below the top.
     ///
-    /// The top's chunk absorbs the removed chunk, and the removed
-    /// coefficient moves to whichever neighbour lets the product read the
-    /// narrower chunk. Both neighbours keep their heights.
+    /// The top's chunk absorbs the removed chunk, and the removed coefficient
+    /// moves to whichever neighbour lets the product read the narrower chunk.
+    /// Both neighbours keep their heights.
     fn remove_second(&mut self, total: &mut Accumulator) {
         let coefficient = self
             .second_coefficient
@@ -372,12 +370,12 @@ impl HeightReferences {
 
     /// Fold a released reference's chunk and coefficient into the top.
     ///
-    /// The released reference lies directly below the top, so the top's
-    /// chunk becomes the sum of both chunks and every live record keeps its
-    /// height. The coefficient moves to the top or to the reference below,
-    /// whichever lets its product read the narrower chunk; that chunk's limbs
-    /// are read once and serve both the product and the sum, which lands in
-    /// the wider chunk's storage.
+    /// The released reference lies directly below the top, so the top's chunk
+    /// becomes the sum of both chunks and every live record keeps its height.
+    /// The coefficient moves to the top or to the reference below, whichever
+    /// lets its product read the narrower chunk; that chunk's limbs are read
+    /// once and serve both the product and the sum, which lands in the wider
+    /// chunk's storage.
     fn merge_into_top(
         &mut self,
         released: Accumulator,
@@ -408,8 +406,8 @@ impl HeightReferences {
         self.top.chunk = wider;
     }
 
-    /// Move `coefficient` to the reference below the top, or settle it
-    /// against the zero below the oldest reference.
+    /// Move `coefficient` to the reference below the top, or settle it against
+    /// the zero below the oldest reference.
     fn charge_older(&mut self, coefficient: i128) {
         match self.second_coefficient.as_mut() {
             Some(older) => *older += coefficient,
@@ -419,8 +417,8 @@ impl HeightReferences {
 
     /// Add the remaining reference's contribution to `total`.
     ///
-    /// Every record has been settled, so every buried reference has merged
-    /// into the top, whose chunk is the whole height above the first leaf.
+    /// Every record has been settled, so every buried reference has merged into
+    /// the top, whose chunk is the whole height above the first leaf.
     pub fn settle(self, total: &mut Accumulator) {
         debug_assert_eq!(
             self.chunks.len(),
@@ -439,8 +437,8 @@ impl HeightReferences {
 
 /// Little-endian limbs multiplied by a word, produced lazily.
 ///
-/// Feeding a product straight into an accumulator this way builds no
-/// temporary as wide as the product.
+/// Feeding a product straight into an accumulator this way builds no temporary
+/// as wide as the product.
 struct Scaled<'a> {
     /// The remaining limbs of the multiplicand.
     limbs: core::slice::Iter<'a, u64>,
@@ -476,8 +474,8 @@ impl Iterator for Scaled<'_> {
     }
 }
 
-/// Add `±magnitude` to `target`, the sign given as the value's comparison
-/// with zero.
+/// Add `±magnitude` to `target`, the sign given as the value's comparison with
+/// zero.
 fn add_signed_limbs(target: &mut Accumulator, sign: Ordering, magnitude: &[u64]) {
     let limbs = magnitude.iter().copied();
     if sign == Ordering::Less {

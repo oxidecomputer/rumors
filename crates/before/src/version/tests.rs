@@ -72,12 +72,11 @@ fn peaks() -> Version {
 ///
 /// Checks its `partial_cmp` (`PartialOrd`) and `==`/`!=` (`PartialEq`), plus
 /// the four ordering operators supplied by the same [`PartialOrd`] impl.
-/// Generic over the operand
-/// types, so each call resolves to exactly the impl for `(L, R)`
-/// (`assert_cmp_cell(&a, b, ..)` exercises the `&Lhs`/`Rhs` cell,
-/// `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&` the std blanket),
-/// with no method-resolution ambiguity to mask which cell ran. A cell wired
-/// into a delegation cycle overflows the stack here rather than diverging
+/// Generic over the operand types, so each call resolves to exactly the impl
+/// for `(L, R)` (`assert_cmp_cell(&a, b, ..)` exercises the `&Lhs`/`Rhs` cell,
+/// `assert_cmp_cell(a, &b, ..)` the `Lhs`/`&Rhs` cell, `&`/`&` the std
+/// blanket), with no method-resolution ambiguity to mask which cell ran. A cell
+/// wired into a delegation cycle overflows the stack here rather than diverging
 /// silently in production.
 fn assert_cmp_cell<L, R>(lhs: L, rhs: R, expected: Option<Ordering>) -> Result<(), TestCaseError>
 where
@@ -514,8 +513,8 @@ fn rightmost_cell(depth: usize) -> Party {
     Party::from_test_bits(bits)
 }
 
-/// `base` events everywhere, and two more on the rightmost `2^-depth` cell:
-/// an event tree as deep as the cell.
+/// `base` events everywhere, and two more on the rightmost `2^-depth` cell: an
+/// event tree as deep as the cell.
 fn deep_bump(base: u64, depth: usize) -> Version {
     let mut version = uniform(base);
     version.ticks(&rightmost_cell(depth), 2u8);
@@ -525,10 +524,10 @@ fn deep_bump(base: u64, depth: usize) -> Version {
 /// Describe `version`'s spare capacity, if its buffer holds more than its
 /// encoded bytes.
 ///
-/// The empty version's static storage has no allocation to inspect. The
-/// caller must already have dropped every other value sharing the result's
-/// buffer. The families collect every case before asserting, so one failure
-/// reports each operation that keeps spare capacity.
+/// The empty version's static storage has no allocation to inspect. The caller
+/// must already have dropped every other value sharing the result's buffer. The
+/// families collect every case before asserting, so one failure reports each
+/// operation that keeps spare capacity.
 fn spare_capacity(case: &str, version: Version) -> Option<String> {
     if version.ptr_eq(&Version::new()) {
         return None;
@@ -636,11 +635,11 @@ proptest! {
 /// The version is an arbitrary one filled once by the party. `fill` is
 /// idempotent, so its image is exactly its fixed points: every grow-branch
 /// input is reachable (as its own image), and every generated input reaches
-/// `grow`. Constructing the domain this way, rather than discarding
-/// non-fixed points with `prop_assume!`, keeps the tests within proptest's
-/// global reject limit at every case count. The tests assert the fixed-point
-/// property, so a non-idempotent `fill` fails them rather than silently
-/// testing the `fill` branch.
+/// `grow`. Constructing the domain this way, rather than discarding non-fixed
+/// points with `prop_assume!`, keeps the tests within proptest's global reject
+/// limit at every case count. The tests assert the fixed-point property, so a
+/// non-idempotent `fill` fails them rather than silently testing the `fill`
+/// branch.
 fn arb_grow_case() -> impl Strategy<Value = (tree::Party, tree::Version)> {
     (arb_oracle_party_nonempty(), arb_oracle_version()).prop_map(|(op, ov)| {
         let filled = ov.fill_for_test(&op);
@@ -794,8 +793,8 @@ proptest! {
 #[derive(Clone)]
 struct CausalPast {
     batches: BTreeMap<u64, Count>,
-    /// The history's next unused batch number, shared by every clock split
-    /// from its one seed.
+    /// The history's next unused batch number, shared by every clock split from
+    /// its one seed.
     next_batch: Rc<Cell<u64>>,
     /// The ticks the whole history has recorded, shared the same way.
     history_ticks: Rc<RefCell<Count>>,
@@ -836,8 +835,8 @@ impl CausalPast {
 ///   past;
 /// - a send records the sender's tick and carries its past, and a receive
 ///   absorbs that past and records its own tick;
-/// - an absorb or `absorb_all` absorbs every source's past and records no
-///   tick, since it registers no event;
+/// - an absorb or `absorb_all` absorbs every source's past and records no tick,
+///   since it registers no event;
 /// - a sync or `sync_all` leaves every participant holding the union of their
 ///   pasts, and a join or `join_all` leaves the receiver holding it;
 /// - a byte round trip leaves the past unchanged.
@@ -970,10 +969,10 @@ impl TraceModel for WithCausalPast {
     /// Absorbs every input's past into the receiver's.
     ///
     /// A failed `join_all` may hand back unions of its inputs and may have
-    /// absorbed some of them, so no input's own past can be paired with what
-    /// it returns. Each clock it touches then takes the union of every
-    /// input's past, which holds each one's true past; the trace's `step`
-    /// fails on the error before any past is read.
+    /// absorbed some of them, so no input's own past can be paired with what it
+    /// returns. Each clock it touches then takes the union of every input's
+    /// past, which holds each one's true past; the trace's `step` fails on the
+    /// error before any past is read.
     fn join_all(
         (clock, past): &mut Self::Clock,
         others: Vec<Self::Clock>,
@@ -1067,16 +1066,16 @@ proptest! {
     }
 }
 
-/// Reaches `target` by a single-seed history, returning the version reached
-/// and the ticks spent.
+/// Reaches `target` by a single-seed history, returning the version reached and
+/// the ticks spent.
 ///
 /// The history visits the normal-form tree in preorder, carrying a party that
 /// owns exactly the current node's interval. It spends the node's base `b` as
 /// `ticks(b)` by that party, then forks it and hands each child the half over
 /// that child's interval, rejoining the halves once both subtrees are done.
 /// `fork` keeps the left half, as the paper's split does; were that to change,
-/// the history would reach another version and the attainment properties
-/// would fail.
+/// the history would reach another version and the attainment properties would
+/// fail.
 ///
 /// The version built so far is constant over the current node's interval,
 /// because only the node's ancestors have ticked there, so each tick's fill
@@ -1275,8 +1274,8 @@ fn rank_formatting_behaves_as_text() {
     assert_eq!(format!("{rank:010}"), "101.01    ");
 }
 
-/// Parsing preserves the binary value and rejects every malformed component
-/// of the text grammar.
+/// Parsing preserves the binary value and rejects every malformed component of
+/// the text grammar.
 #[test]
 fn rank_text_known_values_and_boundaries() {
     for (text, numerator, exponent) in [
@@ -1336,9 +1335,9 @@ proptest! {
     }
 }
 
-/// The alignment oracle for `Rank` order: shift both numerators to the
-/// common exponent and compare: the definitionally correct order the
-/// class-first streamed comparison must reproduce.
+/// The alignment oracle for `Rank` order: shift both numerators to the common
+/// exponent and compare: the definitionally correct order the class-first
+/// streamed comparison must reproduce.
 fn alignment_cmp(a: &super::Rank, b: &super::Rank) -> core::cmp::Ordering {
     let (an, ae) = rank_parts(a);
     let (bn, be) = rank_parts(b);
@@ -1346,8 +1345,7 @@ fn alignment_cmp(a: &super::Rank, b: &super::Rank) -> core::cmp::Ordering {
     (an << ((e - ae) as usize)).cmp(&(bn << ((e - be) as usize)))
 }
 
-/// A rank's raw parts for the oracle, as plain `BigUint` arithmetic
-/// operands.
+/// A rank's raw parts for the oracle, as plain `BigUint` arithmetic operands.
 fn rank_parts(r: &super::Rank) -> (BigUint, u64) {
     let (num, exp) = r.raw_parts();
     (BigUint::from_bytes_le(&num.to_bytes_le()), exp)
@@ -1355,9 +1353,9 @@ fn rank_parts(r: &super::Rank) -> (BigUint, u64) {
 
 /// Draws one worst-case `Rank`.
 ///
-/// Odd numerators from one to a few hundred limbs wide, whose limbs are
-/// all ones, zero, or arbitrary, so shared prefixes between two draws go
-/// deep, at exponents from zero to well past any numerator width.
+/// Odd numerators from one to a few hundred limbs wide, whose limbs are all
+/// ones, zero, or arbitrary, so shared prefixes between two draws go deep, at
+/// exponents from zero to well past any numerator width.
 fn arb_wide_rank() -> impl Strategy<Value = super::Rank> {
     let limbs = prop_oneof![
         4 => Just(1usize),
@@ -1383,8 +1381,8 @@ fn arb_wide_rank() -> impl Strategy<Value = super::Rank> {
     })
 }
 
-/// Draws a wide rank and a second rank related to it in one of four ways,
-/// each reaching one path of the class-first streamed comparison.
+/// Draws a wide rank and a second rank related to it in one of four ways, each
+/// reaching one path of the class-first streamed comparison.
 fn arb_rank_cmp_pair() -> impl Strategy<Value = (super::Rank, super::Rank)> {
     arb_wide_rank().prop_flat_map(|a| {
         let (num, exp) = rank_parts(&a);
@@ -1574,11 +1572,11 @@ proptest! {
 /// integral part, every step of the integral header (the mantissa-width steps
 /// at `I + 1` crossing a power of two, and the width-of-width steps where the
 /// unary run itself lengthens), and equal integral parts separated only deep in
-/// the fraction, across a group boundary, where the deeper rank's extra expansion
-/// bits ride a further continuation-framed group. Each byte string is pinned
-/// exactly (the wire form is canonical, so these are format goldens), and the
-/// whole battery must be strictly ascending in byte order exactly as it is
-/// ascending in rank order.
+/// the fraction, across a group boundary, where the deeper rank's extra
+/// expansion bits ride a further continuation-framed group. Each byte string is
+/// pinned exactly (the wire form is canonical, so these are format goldens),
+/// and the whole battery must be strictly ascending in byte order exactly as it
+/// is ascending in rank order.
 #[test]
 fn rank_encoding_known_values() {
     let fraction =
@@ -1874,11 +1872,11 @@ proptest! {
 /// Decode is total (accepts or rejects, never panics); every accepted string
 /// re-encodes byte-identically (the format is bijective on accepted strings, so
 /// no value has a second spelling: the strict-canonicality statement that
-/// subsumes the individual rejection cases); the accepted strings in byte order carry
-/// strictly ascending ranks (the lexicographic law, total at this scope); every
-/// decoded rank's numeric size is linear in its input bytes (no decompression
-/// bomb); and both reachable errors (truncation and non-minimal packing)
-/// actually fire.
+/// subsumes the individual rejection cases); the accepted strings in byte order
+/// carry strictly ascending ranks (the lexicographic law, total at this scope);
+/// every decoded rank's numeric size is linear in its input bytes (no
+/// decompression bomb); and both reachable errors (truncation and non-minimal
+/// packing) actually fire.
 #[test]
 fn rank_encoding_exhaustive_small_scope() {
     let mut accepted: Vec<(Vec<u8>, super::Rank)> = Vec::new();
@@ -1936,10 +1934,9 @@ fn rank_encoding_exhaustive_small_scope() {
 /// declaring a mantissa width beyond `2⁶⁴` bits, the one format bound a small
 /// input can reach; the fraction bound needs over half a GiB of real groups,
 /// since the fraction has no length header to forge). The remaining documented
-/// error, a non-minimal integral header, is structurally unrepresentable
-/// (every `(run, payload)` pair decodes to a width whose own width matches the
-/// run exactly), which the exhaustive sweep witnesses mechanically at small
-/// scope.
+/// error, a non-minimal integral header, is structurally unrepresentable (every
+/// `(run, payload)` pair decodes to a width whose own width matches the run
+/// exactly), which the exhaustive sweep witnesses mechanically at small scope.
 #[test]
 #[allow(clippy::type_complexity)]
 fn rank_decoding_rejects_each_malformed_input_class() {
@@ -2042,9 +2039,9 @@ struct DecodeCase<T> {
     /// verdict is settled, with the end of input counted as one position past
     /// the last byte.
     ///
-    /// A reader failure before that many bytes leaves the verdict open, so
-    /// the decoder must report it. An input whose verdict turns on where it
-    /// ends has `input.len() + 1`.
+    /// A reader failure before that many bytes leaves the verdict open, so the
+    /// decoder must report it. An input whose verdict turns on where it ends
+    /// has `input.len() + 1`.
     decided_by: usize,
 }
 
@@ -2081,8 +2078,8 @@ fn rank_cases(
     ]
 }
 
-/// A byte string judged by `judge`, a decoder over the whole input in
-/// memory, such as `Rank::decode_bytes` or a reader `decode` over a slice.
+/// A byte string judged by `judge`, a decoder over the whole input in memory,
+/// such as `Rank::decode_bytes` or a reader `decode` over a slice.
 fn judged_case<T>(input: Vec<u8>, judge: impl FnOnce(&[u8]) -> Result<T, Decode>) -> DecodeCase<T> {
     let verdict = Verdict::from(judge(&input));
     let decided_by = match verdict {
@@ -2098,8 +2095,8 @@ fn judged_case<T>(input: Vec<u8>, judge: impl FnOnce(&[u8]) -> Result<T, Decode>
     }
 }
 
-/// Decodes `case` with `decode` through a [`ScriptedReader`] on `schedule`
-/// that fails at `fail_at`, if given, and checks the verdict.
+/// Decodes `case` with `decode` through a [`ScriptedReader`] on `schedule` that
+/// fails at `fail_at`, if given, and checks the verdict.
 ///
 /// The verdict must be `Decode::Io` with the reader's kind exactly when the
 /// reader returned its failure, and the case's verdict otherwise. A failure
@@ -2145,8 +2142,8 @@ fn check_decode<T: core::fmt::Debug + PartialEq>(
 /// need more than two refills.
 const MAX_FRACTION_BITS: usize = 3 * DECODE_CHUNK_BYTES * u8::BITS as usize;
 
-/// The rank `0.b₁b₂…bₙ1`: `bits` followed by a closing set bit, which makes
-/// the fraction canonical.
+/// The rank `0.b₁b₂…bₙ1`: `bits` followed by a closing set bit, which makes the
+/// fraction canonical.
 fn binary_fraction(bits: &[bool]) -> Rank {
     let digits: String = bits
         .iter()
@@ -2157,8 +2154,8 @@ fn binary_fraction(bits: &[bool]) -> Rank {
         .expect("a binary fraction ending in 1 is canonical rank text")
 }
 
-/// Generates a rank in `[0, 1)` whose fraction has exactly `len` bits, the
-/// last set and the rest random; zero bits give zero.
+/// Generates a rank in `[0, 1)` whose fraction has exactly `len` bits, the last
+/// set and the rest random; zero bits give zero.
 fn arb_fraction_rank(len: usize) -> impl Strategy<Value = Rank> {
     prop::collection::vec(any::<bool>(), len.saturating_sub(1)).prop_map(move |bits| {
         if len == 0 {
@@ -2169,13 +2166,13 @@ fn arb_fraction_rank(len: usize) -> impl Strategy<Value = Rank> {
     })
 }
 
-/// Fraction lengths whose rank encodings end one byte before, at, or one
-/// byte after the decoder's prefix length or twice it.
+/// Fraction lengths whose rank encodings end one byte before, at, or one byte
+/// after the decoder's prefix length or twice it.
 ///
-/// `Rank::decode` reads a prefix of `DECODE_CHUNK_BYTES` bytes and then
-/// refills a buffer of that size, so these encodings end where it changes
-/// read path. A fraction's encoded length depends only on its bit length,
-/// so the fraction `2⁻ˡᵉⁿ` measures it for every fraction that long.
+/// `Rank::decode` reads a prefix of `DECODE_CHUNK_BYTES` bytes and then refills
+/// a buffer of that size, so these encodings end where it changes read path. A
+/// fraction's encoded length depends only on its bit length, so the fraction
+/// `2⁻ˡᵉⁿ` measures it for every fraction that long.
 fn fraction_lengths_at_decode_boundaries() -> Vec<usize> {
     (1..=MAX_FRACTION_BITS)
         .filter(|&len| {
@@ -2247,13 +2244,13 @@ proptest! {
 /// `Rank::decode` retries `Interrupted` at each of its reads, on every run.
 ///
 /// Each rank whose encoding ends one byte before, at, or one byte after the
-/// decoder's prefix length or twice it is decoded whole, with one trailing
-/// zero byte, and one byte short. A reader that returns `Interrupted` before
-/// every answer serves each input one byte or a whole buffer per call, once
-/// without a failure and once failing at the input's end. Together these
-/// inputs reach the prefix reads, the probe after a rank that fills the prefix
-/// exactly, the refills, and the probe after a longer rank; the property
-/// reaches the probe after a full prefix only on some draws.
+/// decoder's prefix length or twice it is decoded whole, with one trailing zero
+/// byte, and one byte short. A reader that returns `Interrupted` before every
+/// answer serves each input one byte or a whole buffer per call, once without a
+/// failure and once failing at the input's end. Together these inputs reach the
+/// prefix reads, the probe after a rank that fills the prefix exactly, the
+/// refills, and the probe after a longer rank; the property reaches the probe
+/// after a full prefix only on some draws.
 #[test]
 fn rank_decode_retries_interrupts_at_every_read() -> Result<(), TestCaseError> {
     let schedules = [1, DECODE_CHUNK_BYTES].map(|chunk| IoSchedule {
@@ -2310,8 +2307,8 @@ fn mangled_inputs(encoding: &[u8], mangling: &Mangling) -> [Vec<u8>; 4] {
 }
 
 /// Checks one type's reader `decode` on every input its value's encoding
-/// yields, judged by the slice decode over the input in memory, with the
-/// reader failing nowhere, at the input's end, and at a generated offset.
+/// yields, judged by the slice decode over the input in memory, with the reader
+/// failing nowhere, at the input's end, and at a generated offset.
 fn check_reader_decoder<T: Canonical>(
     value: &T,
     mangling: &Mangling,
@@ -2368,10 +2365,10 @@ proptest! {
 /// `schedule` that fails at `fail_at`, if given, against the same decoder over
 /// the whole input in memory.
 ///
-/// Borsh values compose inside a larger stream, so a decoder reads no byte
-/// past its value, and the bytes it requests do not depend on how they are
-/// served. A probe reader that serves the whole input at once and fails at its
-/// end measures them: the bytes it served, or every byte and one more when the
+/// Borsh values compose inside a larger stream, so a decoder reads no byte past
+/// its value, and the bytes it requests do not depend on how they are served. A
+/// probe reader that serves the whole input at once and fails at its end
+/// measures them: the bytes it served, or every byte and one more when the
 /// decoder met its failure. A failure is met exactly when it lies before the
 /// requested bytes end, and must come back with the reader's kind. Otherwise
 /// the verdict must equal the in-memory one, and an accepted value must have
@@ -2428,9 +2425,8 @@ fn check_borsh<T: borsh::BorshDeserialize + core::fmt::Debug + PartialEq>(
     Ok(())
 }
 
-/// Checks one borsh decoder on every input its value's borsh bytes yield,
-/// with the reader failing nowhere, at the input's end, and at a generated
-/// offset.
+/// Checks one borsh decoder on every input its value's borsh bytes yield, with
+/// the reader failing nowhere, at the input's end, and at a generated offset.
 #[cfg(feature = "borsh")]
 fn check_borsh_decoder<T>(
     value: &T,
@@ -2552,9 +2548,8 @@ fn rank_encoding_size_is_provenance_linear() {
     }
 }
 
-/// Direct cases pin suffix safety at the padding boundary, where
-/// a naive expansion spelling would make one encoding a byte prefix of
-/// another's.
+/// Direct cases pin suffix safety at the padding boundary, where a naive
+/// expansion spelling would make one encoding a byte prefix of another's.
 ///
 /// Each pair is two distinct ranks whose streams agree bit-for-bit up to where
 /// the smaller one's content ends: an integral-only rank against a
@@ -2709,13 +2704,13 @@ proptest! {
 /// every feed order, agreeing with the sequential fold and the recursive
 /// oracle.
 ///
-/// The registry family `meter::meet_shade` doubles as a differential shape:
-/// one dense carrier among dominating single-leaf shades, the population
-/// whose running meet never shrinks.
-/// Organic populations rarely hold one operand strictly below all others, so
-/// this pins the value exactly where the reduction's grouping differs most from
-/// the left fold's: every combine against the carrier returns the carrier
-/// byte-for-byte, and shade ∧ shade answers by canonical equality.
+/// The registry family `meter::meet_shade` doubles as a differential shape: one
+/// dense carrier among dominating single-leaf shades, the population whose
+/// running meet never shrinks. Organic populations rarely hold one operand
+/// strictly below all others, so this pins the value exactly where the
+/// reduction's grouping differs most from the left fold's: every combine
+/// against the carrier returns the carrier byte-for-byte, and shade ∧ shade
+/// answers by canonical equality.
 #[test]
 fn meet_all_returns_the_carrier_on_the_shade_population() {
     for (d, k) in [(1, 2), (3, 5), (8, 16), (16, 9), (33, 64)] {
@@ -2759,8 +2754,8 @@ fn meet_all_returns_the_carrier_on_the_shade_population() {
 /// A concurrent pair sharing a rank (half vs. the two-peak tree) drives the
 /// fused walk's hardest arm (the exact total must cancel to zero) into the
 /// tiebreak: the views compare non-`Equal`, ordered exactly as the versions'
-/// canonical bytes, while the rank question, asked explicitly through
-/// `rank`, still answers a tie.
+/// canonical bytes, while the rank question, asked explicitly through `rank`,
+/// still answers a tie.
 #[test]
 fn ranked_orders_equal_rank_concurrent_pairs_by_bytes() {
     let half = half();
@@ -2973,9 +2968,9 @@ proptest! {
     }
 }
 
-/// Direct cases pin composite-key suffix safety at the tiebreak boundary:
-/// pairs whose keys agree byte-for-byte through the whole rank component, so
-/// the order is decided inside the version tail.
+/// Direct cases pin composite-key suffix safety at the tiebreak boundary: pairs
+/// whose keys agree byte-for-byte through the whole rank component, so the
+/// order is decided inside the version tail.
 ///
 /// The equal-rank concurrent pair (half vs. the two-peak tree), the empty
 /// version against half (the zero rank's one-byte stream against a fractional
@@ -3035,14 +3030,14 @@ fn ranked_composite_key_is_suffix_safe_at_the_tiebreak_boundary() {
 /// Direct cases cover each composite-specific `Ranked::decode` rejection.
 ///
 /// Empty input; truncation at every byte boundary of a composite (cuts land in
-/// the rank stream, at the component boundary, and inside the version); a trailing
-/// zero byte (the version component's whole-input strictness); a set bit in the
-/// version's padding; and a well-formed rank prefix paired with a version it
-/// does not measure, witnessed from both sides of the true rank (the
-/// composite's redundancy check (`NotCanonical`). Component-specific errors
-/// are covered by `rank_decoding_rejects_each_malformed_input_class` and the codec rejection
-/// battery); the cuts here prove each component's rejection surfaces through
-/// the composite entry.
+/// the rank stream, at the component boundary, and inside the version); a
+/// trailing zero byte (the version component's whole-input strictness); a set
+/// bit in the version's padding; and a well-formed rank prefix paired with a
+/// version it does not measure, witnessed from both sides of the true rank (the
+/// composite's redundancy check (`NotCanonical`). Component-specific errors are
+/// covered by `rank_decoding_rejects_each_malformed_input_class` and the codec
+/// rejection battery); the cuts here prove each component's rejection surfaces
+/// through the composite entry.
 #[test]
 fn ranked_decode_rejects_each_composite_error() {
     let half = half();
@@ -3154,8 +3149,7 @@ fn div_decomposes_along_fork() {
 }
 
 /// The view and its materialization agree, and projecting onto a party disjoint
-/// from where the events happened keeps nothing, lazily and materialized
-/// alike.
+/// from where the events happened keeps nothing, lazily and materialized alike.
 #[test]
 fn div_view_matches_materialization() {
     let mut a = Clock::seed();
@@ -3199,8 +3193,8 @@ fn div_can_fragment_and_raise_min_ticks() {
 /// ticking.
 ///
 /// Two concurrent peaks on the outer quarters (`min_ticks` 2) ticked by the
-/// party owning the two inner quarters fill to the uniform version at height
-/// 1, which one tick of the seed yields (`min_ticks` 1). The laws
+/// party owning the two inner quarters fill to the uniform version at height 1,
+/// which one tick of the seed yields (`min_ticks` 1). The laws
 /// `tick_raises_min_ticks_by_at_most_one` and
 /// `ticks_raise_min_ticks_by_at_most_the_count` therefore bound only how far a
 /// tick raises `min_ticks`.
@@ -3226,12 +3220,12 @@ fn tick_can_lower_min_ticks() {
 
 /// The at-rest form is exactly the wire bytes' refcounted handle.
 ///
-/// A [`Version`] is exactly one immutable refcounted byte buffer
-/// alone: pointer, byte length, shared-state pointer, vtable: 32 bytes on
-/// 64-bit, and a [`Clock`](crate::Clock) is a `Party` plus a `Version` (64). A
-/// regression here means the storage grew a field beside the container: the
-/// live bit length must stay recoverable from the padding marker inside the
-/// bytes, never cached beside them.
+/// A [`Version`] is exactly one immutable refcounted byte buffer alone:
+/// pointer, byte length, shared-state pointer, vtable: 32 bytes on 64-bit, and
+/// a [`Clock`](crate::Clock) is a `Party` plus a `Version` (64). A regression
+/// here means the storage grew a field beside the container: the live bit
+/// length must stay recoverable from the padding marker inside the bytes, never
+/// cached beside them.
 #[test]
 fn at_rest_size_is_one_container_per_stream() {
     assert_eq!(
@@ -3413,8 +3407,8 @@ fn boundary_arity_fan_folds_match_the_sequential_fold() {
     }
 }
 
-/// The cheapest canonical deep spine costs exactly 3 stored bits per
-/// marginal level.
+/// The cheapest canonical deep spine costs exactly 3 stored bits per marginal
+/// level.
 ///
 /// This pins the grammar's depth-to-size exchange rate: every level a stream
 /// reaches is paid for by stored bits, so depth-derived quantities (the rank

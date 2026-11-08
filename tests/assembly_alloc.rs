@@ -1,33 +1,33 @@
 //! The transient memory of assembling one supplied subtree on the in-memory
 //! backend, against the subtree's size.
 //!
-//! A reply decoder hands each supplied subtree's leaves, in path order, to
-//! the backend's assembler, which builds the subtree as they arrive. On the
-//! in-memory backend the build keeps only the subtree's open right spine:
-//! at most one open branch per path byte, each with the children closed
-//! beneath it so far. Every other block it allocates is a node of the
-//! finished subtree, which joins the replica. So the transient bytes it
-//! holds at once must not grow with the subtree: assembling `n` leaves may
-//! hold at most what assembling one leaf holds, plus the spine's bound
+//! A reply decoder hands each supplied subtree's leaves, in path order, to the
+//! backend's assembler, which builds the subtree as they arrive. On the
+//! in-memory backend the build keeps only the subtree's open right spine: at
+//! most one open branch per path byte, each with the children closed beneath it
+//! so far. Every other block it allocates is a node of the finished subtree,
+//! which joins the replica. So the transient bytes it holds at once must not
+//! grow with the subtree: assembling `n` leaves may hold at most what
+//! assembling one leaf holds, plus the spine's bound
 //! ([`ASSEMBLY_SPINE_BYTES`]).
 //!
 //! The bound is relative to the one-leaf build so that it judges only the
-//! build: the stream around it and the poller allocate a fixed amount
-//! whatever the subtree, and the one-leaf build has no branch to open.
+//! build: the stream around it and the poller allocate a fixed amount whatever
+//! the subtree, and the one-leaf build has no branch to open.
 
 use alloc_meter::{Label, trace};
 use rumors::testing::{ASSEMBLY_SPINE_BYTES, assemble_supplied, supplied_leaves};
 
-/// Trace events reserved per supplied leaf: a leaf's build allocates at
-/// most a branch node and a fan's heap slots for it, and a fan's growth
-/// adds a reallocation now and then.
+/// Trace events reserved per supplied leaf: a leaf's build allocates at most a
+/// branch node and a fan's heap slots for it, and a fan's growth adds a
+/// reallocation now and then.
 const EVENTS_PER_LEAF: usize = 8;
 
 /// Trace events reserved for the build's fixed overhead.
 const SETUP_EVENTS: usize = 1 << 10;
 
-/// What assembling `count` leaves left: the most transient bytes it held
-/// at once, and the blocks that survive in the assembled subtree.
+/// What assembling `count` leaves left: the most transient bytes it held at
+/// once, and the blocks that survive in the assembled subtree.
 fn assemble(count: usize) -> (usize, usize) {
     let leaves = supplied_leaves(count);
     let (trace, subtree) = trace(EVENTS_PER_LEAF * count + SETUP_EVENTS, || {
@@ -41,15 +41,15 @@ fn assemble(count: usize) -> (usize, usize) {
     (build.transient_peak, build.surviving_blocks)
 }
 
-/// Assembling a supplied subtree holds transient memory bounded by its
-/// open spine, at every size from one leaf to a hundred thousand.
+/// Assembling a supplied subtree holds transient memory bounded by its open
+/// spine, at every size from one leaf to a hundred thousand.
 ///
 /// A hundred thousand leaves is the size of a root child's subtree when a
 /// replica of about 25 million messages supplies a peer that holds none.
 ///
 /// Each build of two or more leaves must leave at least one block in the
-/// subtree, its top branch, so a trace that stopped seeing the build
-/// cannot pass.
+/// subtree, its top branch, so a trace that stopped seeing the build cannot
+/// pass.
 #[test]
 fn assembly_holds_its_open_spine_at_most() {
     let (alone, _) = assemble(1);

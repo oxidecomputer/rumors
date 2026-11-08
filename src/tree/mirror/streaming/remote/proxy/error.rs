@@ -5,13 +5,12 @@ use crate::tree::mirror::streaming::remote::{adapter, codec, pipe};
 /// A failure while proxying one remote participant.
 ///
 /// Transport failures surface through the pipe ([`Pipe`](Self::Pipe)) or the
-/// greeting exchange. Backend failures and violations of the protocol or
-/// wire format retain their own identity.
+/// greeting exchange. Backend failures and violations of the protocol or wire
+/// format retain their own identity.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error<E> {
-    /// The pipe failed, or the peer broke its framing, during
-    /// reconciliation.
+    /// The pipe failed, or the peer broke its framing, during reconciliation.
     #[error(transparent)]
     Pipe(#[from] pipe::PipeError),
     /// Reading the peer's greeting item failed.
@@ -34,8 +33,8 @@ pub enum Error<E> {
     GreetingListing(#[source] codec::QueryOrderError),
     /// The peer's configured payload depth limit differs from ours.
     ///
-    /// Detected symmetrically, after the greetings and before anything
-    /// else, so a mixed fleet is caught even on a converged session.
+    /// Detected symmetrically, after the greetings and before anything else, so
+    /// a mixed fleet is caught even on a converged session.
     #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
     PayloadDepthMismatch {
         /// This side's configured limit.

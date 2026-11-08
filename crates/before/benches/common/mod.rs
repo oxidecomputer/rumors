@@ -31,35 +31,37 @@ use rand_chacha::ChaChaRng;
 /// Fixed RNG seed: identical, reproducible inputs on every run.
 pub const SEED: u64 = 0x1737_C10C_C0DE;
 
-/// Universe sizes (number of forked members) the suite sweeps. The joined trees grow
-/// roughly linearly with this, so it doubles as the "tree size" axis.
+/// Universe sizes (number of forked members) the suite sweeps. The joined trees
+/// grow roughly linearly with this, so it doubles as the "tree size" axis.
 pub const SIZES: &[usize] = &[8, 32, 128, 512, 2_048, 8_192, 32_768];
 
-/// Preserve-group labels. A member is assigned to a group it will be `join`ed into, or
-/// [`DISCARD`]ed (left a structural hole).
+/// Preserve-group labels. A member is assigned to a group it will be `join`ed
+/// into, or [`DISCARD`]ed (left a structural hole).
 pub const GROUP_A: u8 = 0;
 pub const GROUP_B: u8 = 1;
 pub const DISCARD: u8 = u8::MAX;
 
-/// A reproducible recipe for one randomized input, applied identically to the impl and
-/// the oracle.
+/// A reproducible recipe for one randomized input, applied identically to the
+/// impl and the oracle.
 pub struct Plan {
-    /// `schedule[i]` names the member to fork when the universe holds `i + 1` members
-    /// (so it is always a valid index). Length `n - 1`, building a universe of `n`.
+    /// `schedule[i]` names the member to fork when the universe holds `i + 1`
+    /// members (so it is always a valid index). Length `n - 1`, building a
+    /// universe of `n`.
     pub schedule: Vec<usize>,
-    /// `label[m]` assigns universe member `m` to a preserve group or [`DISCARD`].
+    /// `label[m]` assigns universe member `m` to a preserve group or
+    /// [`DISCARD`].
     pub label: Vec<u8>,
-    /// `ticks[m]` is how many events member `m` records before any join, giving the
-    /// versions/clocks real history. Unused by the party-only builders.
+    /// `ticks[m]` is how many events member `m` records before any join, giving
+    /// the versions/clocks real history. Unused by the party-only builders.
     pub ticks: Vec<u32>,
 }
 
-/// Build a plan for a universe of `n` members partitioned into `groups` preserve groups
-/// (1 or 2).
+/// Build a plan for a universe of `n` members partitioned into `groups`
+/// preserve groups (1 or 2).
 ///
 /// Every group is guaranteed at least one member, so each joins into a nonempty
-/// tree; the rest are spread across the groups, with about a third discarded to punch
-/// holes (structure) into the result.
+/// tree; the rest are spread across the groups, with about a third discarded to
+/// punch holes (structure) into the result.
 pub fn plan(rng: &mut ChaChaRng, n: usize, groups: u8) -> Plan {
     assert!((1..=2).contains(&groups), "1 or 2 preserve groups");
     assert!(n >= groups as usize, "need at least one member per group");
@@ -92,9 +94,9 @@ pub fn plan(rng: &mut ChaChaRng, n: usize, groups: u8) -> Plan {
 
 // ───────────────────────────── party universes ─────────────────────────────
 
-/// The `groups` preserved [`Party`] trees for `plan`, built through the public API by the
-/// module's fork-a-universe / preserve-a-subset / join-each-group recipe (see the module
-/// doc).
+/// The `groups` preserved [`Party`] trees for `plan`, built through the public
+/// API by the module's fork-a-universe / preserve-a-subset / join-each-group
+/// recipe (see the module doc).
 ///
 /// The preserved subset randomizes the tree shape.
 pub fn impl_parties(plan: &Plan, groups: u8) -> Vec<Party> {
@@ -117,7 +119,8 @@ pub fn impl_parties(plan: &Plan, groups: u8) -> Vec<Party> {
         .collect()
 }
 
-/// The oracle counterpart of [`impl_parties`]: same plan, structurally identical trees.
+/// The oracle counterpart of [`impl_parties`]: same plan, structurally
+/// identical trees.
 pub fn oracle_parties(plan: &Plan, groups: u8) -> Vec<oracle::Party> {
     let mut universe = vec![oracle::Party::seed()];
     for &i in &plan.schedule {
@@ -141,9 +144,11 @@ pub fn oracle_parties(plan: &Plan, groups: u8) -> Vec<oracle::Party> {
 // ───────────────────────────── clock universes ─────────────────────────────
 
 /// The `groups` preserved [`Clock`] trees for `plan`, built by the module's
-/// fork-a-universe / preserve-a-subset / join-each-group recipe (see the module doc).
+/// fork-a-universe / preserve-a-subset / join-each-group recipe (see the module
+/// doc).
 ///
-/// Additionally ticks each member `plan.ticks[m]` times to give it real history.
+/// Additionally ticks each member `plan.ticks[m]` times to give it real
+/// history.
 pub fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
     let mut universe = vec![Clock::seed()];
     for &i in &plan.schedule {
@@ -171,12 +176,12 @@ pub fn impl_clocks(plan: &Plan, groups: u8) -> Vec<Clock> {
         .collect()
 }
 
-/// The ownership-hole pair for `plan`: the whole universe joined into
-/// one version, against one late-forked member's party: a peer owning
-/// a vanishing custody fraction operating on a fully-received version.
+/// The ownership-hole pair for `plan`: the whole universe joined into one
+/// version, against one late-forked member's party: a peer owning a vanishing
+/// custody fraction operating on a fully-received version.
 ///
-/// The aliased party never re-enters protocol use, so linearity holds
-/// for everything a benchmark observes.
+/// The aliased party never re-enters protocol use, so linearity holds for
+/// everything a benchmark observes.
 pub fn hole_pair(plan: &Plan) -> (Party, Version) {
     let mut universe = vec![Clock::seed()];
     for &i in &plan.schedule {
@@ -236,7 +241,8 @@ pub fn oracle_clocks(plan: &Plan, groups: u8) -> Vec<oracle::Clock> {
 
 // ───────────────────────────── version corpora ─────────────────────────────
 
-/// The versions of the preserved [`impl_clocks`]: randomized event trees with history.
+/// The versions of the preserved [`impl_clocks`]: randomized event trees with
+/// history.
 pub fn impl_versions(plan: &Plan, groups: u8) -> Vec<Version> {
     impl_clocks(plan, groups)
         .into_iter()
@@ -252,8 +258,9 @@ pub fn oracle_versions(plan: &Plan, groups: u8) -> Vec<oracle::Version> {
         .collect()
 }
 
-/// Move every member labelled `g` out of `slots`, in ascending member order (the same
-/// order for impl and oracle, so the fold builds identical trees on both sides).
+/// Move every member labelled `g` out of `slots`, in ascending member order
+/// (the same order for impl and oracle, so the fold builds identical trees on
+/// both sides).
 fn take_group<T>(slots: &mut [Option<T>], label: &[u8], g: u8) -> std::vec::IntoIter<T> {
     let taken: Vec<T> = (0..slots.len())
         .filter(|&m| label[m] == g)

@@ -8,17 +8,17 @@
 //! arbitrary pairs, co-generated pairs, and organic histories. The flag is
 //! emitted-differs-from-input, plateau-aligned: a value-reproducing raise must
 //! not trip it, and the first emitted leaf compares absolute against absolute
-//! (the worked corner cases pin both). The oracle's traversals run on native frames, so
-//! these grids run at oracle-sized depths; deep-input coverage lives in the
-//! closed-form witnesses below and the measurement suites' output assertions at
-//! their committed scales. Those size checks do not discriminate the width of
-//! the flag's value comparison, so that axis is pinned separately, by the
-//! full-width worked witnesses below (a multiple-of-`2^64` raise offset must
-//! read nonzero; a wide value-reproducing raise must read a full-width zero)
-//! and `generators::arb_magnitude`'s `2^64`-aligned arm, which keeps generator
-//! mass on offsets whose low limb is zero. The unchanged branch's splice is
-//! additionally held to the oracle's inflation, the brute-force search, and an
-//! independent reference route probe below.
+//! (the worked corner cases pin both). The oracle's traversals run on native
+//! frames, so these grids run at oracle-sized depths; deep-input coverage lives
+//! in the closed-form witnesses below and the measurement suites' output
+//! assertions at their committed scales. Those size checks do not discriminate
+//! the width of the flag's value comparison, so that axis is pinned separately,
+//! by the full-width worked witnesses below (a multiple-of-`2^64` raise offset
+//! must read nonzero; a wide value-reproducing raise must read a full-width
+//! zero) and `generators::arb_magnitude`'s `2^64`-aligned arm, which keeps
+//! generator mass on offsets whose low limb is zero. The unchanged branch's
+//! splice is additionally held to the oracle's inflation, the brute-force
+//! search, and an independent reference route probe below.
 
 use std::collections::BTreeMap;
 
@@ -95,8 +95,8 @@ fn flag_of(v: &Version, p: &Party) -> bool {
     matches!(TickWalk::decide(v, p), Decision::Simplified(_))
 }
 
-/// The two differentials against the recursive oracle on one pair, plus
-/// entry agreement and canonicality.
+/// The two differentials against the recursive oracle on one pair, plus entry
+/// agreement and canonicality.
 ///
 /// The changed flag must read exactly what the recursive oracle's `fill`
 /// decides (`fill(i, e) ≠ e`), the changed branch's stream must be the oracle's
@@ -142,8 +142,8 @@ fn assert_tick(v: &Version, p: &Party) {
     );
 }
 
-/// The event pool: every registered family at two scales, plus the
-/// empty version.
+/// The event pool: every registered family at two scales, plus the empty
+/// version.
 fn event_pool() -> Vec<Version> {
     vec![
         Version::new(),
@@ -191,8 +191,8 @@ fn event_pool() -> Vec<Version> {
     ]
 }
 
-/// The party pool: the seed, deep and diverted unary spines,
-/// scattered ownership, and every owning exhaustive small-scope party (an empty party
+/// The party pool: the seed, deep and diverted unary spines, scattered
+/// ownership, and every owning exhaustive small-scope party (an empty party
 /// never ticks: the public contract requires an owning party).
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
@@ -246,8 +246,8 @@ fn family_pairs_tick_and_flag_identically() {
 }
 
 /// Exhaustive small scope: every normal-form event tree × every owning
-/// normal-form party ticks byte-identically to the recursive oracle's event, with
-/// the changed flag agreeing with the oracle's fill.
+/// normal-form party ticks byte-identically to the recursive oracle's event,
+/// with the changed flag agreeing with the oracle's fill.
 #[test]
 fn exhaustive_small_scope_ticks_and_flags_identically() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
@@ -266,9 +266,9 @@ fn exhaustive_small_scope_ticks_and_flags_identically() {
     });
 }
 
-/// Exhaustive small scope for [`TickWalk::ticks`]: every `n` in
-/// 0..=4 equals the iterated public tick on every normal-form event tree ×
-/// every owning normal-form party.
+/// Exhaustive small scope for [`TickWalk::ticks`]: every `n` in 0..=4 equals
+/// the iterated public tick on every normal-form event tree × every owning
+/// normal-form party.
 ///
 /// A total check on both branches (the fill-changed collapses and the grow
 /// splices, expansion chains included) at the scope where totality is
@@ -293,9 +293,9 @@ fn exhaustive_small_scope_ticks_n_matches_iterated() {
 
 /// The worked fill examples, pinned end to end through the fused tick.
 ///
-/// The cases: the full-party collapse, both shortcut raises (taken and declined),
-/// and a nested arm, each a changed-flag trip whose tick is the collapse
-/// itself, plus the declined raise whose flag stays clear.
+/// The cases: the full-party collapse, both shortcut raises (taken and
+/// declined), and a nested arm, each a changed-flag trip whose tick is the
+/// collapse itself, plus the declined raise whose flag stays clear.
 #[test]
 fn worked_examples_tick_exactly() {
     use crate::testing::oracles::tree::{Party as P, Version as V};
@@ -410,8 +410,8 @@ fn flag_reads_plateau_divergence_not_arm_firing() {
 ///
 /// Such an offset's low 64 bits are all zero, so a comparison truncated to one
 /// limb would read it as zero, leave the flag clear, and mis-route the pair to
-/// the grow branch, a wrong tick output. The dual rides along: a wide raise that
-/// reproduces the input leaf exactly computes its zero offset from wide
+/// the grow branch, a wrong tick output. The dual rides along: a wide raise
+/// that reproduces the input leaf exactly computes its zero offset from wide
 /// operands, and the comparison must read that zero at full width: the flag
 /// must stay clear. Both directions assert the flag and the tick output against
 /// the recursive oracle. Ongoing generator mass for the class lives in
@@ -445,16 +445,16 @@ fn flag_compares_offsets_at_full_width() {
 /// [`Output::materialize`] is a no-op once the output is built.
 ///
 /// This is the idempotent contract its rustdoc states, which the divergence
-/// epilogue's `is_verbatim()` guard relies on. Two identical
-/// verbatim walks over one canonical stream (the whole stream matched, the
-/// one matched prefix whose builder holds a complete tiling and so may
-/// finish) materialize once and twice respectively; the twice-materialized
-/// output must finish byte-identical to the once-materialized one, and both
-/// to the stream itself (a fully matched prefix copies verbatim, byte-exact
-/// by canonical uniqueness).
+/// epilogue's `is_verbatim()` guard relies on. Two identical verbatim walks
+/// over one canonical stream (the whole stream matched, the one matched prefix
+/// whose builder holds a complete tiling and so may finish) materialize once
+/// and twice respectively; the twice-materialized output must finish
+/// byte-identical to the once-materialized one, and both to the stream itself
+/// (a fully matched prefix copies verbatim, byte-exact by canonical
+/// uniqueness).
 ///
-/// Deliberate internal entry: no public path re-enters `materialize`
-/// after building, so this test exercises the internal contract directly.
+/// Deliberate internal entry: no public path re-enters `materialize` after
+/// building, so this test exercises the internal contract directly.
 #[test]
 fn materialize_is_a_noop_once_built() {
     use crate::testing::oracles::tree::Version as V;
@@ -500,12 +500,12 @@ fn materialize_is_a_noop_once_built() {
 /// The driven path: the left-full raise diverges the walk, the copied sibling
 /// region climbs beyond `u64` and returns, and the region's block-minimum
 /// emission then arrives with a word-scale negative offset against a
-/// wide-negative anchor gap, the range-minimum stack's scale-disparate undercut,
-/// whose residue is `m − v = −gap − offset`. Folding the offset into that
-/// residue with the opposite polarity would leave a phantom `2·|offset|`
-/// boundary on the difference stack, and the enclosing range's minimum, read
-/// by the root's right-full raise, would come out low by exactly that:
-/// wrong tick output, caught here against the recursive oracle.
+/// wide-negative anchor gap, the range-minimum stack's scale-disparate
+/// undercut, whose residue is `m − v = −gap − offset`. Folding the offset into
+/// that residue with the opposite polarity would leave a phantom `2·|offset|`
+/// boundary on the difference stack, and the enclosing range's minimum, read by
+/// the root's right-full raise, would come out low by exactly that: wrong tick
+/// output, caught here against the recursive oracle.
 #[test]
 fn dominated_undercut_residue_carries_its_offset() {
     use crate::testing::oracles::tree::{Party as P, Version as V};
@@ -533,25 +533,24 @@ fn dominated_undercut_residue_carries_its_offset() {
     assert_tick(&v, &p);
 }
 
-/// The dominated-undercut family ticks byte-identically to the recursive
-/// oracle at every knob.
+/// The dominated-undercut family ticks byte-identically to the recursive oracle
+/// at every knob.
 ///
-/// Each site's copied sibling region climbs a wide leaf and returns, so
-/// its block-minimum emission arrives against a scale-disparate anchor
-/// gap, and the raise reading the surviving minimum stays exact.
+/// Each site's copied sibling region climbs a wide leaf and returns, so its
+/// block-minimum emission arrives against a scale-disparate anchor gap, and the
+/// raise reading the surviving minimum stays exact.
 ///
-/// The size-generic generalization of the worked witness above, biased
-/// toward scale-disparate emissions: per site, a raise value, an exit
-/// rise, and a wide climb `m · 2^b` with most of the width range past the
-/// domination read's decision bound, so the family keeps generator mass
-/// on emissions the post-sign domination arms answer, with the smaller
-/// widths exercising the fold-and-restore path beside them. The raise
-/// value reaches down to zero, which seats the site's raise exactly at its
-/// sibling region's minimum: the tie at the raise decision's own boundary,
-/// where the comparison deciding which side arms reads neither strictly
-/// below nor strictly above. The `dominated-undercut` family measures the
-/// arm's cost at committed scales; this differential checks the values over
-/// the whole knob space.
+/// The size-generic generalization of the worked witness above, biased toward
+/// scale-disparate emissions: per site, a raise value, an exit rise, and a wide
+/// climb `m · 2^b` with most of the width range past the domination read's
+/// decision bound, so the family keeps generator mass on emissions the
+/// post-sign domination arms answer, with the smaller widths exercising the
+/// fold-and-restore path beside them. The raise value reaches down to zero,
+/// which seats the site's raise exactly at its sibling region's minimum: the
+/// tie at the raise decision's own boundary, where the comparison deciding
+/// which side arms reads neither strictly below nor strictly above. The
+/// `dominated-undercut` family measures the arm's cost at committed scales;
+/// this differential checks the values over the whole knob space.
 #[test]
 fn dominated_undercut_family_ticks_identically() {
     let strategy = proptest::collection::vec((0u64..=6, 1u64..=7, 64usize..=192, 1u64..=4), 1..=4);
@@ -573,8 +572,8 @@ fn dominated_undercut_family_ticks_identically() {
 }
 
 /// Build an undercut-under-a-live-relation pair: a chain of covered left-full
-/// sites around a party-absent region whose block-minimum emission undercuts the
-/// tracked minimum while the memo reference uses its follower slot.
+/// sites around a party-absent region whose block-minimum emission undercuts
+/// the tracked minimum while the memo reference uses its follower slot.
 ///
 /// The walk order, under one outermost site whose fresh pre-scan covers the
 /// whole chain: the root site's raise declines and reproduces its single-leaf
@@ -582,20 +581,20 @@ fn dominated_undercut_family_ticks_identically() {
 /// multi-leaf collapse (peak `z`, over a sibling leaf `y`) diverges the walk,
 /// and its close re-anchors the memo reference onto the minimum tracker's
 /// follower slot (`pop_lookahead`). The party-absent region then arms the
-/// tracker at its `climb` leaf
-/// and drops back to a minimum sitting `exit_rise` above the region's exit,
-/// so its block-minimum emission undercuts the freshly-armed anchor with the
-/// follower live: through the post-sign domination arm when the climb
-/// dominates at scale, the fold-and-restore path when it is comparable, and
-/// the at-height emission when the exit rise is zero. The `posts` sites then
-/// nest, each inside the previous site's sibling, so consecutive raise
-/// decisions read the relation with no intervening `pop_lookahead`; the terminal
-/// site's decision is directed by `(min_side, margin)`: the minimum side
-/// raises a zero collapse leaf to a sibling minimum sitting `margin` above
-/// it, the declined side emits a collapse leaf sitting `margin` over a zero
-/// sibling minimum. A follower displaced by a wrong-polarity residue fold,
-/// an error at the dying anchor gap's own width, reads the other side of
-/// those decisions and emits the wrong bytes.
+/// tracker at its `climb` leaf and drops back to a minimum sitting `exit_rise`
+/// above the region's exit, so its block-minimum emission undercuts the
+/// freshly-armed anchor with the follower live: through the post-sign
+/// domination arm when the climb dominates at scale, the fold-and-restore path
+/// when it is comparable, and the at-height emission when the exit rise is
+/// zero. The `posts` sites then nest, each inside the previous site's sibling,
+/// so consecutive raise decisions read the relation with no intervening
+/// `pop_lookahead`; the terminal site's decision is directed by
+/// `(min_side, margin)`: the minimum side raises a zero collapse leaf to a
+/// sibling minimum sitting `margin` above it, the declined side emits a
+/// collapse leaf sitting `margin` over a zero sibling minimum. A follower
+/// displaced by a wrong-polarity residue fold, an error at the dying anchor
+/// gap's own width, reads the other side of those decisions and emits the wrong
+/// bytes.
 fn live_relation_undercut_pair(
     outer: u64,
     pre: &[(u64, u64)],
@@ -635,18 +634,18 @@ fn live_relation_undercut_pair(
 }
 
 /// A dominated undercut under a live memo reference moves the reference's
-/// follower by exactly its residue: a later covered site's raise decision
-/// reads the follower, and the tick matches the oracle.
+/// follower by exactly its residue: a later covered site's raise decision reads
+/// the follower, and the tick matches the oracle.
 ///
 /// The worked point of [`live_relation_undercut_pair`]: one diverging site
-/// re-anchors the relation, the region's climb sits past the domination
-/// read's decision bound so the undercut is answered scale-disparately with
-/// the follower live, and the terminal site's raise then reads the minimum
-/// side by the thinnest margin, where a follower displaced by a
-/// wrong-polarity residue fold reads the other side and emits the declined
-/// raise value in place of the oracle's raise. `pop_lookahead` does not intervene
-/// between the undercut and that read: only ordinary node closes separate
-/// them, and those never touch a follower's value.
+/// re-anchors the relation, the region's climb sits past the domination read's
+/// decision bound so the undercut is answered scale-disparately with the
+/// follower live, and the terminal site's raise then reads the minimum side by
+/// the thinnest margin, where a follower displaced by a wrong-polarity residue
+/// fold reads the other side and emits the declined raise value in place of the
+/// oracle's raise. `pop_lookahead` does not intervene between the undercut and
+/// that read: only ordinary node closes separate them, and those never touch a
+/// follower's value.
 ///
 #[test]
 fn dominated_undercut_moves_the_live_memo_reference() {
@@ -663,11 +662,11 @@ fn dominated_undercut_moves_the_live_memo_reference() {
 /// floor: a unit climb and a zero exit rise route the region's block-minimum
 /// emission through the at-height undercut instead of the domination arm, so
 /// the residue reaches the live follower through the propagation fold that
-/// resolves anchor tags. The terminal raise then reads the minimum side by
-/// the thinnest margin, where a wrong-polarity fold reads the other side.
-/// This exact pair is the family's shrunk counterexample under that
-/// polarity error, kept as a worked point so the narrow arm stays pinned
-/// independently of the generator.
+/// resolves anchor tags. The terminal raise then reads the minimum side by the
+/// thinnest margin, where a wrong-polarity fold reads the other side. This
+/// exact pair is the family's shrunk counterexample under that polarity error,
+/// kept as a worked point so the narrow arm stays pinned independently of the
+/// generator.
 #[test]
 fn narrow_undercut_moves_the_live_memo_reference() {
     let (v, p) = live_relation_undercut_pair(0, &[(1, 0)], &BigUint::from(1u8), 0, &[], (true, 1));
@@ -711,21 +710,21 @@ proptest! {
 }
 
 /// Build a pair whose sibling walk stacks two armed boundaries, a word-scale
-/// `w` over a `m · 2^(32c)`-scale one, and drops to `eps` inside the
-/// innermost range.
+/// `w` over a `m · 2^(32c)`-scale one, and drops to `eps` inside the innermost
+/// range.
 ///
 /// The arming undercut's residue is then `m·2^(32c) + w − eps` (top digit `m`
 /// over a zero digit), meeting the word boundary at exactly two digits of
 /// clearance.
 ///
 /// The clearance is the point: the propagation's width guard enters on the
-/// digit counts alone, and top-index domination at that clearance is valid:
-/// a residue whose top digit is 1 or 2 sits inside the redundant-spelling
-/// operand bound, so the read answers undecided and the fold falls through to
-/// the total comparable-scale path; a top digit of 3 or more certifies and
-/// takes the dominated arm. Every leaf of the sibling rides a party node, so
-/// the walk descends and emits per leaf (no block copy), and the trailing
-/// zero leaf keeps the root raise declined.
+/// digit counts alone, and top-index domination at that clearance is valid: a
+/// residue whose top digit is 1 or 2 sits inside the redundant-spelling operand
+/// bound, so the read answers undecided and the fold falls through to the total
+/// comparable-scale path; a top digit of 3 or more certifies and takes the
+/// dominated arm. Every leaf of the sibling rides a party node, so the walk
+/// descends and emits per leaf (no block copy), and the trailing zero leaf
+/// keeps the root raise declined.
 fn undecided_residue_pair(m: u64, c: u32, w: u64, eps: u64) -> (Version, Party) {
     use crate::testing::oracles::tree::{Party as P, Version as V};
     let over_leaf = || P::node(P::seed(), P::Leaf(false));
@@ -769,8 +768,8 @@ proptest! {
     }
 }
 
-/// The left-full raise decision's height boundary: the tick matches the oracle on
-/// a pair whose sibling range moves the height between the site's collapse
+/// The left-full raise decision's height boundary: the tick matches the oracle
+/// on a pair whose sibling range moves the height between the site's collapse
 /// scan and the site's close.
 ///
 /// The pre-scan records an interior left-full site's sibling minimum and
@@ -802,21 +801,21 @@ fn left_full_raise_decides_at_the_site_not_its_close() {
 /// domination ladder.
 ///
 /// The driven path, with every enclosing base zero: the leaf left of the spine
-/// arms the minimum tracker at height `0`; each spine level's zero leaf arms one level
-/// deeper (the outermost spine base is the surviving innermost minimum
-/// `m = bases.last()`), the tip leaf arms last and highest, and the spine's
-/// closes then pop those arming boundaries back, one park per level, the
-/// first creating a record and the rest merging, leaving the latent
+/// arms the minimum tracker at height `0`; each spine level's zero leaf arms
+/// one level deeper (the outermost spine base is the surviving innermost
+/// minimum `m = bases.last()`), the tip leaf arms last and highest, and the
+/// spine's closes then pop those arming boundaries back, one park per level,
+/// the first creating a record and the rest merging, leaving the latent
 /// `Λ = tip + Σ bases[..last]` under the anchor `A = m + Λ`. The sibling
-/// consumed by the right-full raise probes the ladder at `v = peak`: the
-/// latent `Λ` decides against the drop `δ = A − v`, with the true minimum at
-/// `m`. A zero `peak` places a lone zero leaf as the sibling (the two-leaf
-/// spelling would collapse); the raise consumes either shape identically.
+/// consumed by the right-full raise probes the ladder at `v = peak`: the latent
+/// `Λ` decides against the drop `δ = A − v`, with the true minimum at `m`. A
+/// zero `peak` places a lone zero leaf as the sibling (the two-leaf spelling
+/// would collapse); the raise consumes either shape identically.
 ///
 /// A second right-full raise wraps the ladder site and reads the minimum again
-/// over a lone zero leaf: its raise lifts that leaf to the tracked minimum
-/// `m`, coding the post-ladder tracker state into the output stream: a ladder
-/// exit that misplaces the minimum (a wrong fold-restore, a wrong post-collapse
+/// over a lone zero leaf: its raise lifts that leaf to the tracked minimum `m`,
+/// coding the post-ladder tracker state into the output stream: a ladder exit
+/// that misplaces the minimum (a wrong fold-restore, a wrong post-collapse
 /// re-test) surfaces as wrong bytes rather than dying unread when the last
 /// armed range retires.
 fn latent_ladder_pair(bases: &[BigUint], tip: &BigUint, peak: &BigUint) -> (Version, Party) {
@@ -859,13 +858,13 @@ fn five_p96() -> BigUint {
 }
 
 /// A dominating latent declines a word-scale drop: the emission lands between
-/// the true minimum and the anchor (`m < v < A`, `Λ ≥ 5·2^96`, `A − v = 7`),
-/// so the tracked minimum must not move and the raise emits `v` itself.
+/// the true minimum and the anchor (`m < v < A`, `Λ ≥ 5·2^96`, `A − v = 7`), so
+/// the tracked minimum must not move and the raise emits `v` itself.
 ///
 /// The worked witness for the ladder's latent-dominates arm and both of its
 /// reads: the raise decision (`compare_above`) and the declined drop's exact
-/// fold-restore in `emit_offset` (the latent-decide-false gate). Restoring
-/// that fold with the wrong polarity displaces the tracked minimum by `2·|offset|`
+/// fold-restore in `emit_offset` (the latent-decide-false gate). Restoring that
+/// fold with the wrong polarity displaces the tracked minimum by `2·|offset|`
 /// for every later read; the enclosing minimum then comes out wrong, caught
 /// here against the recursive oracle.
 #[test]
@@ -878,9 +877,9 @@ fn wide_latent_dominates_a_word_scale_drop() {
     assert_tick(&v, &p);
 }
 
-/// A wide drop dominates a word-scale latent: the emission reads strictly
-/// below the true minimum (`v < m`, `m ≥ 5·2^96`, `Λ = 9`), so the raise must
-/// lift the consumed sibling to exactly `m`.
+/// A wide drop dominates a word-scale latent: the emission reads strictly below
+/// the true minimum (`v < m`, `m ≥ 5·2^96`, `Λ = 9`), so the raise must lift
+/// the consumed sibling to exactly `m`.
 ///
 /// The worked witness for the ladder's gap-dominates arm: the decision is the
 /// O(1) domination read of the drop against the latent, answered without a
@@ -899,10 +898,10 @@ fn wide_drop_dominates_a_word_scale_latent() {
 ///
 /// The worked witness for the ladder's comparable-collapse arm on its
 /// non-undercut side: neither operand's top digit certifies domination, the
-/// near-cancellation funds the latent's retirement, and the post-collapse
-/// plain sign read declines the drop. A wrong post-collapse polarity turns
-/// the declined drop into an undercut of the re-based anchor, caught here
-/// against the recursive oracle.
+/// near-cancellation funds the latent's retirement, and the post-collapse plain
+/// sign read declines the drop. A wrong post-collapse polarity turns the
+/// declined drop into an undercut of the re-based anchor, caught here against
+/// the recursive oracle.
 #[test]
 fn comparable_scales_collapse_above_the_true_minimum() {
     let (v, p) = latent_ladder_pair(
@@ -917,11 +916,11 @@ fn comparable_scales_collapse_above_the_true_minimum() {
 /// drop passing the true minimum (`v < m`, `Λ = 5·2^96`, `A − v = 5·2^96 +
 /// 3`): the raise must lift the consumed sibling to exactly `m`.
 ///
-/// The worked witness for the ladder's comparable-collapse arm on its
-/// undercut side: the collapse re-bases the anchor to the true minimum and
-/// the plain re-test still reads a drop, so the raise emits the minimum. A
-/// wrong post-collapse polarity emits the low sibling value instead, caught
-/// here against the recursive oracle.
+/// The worked witness for the ladder's comparable-collapse arm on its undercut
+/// side: the collapse re-bases the anchor to the true minimum and the plain
+/// re-test still reads a drop, so the raise emits the minimum. A wrong
+/// post-collapse polarity emits the low sibling value instead, caught here
+/// against the recursive oracle.
 #[test]
 fn comparable_scales_collapse_under_the_true_minimum() {
     let (v, p) = latent_ladder_pair(&[BigUint::from(5u8)], &five_p96(), &BigUint::from(2u8));
@@ -932,15 +931,15 @@ fn comparable_scales_collapse_under_the_true_minimum() {
 /// past the `2^97` domination threshold in both accumulator representations.
 ///
 /// The register certifies from `3·2^(32·(floor+1))`; the digit fold from a
-/// partial of `3` at digit index `floor + 2`, here index 3 against
-/// word-scale floors.
+/// partial of `3` at digit index `floor + 2`, here index 3 against word-scale
+/// floors.
 fn arb_ladder_dominant() -> impl Strategy<Value = BigUint> {
     (5u128 << 64..1u128 << 68).prop_map(|n| BigUint::from(n) << 32u32)
 }
 
-/// One comparable-scale ladder operand: `[2^96, 2^99)`, top digit index 3
-/// with a small partial, so no draw dominates another draw (or a sum of two)
-/// and every pairing takes the collapse arm.
+/// One comparable-scale ladder operand: `[2^96, 2^99)`, top digit index 3 with
+/// a small partial, so no draw dominates another draw (or a sum of two) and
+/// every pairing takes the collapse arm.
 fn arb_ladder_comparable() -> impl Strategy<Value = BigUint> {
     (1u128 << 64..1u128 << 67).prop_map(|n| BigUint::from(n) << 32u32)
 }
@@ -1036,21 +1035,21 @@ fn left_spike(depth: usize) -> Version {
 
 /// Deep spines stay correct without using the recursive oracle.
 ///
-/// The recursive oracle's traversals run on native frames (it is the small-scope
-/// reference, not a deep-input one), so the value witnesses here are closed
-/// forms. The full party collapses the whole spine to one leaf at its maximum
-/// height (the alternating spine's only nonzero leaf is the `1` at the bottom
-/// pair), and that collapse trips the flag, so it is also the tick; the deep
-/// unary party over the empty version leaves the flag clear (fill of a leaf under
-/// a node party is the leaf) and ticks to the left spike, the expansion chain to
-/// its owned tip; and over the deep spine the same party turns left into the
-/// spine's depth-2 zero leaf (the spine's structure continues right there), so
-/// the flag again stays clear and the grown tree raises exactly the owned
-/// region from 0 to 1: the pointwise max with the spike, realized through the
-/// independently-pinned join kernel and byte-exact by canonical uniqueness. A
-/// changed output then takes the grow branch, which checks idempotence at the
-/// same depth. Every case also checks canonicality and agreement with the
-/// public entry point.
+/// The recursive oracle's traversals run on native frames (it is the
+/// small-scope reference, not a deep-input one), so the value witnesses here
+/// are closed forms. The full party collapses the whole spine to one leaf at
+/// its maximum height (the alternating spine's only nonzero leaf is the `1` at
+/// the bottom pair), and that collapse trips the flag, so it is also the tick;
+/// the deep unary party over the empty version leaves the flag clear (fill of a
+/// leaf under a node party is the leaf) and ticks to the left spike, the
+/// expansion chain to its owned tip; and over the deep spine the same party
+/// turns left into the spine's depth-2 zero leaf (the spine's structure
+/// continues right there), so the flag again stays clear and the grown tree
+/// raises exactly the owned region from 0 to 1: the pointwise max with the
+/// spike, realized through the independently-pinned join kernel and byte-exact
+/// by canonical uniqueness. A changed output then takes the grow branch, which
+/// checks idempotence at the same depth. Every case also checks canonicality
+/// and agreement with the public entry point.
 #[test]
 fn deep_spines_tick_and_flag_identically() {
     // A changed pair: the flag trips, the fill-branch stream is the derived
@@ -1230,8 +1229,8 @@ proptest! {
 /// The fixed wide pair's size freezes after its one-step transient (growing
 /// only with the incremented count's gamma width), and the alternating disjoint
 /// pair, whose collapse/expand cycle re-fires a width duplication every period,
-/// stays inside the same band forever: re-fired raises re-code the same
-/// bounded value at the same position, replacing, never stacking.
+/// stays inside the same band forever: re-fired raises re-code the same bounded
+/// value at the same position, replacing, never stacking.
 #[test]
 fn tick_deep_orbits_stay_banded() {
     let ev = Shape::Bigroot.build2(64, 4).version();
@@ -1289,8 +1288,8 @@ fn direction_chain(path: &[bool]) -> Party {
 /// feasible, and the route must turn into the present child at every level.
 ///
 /// If the shifted distance wrapped to zero, the chain would instead look
-/// absent, send the route into the missing sibling, and desynchronize the
-/// party cursor. Saturation prevents that collision by construction.
+/// absent, send the route into the missing sibling, and desynchronize the party
+/// cursor. Saturation prevents that collision by construction.
 fn assert_chain_saturation(path: &[bool], ceiling: u64) {
     let p = direction_chain(path);
     let mut probe = RaiseProbe::new(p.stored_len());
@@ -1330,8 +1329,7 @@ fn assert_chain_saturation(path: &[bool], ceiling: u64) {
 /// (distance 8) saturates to 7 and stays feasible.
 ///
 /// The route turns into the present child at every level, and chains around
-/// that distance tick byte-identically to the oracle at the production
-/// ceiling.
+/// that distance tick byte-identically to the oracle at the production ceiling.
 #[test]
 fn chain_one_past_the_ceiling_stays_feasible() {
     const SCALED_CEILING: u64 = 7;
@@ -1374,8 +1372,8 @@ fn ticks_version(v: &Version, party: &Party, n: &BigUint) -> Version {
     TickWalk::ticks(v, party, n)
 }
 
-/// Check [`TickWalk::ticks`] against repeated [`Version::tick`] for every `n` in
-/// an ascending list, reusing the iterated prefix.
+/// Check [`TickWalk::ticks`] against repeated [`Version::tick`] for every `n`
+/// in an ascending list, reusing the iterated prefix.
 fn check_ticks_equivalence(v: &Version, p: &Party, ns: &[u32]) {
     let mut iterated = v.clone();
     let mut done = 0u32;
@@ -1511,8 +1509,8 @@ proptest! {
 /// The shape corpus at depth: the main differential over the registered deep
 /// shapes crossed with the shape parties, `n` to 1000.
 ///
-/// The parties span single deep owned regions and bushy multi-region parties, and
-/// the count runs large enough that the iterated side pays a thousand walks
+/// The parties span single deep owned regions and bushy multi-region parties,
+/// and the count runs large enough that the iterated side pays a thousand walks
 /// while the fused side pays at most two.
 #[test]
 fn ticks_matches_iterated_ticks_shapes() {
@@ -1558,8 +1556,8 @@ fn ticks_covers_fill_changed_branch() {
     check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
 }
 
-/// From the identity, `TickWalk::ticks(n)` under the seed party yields uniform height
-/// `n`.
+/// From the identity, `TickWalk::ticks(n)` under the seed party yields uniform
+/// height `n`.
 #[test]
 fn ticks_from_empty_is_the_counter() {
     let v = Version::new();
@@ -1572,13 +1570,13 @@ fn ticks_from_empty_is_the_counter() {
 }
 
 /// Wide-`n` self-consistency, beyond any iterative reference: `ticks` is a
-/// monoid action, `ticks(a + b) = ticks(b) ∘ ticks(a)`, at `n` around
-/// `2^100`, over every shape pair at depths swept 5 to 128.
+/// monoid action, `ticks(a + b) = ticks(b) ∘ ticks(a)`, at `n` around `2^100`,
+/// over every shape pair at depths swept 5 to 128.
 ///
 /// A small-tail cross-check `ticks(big + 1) = tick ∘ ticks(big)` seams the wide
 /// arm to the ground-truth single tick. The swept depths carry the wide-`n`
-/// arithmetic across real suspension depth: the deterministic deep-and-wide
-/// leg beside [`deep_and_wide_ticks_match_iterated`]'s sampled family.
+/// arithmetic across real suspension depth: the deterministic deep-and-wide leg
+/// beside [`deep_and_wide_ticks_match_iterated`]'s sampled family.
 #[test]
 fn ticks_composes_at_wide_n() {
     use generators::{shape_party, shape_version, Shape};
@@ -1633,15 +1631,14 @@ fn composition_counts() -> [BigUint; 4] {
     ]
 }
 
-/// Check one co-generated case against the recursive oracle through `tick`
-/// and `ticks`.
+/// Check one co-generated case against the recursive oracle through `tick` and
+/// `ticks`.
 ///
 /// Each of the case's three versions (drawn, fill-fixed, and late-perturbed)
 /// must pass [`assert_tick`]; `ticks(k)` must equal `k` iterated public ticks
-/// and the recursive oracle's `k`-fold tick for `k` up to
-/// [`ITERATED_TICKS`]; `ticks(0)` must be the identity; and `ticks(a)` then
-/// `ticks(b)` must equal `ticks(a + b)` over every pair of
-/// [`composition_counts`].
+/// and the recursive oracle's `k`-fold tick for `k` up to [`ITERATED_TICKS`];
+/// `ticks(0)` must be the identity; and `ticks(a)` then `ticks(b)` must equal
+/// `ticks(a + b)` over every pair of [`composition_counts`].
 fn assert_co_generated(case: &co_generated::TickCase) {
     let p = from_oracle_party(&case.party);
     for oracle_version in case.versions() {
@@ -1763,17 +1760,17 @@ divided_proptest! {
     }
 }
 
-/// An owned leaf whose old maximum ties its memoized minimum keeps that
-/// height, and the case ticks byte-identically to the recursive oracle
-/// through `tick` and `ticks`.
+/// An owned leaf whose old maximum ties its memoized minimum keeps that height,
+/// and the case ticks byte-identically to the recursive oracle through `tick`
+/// and `ticks`.
 ///
 /// The worked spine case: an outer lookahead site's range holds two sibling
 /// sites, and the second nests a third. Closing the first sibling leaves the
-/// walk reading the second's memo entry against the tracked minimum. The
-/// second site's owned leaf sits at height 0, and its range simplifies to
-/// heights 2, 0, and 2, with minimum 0: a tie, which emits the owned leaf at
-/// its old maximum and leaves the input unchanged there. Reading the tie as
-/// a domination arms the memoized minimum instead, and the changed flag trips
+/// walk reading the second's memo entry against the tracked minimum. The second
+/// site's owned leaf sits at height 0, and its range simplifies to heights 2,
+/// 0, and 2, with minimum 0: a tie, which emits the owned leaf at its old
+/// maximum and leaves the input unchanged there. Reading the tie as a
+/// domination arms the memoized minimum instead, and the changed flag trips
 /// where the oracle's fill is the identity. Kept as a literal so it survives
 /// changes to the strategies.
 #[test]
@@ -1851,16 +1848,15 @@ fn site_after_a_closed_sibling_site_ticks_identically() {
 /// Directed pre-scan shapes concentrating right-full raises at the earliest
 /// reachable moments of a fresh scan.
 ///
-/// The negative space around the invariant that every range resolving ahead
-/// of a raise has already emitted (retiring the scan's entry net,
+/// The negative space around the invariant that every range resolving ahead of
+/// a raise has already emitted (retiring the scan's entry net,
 /// `PreScan::max_range`'s entry assertion).
 mod prescan_raise_shapes {
     use super::*;
     use crate::bits::BitsWriter;
 
     /// Construction-language pushers (the vocabulary of `testing::meter`'s
-    /// shape builders):
-    /// internal node = `1 · gamma(0)`, leaf = `0 · gamma(n)`.
+    /// shape builders): internal node = `1 · gamma(0)`, leaf = `0 · gamma(n)`.
     fn nd(ev: &mut BitsWriter) {
         ev.push(true);
         ev.write_gamma(&BigUint::ZERO);
@@ -1870,8 +1866,8 @@ mod prescan_raise_shapes {
         ev.write_gamma(&BigUint::from(n));
     }
     /// A deep staircase region (`testing::meter`'s `hole_region` at lead 2):
-    /// wrapper node, staircase `m..0`, wrapper floor leaf, deep enough to
-    /// route every consuming scan and copy through its block summary.
+    /// wrapper node, staircase `m..0`, wrapper floor leaf, deep enough to route
+    /// every consuming scan and copy through its block summary.
     fn hole(ev: &mut BitsWriter, m: u64) {
         nd(ev); // wrapper
         nd(ev); // staircase root
@@ -1941,12 +1937,12 @@ mod prescan_raise_shapes {
         covered(&er, &ir)
     }
 
-    /// The chain-raise grid runs the full differential in a debug build,
-    /// where `PreScan::max_range`'s entry assertion is live.
+    /// The chain-raise grid runs the full differential in a debug build, where
+    /// `PreScan::max_range`'s entry assertion is live.
     ///
-    /// The raise fires at the earliest reachable moment of the fresh scan
-    /// (one emission, arbitrarily many suspended-and-resolved sites), and
-    /// the verdicts match the recursive oracle on every pair.
+    /// The raise fires at the earliest reachable moment of the fresh scan (one
+    /// emission, arbitrarily many suspended-and-resolved sites), and the
+    /// verdicts match the recursive oracle on every pair.
     #[test]
     fn chain_raise_grid_matches_oracle() {
         for k in 0..=3 {
@@ -1957,15 +1953,15 @@ mod prescan_raise_shapes {
         }
     }
 
-    /// A raise fires inside a suspended site's sibling after the scan's one
-    /// and only emission, and the verdicts match the recursive oracle.
+    /// A raise fires inside a suspended site's sibling after the scan's one and
+    /// only emission, and the verdicts match the recursive oracle.
     ///
     /// The site's collapse skip emits nothing and the sibling's left leaf is
     /// the scan's sole emission, so the raise scans under the deepest
     /// pre-arming pressure a canonical pair can construct, the site still
     /// suspended. The skip-then-forced-copy dual rides along: a no-sibling
-    /// site's deep collapse skip (its entry-net fold live) resolves through
-    /// the forced copy's emission before its parent's raise.
+    /// site's deep collapse skip (its entry-net fold live) resolves through the
+    /// forced copy's emission before its parent's raise.
     #[test]
     fn suspended_and_skipping_site_raises_match_oracle() {
         // The raise under suspension: site over (collapse leaf, raising node).
@@ -2008,8 +2004,8 @@ mod prescan_raise_shapes {
     /// child's sibling can never itself be full.
     ///
     /// A party handing an owned sibling to an owned child is `(1, 1)`, which
-    /// normal form collapses and decode rejects; every pre-scan entry is a
-    /// full child's sibling or a child its caller peeked as not-full.
+    /// normal form collapses and decode rejects; every pre-scan entry is a full
+    /// child's sibling or a child its caller peeked as not-full.
     #[test]
     fn full_sibling_of_full_child_is_undecodable() {
         let mut party = BitsWriter::new();

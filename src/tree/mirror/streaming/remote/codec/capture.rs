@@ -1,48 +1,44 @@
 //! Rendering of captured V2 traffic in CBOR diagnostic notation.
 //!
-//! The snapshot suites pin every wire byte of a captured session, and
-//! this module is the form that pin takes: the harness's framing (each
-//! direction, each control item and data frame with its index, exact
-//! byte count, and protocol-phase label) over each item rendered by
-//! `cbor-diag` in extended diagnostic notation with encoding
-//! indicators, embedded CBOR (tags 24 and 63) unfolded, verbatim under
-//! its header.
+//! The snapshot suites pin every wire byte of a captured session, and this
+//! module is the form that pin takes: the harness's framing (each direction,
+//! each control item and data frame with its index, exact byte count, and
+//! protocol-phase label) over each item rendered by `cbor-diag` in extended
+//! diagnostic notation with encoding indicators, embedded CBOR (tags 24 and 63)
+//! unfolded, verbatim under its header.
 //!
 //! # Why a rendering with no hexdump is still a byte pin
 //!
-//! The harness holds every item to canonical form before rendering it:
-//! every head at its shortest width, definite lengths, well-formed
-//! simple values, no NaN, text free of control characters, and a
-//! re-encoding equal to the bytes, checked down through embedded CBOR
-//! to the printer's depth limit. On a canonical item, diagnostic
-//! notation with encoding indicators spells the value exactly, so two
-//! different canonical byte streams cannot render identically; any other
-//! item renders as an explicit failure line carrying the reason above
-//! its exact hex. The rendering is therefore injective on wire bytes. A
-//! NaN's sign and payload bits are what the notation cannot spell, which
-//! is why every NaN is rejected; none occurs on the wire, since the
-//! protocol emits no floats and the payload contract's `Eq` bound
-//! excludes float fields (see
-//! [choosing a payload type](crate#choosing-a-payload-type)); a
-//! hand-written `Eq` admitting NaN has declared its NaNs equal. A control
-//! item's or frame's byte count is the observed item's length, and a
-//! logical stream's is the sum of its frames'; the totality witness
-//! ([`assert_items_account_for`]) holds the observed items equal to the
-//! pipe's bytes.
+//! The harness holds every item to canonical form before rendering it: every
+//! head at its shortest width, definite lengths, well-formed simple values, no
+//! NaN, text free of control characters, and a re-encoding equal to the bytes,
+//! checked down through embedded CBOR to the printer's depth limit. On a
+//! canonical item, diagnostic notation with encoding indicators spells the
+//! value exactly, so two different canonical byte streams cannot render
+//! identically; any other item renders as an explicit failure line carrying the
+//! reason above its exact hex. The rendering is therefore injective on wire
+//! bytes. A NaN's sign and payload bits are what the notation cannot spell,
+//! which is why every NaN is rejected; none occurs on the wire, since the
+//! protocol emits no floats and the payload contract's `Eq` bound excludes
+//! float fields (see [choosing a payload type](crate#choosing-a-payload-type));
+//! a hand-written `Eq` admitting NaN has declared its NaNs equal. A control
+//! item's or frame's byte count is the observed item's length, and a logical
+//! stream's is the sum of its frames'; the totality witness
+//! ([`assert_items_account_for`]) holds the observed items equal to the pipe's
+//! bytes.
 //!
 //! # Where the bytes come from
 //!
-//! Capture enters through the observation hook ([`crate::observe`]):
-//! the harness records each direction's items as a [`HookCapture`]. The
-//! pipe's own bytes ([`PipeCapture`]) are the totality oracle: every
-//! item the hook observed, in observation order, must reproduce the pipe's
-//! bytes exactly ([`assert_items_account_for`]), which is what lets a
-//! rendering of items pin wire bytes. Rendering then groups the frames by
-//! logical stream, so the multiplexer's interleaving of logical streams
-//! never changes a rendering. Structural violations of the capture itself
-//! (a control item whose opening head is not canonical, a frame whose
-//! opener is not the codec's or contradicts its stream) are panics: the
-//! harness, not the peer, is broken.
+//! Capture enters through the observation hook ([`crate::observe`]): the
+//! harness records each direction's items as a [`HookCapture`]. The pipe's own
+//! bytes ([`PipeCapture`]) are the totality oracle: every item the hook
+//! observed, in observation order, must reproduce the pipe's bytes exactly
+//! ([`assert_items_account_for`]), which is what lets a rendering of items pin
+//! wire bytes. Rendering then groups the frames by logical stream, so the
+//! multiplexer's interleaving of logical streams never changes a rendering.
+//! Structural violations of the capture itself (a control item whose opening
+//! head is not canonical, a frame whose opener is not the codec's or
+//! contradicts its stream) are panics: the harness, not the peer, is broken.
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
@@ -58,21 +54,21 @@ use super::{Speaker, Stream, signal::WireSignal};
 #[cfg(test)]
 mod tests;
 
-/// Everything one endpoint sent during a captured session, at the
-/// transport level: the exact bytes it wrote to the pipe.
+/// Everything one endpoint sent during a captured session, at the transport
+/// level: the exact bytes it wrote to the pipe.
 ///
-/// The rendering consumes the hook's [`HookCapture`]; this transport form
-/// is the totality oracle beside it, and the wire-legibility property's
-/// raw material.
+/// The rendering consumes the hook's [`HookCapture`]; this transport form is
+/// the totality oracle beside it, and the wire-legibility property's raw
+/// material.
 #[derive(Debug)]
 pub struct PipeCapture {
-    /// The pipe's outgoing bytes: preamble, greeting, every logical
-    /// stream's frames, then the closing items, in write order.
+    /// The pipe's outgoing bytes: preamble, greeting, every logical stream's
+    /// frames, then the closing items, in write order.
     pub sent: Vec<u8>,
 }
 
-/// Everything one endpoint sent during a captured session, as the
-/// observation hook delivered it: one byte buffer per CBOR item.
+/// Everything one endpoint sent during a captured session, as the observation
+/// hook delivered it: one byte buffer per CBOR item.
 #[derive(Debug)]
 pub struct HookCapture {
     /// The role this side was elected, if the session held an election.
@@ -96,9 +92,9 @@ pub struct HookStream {
 
 /// Assert that the concatenation of `items` reproduces `wire` exactly.
 ///
-/// The totality witness that licenses rendering hook items as a pin of
-/// wire bytes: every transport byte is some observed item's byte, once,
-/// in order. Panics on any mismatch, naming the first divergence.
+/// The totality witness that licenses rendering hook items as a pin of wire
+/// bytes: every transport byte is some observed item's byte, once, in order.
+/// Panics on any mismatch, naming the first divergence.
 pub fn assert_items_account_for(items: &[Vec<u8>], wire: &[u8]) {
     let mut rest = wire;
     for (index, item) in items.iter().enumerate() {
@@ -116,11 +112,10 @@ pub fn assert_items_account_for(items: &[Vec<u8>], wire: &[u8]) {
     );
 }
 
-/// Render both endpoints' hook captures without retaining cross-stream
-/// order.
+/// Render both endpoints' hook captures without retaining cross-stream order.
 ///
-/// Logical streams are keyed by their observed stream index (exact items
-/// and order within each stream, stream groups sorted), discarding the
+/// Logical streams are keyed by their observed stream index (exact items and
+/// order within each stream, stream groups sorted), discarding the
 /// multiplexer's incidental interleaving of their frames.
 pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
     let mut rendered = String::new();
@@ -179,8 +174,8 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
 }
 
 /// Whether a control item carries the bootstrap key exchange's fresh,
-/// per-session bytes: the joiner's public key, or the encapsulated key and
-/// the secret sealed to the joiner's key.
+/// per-session bytes: the joiner's public key, or the encapsulated key and the
+/// secret sealed to the joiner's key.
 fn is_ephemeral(item: &[u8]) -> bool {
     let mut probe = item;
     cbor::read_head(&mut probe).is_ok_and(|head| {
@@ -192,12 +187,11 @@ fn is_ephemeral(item: &[u8]) -> bool {
 
 /// Name one control item by its shape.
 ///
-/// The control items are position- and shape-determined: the
-/// self-described tag opens the preamble, the bootstrap-key tag is the
-/// ephemeral key a joining peer sends after its preamble, the
-/// network-secret tag is the secret its provider seals for it, the
-/// embedded-item tag wraps the greeting, a tagged party atom is the
-/// identity hand-off, and the dot text item is the epilogue.
+/// The control items are position- and shape-determined: the self-described tag
+/// opens the preamble, the bootstrap-key tag is the ephemeral key a joining
+/// peer sends after its preamble, the network-secret tag is the secret its
+/// provider seals for it, the embedded-item tag wraps the greeting, a tagged
+/// party atom is the identity hand-off, and the dot text item is the epilogue.
 fn control_item_name(item: &[u8]) -> &'static str {
     let mut probe = item;
     let Ok(head) = cbor::read_head(&mut probe) else {
@@ -214,12 +208,12 @@ fn control_item_name(item: &[u8]) -> &'static str {
     }
 }
 
-/// Render one data frame: a header line with the frame's index, exact
-/// byte count, and the signal its opener names, then the frame item in
-/// diagnostic notation.
+/// Render one data frame: a header line with the frame's index, exact byte
+/// count, and the signal its opener names, then the frame item in diagnostic
+/// notation.
 ///
-/// The frame grammar (the array head, the opener's stream and state
-/// items) is held to panics: a violation means the capture is broken.
+/// The frame grammar (the array head, the opener's stream and state items) is
+/// held to panics: a violation means the capture is broken.
 fn render_frame(speaker: Speaker, stream: Stream, index: usize, item: &[u8], out: &mut String) {
     let mut probe = item;
     let head = cbor::read_head(&mut probe).expect("captured frame head is canonical");
@@ -248,9 +242,9 @@ fn render_frame(speaker: Speaker, stream: Stream, index: usize, item: &[u8], out
     render_item(item, out);
 }
 
-/// Render one captured item under its header: cbor-diag's pretty
-/// diagnostic notation, verbatim, when the item is canonical, or the
-/// explicit fallback with the reason it is not.
+/// Render one captured item under its header: cbor-diag's pretty diagnostic
+/// notation, verbatim, when the item is canonical, or the explicit fallback
+/// with the reason it is not.
 fn render_item(item: &[u8], out: &mut String) {
     let parsed = match cbor_diag::parse_bytes(item) {
         Ok(parsed) => parsed,
@@ -265,20 +259,19 @@ fn render_item(item: &[u8], out: &mut String) {
     }
 }
 
-/// Check that a parsed item is canonical wherever the notation would
-/// not show a difference.
+/// Check that a parsed item is canonical wherever the notation would not show a
+/// difference.
 ///
-/// Every head must be at its shortest width (only string and container
-/// heads need it for injectivity, since the printer spells the others
-/// with a width indicator), every container definite, every simple
-/// value well-formed, no float a NaN, text free of control characters,
-/// and every embedded item (tags 24 and 63) canonical and re-encoding
-/// to its bytes.
+/// Every head must be at its shortest width (only string and container heads
+/// need it for injectivity, since the printer spells the others with a width
+/// indicator), every container definite, every simple value well-formed, no
+/// float a NaN, text free of control characters, and every embedded item (tags
+/// 24 and 63) canonical and re-encoding to its bytes.
 ///
-/// The walk mirrors the printer's depth budget: `remaining` counts down
-/// one per level, embedded content is parsed with what is left, and a
-/// level past the budget is accepted unchecked because the printer shows
-/// it as hex. Recursion is therefore bounded by the parser's depth limit.
+/// The walk mirrors the printer's depth budget: `remaining` counts down one per
+/// level, embedded content is parsed with what is left, and a level past the
+/// budget is accepted unchecked because the printer shows it as hex. Recursion
+/// is therefore bounded by the parser's depth limit.
 fn canonical(item: &DataItem, remaining: usize) -> Result<(), String> {
     let Some(remaining) = remaining.checked_sub(1) else {
         return Ok(());
@@ -340,9 +333,9 @@ fn canonical(item: &DataItem, remaining: usize) -> Result<(), String> {
     }
 }
 
-/// The embedded item the printer unfolds under tag 24 must be canonical
-/// and fill its byte string exactly; content that does not parse stays a
-/// byte string, which the printer shows as hex.
+/// The embedded item the printer unfolds under tag 24 must be canonical and
+/// fill its byte string exactly; content that does not parse stays a byte
+/// string, which the printer shows as hex.
 fn embedded_item(data: &[u8], remaining: usize) -> Result<(), String> {
     match cbor_diag::parse_bytes_with_limit(data, remaining) {
         Ok(item) if item.to_bytes() != data => Err("embedded item re-encodes differently".into()),
@@ -353,9 +346,8 @@ fn embedded_item(data: &[u8], remaining: usize) -> Result<(), String> {
     }
 }
 
-/// Every item the printer unfolds from a tag-63 sequence must be
-/// canonical and re-encode to its span; the unparsed remainder, if any,
-/// stays a byte string.
+/// Every item the printer unfolds from a tag-63 sequence must be canonical and
+/// re-encode to its span; the unparsed remainder, if any, stays a byte string.
 fn embedded_sequence(data: &[u8], remaining: usize) -> Result<(), String> {
     let mut rest = data;
     while let Ok(Some((item, len))) = cbor_diag::parse_bytes_partial_with_limit(rest, remaining) {
@@ -384,8 +376,7 @@ fn shortest(value: u64, width: IntegerWidth, what: &str) -> Result<(), String> {
     }
 }
 
-/// A container must be definite-length, with its count at the shortest
-/// width.
+/// A container must be definite-length, with its count at the shortest width.
 fn definite(width: Option<IntegerWidth>, len: usize, what: &str) -> Result<(), String> {
     match width {
         Some(width) => shortest(len as u64, width, what),

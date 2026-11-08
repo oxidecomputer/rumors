@@ -1,7 +1,7 @@
 //! Operations that could meet the same accumulator twice.
 //!
-//! An accumulator's value lives in a `RefCell`, so a second borrow while one
-//! is held panics. That can happen in two ways, and these tests cover both:
+//! An accumulator's value lives in a `RefCell`, so a second borrow while one is
+//! held panics. That can happen in two ways, and these tests cover both:
 //!
 //! - The same accumulator as both operands. Only operations that borrow both
 //!   operands shared can receive it twice; an assignment or shifted merge
@@ -81,8 +81,8 @@ fn sum_of_repeated_borrows_multiplies() {
     assert_value(&total, &(&oracle * 3));
 }
 
-/// Hashing an accumulator twice gives one hash, though the first hash
-/// compacts its stored form.
+/// Hashing an accumulator twice gives one hash, though the first hash compacts
+/// its stored form.
 #[test]
 fn hashes_itself_consistently() {
     let (value, _) = shared_value();
@@ -121,8 +121,8 @@ impl fmt::Write for ReadingSink<'_> {
     }
 }
 
-/// Every formatting trait writes to a sink that reads the same accumulator,
-/// and produces the same text as formatting into a `String`.
+/// Every formatting trait writes to a sink that reads the same accumulator, and
+/// produces the same text as formatting into a `String`.
 #[test]
 fn formatting_sinks_may_read_the_accumulator() {
     let (value, _) = shared_value();
@@ -164,8 +164,8 @@ impl Hasher for ReadingHasher<'_> {
     }
 }
 
-/// Hashing writes to a hasher that reads the same accumulator, and feeds it
-/// the same bytes as hashing an equal value in another stored form.
+/// Hashing writes to a hasher that reads the same accumulator, and feeds it the
+/// same bytes as hashing an equal value in another stored form.
 #[test]
 fn hashers_may_read_the_accumulator() {
     let (value, _) = shared_value();

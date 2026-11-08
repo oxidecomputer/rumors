@@ -3,10 +3,10 @@
 //!
 //! [`FuelBoard`] measures the board at every sampling of the ladder by
 //! instantiating the guest afresh for every cell of the operation × family
-//! grid, on one work queue across threads. The guest gives each measured body a fresh heap, so
-//! a reading does not depend on what the cell's preparation left in the
-//! heap; fresh instances keep any other state an earlier cell left, such as a
-//! lazily initialized static, out of it too. Every reading is therefore a
+//! grid, on one work queue across threads. The guest gives each measured body a
+//! fresh heap, so a reading does not depend on what the cell's preparation left
+//! in the heap; fresh instances keep any other state an earlier cell left, such
+//! as a lazily initialized static, out of it too. Every reading is therefore a
 //! function of its cell alone, whatever the thread count.
 //!
 //! [`provenance`] names what a fuel reading depends on beyond the source tree
@@ -14,9 +14,9 @@
 //! Wasmtime version, and the cost table ([`costs`]). The board's fuel ceilings
 //! record the provenance they were calibrated under, and [`check_guest`]
 //! refuses a guest built under any other, or one that embeds a host-specific
-//! path. The guest's build profile and source-path mappings move fuel too;
-//! the `amp-board-fuel-build` recipe holds them fixed, and no check reads
-//! them back.
+//! path. The guest's build profile and source-path mappings move fuel too; the
+//! `amp-board-fuel-build` recipe holds them fixed, and no check reads them
+//! back.
 
 pub mod costs;
 
@@ -35,13 +35,12 @@ use wasmtime::{Caller, Config, Engine, Instance, Linker, Module, Store};
 /// instance's consumption so far.
 const FUEL_TANK: u64 = u64::MAX / 2;
 
-/// The wasm stack ceiling handed to Wasmtime: a trap limit, not a
-/// reservation.
+/// The wasm stack ceiling handed to Wasmtime: a trap limit, not a reservation.
 ///
 /// Slack, not a derived bound: `before`'s traversals keep their depth on
-/// explicit stacks, and the ceiling sits far above the stack any board cell
-/// has needed. A cell that overran it would trap and fail the run, never
-/// read as a measurement.
+/// explicit stacks, and the ceiling sits far above the stack any board cell has
+/// needed. A cell that overran it would trap and fail the run, never read as a
+/// measurement.
 const MAX_WASM_STACK: usize = 48 * 1024 * 1024;
 
 /// The stack of every host thread that calls into a guest.
@@ -50,14 +49,13 @@ const MAX_WASM_STACK: usize = 48 * 1024 * 1024;
 /// [`MAX_WASM_STACK`].
 const HOST_STACK: usize = 64 * 1024 * 1024;
 
-/// Describes what the readings of guest `wasm` depend on beyond the source
-/// tree and can be read back: the rustc that built it (from the module's own
+/// Describes what the readings of guest `wasm` depend on beyond the source tree
+/// and can be read back: the rustc that built it (from the module's own
 /// `producers` section), the Wasmtime version, and the cost table.
 ///
 /// # Errors
 ///
-/// Returns a message if the module records no rustc in its `producers`
-/// section.
+/// Returns a message if the module records no rustc in its `producers` section.
 pub fn provenance(wasm: &[u8]) -> Result<String, String> {
     Ok(format!(
         "rustc {rustc}; wasmtime {wasmtime}; costs: {costs}",
@@ -96,16 +94,16 @@ fn guest_rustc(wasm: &[u8]) -> Result<String, String> {
     Err("the guest's producers section records no rustc".to_owned())
 }
 
-/// Checks guest `wasm` before it is judged: it was built under the
-/// provenance the board's fuel ceilings were calibrated under, and it embeds
-/// no path under `home`, the home directory of the host that built it.
+/// Checks guest `wasm` before it is judged: it was built under the provenance
+/// the board's fuel ceilings were calibrated under, and it embeds no path under
+/// `home`, the home directory of the host that built it.
 ///
 /// A rustc, Wasmtime, or cost table other than the calibration's makes the
-/// readings incommensurable with the ceilings. A host path in the guest
-/// means a source-path remapping failed (the `amp-board-fuel-build` recipe
-/// maps CARGO_HOME and the toolchain's rust-src; paths inside the workspace
-/// are already relative); its length shifts the guest's memory layout, and
-/// so its fuel, from host to host.
+/// readings incommensurable with the ceilings. A host path in the guest means a
+/// source-path remapping failed (the `amp-board-fuel-build` recipe maps
+/// CARGO_HOME and the toolchain's rust-src; paths inside the workspace are
+/// already relative); its length shifts the guest's memory layout, and so its
+/// fuel, from host to host.
 ///
 /// # Errors
 ///
@@ -124,9 +122,9 @@ pub fn check_guest(wasm: &[u8], home: &str) -> Result<(), String> {
     check_paths(wasm, home)
 }
 
-/// Checks that guest `wasm` embeds no path under `home`, the home directory
-/// of the host that built it: [`check_guest`]'s second check, which a
-/// calibration needs as well.
+/// Checks that guest `wasm` embeds no path under `home`, the home directory of
+/// the host that built it: [`check_guest`]'s second check, which a calibration
+/// needs as well.
 ///
 /// # Errors
 ///
@@ -184,15 +182,15 @@ impl FuelBoard {
         })
     }
 
-    /// Measures every cell of the board at each of `samplings`, each in a
-    /// fresh guest instance, and returns each sampling's shard captures in
-    /// shard order: the [`board::LadderSpawner`] a fuel ladder sweeps with.
+    /// Measures every cell of the board at each of `samplings`, each in a fresh
+    /// guest instance, and returns each sampling's shard captures in shard
+    /// order: the [`board::LadderSpawner`] a fuel ladder sweeps with.
     ///
     /// The deal is one grid position per shard ([`board::max_useful_shards`]
     /// shards); a position no cell occupies yields an empty capture. Every
-    /// sampling's shards share one work queue, the costliest expected first,
-    /// so no worker idles while another sampling still has shards to run.
-    /// Every cell runs in its own instance, so the order moves no reading.
+    /// sampling's shards share one work queue, the costliest expected first, so
+    /// no worker idles while another sampling still has shards to run. Every
+    /// cell runs in its own instance, so the order moves no reading.
     ///
     /// # Errors
     ///
@@ -219,15 +217,15 @@ impl FuelBoard {
     }
 
     /// Measures the cell that shard `index` of the one-cell deal owns (see
-    /// [`board::cell_shard`]), at `sampling`, in a fresh instance whose measured
-    /// windows each hold a spacer of `spacer` bytes, and returns the shard's
-    /// capture.
+    /// [`board::cell_shard`]), at `sampling`, in a fresh instance whose
+    /// measured windows each hold a spacer of `spacer` bytes, and returns the
+    /// shard's capture.
     ///
     /// The guest allocates the spacer from its ordinary heap just before each
     /// window opens and frees it just after the window closes, so a spacer
     /// changes the heap state the cell's preparation leaves and nothing the
-    /// body does. With the guest's window allocator, a capture under any
-    /// spacer equals the capture under none, byte for byte.
+    /// body does. With the guest's window allocator, a capture under any spacer
+    /// equals the capture under none, byte for byte.
     ///
     /// # Errors
     ///
@@ -309,19 +307,19 @@ impl FuelBoard {
     }
 }
 
-/// Returns the work queue that measures `shards` shards at each of
-/// `samplings`: every pair of a position in `samplings` and a shard index,
-/// exactly once, the costliest expected first.
+/// Returns the work queue that measures `shards` shards at each of `samplings`:
+/// every pair of a position in `samplings` and a shard index, exactly once, the
+/// costliest expected first.
 ///
-/// Starting the costliest work first (longest-processing-time scheduling)
-/// keeps a long cell from starting late and running on alone after every
-/// other worker has finished. The key only needs to rank roughly, and
-/// [`knob_factor`] supplies it: a cell's operands grow with its family's
-/// size knobs, and its work grows with its operands, so a cell costs more
-/// at a sampling with larger knobs. Within one sampling the queue keeps
-/// shard order. The knobs cannot rank cells there, because each family's
-/// knobs count a different thing (tree depth, magnitude bits, teeth,
-/// clocks), so they do not compare across families.
+/// Starting the costliest work first (longest-processing-time scheduling) keeps
+/// a long cell from starting late and running on alone after every other worker
+/// has finished. The key only needs to rank roughly, and [`knob_factor`]
+/// supplies it: a cell's operands grow with its family's size knobs, and its
+/// work grows with its operands, so a cell costs more at a sampling with larger
+/// knobs. Within one sampling the queue keeps shard order. The knobs cannot
+/// rank cells there, because each family's knobs count a different thing (tree
+/// depth, magnitude bits, teeth, clocks), so they do not compare across
+/// families.
 fn queue(samplings: &[Sampling], shards: usize) -> Vec<(usize, usize)> {
     let mut queue: Vec<(usize, usize)> = (0..samplings.len())
         .flat_map(|sampling| (0..shards).map(move |index| (sampling, index)))
@@ -334,8 +332,8 @@ fn queue(samplings: &[Sampling], shards: usize) -> Vec<(usize, usize)> {
     queue
 }
 
-/// Returns how far `sampling` sets every family's size knobs above their
-/// base sizes, as a factor: the work queue's cost key.
+/// Returns how far `sampling` sets every family's size knobs above their base
+/// sizes, as a factor: the work queue's cost key.
 fn knob_factor(sampling: Sampling) -> f64 {
     match sampling {
         Sampling::Scaled(scale) => scale,
@@ -347,9 +345,8 @@ fn knob_factor(sampling: Sampling) -> f64 {
     }
 }
 
-/// Runs `run` on every task of `queue` across `threads` worker threads,
-/// each with its own state from `init`, and returns the results in queue
-/// order.
+/// Runs `run` on every task of `queue` across `threads` worker threads, each
+/// with its own state from `init`, and returns the results in queue order.
 ///
 /// Workers take tasks in queue order, and once a task fails, none takes
 /// another. The tasks that ran are therefore a prefix of the queue, and it
@@ -417,8 +414,8 @@ fn call<R: wasmtime::WasmResults>(
         .map_err(io::Error::other)
 }
 
-/// Copies the guest bytes whose address and length the exports `ptr` and
-/// `len` return.
+/// Copies the guest bytes whose address and length the exports `ptr` and `len`
+/// return.
 fn read(store: &mut Store<()>, instance: &Instance, ptr: &str, len: &str) -> io::Result<Vec<u8>> {
     let address = call::<u32>(store, instance, ptr)?;
     let length = call::<u32>(store, instance, len)?;

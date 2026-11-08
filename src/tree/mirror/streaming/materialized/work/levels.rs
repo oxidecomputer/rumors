@@ -1,11 +1,11 @@
 //! Phase-specific materialized reconciliation walks.
 //!
-//! Every walk body runs on the erased vocabulary — instantiated per
-//! backend, never per height — behind a thin typed method that erases the
-//! stage's request stream on the way in and re-tags its responses on the
-//! way out ([`Work::respond`]). The generic methods carry the type-level
-//! height the schedule proves; the walk bodies carry it as the runtime
-//! witness every scope's prefix length *is*.
+//! Every walk body runs on the erased vocabulary — instantiated per backend,
+//! never per height — behind a thin typed method that erases the stage's
+//! request stream on the way in and re-tags its responses on the way out
+//! ([`Work::respond`]). The generic methods carry the type-level height the
+//! schedule proves; the walk bodies carry it as the runtime witness every
+//! scope's prefix length *is*.
 
 use std::pin::pin;
 
@@ -46,21 +46,20 @@ use crate::tree::{
 
 /// Publish one chunk of an answer in its progress-critical order.
 ///
-/// The caller walks the answer's [`Part`]s, admitting each part's question
-/// and building it from its planned form only when the part is reached, so
-/// a chunk's built items are its own question's, and passes the built
-/// question here with the grant the chunk is built out of, the question's
-/// own or, for the chunk without one, the answer's, and with the answer's
-/// resolution while it is still unpublished.
-/// The chunk's wire action comes first; then, after the first chunk alone,
-/// the resolution, whose pending slots the questions' returns fill; then
-/// the chunk's question. A blocked question sender has therefore handed on
-/// every earlier chunk whole and made the resolution available, and the
-/// reply's last chunk holds its last reaction.
+/// The caller walks the answer's [`Part`]s, admitting each part's question and
+/// building it from its planned form only when the part is reached, so a
+/// chunk's built items are its own question's, and passes the built question
+/// here with the grant the chunk is built out of, the question's own or, for
+/// the chunk without one, the answer's, and with the answer's resolution while
+/// it is still unpublished. The chunk's wire action comes first; then, after
+/// the first chunk alone, the resolution, whose pending slots the questions'
+/// returns fill; then the chunk's question. A blocked question sender has
+/// therefore handed on every earlier chunk whole and made the resolution
+/// available, and the reply's last chunk holds its last reaction.
 ///
 /// The caller writes the yield, `chunk => yield chunk`, inside its own
-/// `async_stream` body, where the stream can lower it, and builds the
-/// question there too, so a build failure's `?` is lowered as well.
+/// `async_stream` body, where the stream can lower it, and builds the question
+/// there too, so a build failure's `?` is lowered as well.
 macro_rules! yield_chunk {
     (
         $progress:expr, $grant:ident, $scope:expr;
@@ -101,8 +100,8 @@ macro_rules! yield_chunk {
     }};
 }
 
-/// Publish one whole-reply scope, which asks nothing, in its
-/// progress-critical order: its wire action, then its local resolution.
+/// Publish one whole-reply scope, which asks nothing, in its progress-critical
+/// order: its wire action, then its local resolution.
 ///
 /// The yield must remain inside this macro so `async_stream` can lower it.
 macro_rules! yield_ready {
@@ -119,26 +118,25 @@ macro_rules! yield_ready {
     }};
 }
 
-/// The depth of the scope `prefix` names, the root's 0 through a leaf's 32:
-/// the depth admission counts a unit concerning that scope at.
+/// The depth of the scope `prefix` names, the root's 0 through a leaf's 32: the
+/// depth admission counts a unit concerning that scope at.
 fn depth(prefix: ErasedPrefix) -> usize {
     prefix.as_bytes().len()
 }
 
-/// The grant of the initiator's opening question, admitted as the roles
-/// are elected, with the room its reply parks in already taken out of it.
+/// The grant of the initiator's opening question, admitted as the roles are
+/// elected, with the room its reply parks in already taken out of it.
 ///
-/// The opening question writes no frame of its own: its listing crossed
-/// inside the greeting, so the peer may have answered it already, and its
-/// reply's frames wait in the receive path, which never waits on the walk,
-/// from the moment the session's pipe starts reading. The room that pays
-/// for them must be charged by then, whenever the root stage runs. So the
-/// initiator admits the question as it opens its descent
-/// ([`admit`](Self::admit)), before the session's tasks run, once the
-/// peer's grandchild count of its root, which bounds the reply, is known;
-/// the root stage then builds the question out of the grant
-/// ([`Work::initiator_level`]). The responder asks no opening question and
-/// admits none.
+/// The opening question writes no frame of its own: its listing crossed inside
+/// the greeting, so the peer may have answered it already, and its reply's
+/// frames wait in the receive path, which never waits on the walk, from the
+/// moment the session's pipe starts reading. The room that pays for them must
+/// be charged by then, whenever the root stage runs. So the initiator admits
+/// the question as it opens its descent ([`admit`](Self::admit)), before the
+/// session's tasks run, once the peer's grandchild count of its root, which
+/// bounds the reply, is known; the root stage then builds the question out of
+/// the grant ([`Work::initiator_level`]). The responder asks no opening
+/// question and admits none.
 pub(crate) struct OpeningAdvance {
     /// What is left of the opening question's grant.
     grant: Charge,
@@ -154,10 +152,10 @@ impl OpeningAdvance {
     ///
     /// # Panics
     ///
-    /// Panics if the grant is not admitted at once: a programmer error,
-    /// since the opening is the first and only question about the root, so
-    /// it finds its kind and depth holding nothing, and admission grants
-    /// such a unit at once whatever the budget or the queue.
+    /// Panics if the grant is not admitted at once: a programmer error, since
+    /// the opening is the first and only question about the root, so it finds
+    /// its kind and depth holding nothing, and admission grants such a unit at
+    /// once whatever the budget or the queue.
     pub(crate) fn admit<E, Err>(ledger: &Ledger, listed: usize, responder: Grandchildren) -> Self {
         let root = Prefix::new().erase();
         let bytes =
@@ -186,26 +184,25 @@ async fn next_chunk<E, Err>(requests: &mut BoxRequests<E>) -> Result<Reply<E>, E
 /// about the child's own children one level down.
 ///
 /// An internal level's questions are queries about internal scopes; the
-/// leaf-parent level's questions request single leaves. Both levels run
-/// one walk ([`Work::answering_walk`]). An implementation supplies the two
-/// steps in which they differ: classifying a disputed child's children into
-/// an answer, and admitting and building each question that answer plans.
+/// leaf-parent level's questions request single leaves. Both levels run one
+/// walk ([`Work::answering_walk`]). An implementation supplies the two steps in
+/// which they differ: classifying a disputed child's children into an answer,
+/// and admitting and building each question that answer plans.
 ///
 /// Each step may wait only on the storage backend and, for `ask`, on the
-/// ledger's admission of its question. Those are the only waits the walk
-/// makes outside its own edges, and the deadlock argument in the
-/// materialized module's docs, with the admission induction it cites,
-/// covers exactly them: a step that waited on another stage, or on the
-/// peer, would wait outside both.
+/// ledger's admission of its question. Those are the only waits the walk makes
+/// outside its own edges, and the deadlock argument in the materialized
+/// module's docs, with the admission induction it cites, covers exactly them: a
+/// step that waited on another stage, or on the peer, would wait outside both.
 trait AnsweringLevel<B: Backend<Node<Z>: Leaf>>: 'static {
     /// A question as an answer plans it, before it is built.
     type Planned: Send + 'static;
     /// What a built question sends down to the next level's walk.
     type Asked: Scoped + Send + 'static;
 
-    /// Classify the children of the disputed scope `prefix`, this side's
-    /// `ours` against the peer's listing `theirs`, charging the plan out of
-    /// the answer's `grant`.
+    /// Classify the children of the disputed scope `prefix`, this side's `ours`
+    /// against the peer's listing `theirs`, charging the plan out of the
+    /// answer's `grant`.
     // The arguments are the answer's inputs, one per concern, as for
     // `answer::internal`; bundling them into a struct would only rename the
     // arity.
@@ -225,8 +222,8 @@ trait AnsweringLevel<B: Backend<Node<Z>: Leaf>>: 'static {
     /// `prefix` asks in a chunk behind the `leading` reactions, and build it
     /// out of its grant.
     ///
-    /// Returns the question built, and what is left of the grant, out of
-    /// which the chunk ending at the question is built.
+    /// Returns the question built, and what is left of the grant, out of which
+    /// the chunk ending at the question is built.
     fn ask(
         backend: &B,
         keys: Option<&NetworkKeys>,
@@ -237,8 +234,8 @@ trait AnsweringLevel<B: Backend<Node<Z>: Leaf>>: 'static {
     ) -> impl Future<Output = Result<(Built<B::Erased, Self::Asked>, Charge), Error<B::Error>>> + Send;
 }
 
-/// An internal level: each question its answers plan is a dispute or a
-/// request about an internal child, admitted under the invitation share.
+/// An internal level: each question its answers plan is a dispute or a request
+/// about an internal child, admitted under the invitation share.
 struct Internal;
 
 impl<B: Backend<Node<Z>: Leaf>> AnsweringLevel<B> for Internal {
@@ -352,16 +349,16 @@ where
     /// `fan` is the greeting-time root fan: the opening question is derived
     /// from it by [`fan_listing`] — the same derivation the greeting itself
     /// used — so it is structurally identical to the listing the greeting
-    /// already carried, which is what lets the remote proxy satisfy this
-    /// stage from the greeting instead of a wire frame.
+    /// already carried, which is what lets the remote proxy satisfy this stage
+    /// from the greeting instead of a wire frame.
     ///
-    /// The opening reply is that question alone. Root children only this
-    /// side holds travel as ordinary supplies, answering the responder's
-    /// empty queries for them one level down.
+    /// The opening reply is that question alone. Root children only this side
+    /// holds travel as ordinary supplies, answering the responder's empty
+    /// queries for them one level down.
     ///
-    /// `root` is the root `fan` was listed from, which the question carries
-    /// to the root's assembly, and `advance` the question's grant and its
-    /// reply's room, admitted as the roles were elected.
+    /// `root` is the root `fan` was listed from, which the question carries to
+    /// the root's assembly, and `advance` the question's grant and its reply's
+    /// room, admitted as the roles were elected.
     pub fn initiator_level(
         &mut self,
         ceiling: Version,
@@ -425,9 +422,9 @@ where
 
     /// Process the responder level.
     ///
-    /// `fan` is the greeting-time root fan: the greeting already carried
-    /// the root's children, so this stage starts from that listing rather
-    /// than exploding the root itself.
+    /// `fan` is the greeting-time root fan: the greeting already carried the
+    /// root's children, so this stage starts from that listing rather than
+    /// exploding the root itself.
     ///
     /// The opening reply is the initiator's root question and nothing else.
     ///
@@ -583,10 +580,10 @@ where
     /// Walk an internal level, where disputes recur into another internal
     /// level.
     ///
-    /// `H` is the height the walk's dependent queries descend to; the
-    /// walk's own scopes sit two levels above it, exactly as the schedule's
-    /// [`Reply`](crate::tree::mirror::streaming::protocol::Reply)
-    /// transition demands.
+    /// `H` is the height the walk's dependent queries descend to; the walk's
+    /// own scopes sit two levels above it, exactly as the schedule's
+    /// [`Reply`](crate::tree::mirror::streaming::protocol::Reply) transition
+    /// demands.
     pub fn internal_level<H>(
         &mut self,
         their_version: Version,
@@ -654,20 +651,20 @@ where
     /// ([`internal_level`](Self::internal_level),
     /// [`leaf_parent_level`](Self::leaf_parent_level)).
     ///
-    /// For each query, the walk reads its reply chunk by chunk, answers
-    /// each disputed child with a reply of its own, and publishes the
-    /// query's resolution once every child's work is launched. The levels
-    /// differ only in the steps [`AnsweringLevel`] supplies, so the orderings
-    /// their progress rests on are written once, here, for both.
+    /// For each query, the walk reads its reply chunk by chunk, answers each
+    /// disputed child with a reply of its own, and publishes the query's
+    /// resolution once every child's work is launched. The levels differ only
+    /// in the steps [`AnsweringLevel`] supplies, so the orderings their
+    /// progress rests on are written once, here, for both.
     ///
     /// The walk is the one producer of its level's answers and of their
-    /// questions: it admits each answer, then each of the answer's
-    /// questions, awaiting each admission in turn, so it asks for an
-    /// answer's questions before its next answer, as admission's liveness
-    /// argument requires. Processing a level's replies concurrently would
-    /// add producers at the same kinds and depths, which the ledger admits
-    /// first come, first served against the same bounds and budget, so the
-    /// concurrency would add waiters, not room.
+    /// questions: it admits each answer, then each of the answer's questions,
+    /// awaiting each admission in turn, so it asks for an answer's questions
+    /// before its next answer, as admission's liveness argument requires.
+    /// Processing a level's replies concurrently would add producers at the
+    /// same kinds and depths, which the ledger admits first come, first served
+    /// against the same bounds and budget, so the concurrency would add
+    /// waiters, not room.
     fn answering_walk<L: AnsweringLevel<B>>(
         &mut self,
         their_version: Version,

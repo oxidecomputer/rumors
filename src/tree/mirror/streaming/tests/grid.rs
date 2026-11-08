@@ -1,14 +1,14 @@
-//! The closed-world liveness grid: whole wire sessions across replica
-//! sizes, overlaps, pipe widths, and pairs of budgets.
+//! The closed-world liveness grid: whole wire sessions across replica sizes,
+//! overlaps, pipe widths, and pairs of budgets.
 //!
 //! Each session runs under the closed-world poller, which reports a stall
 //! whenever every task waits with no wake arranged.
 //!
-//! Admission's liveness argument uses no budget above zero and never
-//! relates the two sides' budgets, so the grid crosses zero, tiny,
-//! mismatched, minimum, and unlimited budgets with every pipe width, from a
-//! pipe that hands over one byte at a time to one that holds whole frames.
-//! Every session must complete with both sides holding the join.
+//! Admission's liveness argument uses no budget above zero and never relates
+//! the two sides' budgets, so the grid crosses zero, tiny, mismatched, minimum,
+//! and unlimited budgets with every pipe width, from a pipe that hands over one
+//! byte at a time to one that holds whole frames. Every session must complete
+//! with both sides holding the join.
 
 use super::join_oracle;
 use super::pipe::placed_over_pipe;
@@ -31,12 +31,12 @@ const fn budget(bytes: usize) -> SessionLedger {
 
 /// The ledger pairs every grid cell runs.
 ///
-/// Both sides serial, where a unit is admitted only while its kind and
-/// depth hold nothing; one side serial against an unlimited peer, in both
-/// orders; tiny and mismatched budgets, which admit a few units beyond the
-/// walk's bounds; both at the largest grant, the least ledger budget the
-/// public API leaves a session, which disjoint forks of 30,000 messages a
-/// side outgrow; and both unlimited.
+/// Both sides serial, where a unit is admitted only while its kind and depth
+/// hold nothing; one side serial against an unlimited peer, in both orders;
+/// tiny and mismatched budgets, which admit a few units beyond the walk's
+/// bounds; both at the largest grant, the least ledger budget the public API
+/// leaves a session, which disjoint forks of 30,000 messages a side outgrow;
+/// and both unlimited.
 const BUDGETS: [[SessionLedger; 2]; 7] = [
     [SERIAL, SERIAL],
     [SERIAL, UNLIMITED],
@@ -47,13 +47,12 @@ const BUDGETS: [[SessionLedger; 2]; 7] = [
     [UNLIMITED, UNLIMITED],
 ];
 
-/// Bytes each direction of a cell's pipe buffers: one, so every byte
-/// crosses in its own handoff; a few frame headers' worth; and several
-/// whole frames.
+/// Bytes each direction of a cell's pipe buffers: one, so every byte crosses in
+/// its own handoff; a few frame headers' worth; and several whole frames.
 const PIPES: [usize; 3] = [1, 64, 8 << 10];
 
-/// Two forks of one network: both hold `shared` messages, and each then
-/// sends `own` messages the other lacks.
+/// Two forks of one network: both hold `shared` messages, and each then sends
+/// `own` messages the other lacks.
 pub(super) fn forks(shared: usize, own: usize) -> (Root, Root) {
     let mut base = Tree::<()>::default();
     base.act(
@@ -71,14 +70,14 @@ pub(super) fn forks(shared: usize, own: usize) -> (Root, Root) {
     (fork(1), fork(2))
 }
 
-/// Two forks of one network that both hold `shared` messages, where the
-/// first then redacts every shared message and each sends `own` messages
-/// the other lacks.
+/// Two forks of one network that both hold `shared` messages, where the first
+/// then redacts every shared message and each sends `own` messages the other
+/// lacks.
 ///
-/// The second's subtrees then mix leaves the first's version knows, which
-/// it must not resend, with leaves the first lacks. Where the first holds
-/// nothing, the second supplies a subtree through the deletion filter,
-/// which drops every leaf the first knows.
+/// The second's subtrees then mix leaves the first's version knows, which it
+/// must not resend, with leaves the first lacks. Where the first holds nothing,
+/// the second supplies a subtree through the deletion filter, which drops every
+/// leaf the first knows.
 fn redacting_forks(shared: usize, own: usize) -> (Root, Root) {
     let mut base = Tree::<()>::default();
     base.act(
@@ -100,8 +99,8 @@ fn redacting_forks(shared: usize, own: usize) -> (Root, Root) {
     (redacting.root, keeping.root)
 }
 
-/// Run one cell, `pair` at `budgets` over a pipe buffering `pipe` bytes,
-/// and require both sides to complete holding the join.
+/// Run one cell, `pair` at `budgets` over a pipe buffering `pipe` bytes, and
+/// require both sides to complete holding the join.
 fn assert_cell(
     pair: (Root, Root),
     budgets: [SessionLedger; 2],
@@ -148,8 +147,8 @@ fn small_forks_complete_at_every_budget_over_every_pipe() {
     }
 }
 
-/// Disjoint forks of 3,000 messages a side, and forks sharing 90% of
-/// 30,000, complete at every budget pair over the two wider pipes.
+/// Disjoint forks of 3,000 messages a side, and forks sharing 90% of 30,000,
+/// complete at every budget pair over the two wider pipes.
 #[test]
 fn larger_forks_complete_at_every_budget() {
     for (shared, own) in [(0, 3_000), (27_000, 3_000)] {
@@ -168,8 +167,8 @@ fn larger_forks_complete_at_every_budget() {
     }
 }
 
-/// Disjoint forks of 30,000 messages a side complete at every budget pair
-/// over a pipe of whole frames.
+/// Disjoint forks of 30,000 messages a side complete at every budget pair over
+/// a pipe of whole frames.
 #[test]
 fn large_forks_complete_at_every_budget() {
     let pair = forks(0, 30_000);
@@ -178,10 +177,9 @@ fn large_forks_complete_at_every_budget() {
     }
 }
 
-/// Forks placed below a shared prefix of every depth complete at every
-/// budget pair over a one-byte pipe: their disputes reach the depth they
-/// are placed at, so units at many depths hold their kinds and depths at
-/// once.
+/// Forks placed below a shared prefix of every depth complete at every budget
+/// pair over a one-byte pipe: their disputes reach the depth they are placed
+/// at, so units at many depths hold their kinds and depths at once.
 #[test]
 fn placed_forks_complete_at_every_depth_and_budget() {
     let (a, b) = forks(40, 40);
@@ -199,11 +197,11 @@ fn placed_forks_complete_at_every_depth_and_budget() {
     }
 }
 
-/// Forks where one side redacted every shared message complete at every
-/// budget pair over every pipe, both sides holding the join.
+/// Forks where one side redacted every shared message complete at every budget
+/// pair over every pipe, both sides holding the join.
 ///
-/// The forks hold 300 shared messages beside 30 and 300 of each side's own,
-/// and 3,000 shared beside 300 over the two wider pipes. The keeping side's
+/// The forks hold 300 shared messages beside 30 and 300 of each side's own, and
+/// 3,000 shared beside 300 over the two wider pipes. The keeping side's
 /// supplies pass through the deletion filter over mixed subtrees at every
 /// budget and pipe width.
 #[test]

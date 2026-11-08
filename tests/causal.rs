@@ -3,13 +3,13 @@
 //! promises (exercised in `tests/listen.rs`).
 //!
 //! The contract: no message is ever delivered before a delivered message it
-//! causally depends on, within a backlog and across live passes, and the
-//! resume checkpoint lags the staged backlog so resumption never skips an
-//! undelivered message.
+//! causally depends on, within a backlog and across live passes, and the resume
+//! checkpoint lags the staged backlog so resumption never skips an undelivered
+//! message.
 //!
-//! Driven step-by-step with `now_or_never`, as in `tests/listen.rs`: an
-//! *item*, a *quiet* observer (no change to report, actors live), or an
-//! *ended* one (final state fully delivered).
+//! Driven step-by-step with `now_or_never`, as in `tests/listen.rs`: an *item*,
+//! a *quiet* observer (no change to report, actors live), or an *ended* one
+//! (final state fully delivered).
 
 use rumors_testkit::common;
 

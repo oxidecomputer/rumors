@@ -35,14 +35,14 @@ fn session(
 }
 
 /// Decoding never waits on the walk: while the level-3 stage takes nothing,
-/// every reply its questions invite still decodes and parks, and once the
-/// stage resumes the session converges.
+/// every reply its questions invite still decodes and parks, and once the stage
+/// resumes the session converges.
 ///
-/// With an unlimited budget the initiator asks every level-3 question its
-/// two disputed replies invite, the two of the first and a full fan of the
-/// second, whether or not the level-3 stage takes any answer. Each reply
-/// parks as at least one chunk, so with the stage held parking reaches at
-/// least `FAN + 2` chunks.
+/// With an unlimited budget the initiator asks every level-3 question its two
+/// disputed replies invite, the two of the first and a full fan of the second,
+/// whether or not the level-3 stage takes any answer. Each reply parks as at
+/// least one chunk, so with the stage held parking reaches at least `FAN + 2`
+/// chunks.
 #[test]
 fn every_invited_reply_parks_while_its_stage_is_held() {
     let (initiator, responder) = full_fan_behind_two_pair();
@@ -75,15 +75,14 @@ fn every_invited_reply_parks_while_its_stage_is_held() {
 /// this fixture at a fan less one slot, and at its own capacity no publish
 /// waits.
 ///
-/// The responder takes the initiator's full-fan reply chunk by chunk, and
-/// its proxy publishes each chunk's scopes before its stage receives the
-/// chunk. The scope queue's constructor, `next_scopes`, argues that a fan
-/// beside the outgoing replies' chunks never makes a stage taking a chunk
-/// wait, whatever the chunking, and that a fan less one slot is the fewest
-/// at which a stage can take a full-fan chunk; the decoder delivers each
-/// question as its frame arrives, so the chunks this session's stages take
-/// each publish far fewer than a fan of scopes at once, and both capacities
-/// complete.
+/// The responder takes the initiator's full-fan reply chunk by chunk, and its
+/// proxy publishes each chunk's scopes before its stage receives the chunk. The
+/// scope queue's constructor, `next_scopes`, argues that a fan beside the
+/// outgoing replies' chunks never makes a stage taking a chunk wait, whatever
+/// the chunking, and that a fan less one slot is the fewest at which a stage
+/// can take a full-fan chunk; the decoder delivers each question as its frame
+/// arrives, so the chunks this session's stages take each publish far fewer
+/// than a fan of scopes at once, and both capacities complete.
 #[test]
 fn scope_queue_capacity_law() {
     let (initiator, responder) = full_fan_behind_two_pair();
@@ -111,12 +110,12 @@ fn scope_queue_capacity_law() {
     assert_eq!(scopes.blocked_send_polls, 0, "no scope publish waited");
 }
 
-/// Reconcile `left` and `right` on two different budgets, in both orders,
-/// and require both sessions to complete and converge on the join.
+/// Reconcile `left` and `right` on two different budgets, in both orders, and
+/// require both sessions to complete and converge on the join.
 ///
 /// One side runs in the serial configuration and the other at an unlimited
-/// budget, so one side admits one unit of each kind and depth at a time
-/// while the other never waits for admission, and each bounds its own side.
+/// budget, so one side admits one unit of each kind and depth at a time while
+/// the other never waits for admission, and each bounds its own side.
 fn check_mismatched_budgets_converge(
     left: &TreeRoot,
     right: &TreeRoot,

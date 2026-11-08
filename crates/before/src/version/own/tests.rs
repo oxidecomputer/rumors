@@ -60,8 +60,8 @@ fn from_impl_is_to_version() {
 // both comparison directions covered by own_version_cmp_matches_materialized,
 // all driven on the three law populations.
 
-/// One deep-unowned-region case: both orientations of the plain-version ⋚
-/// view matrix cells against the materialized projection, plus their mutual
+/// One deep-unowned-region case: both orientations of the plain-version ⋚ view
+/// matrix cells against the materialized projection, plus their mutual
 /// antisymmetry and the equality cells' coherence.
 fn assert_mirror_cells(w: &Version, v: &Version, p: &Party) {
     let view = v / p;
@@ -83,9 +83,9 @@ fn assert_mirror_cells(w: &Version, v: &Version, p: &Party) {
     );
 }
 
-/// A version tree whose right arm is a `depth`-level descending spine: the
-/// deep half a one-sided mask leaves unowned, so the mirror comparison's
-/// co-walk block-skips it on the masked side.
+/// A version tree whose right arm is a `depth`-level descending spine: the deep
+/// half a one-sided mask leaves unowned, so the mirror comparison's co-walk
+/// block-skips it on the masked side.
 fn deep_right_spine(depth: u32, top: u64) -> Version {
     use crate::testing::oracles::tree::Version as V;
     let mut spine = V::leaf(0u64);
@@ -96,13 +96,13 @@ fn deep_right_spine(depth: u32, top: u64) -> Version {
 }
 
 /// The mirror matrix cells (`w ⋚ view`, mask on the walk's second side) agree
-/// with the materialized projection when the view's version runs deep under
-/// an unowned mask region.
+/// with the materialized projection when the view's version runs deep under an
+/// unowned mask region.
 ///
 /// The one-sided co-walk block-consumes the unowned deep spine on the masked
 /// side with no height integrator for it (the unmasked side never reads one),
-/// so the whole spine's movement lands in the running difference in one
-/// block; a fold or skip-bound error there displaces the verdict, which the
+/// so the whole spine's movement lands in the running difference in one block;
+/// a fold or skip-bound error there displaces the verdict, which the
 /// materialized projection refutes. The worked points hold the three verdict
 /// classes: the plain version above, below, and concurrent with the view.
 #[test]

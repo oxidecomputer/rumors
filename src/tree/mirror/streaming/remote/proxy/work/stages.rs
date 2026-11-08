@@ -6,9 +6,9 @@
 //! typestates in [`state`](super::super::state) never hold an internal sender.
 //!
 //! Like the walk, the decode loop runs on the erased vocabulary — one
-//! instantiation per backend and transport — behind thin typed methods
-//! that erase the stage's local reply stream on the way in and re-tag the
-//! decoded responses at the typed exit (`Work::respond`).
+//! instantiation per backend and transport — behind thin typed methods that
+//! erase the stage's local reply stream on the way in and re-tag the decoded
+//! responses at the typed exit (`Work::respond`).
 //!
 //! Three channels carry the dataflow:
 //!
@@ -16,14 +16,13 @@
 //!   multiplexer's channel, flow into decoding through an unbounded queue;
 //! - decoded replies park, chunk by chunk as their reactions decode, until
 //!   their stage takes them, each chunk charged its part of the room its
-//!   question set aside, and parking never waits, so decoding never waits
-//!   on the walk;
-//! - as a stage takes each chunk, the scopes its questions create flow into
-//!   the next phase, before the stage receives it.
+//!   question set aside, and parking never waits, so decoding never waits on
+//!   the walk;
+//! - as a stage takes each chunk, the scopes its questions create flow into the
+//!   next phase, before the stage receives it.
 //!
-//! Each question's frame reaches the multiplexer before its record
-//! publishes. Each edge's capacity rationale lives at its constructor in
-//! [`queues`].
+//! Each question's frame reaches the multiplexer before its record publishes.
+//! Each edge's capacity rationale lives at its constructor in [`queues`].
 
 use std::sync::Arc;
 
@@ -55,28 +54,28 @@ impl<B> Ingress<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Pair each published local question with its wire reply at `level`,
-    /// and park the reply's chunks in `parking` as they decode, the first
-    /// carrying the question's record.
+    /// Pair each published local question with its wire reply at `level`, and
+    /// park the reply's chunks in `parking` as they decode, the first carrying
+    /// the question's record.
     ///
-    /// The decoder reads the record in place, and the record then travels
-    /// with its reply, so when the stage takes the reply, the proxy derives
-    /// the reply's questions from the very record the decoder validated it
-    /// against. Every reply crosses one [`LeafEdge`], which the pump owns
-    /// for its whole run.
+    /// The decoder reads the record in place, and the record then travels with
+    /// its reply, so when the stage takes the reply, the proxy derives the
+    /// reply's questions from the very record the decoder validated it against.
+    /// Every reply crosses one [`LeafEdge`], which the pump owns for its whole
+    /// run.
     ///
-    /// The decoder charges each chunk its own part of the room the question
-    /// set aside for its reply's chunks, which returns once the chunk's
-    /// stage has used it, and returns the rest of the room as soon as the
-    /// reply shows it cannot be used ([`decode_reply`]). So the room a
-    /// reply parked behind a busy stage holds is what its chunks hold and
-    /// what it can still deliver, not what its bound allowed.
+    /// The decoder charges each chunk its own part of the room the question set
+    /// aside for its reply's chunks, which returns once the chunk's stage has
+    /// used it, and returns the rest of the room as soon as the reply shows it
+    /// cannot be used ([`decode_reply`]). So the room a reply parked behind a
+    /// busy stage holds is what its chunks hold and what it can still deliver,
+    /// not what its bound allowed.
     ///
     /// Parking never waits, so decoding never waits on the walk: its queue
     /// holds whatever arrives, all of it within the room the questions it
-    /// answers set aside. A closed queue means the stage is gone, and the
-    /// pump awaits cancellation as [`send_or_cancel`] does. Decode errors
-    /// return to the executor without waiting for the stage.
+    /// answers set aside. A closed queue means the stage is gone, and the pump
+    /// awaits cancellation as [`send_or_cancel`] does. Decode errors return to
+    /// the executor without waiting for the stage.
     pub(super) async fn decode_and_park(
         self,
         level: ReplyLevel,
@@ -142,14 +141,12 @@ where
 {
     /// Replay the remote initiator's opening question from its greeting.
     ///
-    /// The question's content — the remote's root-fan listing — already
-    /// crossed inside the greeting, so no wire frame exists at this stage:
-    /// the reply and its root scope are synthesized from the retained
-    /// listing.
+    /// The question's content — the remote's root-fan listing — already crossed
+    /// inside the greeting, so no wire frame exists at this stage: the reply
+    /// and its root scope are synthesized from the retained listing.
     ///
-    /// Nothing is decoded, so nothing parks: like any chunk a stage takes,
-    /// the replayed opening publishes its one scope before the stage
-    /// receives it.
+    /// Nothing is decoded, so nothing parks: like any chunk a stage takes, the
+    /// replayed opening publishes its one scope before the stage receives it.
     pub fn initiator(
         &mut self,
     ) -> (
@@ -320,12 +317,12 @@ where
 
 /// Require a finished incoming logical stream after all expected replies.
 ///
-/// A level that asked no question expects nothing on its stream: a
-/// conforming peer sends no frame and no end control there, so awaiting one
-/// would wait forever. Any frame on it answers nothing, so the decoder
-/// closes the stream's channel, which refuses later frames at the
-/// demultiplexer, and reports a frame already waiting. A level that asked
-/// must find its stream ended with no reply to spare.
+/// A level that asked no question expects nothing on its stream: a conforming
+/// peer sends no frame and no end control there, so awaiting one would wait
+/// forever. Any frame on it answers nothing, so the decoder closes the stream's
+/// channel, which refuses later frames at the demultiplexer, and reports a
+/// frame already waiting. A level that asked must find its stream ended with no
+/// reply to spare.
 async fn reject_extra<E>(asked: bool, incoming: &mut Receiver<Inbound>) -> Result<(), Error<E>> {
     if !asked {
         return match incoming.close_and_try_recv() {

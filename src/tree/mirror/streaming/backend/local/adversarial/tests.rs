@@ -29,7 +29,8 @@ impl Wake for WakeCount {
     }
 }
 
-/// Every permitted delay self-wakes once per suspension and preserves both outputs.
+/// Every permitted delay self-wakes once per suspension and preserves both
+/// outputs.
 #[test]
 fn every_bounded_delay_self_wakes_then_completes() {
     let wakes = Arc::new(WakeCount(AtomicUsize::new(0)));

@@ -15,9 +15,9 @@ use crate::grid::Pair;
 /// The deepest scope whose admissions every record dates one by one
 /// ([`LedgerRecord::dated`]).
 ///
-/// That is depth 1, the top-level subtrees, whose questions the root's
-/// answer asks and whose answers open them. A detailed record dates every
-/// admission besides ([`LedgerRecord::admissions`]).
+/// That is depth 1, the top-level subtrees, whose questions the root's answer
+/// asks and whose answers open them. A detailed record dates every admission
+/// besides ([`LedgerRecord::admissions`]).
 pub const DATED_DEPTH: usize = 1;
 
 /// One session: its pair, budget, timing, and each side's ledger.
@@ -29,8 +29,8 @@ pub struct Record {
     pub shared_percent: u64,
     /// The link's bandwidth-delay product, in bytes.
     pub bdp: u64,
-    /// The bytes each fixture message encodes in; files written before
-    /// the size was recorded hold the default's.
+    /// The bytes each fixture message encodes in; files written before the size
+    /// was recorded hold the default's.
     #[serde(default = "default_message_bytes")]
     pub message_bytes: u64,
     /// Both sides' budget, in bytes, or `None` for an unlimited budget.
@@ -44,12 +44,12 @@ pub struct Record {
     /// The most bytes both ledgers held together at once: what the session
     /// counted as held or reserved.
     pub joint_held_peak: u64,
-    /// The most heap the session allocated beyond what was live when it
-    /// began, both sides together: everything it actually held, its fixed
-    /// state and the replicas' growth included.
+    /// The most heap the session allocated beyond what was live when it began,
+    /// both sides together: everything it actually held, its fixed state and
+    /// the replicas' growth included.
     pub heap_peak: u64,
-    /// The heap the session left allocated when it ended: the replicas'
-    /// growth, less what it freed of the replicas it replaced.
+    /// The heap the session left allocated when it ended: the replicas' growth,
+    /// less what it freed of the replicas it replaced.
     pub heap_net: i64,
 }
 
@@ -60,8 +60,8 @@ pub struct LedgerRecord {
     /// lacks it reads it as unknown.
     #[serde(default)]
     pub side: Option<String>,
-    /// Its largest excess: the most its kinds and depths of unit held
-    /// beyond their bounds at once, the part its budget counts.
+    /// Its largest excess: the most its kinds and depths of unit held beyond
+    /// their bounds at once, the part its budget counts.
     pub budget_peak: u64,
     /// The most it held in all.
     pub held_peak: u64,
@@ -74,8 +74,8 @@ pub struct LedgerRecord {
     /// lacks it reads it as zero.
     #[serde(default)]
     pub share_peak: u64,
-    /// The check that weighed the share peak, if it made any: where and
-    /// when the peak occurred, and its terms.
+    /// The check that weighed the share peak, if it made any: where and when
+    /// the peak occurred, and its terms.
     #[serde(default)]
     pub share_peak_check: Option<CheckRecord>,
     /// Units that waited for admission.
@@ -90,15 +90,15 @@ pub struct LedgerRecord {
     pub questions: Vec<DepthGrants>,
     /// Its answer grants at each depth that had any.
     pub answers: Vec<DepthGrants>,
-    /// Its admissions at depth [`DATED_DEPTH`] or shallower, dated, in
-    /// order ([`LedgerReading::dated`]).
+    /// Its admissions at depth [`DATED_DEPTH`] or shallower, dated, in order
+    /// ([`LedgerReading::dated`]).
     #[serde(default)]
     pub dated: Vec<DatedRecord>,
     /// Its excess over the session, as `[at, bytes]` steps
     /// ([`LedgerReading::profile`]).
     ///
-    /// Every unlimited session records it, since the profile estimate reads
-    /// it; a budgeted one records it only in a detailed record.
+    /// Every unlimited session records it, since the profile estimate reads it;
+    /// a budgeted one records it only in a detailed record.
     #[serde(default)]
     pub profile: Vec<(u64, u64)>,
     /// The link time during which at least one unit waited for admission.
@@ -108,8 +108,7 @@ pub struct LedgerRecord {
     #[serde(default)]
     pub holders: Vec<HolderRecord>,
     /// Every unit that waited, as `[queued, admitted, depth, question,
-    /// bytes, exempt]` ([`LedgerReading::waits`]): in a detailed record
-    /// only.
+    /// bytes, exempt]` ([`LedgerReading::waits`]): in a detailed record only.
     #[serde(default)]
     pub waits: Vec<(u64, u64, usize, bool, u64, bool)>,
     /// Every admission, as `[at, depth, question, exempt, waited]`
@@ -118,8 +117,8 @@ pub struct LedgerRecord {
     pub admissions: Vec<(u64, usize, bool, bool, bool)>,
 }
 
-/// What one holder of a ledger's bytes held: one place's charges for units
-/// of one kind at one depth ([`Holder`], [`Held`]).
+/// What one holder of a ledger's bytes held: one place's charges for units of
+/// one kind at one depth ([`Holder`], [`Held`]).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HolderRecord {
     /// The place, by name.
@@ -155,10 +154,10 @@ pub struct DatedRecord {
     pub bytes: u64,
 }
 
-/// One invitation share check, dated ([`DatedCheck`]): the question it
-/// decided and the terms it weighed, `invited + grant + α · (claimed +
-/// need)`, with `α = pace_actual / pace_predicted` and the scaled term
-/// rounded down.
+/// One invitation share check, dated ([`DatedCheck`]): the question it decided
+/// and the terms it weighed, `invited + grant + α · (claimed +
+/// need)`, with `α = pace_actual / pace_predicted` and the scaled term rounded
+/// down.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct CheckRecord {
     /// The link time it was reported at, in byte-times.
@@ -234,8 +233,8 @@ pub struct DepthGrants {
 }
 
 impl Record {
-    /// Records `session`, which ran `pair` at `budget` and whose heap
-    /// `heap` read, with every profile, wait, and admission if `detail`.
+    /// Records `session`, which ran `pair` at `budget` and whose heap `heap`
+    /// read, with every profile, wait, and admission if `detail`.
     pub fn of(
         pair: Pair,
         budget: Option<u64>,
@@ -278,8 +277,7 @@ impl Record {
         self.sent[0].max(self.sent[1])
     }
 
-    /// The largest excess of either ledger: `Λ` when the budget is
-    /// unlimited.
+    /// The largest excess of either ledger: `Λ` when the budget is unlimited.
     pub fn budget_peak(&self) -> u64 {
         self.ledgers
             .iter()
@@ -297,8 +295,8 @@ impl Record {
             .unwrap_or(0)
     }
 
-    /// The larger of the two sides' totals of what their questions kept
-    /// out of their grants.
+    /// The larger of the two sides' totals of what their questions kept out of
+    /// their grants.
     pub fn question_bytes(&self) -> u64 {
         self.ledgers
             .iter()

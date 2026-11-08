@@ -21,8 +21,8 @@ pub enum LocalAction<T> {
 
 /// Strategy over `Vec<LocalAction<T>>`, weighted 4:1 toward inserts.
 /// `value_strategy` supplies the value type; a `Redact(idx)` picks
-/// `versions[idx % len]` at build time (or is dropped if nothing has
-/// been sent yet).
+/// `versions[idx % len]` at build time (or is dropped if nothing has been sent
+/// yet).
 pub fn arb_actions<T, S>(value_strategy: S) -> impl Strategy<Value = Vec<LocalAction<T>>>
 where
     T: Clone + std::fmt::Debug + 'static,
@@ -37,14 +37,14 @@ where
     )
 }
 
-/// `u64`-valued action strategy: the default for tests that don't
-/// care about the value type.
+/// `u64`-valued action strategy: the default for tests that don't care about
+/// the value type.
 pub fn arb_local_actions() -> impl Strategy<Value = Vec<LocalAction<u64>>> {
     arb_actions(any::<u64>())
 }
 
-/// `String`-valued action strategy: bounded lowercase ASCII for
-/// human-readable shrinking output.
+/// `String`-valued action strategy: bounded lowercase ASCII for human-readable
+/// shrinking output.
 pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
     arb_actions("[a-z]{0,8}".prop_map(String::from))
 }

@@ -1,38 +1,37 @@
-//! A flat model of versions and parties: step functions over the unit
-//! interval, held as leaf lists and interval sets and judged by loops over
-//! their common refinement.
+//! A flat model of versions and parties: step functions over the unit interval,
+//! held as leaf lists and interval sets and judged by loops over their common
+//! refinement.
 //!
 //! The crate's other two models of the algebra each leave a region unjudged.
 //! The recursive oracle ([`tree`]) transcribes the paper's recursions over
 //! trees, so it shares production's tree representation, and the bridge that
 //! turns its answers into production values writes them through production's
-//! own version writer: a canonicalization error the writer and the bridge
-//! share passes every comparison against it. The function-space oracle
-//! shares neither, but it samples every cell of a grid one level finer than
-//! the operands' deepest boundary, `2^(d + 1)` points for operands `d` levels
-//! deep, so it judges nothing past a few dozen levels. This model is
-//! independent of the tree recursion and of every production writer, and
-//! its cost grows with the number of leaves times the width of a position,
-//! not with `2^depth`, so it judges versions and parties hundreds of levels
-//! deep.
+//! own version writer: a canonicalization error the writer and the bridge share
+//! passes every comparison against it. The function-space oracle shares
+//! neither, but it samples every cell of a grid one level finer than the
+//! operands' deepest boundary, `2^(d + 1)` points for operands `d` levels deep,
+//! so it judges nothing past a few dozen levels. This model is independent of
+//! the tree recursion and of every production writer, and its cost grows with
+//! the number of leaves times the width of a position, not with `2^depth`, so
+//! it judges versions and parties hundreds of levels deep.
 //!
 //! Production meets the model only through bytes. A model value enters
-//! production by decoding the independent encoder's ([`codec`]) spelling of
-//! its canonical form, and a production result is judged by comparing its
-//! bytes with the encoder's spelling of the model's answer. The canonical
-//! form, the lattice, the order, projection, shapes, the measures, and every
-//! party operation are computed here; nothing is read back from production.
+//! production by decoding the independent encoder's ([`codec`]) spelling of its
+//! canonical form, and a production result is judged by comparing its bytes
+//! with the encoder's spelling of the model's answer. The canonical form, the
+//! lattice, the order, projection, shapes, the measures, and every party
+//! operation are computed here; nothing is read back from production.
 //!
 //! # Versions
 //!
 //! A [`Version`] is a version's leaves left to right, each a
 //! [`Leaf`](crate::testing::shape_rows::Leaf) row with its depth and its
-//! *absolute height*, the sum of the bases on its root-to-leaf path: the
-//! same rows the deep generators draw
+//! *absolute height*, the sum of the bases on its root-to-leaf path: the same
+//! rows the deep generators draw
 //! ([`LeafList`](crate::testing::generators::leaf_list::LeafList)) and the
 //! shape walks fold into
-//! ([`fold_heights`](crate::testing::shape_rows::fold_heights)). Its rows
-//! are always canonical: no two sibling leaves share a height.
+//! ([`fold_heights`](crate::testing::shape_rows::fold_heights)). Its rows are
+//! always canonical: no two sibling leaves share a height.
 //!
 //! Every binary operation works on the operands' *common refinement*
 //! ([`refine`]): the coarsest partition of `[0, 1)` into dyadic cells that each
@@ -43,16 +42,16 @@
 //!
 //! # Parties
 //!
-//! A [`Party`] is a set of disjoint half-open intervals of `[0, 1)` with
-//! dyadic endpoints, each endpoint a `BigUint` numerator over `2^scale`.
-//! Set algebra is interval arithmetic. [`Party::fork`] is the paper's split,
-//! characterized without trees: it finds the smallest dyadic interval that
-//! holds the whole set and splits that interval at its midpoint: the keeper
-//! takes the part of the set left of the midpoint, and the new party the part
-//! right of it. A balanced partition into `n` shares places `⌈n/2⌉` shares in
-//! the keeper's half and `⌊n/2⌋` in the other, recursively; [`Party::share`]
-//! reaches any one share by a single descent, so counts far wider than a
-//! machine word cost only their bit length.
+//! A [`Party`] is a set of disjoint half-open intervals of `[0, 1)` with dyadic
+//! endpoints, each endpoint a `BigUint` numerator over `2^scale`. Set algebra
+//! is interval arithmetic. [`Party::fork`] is the paper's split, characterized
+//! without trees: it finds the smallest dyadic interval that holds the whole
+//! set and splits that interval at its midpoint: the keeper takes the part of
+//! the set left of the midpoint, and the new party the part right of it. A
+//! balanced partition into `n` shares places `⌈n/2⌉` shares in the keeper's
+//! half and `⌊n/2⌋` in the other, recursively; [`Party::share`] reaches any one
+//! share by a single descent, so counts far wider than a machine word cost only
+//! their bit length.
 //!
 //! # Positions
 //!
@@ -64,10 +63,10 @@
 //!
 //! # What it does not model
 //!
-//! Ticks, `min_ticks`, and spans' storage sharing have no counterpart here,
-//! and [`Party::fork`] computes the paper's split, the one production and
-//! the recursive oracle compute, whereas the function-space oracle checks
-//! that the algebra holds under any valid split.
+//! Ticks, `min_ticks`, and spans' storage sharing have no counterpart here, and
+//! [`Party::fork`] computes the paper's split, the one production and the
+//! recursive oracle compute, whereas the function-space oracle checks that the
+//! algebra holds under any valid split.
 
 use core::cmp::Ordering;
 
@@ -93,10 +92,10 @@ pub(crate) struct Version {
 /// keep a wide code, as [`Version::collapses`] counts them.
 ///
 /// Production's version writer collapses two equal leaf siblings into their
-/// parent, keeping the left leaf's code, and a collapse may repeat at the
-/// next level; a *cascade* is such a repeat. A code is *wide* when it is
-/// longer than [`NARROW_CODE_BITS`]: a wide code that reaches a collapse
-/// sends the writer down its separated-stream path.
+/// parent, keeping the left leaf's code, and a collapse may repeat at the next
+/// level; a *cascade* is such a repeat. A code is *wide* when it is longer than
+/// [`NARROW_CODE_BITS`]: a wide code that reaches a collapse sends the writer
+/// down its separated-stream path.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Collapses {
     /// Collapses that follow a collapse at the depth just below.
@@ -105,14 +104,14 @@ pub(crate) struct Collapses {
     pub(crate) wide_cascades: usize,
 }
 
-/// The longest payload code production's version writer keeps pending in
-/// one 64-bit word: an absolute first height through `2^32 − 2`, or a later
-/// height change within `±(2^31 − 1)`.
+/// The longest payload code production's version writer keeps pending in one
+/// 64-bit word: an absolute first height through `2^32 − 2`, or a later height
+/// change within `±(2^31 − 1)`.
 pub(crate) const NARROW_CODE_BITS: u64 = 63;
 
-/// The length in bits of row `i`'s payload code in a version stream: the
-/// gamma code of the first leaf's height plus one, or of a later leaf's
-/// zigzag-coded height change plus one.
+/// The length in bits of row `i`'s payload code in a version stream: the gamma
+/// code of the first leaf's height plus one, or of a later leaf's zigzag-coded
+/// height change plus one.
 fn code_bits(rows: &[Leaf], i: usize) -> u64 {
     let gamma = |n: BigUint| 2 * (n + 1u8).bits() - 1;
     match i {
@@ -151,11 +150,11 @@ impl Version {
         }
     }
 
-    /// The canonical version of a recursive-oracle tree, read by the
-    /// encoder's iterative flattening.
+    /// The canonical version of a recursive-oracle tree, read by the encoder's
+    /// iterative flattening.
     ///
-    /// Only the tree's structure is read, never an oracle operation, so a
-    /// tree that is not in normal form still yields its canonical version.
+    /// Only the tree's structure is read, never an oracle operation, so a tree
+    /// that is not in normal form still yields its canonical version.
     pub(crate) fn from_oracle(version: &tree::Version) -> Version {
         Version::from_spelling(&codec::Version::from_oracle(version))
     }
@@ -219,9 +218,8 @@ impl Version {
         *self == Version::empty()
     }
 
-    /// The rows of `f` applied to two versions on their common refinement,
-    /// one per cell, before canonicalization: the rows [`pointwise`]
-    /// collapses.
+    /// The rows of `f` applied to two versions on their common refinement, one
+    /// per cell, before canonicalization: the rows [`pointwise`] collapses.
     ///
     /// [`pointwise`]: Version::pointwise
     pub(crate) fn pointwise_cells(
@@ -283,8 +281,8 @@ impl Version {
             .all(|cell| self.rows[cell.leaves[0]].height <= other.rows[cell.leaves[1]].height)
     }
 
-    /// The causal relation, from the pointwise order in both directions:
-    /// `None` when the versions are concurrent.
+    /// The causal relation, from the pointwise order in both directions: `None`
+    /// when the versions are concurrent.
     pub(crate) fn relation(&self, other: &Version) -> Option<Ordering> {
         match (self.le(other), other.le(self)) {
             (true, true) => Some(Ordering::Equal),
@@ -294,8 +292,8 @@ impl Version {
         }
     }
 
-    /// The version restricted to the party's region: unchanged where the
-    /// party owns, zero elsewhere.
+    /// The version restricted to the party's region: unchanged where the party
+    /// owns, zero elsewhere.
     pub(crate) fn project(&self, party: &Party) -> Version {
         let regions = party.regions();
         let depths: Vec<u64> = regions.iter().map(|&(_, depth)| depth).collect();
@@ -333,8 +331,8 @@ impl Version {
     }
 
     /// The rows [`fold_overlay`](crate::testing::shape_rows::fold_overlay)
-    /// reads from the [`shape`](crate::Clock::shape) of a clock holding
-    /// `party` and this version.
+    /// reads from the [`shape`](crate::Clock::shape) of a clock holding `party`
+    /// and this version.
     ///
     /// Each row is a cell of the version's leaves refined by the party's
     /// canonical regions, with its height and whether the party owns it.
@@ -365,9 +363,9 @@ impl Version {
         codec::normalize_rank(area, scale)
     }
 
-    /// The integral of `f(a − b)` over the unit interval, for `a` this
-    /// version and `b` the other, as an unnormalized numerator over
-    /// `2^scale` and that scale.
+    /// The integral of `f(a − b)` over the unit interval, for `a` this version
+    /// and `b` the other, as an unnormalized numerator over `2^scale` and that
+    /// scale.
     fn integral(&self, other: &Version, f: impl Fn(BigInt) -> BigInt) -> (BigInt, u64) {
         let scale = self.depth().max(other.depth());
         let total = refine(&[self.depths(), other.depths()])
@@ -395,8 +393,8 @@ impl Version {
         Version::nonnegative(self.integral(other, |d| BigInt::from(d.magnitude().clone())))
     }
 
-    /// How far this version lags `other`: the integral of `max(0, b − a)`,
-    /// the part where `other` runs ahead.
+    /// How far this version lags `other`: the integral of `max(0, b − a)`, the
+    /// part where `other` runs ahead.
     pub(crate) fn lag(&self, other: &Version) -> (BigUint, u64) {
         Version::nonnegative(self.integral(other, |d| match d.sign() {
             Sign::Minus => -d,
@@ -436,8 +434,8 @@ impl Version {
         u64::try_from(self.spelled().live_bits().len()).expect("a bit count fits in u64")
     }
 
-    /// The production version with these canonical bytes, decoded by the
-    /// public strict decoder.
+    /// The production version with these canonical bytes, decoded by the public
+    /// strict decoder.
     ///
     /// # Panics
     ///
@@ -461,8 +459,7 @@ impl Version {
 /// every endpoint is a whole position.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Party {
-    /// The denominator's exponent: endpoints are numerators over
-    /// `2^scale`.
+    /// The denominator's exponent: endpoints are numerators over `2^scale`.
     scale: u64,
     /// The intervals, as `[start, end)` positions, left to right.
     intervals: Vec<(BigUint, BigUint)>,
@@ -514,8 +511,8 @@ impl Party {
         }
     }
 
-    /// The party owning the regions `rows` marks owned: `(owned, depth)`
-    /// rows, left to right, in any spelling.
+    /// The party owning the regions `rows` marks owned: `(owned, depth)` rows,
+    /// left to right, in any spelling.
     ///
     /// # Panics
     ///
@@ -535,8 +532,8 @@ impl Party {
         Party::canonical(scale, intervals)
     }
 
-    /// The party a recursive-oracle tree owns, read by the encoder's
-    /// iterative flattening.
+    /// The party a recursive-oracle tree owns, read by the encoder's iterative
+    /// flattening.
     ///
     /// Only the tree's structure is read, never an oracle operation.
     pub(crate) fn from_oracle(party: &tree::Party) -> Party {
@@ -548,14 +545,14 @@ impl Party {
         Party::from_regions(&rows)
     }
 
-    /// The canonical regions, `(owned, depth)` left to right: the leaves of
-    /// the party's normal-form tree.
+    /// The canonical regions, `(owned, depth)` left to right: the leaves of the
+    /// party's normal-form tree.
     ///
     /// Each run between consecutive interval endpoints is uniformly owned or
     /// unowned, and its neighbors are not. A run splits greedily into the
     /// widest aligned dyadic cells that fit, and those are exactly the
-    /// canonical leaves: a greedy cell's parent either starts before the run
-    /// or ends after it, so it holds cells of the other kind.
+    /// canonical leaves: a greedy cell's parent either starts before the run or
+    /// ends after it, so it holds cells of the other kind.
     pub(crate) fn regions(&self) -> Vec<(bool, u64)> {
         let one = BigUint::from(1u8) << self.scale;
         let mut runs = Vec::with_capacity(2 * self.intervals.len() + 1);
@@ -654,8 +651,7 @@ impl Party {
         other.difference(self).is_empty()
     }
 
-    /// The dyadic interval at `start` of width `2^(scale − depth)`, at
-    /// `scale`.
+    /// The dyadic interval at `start` of width `2^(scale − depth)`, at `scale`.
     fn node(scale: u64, start: BigUint, depth: u64) -> Party {
         let end = &start + (BigUint::from(1u8) << (scale - depth));
         Party::canonical(scale, [(start, end)])
@@ -663,14 +659,14 @@ impl Party {
 
     /// The paper's split: the keeper's half and the new party's half.
     ///
-    /// The set's hull, from its first point to its last, lies inside a
-    /// smallest dyadic interval. If the set fills that interval, its two
-    /// halves are the result. Otherwise the hull crosses the interval's
-    /// midpoint, so the set meets both halves, and each half keeps its own
-    /// part of the set. Both cases are the set's intersection with each
-    /// half. The tree recursion arrives at the same split: it descends
-    /// through one-child nodes to the hull's interval, then splits a full
-    /// leaf in two or a two-child node into its children.
+    /// The set's hull, from its first point to its last, lies inside a smallest
+    /// dyadic interval. If the set fills that interval, its two halves are the
+    /// result. Otherwise the hull crosses the interval's midpoint, so the set
+    /// meets both halves, and each half keeps its own part of the set. Both
+    /// cases are the set's intersection with each half. The tree recursion
+    /// arrives at the same split: it descends through one-child nodes to the
+    /// hull's interval, then splits a full leaf in two or a two-child node into
+    /// its children.
     ///
     /// # Panics
     ///
@@ -695,9 +691,9 @@ impl Party {
         (self.intersection(&left), self.intersection(&right))
     }
 
-    /// Share `i` of the balanced partition into `n` shares, by one descent:
-    /// at each split the keeper's half takes the first `⌈n/2⌉` shares and
-    /// the other half the rest.
+    /// Share `i` of the balanced partition into `n` shares, by one descent: at
+    /// each split the keeper's half takes the first `⌈n/2⌉` shares and the
+    /// other half the rest.
     ///
     /// # Panics
     ///
@@ -748,14 +744,14 @@ impl Party {
         self.spelled().encode()
     }
 
-    /// The production party with these canonical bytes, decoded by the
-    /// public strict decoder.
+    /// The production party with these canonical bytes, decoded by the public
+    /// strict decoder.
     ///
     /// # Panics
     ///
     /// Panics if the set is empty, or if production rejects the encoder's
-    /// spelling of a canonical party, which is a disagreement between the
-    /// two on the format.
+    /// spelling of a canonical party, which is a disagreement between the two
+    /// on the format.
     pub(crate) fn production(&self) -> crate::Party {
         let bytes = self.encode();
         crate::Party::decode(&bytes[..]).unwrap_or_else(|error| {
@@ -798,8 +794,8 @@ pub(crate) fn check_party(
     Ok(())
 }
 
-/// Checks that a production rank is the model's `(num, exp)` exactly: the
-/// same normalized parts, and the rank format's spelling of them.
+/// Checks that a production rank is the model's `(num, exp)` exactly: the same
+/// normalized parts, and the rank format's spelling of them.
 pub(crate) fn check_rank(
     got: &crate::Rank,
     want: &(BigUint, u64),

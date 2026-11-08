@@ -1,10 +1,11 @@
-//! Relative interval widths, with large scales and empty digit ranges kept sparse.
+//! Relative interval widths, with large scales and empty digit ranges kept
+//! sparse.
 //!
-//! A width is nonnegative, but signed digits make its representation compact:
-//! a run of base-2^32 digits all equal to `2^32 - 1` becomes a `-1` followed
-//! by a carry beyond the run. The representation can therefore retain both
-//! tiny deep intervals and long contiguous intervals without filling every
-//! position between their endpoints.
+//! A width is nonnegative, but signed digits make its representation compact: a
+//! run of base-2^32 digits all equal to `2^32 - 1` becomes a `-1` followed by a
+//! carry beyond the run. The representation can therefore retain both tiny deep
+//! intervals and long contiguous intervals without filling every position
+//! between their endpoints.
 
 use core::cmp::Ordering;
 
@@ -21,7 +22,8 @@ pub struct ScaledWidth {
     shift: u64,
 }
 
-/// Keep an interval's unwritten low prefix separate through readout and arithmetic.
+/// Keep an interval's unwritten low prefix separate through readout and
+/// arithmetic.
 impl ScaledWidth {
     /// Read a sum of interval widths without materializing its zero prefix.
     pub fn read(width: &Accumulator) -> Self {
@@ -56,14 +58,15 @@ pub struct SparseWidth {
     digits: Vec<(u64, i64)>,
 }
 
-/// Preserve balanced sparse digits through addition and clustered multiplication.
+/// Preserve balanced sparse digits through addition and clustered
+/// multiplication.
 impl SparseWidth {
     /// Convert one scaled width, balancing adjacent digits in a single pass.
     ///
-    /// The shift need not be a multiple of 32: each of the limbs' 32-bit
-    /// pieces is shifted left by `shift % 32` bits, and the bits it pushes past
-    /// 32 join the next piece, so the unsigned digits start at index
-    /// `shift / 32` and run one past the limbs.
+    /// The shift need not be a multiple of 32: each of the limbs' 32-bit pieces
+    /// is shifted left by `shift % 32` bits, and the bits it pushes past 32
+    /// join the next piece, so the unsigned digits start at index `shift / 32`
+    /// and run one past the limbs.
     pub fn from_scaled(width: &ScaledWidth) -> Self {
         let start_index = width.shift / 32;
         let offset = width.shift % 32;
@@ -88,8 +91,8 @@ impl SparseWidth {
         width
     }
 
-    /// The bits its stored digits span, 32 per digit: the work needed to
-    /// merge this width.
+    /// The bits its stored digits span, 32 per digit: the work needed to merge
+    /// this width.
     pub fn stored_bits(&self) -> u64 {
         32 * self.digits.len() as u64
     }
@@ -99,8 +102,9 @@ impl SparseWidth {
         self.combine(other.digits.into_iter());
     }
 
-    /// Merge ascending digits while restoring the balanced range at each position.
-    /// Incoming digits may be balanced digits or unsigned 32-bit digits.
+    /// Merge ascending digits while restoring the balanced range at each
+    /// position. Incoming digits may be balanced digits or unsigned 32-bit
+    /// digits.
     fn combine(&mut self, incoming: impl Iterator<Item = (u64, i64)>) {
         let mut old = core::mem::take(&mut self.digits).into_iter().peekable();
         let mut incoming = incoming.peekable();
@@ -154,7 +158,8 @@ impl SparseWidth {
         self.digits = digits;
     }
 
-    /// Group adjacent digits unless their separating zero gap exceeds `gap_limit`.
+    /// Group adjacent digits unless their separating zero gap exceeds
+    /// `gap_limit`.
     fn clusters(&self, gap_limit: u64) -> impl Iterator<Item = &[(u64, i64)]> {
         let mut rest = self.digits.as_slice();
         core::iter::from_fn(move || {
@@ -171,14 +176,15 @@ impl SparseWidth {
         })
     }
 
-    /// Add `height * self` using one backend product per nonempty sign in a cluster.
+    /// Add `height * self` using one backend product per nonempty sign in a
+    /// cluster.
     ///
     /// Multiplying every digit separately would repeatedly traverse a wide
     /// height. Multiplying the entire dense width would fill arbitrarily large
     /// gaps. Instead, bridge only gaps no wider than the height: filling a
     /// smaller gap costs less than another full-height product, while a larger
-    /// gap stays absent. Each dense operand starts at its cluster's first digit;
-    /// its absolute position appears only in the final shifted addition.
+    /// gap stays absent. Each dense operand starts at its cluster's first
+    /// digit; its absolute position appears only in the final shifted addition.
     pub fn add_product(&self, total: &mut Accumulator, height: &BigInt) {
         let sign = height.sign();
         let height = height.magnitude();
@@ -248,12 +254,12 @@ impl DensePart {
     /// the integral's common tree depth, so it never exceeds `2^S`. Its
     /// balanced digits therefore sit at indices `0..=S/32 + 1`, so
     /// `span <= S/32 + 2` and `4 * span <= S/8 + 8`. The deepest version has
-    /// depth `S`, so it has at least `S` internal nodes and `S + 1` leaves;
-    /// its stream spends a topology bit on every node and at least one
-    /// payload bit on every leaf, at least `3S + 2` bits in all. For
-    /// `S >= 31`, `S/8 + 8` is at most `(3S + 2)/8`, so the allocation is no
-    /// larger than that stream, whose byte length is at most `isize::MAX`;
-    /// for smaller `S`, `span <= 2`.
+    /// depth `S`, so it has at least `S` internal nodes and `S + 1` leaves; its
+    /// stream spends a topology bit on every node and at least one payload bit
+    /// on every leaf, at least `3S + 2` bits in all. For `S >= 31`, `S/8 + 8`
+    /// is at most `(3S + 2)/8`, so the allocation is no larger than that
+    /// stream, whose byte length is at most `isize::MAX`; for smaller `S`,
+    /// `span <= 2`.
     fn new(span: usize) -> Self {
         Self {
             digits: vec![0; span],
@@ -261,25 +267,27 @@ impl DensePart {
         }
     }
 
-    /// Place a nonzero digit. Sparse digit indices are unique, so slots never overlap.
+    /// Place a nonzero digit. Sparse digit indices are unique, so slots never
+    /// overlap.
     fn insert(&mut self, index: usize, digit: u32) {
         self.digits[index] = digit;
         self.is_empty = false;
     }
 }
 
-/// The digits [`SparseWidth::add_product`] zero-fills for multi-digit
-/// clusters, two per position of each cluster's span, one dense part per sign.
+/// The digits [`SparseWidth::add_product`] zero-fills for multi-digit clusters,
+/// two per position of each cluster's span, one dense part per sign.
 ///
-/// A cluster bridges only gaps no wider than the height it multiplies, so
-/// each zero filled stands in for a full-height product the bridging saves.
-/// The fill happens in this module's temporary buffers rather than in an
-/// accumulator, and peak heap shows only the largest cluster's parts, not
-/// the total filled across clusters; this count is what observes it.
+/// A cluster bridges only gaps no wider than the height it multiplies, so each
+/// zero filled stands in for a full-height product the bridging saves. The fill
+/// happens in this module's temporary buffers rather than in an accumulator,
+/// and peak heap shows only the largest cluster's parts, not the total filled
+/// across clusters; this count is what observes it.
 #[cfg(feature = "meter")]
 static DENSIFIED_DIGITS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
-/// The process-wide count of dense cluster digits initialized since the last reset.
+/// The process-wide count of dense cluster digits initialized since the last
+/// reset.
 #[cfg(feature = "meter")]
 pub fn densified_digits() -> u64 {
     DENSIFIED_DIGITS.load(core::sync::atomic::Ordering::Relaxed)

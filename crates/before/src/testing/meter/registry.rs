@@ -40,11 +40,9 @@ pub enum Shape {
     /// The bigroot event `B(b, d)`, a `2^b − 1` root over `S(d)`:
     /// [`Shape::build2`]`(b, d)`.
     Bigroot,
-    /// The hugeleaf event, one leaf of value `2^b − 1`:
-    /// [`Shape::build1`]`(b)`.
+    /// The hugeleaf event, one leaf of value `2^b − 1`: [`Shape::build1`]`(b)`.
     Hugeleaf,
-    /// The boundary comb `C(k, n)`, `n` cliff teeth:
-    /// [`Shape::build2`]`(k, n)`.
+    /// The boundary comb `C(k, n)`, `n` cliff teeth: [`Shape::build2`]`(k, n)`.
     CliffComb,
     /// The jump comb `J(k, n)`, one low tooth then `n − 1` cliff teeth:
     /// [`Shape::build2`]`(k, n)`.
@@ -52,8 +50,8 @@ pub enum Shape {
     /// The wide-tooth comb `W(k, w, n)`, `n` teeth of width `2^w`:
     /// [`Shape::build3`]`(k, w, n)`.
     WideToothComb,
-    /// The unpaid-crossing fan `F(k, n)`, `n` cheap teeth under one
-    /// stored magnitude: [`Shape::build2`]`(k, n)`.
+    /// The unpaid-crossing fan `F(k, n)`, `n` cheap teeth under one stored
+    /// magnitude: [`Shape::build2`]`(k, n)`.
     CliffFan,
     /// The cancelling-prefix chain `P(k, n)`, `n` peak-to-1 drops:
     /// [`Shape::build2`]`(k, n)`.
@@ -64,16 +62,16 @@ pub enum Shape {
     /// The jump-entered rising spine `JR(b, d)`, leaves `0, 2^b + 1, …,
     /// 2^b + d`: [`Shape::build2`]`(b, d)`.
     JumpRisingSpine,
-    /// The wide-step pair spine `WP(e, d)`, nested minima rising alternately
-    /// by `2^e` and by one: [`Shape::build2`]`(e, d)`.
+    /// The wide-step pair spine `WP(e, d)`, nested minima rising alternately by
+    /// `2^e` and by one: [`Shape::build2`]`(e, d)`.
     WideStepPairs,
     /// The wide-step spine `WS(e, d)`, nested minima each rising by `2^e`:
     /// [`Shape::build2`]`(e, d)`.
     WideStepSpine,
     /// The alternating-binary spine `A(d)`: [`Shape::build1`]`(d)`.
     AltSpine,
-    /// The scattered id `Z(e)`, `e` owned fragments at alternating
-    /// depths: [`Shape::build1`]`(e)`.
+    /// The scattered id `Z(e)`, `e` owned fragments at alternating depths:
+    /// [`Shape::build1`]`(e)`.
     ScatteredId,
     /// The id spine `I(d, divert)`, a unary chain of depth `d`:
     /// [`Shape::build_flagged`]`(d, divert)`.
@@ -98,8 +96,7 @@ pub enum Shape {
     MemoCombId,
     /// The memo fan-out event `F(k, b)`: [`Shape::build2`]`(k, b)`.
     MemoFanout,
-    /// The oscillating-siblings event `O(k, b)`:
-    /// [`Shape::build2`]`(k, b)`.
+    /// The oscillating-siblings event `O(k, b)`: [`Shape::build2`]`(k, b)`.
     MemoOscillating,
     /// The memo-churn event `U(d)`: [`Shape::build1`]`(d)`.
     MemoChurn,
@@ -111,8 +108,8 @@ pub enum Shape {
     DescendingRaisesId,
     /// The reveal-comb event `R(k, b)`: [`Shape::build2`]`(k, b)`.
     RevealComb,
-    /// The reveal comb with its floor raised to `2^b − 2` (the gap
-    /// control): [`Shape::build2`]`(k, b)`.
+    /// The reveal comb with its floor raised to `2^b − 2` (the gap control):
+    /// [`Shape::build2`]`(k, b)`.
     RevealCombHifloor,
     /// The reveal-comb id: [`Shape::build1`]`(k)`.
     RevealCombId,
@@ -122,8 +119,8 @@ pub enum Shape {
     PureCombId,
     /// The ascending cliff `A(k, b)`: [`Shape::build2`]`(k, b)`.
     AscendCliff,
-    /// The ascending cliff with every wide leaf leveled (the
-    /// hop-schedule control): [`Shape::build2`]`(k, b)`.
+    /// The ascending cliff with every wide leaf leveled (the hop-schedule
+    /// control): [`Shape::build2`]`(k, b)`.
     AscendCliffPlateau,
     /// The ascending-cliff id: [`Shape::build1`]`(k)`.
     AscendCliffId,
@@ -138,8 +135,8 @@ pub enum Shape {
     SeamPlungeControl,
     /// The seam-stop spine `SS(k)`: [`Shape::build1`]`(k)`.
     SeamStop,
-    /// The seam-stop control (the descent kept, the stacked boundary
-    /// removed): [`Shape::build1`]`(k)`.
+    /// The seam-stop control (the descent kept, the stacked boundary removed):
+    /// [`Shape::build1`]`(k)`.
     SeamStopControl,
     /// The latent-ladder comb `LL(w, k)`: [`Shape::build2`]`(w, k)`.
     LatentLadder,
@@ -150,23 +147,20 @@ pub enum Shape {
     /// The deferral re-arm mate `PRM(p)`, the small twin:
     /// [`Shape::build1`]`(p)`.
     PromotionRearmMate,
-    /// The dense-suffix re-arm family `DS(p, d)`:
-    /// [`Shape::build2`]`(p, d)`.
+    /// The dense-suffix re-arm family `DS(p, d)`: [`Shape::build2`]`(p, d)`.
     DenseSuffix,
     /// The dense-suffix mate `DSM(p, d)`, the unit twin:
     /// [`Shape::build2`]`(p, d)`.
     DenseSuffixMate,
     /// The wide-arming family `WA(w, d)`: [`Shape::build2`]`(w, d)`.
     WideArming,
-    /// The hoisted-window family `HW(w, d, t)`:
-    /// [`Shape::build3`]`(w, d, t)`.
+    /// The hoisted-window family `HW(w, d, t)`: [`Shape::build3`]`(w, d, t)`.
     HoistedWindow,
     /// The weight-comb family `WC(n)`: [`Shape::build1`]`(n)`.
     WeightComb,
     /// The freeze-parade family `FZ(k)`: [`Shape::build1`]`(k)`.
     FreezeParade,
-    /// The lone-freeze spine `LF(pre, post)`:
-    /// [`Shape::build2`]`(pre, post)`.
+    /// The lone-freeze spine `LF(pre, post)`: [`Shape::build2`]`(pre, post)`.
     LoneFreeze,
     /// The narrow-freeze zigzag `NF(e, c)`, a wide step and a one-tick step
     /// alternating in both directions: [`Shape::build2`]`(e, c)`.
@@ -176,8 +170,8 @@ pub enum Shape {
     /// The puncture-product embedding `V(x, y)` over arbitrary factors:
     /// [`Shape::build_product`]`(&x, &y)`.
     PunctureProduct,
-    /// The plateau-puncture family `PP(w, d)` over its committed
-    /// factors: [`Shape::build2`]`(w, d)`.
+    /// The plateau-puncture family `PP(w, d)` over its committed factors:
+    /// [`Shape::build2`]`(w, d)`.
     PlateauPuncture,
     /// The arming-train family `AT(n, w, g, alternate)`:
     /// [`Shape::build_train`]`(n, w, g, alternate)`.
@@ -193,8 +187,8 @@ pub enum Shape {
     StaggerComb,
     /// The staggered id `SI(n, m, i)`: [`Shape::build3`]`(n, m, i)`.
     StaggerId,
-    /// The staggered fold population, all `n` operands in bit-reversed
-    /// feed order: [`Shape::population`]`(n, m)`.
+    /// The staggered fold population, all `n` operands in bit-reversed feed
+    /// order: [`Shape::population`]`(n, m)`.
     StaggerPopulation,
     /// The meet-shade population `MS(d, k)`: [`Shape::versions`]`(d, k)`.
     MeetShade,
@@ -232,8 +226,8 @@ pub enum Shape {
     ZigzagId,
 }
 
-/// A registered constructor's signature class, binding one [`Shape`] to
-/// the private generator behind it.
+/// A registered constructor's signature class, binding one [`Shape`] to the
+/// private generator behind it.
 // The signatures are the generators' own; an alias per tuple shape would
 // be indirection to track, not documentation.
 #[allow(clippy::type_complexity)]
@@ -269,11 +263,10 @@ enum Builder {
 impl Shape {
     /// The constructor table: every registered shape's private generator.
     ///
-    /// This exhaustive match is the compiler's half of the registry
-    /// invariant — it is the generators' only caller outside the meter
-    /// module's own unit tests, so a generator absent from it is dead
-    /// code the warnings-denied builds reject, and a variant without a
-    /// generator does not compile.
+    /// This exhaustive match is the compiler's half of the registry invariant —
+    /// it is the generators' only caller outside the meter module's own unit
+    /// tests, so a generator absent from it is dead code the warnings-denied
+    /// builds reject, and a variant without a generator does not compile.
     fn builder(self) -> Builder {
         match self {
             Shape::Dense => Builder::P1(super::dense),
@@ -368,8 +361,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build1(self, a: usize) -> Encoding {
         match self.builder() {
             Builder::P1(f) => f(a),
@@ -381,8 +374,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build2(self, a: usize, b: usize) -> Encoding {
         match self.builder() {
             Builder::P2(f) => f(a, b),
@@ -394,8 +387,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build3(self, a: usize, b: usize, c: usize) -> Encoding {
         match self.builder() {
             Builder::P3(f) => f(a, b, c),
@@ -407,8 +400,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build_flagged(self, a: usize, flag: bool) -> Encoding {
         match self.builder() {
             Builder::Flag(f) => f(a, flag),
@@ -420,8 +413,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build_train(self, n: usize, w: usize, g: usize, alternate: bool) -> Encoding {
         match self.builder() {
             Builder::Train(f) => f(n, w, g, alternate),
@@ -433,8 +426,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own factor preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own factor preconditions.
     pub fn build_product(self, x: &BigUint, y: &BigUint) -> Encoding {
         match self.builder() {
             Builder::Product(f) => f(x, y),
@@ -446,8 +439,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build_pair(self, a: usize, b: usize) -> (Encoding, Encoding) {
         match self.builder() {
             Builder::Pair2(f) => f(a, b),
@@ -459,8 +452,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build_pair3(self, a: usize, b: usize, c: usize) -> (Encoding, Encoding) {
         match self.builder() {
             Builder::Pair3(f) => f(a, b, c),
@@ -472,8 +465,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn version_pair(self, n: usize) -> (Version, Version) {
         match self.builder() {
             Builder::VersionPair(f) => f(n),
@@ -485,8 +478,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn versions(self, a: usize, b: usize) -> Vec<Version> {
         match self.builder() {
             Builder::Versions2(f) => f(a, b),
@@ -498,8 +491,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn population(self, a: usize, b: usize) -> (Vec<Encoding>, Vec<Encoding>) {
         match self.builder() {
             Builder::Population2(f) => f(a, b),
@@ -511,8 +504,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build_triple(self, a: usize, b: usize) -> (Encoding, Encoding, Encoding) {
         match self.builder() {
             Builder::Triple2(f) => f(a, b),
@@ -524,8 +517,8 @@ impl Shape {
     ///
     /// # Panics
     ///
-    /// Panics if this shape's constructor takes a different signature,
-    /// or on the constructor's own knob preconditions.
+    /// Panics if this shape's constructor takes a different signature, or on
+    /// the constructor's own knob preconditions.
     pub fn build_quadruple(
         self,
         a: usize,
@@ -549,8 +542,8 @@ pub enum FamilyId {
     Bigroot,
     /// `hugeleaf(B)`: one node, maximal bits per node.
     Hugeleaf,
-    /// The boundary comb `C(k, n)` at `k = n`: leaf values oscillating
-    /// across a `2^k` carry cliff, every crossing paid by a stored code.
+    /// The boundary comb `C(k, n)` at `k = n`: leaf values oscillating across a
+    /// `2^k` carry cliff, every crossing paid by a stored code.
     Cliff,
     /// The diverted id-spine pair `I(d, ·)`: full-lockstep two-party walks.
     IdPair,
@@ -635,8 +628,8 @@ pub enum FamilyId {
     /// difference is created at every consume and popped at every close. The
     /// designated cross of the two tick rows.
     RevealComb,
-    /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the
-    /// reveal-comb id.
+    /// The reveal-comb control: `reveal_comb_hifloor(s, s)` × the reveal-comb
+    /// id.
     ///
     /// Identical forest and close-reveal cycle with the floor raised to `2^s −
     /// 2`, so the circulated boundary difference is O(1) wide: the gap control.
@@ -668,10 +661,10 @@ pub enum FamilyId {
     ///
     /// Each of `s` raise sites re-arms the range-minimum stack at the top of a
     /// `5·2^s`-scale climb and then emits its copied region's block minimum
-    /// from one word above it — a no-latent, word-scale-offset emission
-    /// against a wide-negative anchor gap. The board charges the resulting
-    /// arithmetic and traversal work to the family's input. The designated
-    /// cross of the two tick rows.
+    /// from one word above it — a no-latent, word-scale-offset emission against
+    /// a wide-negative anchor gap. The board charges the resulting arithmetic
+    /// and traversal work to the family's input. The designated cross of the
+    /// two tick rows.
     DominatedUndercut,
     /// The two-operand jump comb `jump_pair(k, m, d)`: wide height-difference
     /// crests over a dense-position spine.
@@ -688,11 +681,11 @@ pub enum FamilyId {
     /// sentinel.
     ///
     /// `2s` descending wide leaves alternate a ten-digit drop and a unit drop
-    /// down a right spine, so a numeric fold freezes `Θ(s)` times at ever-deeper
-    /// stream positions — every comb fires O(1) freezes, which was exactly the
-    /// coverage hole — and any freeze accounting that reads an absolute
-    /// position (or any whole-history state) per freeze goes quadratic here
-    /// while the family's positions compact to O(1) digits. The
+    /// down a right spine, so a numeric fold freezes `Θ(s)` times at
+    /// ever-deeper stream positions — every comb fires O(1) freezes, which was
+    /// exactly the coverage hole — and any freeze accounting that reads an
+    /// absolute position (or any whole-history state) per freeze goes quadratic
+    /// here while the family's positions compact to O(1) digits. The
     /// freeze-position band requires the anchored-segment implementation to
     /// remain flat. Designed against the numeric-measure rows.
     FreezePos,
@@ -721,16 +714,16 @@ pub enum FamilyId {
     /// sentinel.
     ///
     /// The parked-unit spine at depth `64k`, then `k` shallow freeze blocks
-    /// whose wide in-pair drops each fire one numeric-fold freeze at the block's
-    /// position weight, `Θ(k)` digits above digit 0, so every freeze's scaled
-    /// segment read starts `Θ(k)` digits up. The accumulator's write watermark
-    /// prices each read at the segment's written span; a scaled read that
-    /// starts at digit 0 walks the never-written prefix per freeze and goes
-    /// quadratic in accumulator digit operations; the watermark stays flat on
-    /// the board's `version_rank` cell. The freeze-position spine prices the
-    /// numeric fold's
-    /// per-freeze accounting; this family prices the accumulator's read side
-    /// under the same schedule. Designed against the numeric-measure rows.
+    /// whose wide in-pair drops each fire one numeric-fold freeze at the
+    /// block's position weight, `Θ(k)` digits above digit 0, so every freeze's
+    /// scaled segment read starts `Θ(k)` digits up. The accumulator's write
+    /// watermark prices each read at the segment's written span; a scaled read
+    /// that starts at digit 0 walks the never-written prefix per freeze and
+    /// goes quadratic in accumulator digit operations; the watermark stays flat
+    /// on the board's `version_rank` cell. The freeze-position spine prices the
+    /// numeric fold's per-freeze accounting; this family prices the
+    /// accumulator's read side under the same schedule. Designed against the
+    /// numeric-measure rows.
     FreezeParade,
     /// The dense-suffix pair `dense_suffix(p, p)` against its unit mate
     /// `dense_suffix_mate(p, p)`: the many-armings × dense-trailing-mass
@@ -759,13 +752,13 @@ pub enum FamilyId {
     /// `Θ(s)` digits and the turn positions spell a jittered punctured mass `y`
     /// of `Θ(s)` isolated digits, so the exact rank embeds the integer product
     /// `2·x·y + 1` — bought with `Θ(s)` input bits, both factors' content
-    /// beyond the settle's own balanced-digit compaction. No deferral
-    /// fires; the cost is the close-time settle, one wide × dense
-    /// multiplication run inside the backend at its bound `M(|v|)` — and
-    /// because the same constructor embeds the product of arbitrary factors,
-    /// any fold that answers exactly multiplies arbitrary input-funded
-    /// integers, so `Ω(M(|v|))` floors every settle.
-    /// Designed against the numeric-measure rows.
+    /// beyond the settle's own balanced-digit compaction. No deferral fires;
+    /// the cost is the close-time settle, one wide × dense multiplication run
+    /// inside the backend at its bound `M(|v|)` — and because the same
+    /// constructor embeds the product of arbitrary factors, any fold that
+    /// answers exactly multiplies arbitrary input-funded integers, so
+    /// `Ω(M(|v|))` floors every settle. Designed against the numeric-measure
+    /// rows.
     PlateauPuncture,
     /// The lone-freeze spine `lone_freeze(s, s)`: the first-freeze gate
     /// straddle, both sides on one knob.
@@ -779,8 +772,7 @@ pub enum FamilyId {
     /// O(1). Exactly one freeze and no deferral occurs, so the column also
     /// prices the settle's smallest nonempty configuration. The board column
     /// scales both axes together, so a regression on either reads on its
-    /// doubling.
-    /// Designed against the numeric-measure rows.
+    /// doubling. Designed against the numeric-measure rows.
     LoneFreeze,
     /// The concurrent pair `concurrent_pair(n)`: the emit side-switch density
     /// population.
@@ -831,8 +823,8 @@ pub enum FamilyId {
     /// The memo fan-out `F(k, b)`: `k` sites share one `b`-bit minimum that the
     /// input stores once, exposing any implementation that copies it per site.
     MemoFanout,
-    /// The oscillating siblings `O(k, b)`: every precomputed difference is
-    /// `b` bits wide and each one is represented in the input.
+    /// The oscillating siblings `O(k, b)`: every precomputed difference is `b`
+    /// bits wide and each one is represented in the input.
     MemoOscillating,
     /// The memo-churn pair `U(d)` × its party: a descending run repeatedly
     /// lowers the minimum while `d` outer sites await their results.
@@ -858,106 +850,102 @@ pub enum FamilyId {
     RaiseHole,
     /// A deep party site crossed by one tick traversal.
     SiteHole,
-    /// The masked-hole triple `MH(d, h)`: a deep dense spine under a
-    /// shallow diverted mask against a dominating plateau.
+    /// The masked-hole triple `MH(d, h)`: a deep dense spine under a shallow
+    /// diverted mask against a dominating plateau.
     ///
-    /// The fused three-stream comparison's depth-independence adversary:
-    /// the mask leaves the spine's whole continuation below depth `h` as
-    /// one unowned run whose boundaries no other cursor crosses, so the
-    /// masked walk's block skip must consume it whole and the accumulator
-    /// work reads flat across a spine-depth doubling — the shape a
-    /// per-boundary walk cannot survive.
+    /// The fused three-stream comparison's depth-independence adversary: the
+    /// mask leaves the spine's whole continuation below depth `h` as one
+    /// unowned run whose boundaries no other cursor crosses, so the masked
+    /// walk's block skip must consume it whole and the accumulator work reads
+    /// flat across a spine-depth doubling — the shape a per-boundary walk
+    /// cannot survive.
     MaskedHole,
     /// The hoisted-window family `HW(w, d, t)`: the wide-arming close with a
     /// dense tail hoisting the settle clusters' absolute positions.
     ///
-    /// The settlement's densification step routes each balanced-digit cluster through
-    /// two zero-filled byte images sized by the cluster's *span*; the worst
-    /// artifact green on every width and digit count is an image sized by
+    /// The settlement's densification step routes each balanced-digit cluster
+    /// through two zero-filled byte images sized by the cluster's *span*; the
+    /// worst artifact green on every width and digit count is an image sized by
     /// the cluster's absolute digit *position* — zero fill that scales with
     /// depth, invisible because a zeroed byte no digit lands on enters no
     /// operand width and touches no accumulator digit. The tail knob moves
-    /// exactly that axis: it hoists the trailing window's cluster positions
-    /// by `~t/32` digits while every span, width, freeze, and window density
-    /// stays put, so span-priced densification reads flat across a tail
-    /// doubling and position-priced densification scales with the knob (the
-    /// `hoisted_window` band in `tests/meter.rs` prices the family). Designed
-    /// against the pair-integral settle's densified cluster allocation.
+    /// exactly that axis: it hoists the trailing window's cluster positions by
+    /// `~t/32` digits while every span, width, freeze, and window density stays
+    /// put, so span-priced densification reads flat across a tail doubling and
+    /// position-priced densification scales with the knob (the `hoisted_window`
+    /// band in `tests/meter.rs` prices the family). Designed against the
+    /// pair-integral settle's densified cluster allocation.
     HoistedWindow,
-    /// The propagate-seam family exercises the range-minimum tracker's
-    /// wide-hop domination checks at their minimum clearance, in both
-    /// directions.
+    /// The propagate-seam family exercises the range-minimum tracker's wide-hop
+    /// domination checks at their minimum clearance, in both directions.
     ///
     /// An undercut's residue penetrates the difference stack by top-index
     /// domination: a hop with two digits of clearance is decided before any
     /// fold, and the dying side — whichever it is — folds once at its own
     /// width. Every other committed cascade sits far from that line: the
-    /// ascending cliff's dying differences are word-scale (one digit) under
-    /// a residue dozens wide, and the dominated-undercut sites annihilate
-    /// exactly. Four shapes: the plunge (`SP(k, r)`, `k` three-digit
-    /// boundaries dying into one `r`-digit residue at exactly `r = 5`'s
-    /// minimal clearance, the `r` knob moving the clearance alone) and its
-    /// leveled control, the stop (`SS(k)`, `k` three-digit residues dying
-    /// against one five-digit surviving boundary) and its unstacked control
-    /// — each control isolating the hops by wire-near-identical run
-    /// difference. What each side enforces differs, deliberately: a
-    /// clearance regression reroutes the *plunge*'s hops onto the
-    /// comparable-scale fold, whose per-hop cost is the residue's width
-    /// instead of the dying boundary's — the plunge bands trip — while the
-    /// *stop*'s rerouted hop reads what its guarded arm reads (the survivor's
-    /// top digit decides its sign fold at one digit either way),
-    /// so the stop band's charge is width conservation alone: the surviving
-    /// boundary is never read across its width while it survives, and the
-    /// arm's value flow rides the closed form. The descending- and
-    /// stopping-boundary bands price the family.
+    /// ascending cliff's dying differences are word-scale (one digit) under a
+    /// residue dozens wide, and the dominated-undercut sites annihilate
+    /// exactly. Four shapes: the plunge (`SP(k, r)`, `k` three-digit boundaries
+    /// dying into one `r`-digit residue at exactly `r = 5`'s minimal clearance,
+    /// the `r` knob moving the clearance alone) and its leveled control, the
+    /// stop (`SS(k)`, `k` three-digit residues dying against one five-digit
+    /// surviving boundary) and its unstacked control — each control isolating
+    /// the hops by wire-near-identical run difference. What each side enforces
+    /// differs, deliberately: a clearance regression reroutes the *plunge*'s
+    /// hops onto the comparable-scale fold, whose per-hop cost is the residue's
+    /// width instead of the dying boundary's — the plunge bands trip — while
+    /// the *stop*'s rerouted hop reads what its guarded arm reads (the
+    /// survivor's top digit decides its sign fold at one digit either way), so
+    /// the stop band's charge is width conservation alone: the surviving
+    /// boundary is never read across its width while it survives, and the arm's
+    /// value flow rides the closed form. The descending- and stopping-boundary
+    /// bands price the family.
     PropagateSeam,
     /// The latent-ladder family `LL(w, k)`: the parked-latent undercut
     /// decision's O(1) claim, on the axis that would falsify it.
     ///
-    /// A drop below a stale anchor while a latent boundary is parked is
-    /// decided against the true minimum by top-index domination
-    /// (`decide_undercut_through_latent`), documented O(1) for
-    /// scale-disparate operands. The shape parks one `w`-digit boundary and
-    /// then presents `k` word-scale drops just under the anchor — `k`
-    /// dominating-latent reads whose only wide operand is the one the
-    /// decision must not read across — so the per-decision marginal cost
-    /// (the `k`-marginal at fixed `w`) is the claim's meter, and a decision
-    /// that reads the latent's width doubles that marginal when `w`
-    /// doubles. The focused fuel claims judge that marginal.
+    /// A drop below a stale anchor while a latent boundary is parked is decided
+    /// against the true minimum by top-index domination
+    /// (`decide_undercut_through_latent`), documented O(1) for scale-disparate
+    /// operands. The shape parks one `w`-digit boundary and then presents `k`
+    /// word-scale drops just under the anchor — `k` dominating-latent reads
+    /// whose only wide operand is the one the decision must not read across —
+    /// so the per-decision marginal cost (the `k`-marginal at fixed `w`) is the
+    /// claim's meter, and a decision that reads the latent's width doubles that
+    /// marginal when `w` doubles. The focused fuel claims judge that marginal.
     LatentLadder,
     /// The jump-entered rising spine `JR(b, d)` at a fixed entry jump of
-    /// `2^40`: one suspended range minimum per level, each far above the
-    /// root's height but one tick above its parent.
+    /// `2^40`: one suspended range minimum per level, each far above the root's
+    /// height but one tick above its parent.
     ///
-    /// The input pays the jump's width once and every later level costs 6
-    /// bits, so a minimum fold that stores each suspended level at its
-    /// absolute offset rather than its one-tick step holds several machine
-    /// words per 6 input bits. Designed against `min_ticks`'s transient heap.
+    /// The input pays the jump's width once and every later level costs 6 bits,
+    /// so a minimum fold that stores each suspended level at its absolute
+    /// offset rather than its one-tick step holds several machine words per 6
+    /// input bits. Designed against `min_ticks`'s transient heap.
     JumpRisingSpine,
-    /// The wide-step pair spine `WP(e, d)` at a fixed wide step of `2^320`:
-    /// one suspended range minimum per level, the minima rising alternately
-    /// by the wide step and by one tick.
+    /// The wide-step pair spine `WP(e, d)` at a fixed wide step of `2^320`: one
+    /// suspended range minimum per level, the minima rising alternately by the
+    /// wide step and by one tick.
     ///
-    /// A fold that freezes its running height whenever the height outgrows
-    /// the latest change freezes at every second level, and a suspended
-    /// minimum keeps each frozen height in use. Every frozen height is 321
-    /// bits wide, past the width `min_ticks` copies when it buries a
-    /// reference, so the spine samples the whole-accumulator form of
-    /// `min_ticks`'s references at every second level. Designed against
-    /// `min_ticks`'s transient heap.
+    /// A fold that freezes its running height whenever the height outgrows the
+    /// latest change freezes at every second level, and a suspended minimum
+    /// keeps each frozen height in use. Every frozen height is 321 bits wide,
+    /// past the width `min_ticks` copies when it buries a reference, so the
+    /// spine samples the whole-accumulator form of `min_ticks`'s references at
+    /// every second level. Designed against `min_ticks`'s transient heap.
     WideStepPairs,
-    /// The wide-step spine `WS(e, d)` at a fixed step of `2^64`: one
-    /// suspended range minimum per level, each nested minimum one step above
-    /// its parent's.
+    /// The wide-step spine `WS(e, d)` at a fixed step of `2^64`: one suspended
+    /// range minimum per level, each nested minimum one step above its
+    /// parent's.
     ///
-    /// Every boundary between adjacent minima is wider than a 64-bit word,
-    /// and the input pays one 129-bit code per level for it, so a fold that
-    /// keeps a fixed-size structure per wide boundary holds a fixed multiple
-    /// of that code at every level. Designed against the transient heap of
+    /// Every boundary between adjacent minima is wider than a 64-bit word, and
+    /// the input pays one 129-bit code per level for it, so a fold that keeps a
+    /// fixed-size structure per wide boundary holds a fixed multiple of that
+    /// code at every level. Designed against the transient heap of
     /// `min_ticks`'s range minima.
     WideStepSpine,
-    /// The narrow-freeze zigzag `NF(e, c)` at the freeze-firing step width:
-    /// a freeze at every second boundary, with no freeze deferring.
+    /// The narrow-freeze zigzag `NF(e, c)` at the freeze-firing step width: a
+    /// freeze at every second boundary, with no freeze deferring.
     ///
     /// Each wide rise or fall is followed by a one-tick step that freezes it,
     /// and consecutive drifts nearly cancel, so the sum of the frozen drifts
@@ -966,47 +954,45 @@ pub enum FamilyId {
     /// parks their running sum, which never outspans the next drift by the
     /// freeze allowance, so every freeze settles that sum over its segment and
     /// none defers. The path zigzags, so region widths shrink and then grow
-    /// along the sweep, unlike the straight descents of the freeze-position
-    /// and freeze-parade families. Designed against the rank integrator's
-    /// transient heap.
+    /// along the sweep, unlike the straight descents of the freeze-position and
+    /// freeze-parade families. Designed against the rank integrator's transient
+    /// heap.
     NarrowFreezes,
     /// The rank-tie pair `RT(s, s)`: a plateau puncture against its mirror
     /// image, two distinct versions of exactly equal rank.
     ///
     /// The bundle's comparison counterpart is the mirror rather than a ticked
-    /// copy, so every pair row compares two versions whose ranks tie: the
-    /// rank comparisons must resolve the whole difference to zero before
-    /// `Ranked`'s order falls to the version bytes, the case its ordering
-    /// documentation names as the worst, and both ranks embed the product of
-    /// a `Θ(s)`-digit plateau and a `Θ(s)`-term punctured mass. Designed
-    /// against `Ranked`'s ordering.
+    /// copy, so every pair row compares two versions whose ranks tie: the rank
+    /// comparisons must resolve the whole difference to zero before `Ranked`'s
+    /// order falls to the version bytes, the case its ordering documentation
+    /// names as the worst, and both ranks embed the product of a `Θ(s)`-digit
+    /// plateau and a `Θ(s)`-term punctured mass. Designed against `Ranked`'s
+    /// ordering.
     RankTie,
     /// The sparse oscillation `SO(r)`: 32 leaves whose heights alternate
-    /// between a value with one zero digit between each pair of nonzero
-    /// digits and 0.
+    /// between a value with one zero digit between each pair of nonzero digits
+    /// and 0.
     ///
-    /// Every running height, in every row that keeps one, writes those
-    /// sparse digits at each rise, so its accumulator's written-position set
-    /// takes its bitset form, and cancels them at each fall, so its top
-    /// digit's descent crosses every written position below. Designed
-    /// against `suanpan`'s written-position set.
+    /// Every running height, in every row that keeps one, writes those sparse
+    /// digits at each rise, so its accumulator's written-position set takes its
+    /// bitset form, and cancels them at each fall, so its top digit's descent
+    /// crosses every written position below. Designed against `suanpan`'s
+    /// written-position set.
     SparseOscillation,
     /// The sparse fill `SF(r)`: 32 leaves whose heights cycle through the
-    /// sparse oscillation's value, that value with every gap filled, the
-    /// sparse value again, and 0.
+    /// sparse oscillation's value, that value with every gap filled, the sparse
+    /// value again, and 0.
     ///
-    /// Filling the gaps writes each of their digits below the
-    /// written-position set's run, into its bitset, and the closing fall
-    /// descends across every written position. Designed against `suanpan`'s
-    /// written-position set.
+    /// Filling the gaps writes each of their digits below the written-position
+    /// set's run, into its bitset, and the closing fall descends across every
+    /// written position. Designed against `suanpan`'s written-position set.
     SparseFill,
     /// The cross-prefix comb `CC(k)`: `k` narrow records pushed and popped
     /// directly above an outer minimum whose offset is `64k` bits wide, the
     /// records measured from a frozen height reference after the minimum's.
     ///
-    /// The input pays the wide offset once; a minimum fold that read or
-    /// copied it per record would work quadratically. Designed against
-    /// `min_ticks`.
+    /// The input pays the wide offset once; a minimum fold that read or copied
+    /// it per record would work quadratically. Designed against `min_ticks`.
     CrossPrefixComb,
     /// The same-prefix comb `CS(k)`: the cross-prefix comb's circulation with
     /// the wide outer minimum and the records measured from one height
@@ -1016,40 +1002,39 @@ pub enum FamilyId {
     /// above its units digit over a fraction with a zero digit between each
     /// pair of nonzero digits.
     ///
-    /// Summing that rank first leaves its accumulator's written-position set
-    /// in bitset form with its run at the top digit, so each small integer
-    /// the `rank_sum` row adds after it writes below the run, into the
-    /// bitset. Designed against `Rank`'s `Sum`.
+    /// Summing that rank first leaves its accumulator's written-position set in
+    /// bitset form with its run at the top digit, so each small integer the
+    /// `rank_sum` row adds after it writes below the run, into the bitset.
+    /// Designed against `Rank`'s `Sum`.
     BelowRunSpine,
-    /// The diverted zigzag pair `ZZ(d, ·)`: two deep unary id chains whose
-    /// path turns at every level, sharing all but the last.
+    /// The diverted zigzag pair `ZZ(d, ·)`: two deep unary id chains whose path
+    /// turns at every level, sharing all but the last.
     ///
-    /// The id-pair family's walks, with no two consecutive levels stored
-    /// alike, so every per-level direction record and every run of equal tags
-    /// is as short as it can be. Designed against the identity operations'
-    /// deep walks.
+    /// The id-pair family's walks, with no two consecutive levels stored alike,
+    /// so every per-level direction record and every run of equal tags is as
+    /// short as it can be. Designed against the identity operations' deep
+    /// walks.
     ZigzagPair,
 }
 
-/// One family's registry row: the answers every instrument derives
-/// from.
+/// One family's registry row: the answers every instrument derives from.
 #[derive(Debug, Clone, Copy)]
 pub struct FamilySpec {
     /// The name used in board output.
     pub name: &'static str,
     /// Constructors that belong to this family.
     pub shapes: &'static [Shape],
-    /// Number of operation rows reached by this family's operand bundle in
-    /// this build, which compiles the deserialization rows only under their
-    /// `serde` and `borsh` features.
+    /// Number of operation rows reached by this family's operand bundle in this
+    /// build, which compiles the deserialization rows only under their `serde`
+    /// and `borsh` features.
     pub cells: usize,
 }
 
 /// The number of deserialization formats compiled into this build.
 ///
-/// Each bundle below reaches a fixed number of deserialization rows per
-/// format, so its reach is a base count plus that number per compiled format,
-/// and a family's declared reach counts only the rows this build compiles.
+/// Each bundle below reaches a fixed number of deserialization rows per format,
+/// so its reach is a base count plus that number per compiled format, and a
+/// family's declared reach counts only the rows this build compiles.
 const DESERIALIZATION_FORMATS: usize =
     cfg!(feature = "serde") as usize + cfg!(feature = "borsh") as usize;
 

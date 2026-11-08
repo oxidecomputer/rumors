@@ -19,8 +19,7 @@ pub enum Stage {
 /// One progress-critical proxy publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
-    /// An outgoing frame carrying questions is in the multiplexer's
-    /// channel.
+    /// An outgoing frame carrying questions is in the multiplexer's channel.
     WireFrame {
         /// Questions published after the frame.
         questions: usize,
@@ -34,9 +33,8 @@ pub enum Kind {
         /// Scopes the proxy publishes for the chunk.
         scopes: usize,
     },
-    /// The walk takes a later chunk of the answer it took last at this
-    /// height; its derived scopes publish next, before the stage receives
-    /// it.
+    /// The walk takes a later chunk of the answer it took last at this height;
+    /// its derived scopes publish next, before the stage receives it.
     TakenChunk {
         /// Scopes the proxy publishes for the chunk.
         scopes: usize,
@@ -93,8 +91,8 @@ impl Trace {
         );
     }
 
-    /// Reject vacuous traces: a divergent session records one opening from
-    /// the greeting, one opening question, and at least one outgoing frame.
+    /// Reject vacuous traces: a divergent session records one opening from the
+    /// greeting, one opening question, and at least one outgoing frame.
     pub fn assert_covers_divergent_session(&self) {
         let openings = self
             .0
@@ -126,22 +124,21 @@ impl Trace {
         );
     }
 
-    /// Assert that each endpoint takes one answer per question it
-    /// published, under the same stage and height labels, counting each
-    /// answer at its first chunk.
+    /// Assert that each endpoint takes one answer per question it published,
+    /// under the same stage and height labels, counting each answer at its
+    /// first chunk.
     ///
-    /// The encoder labels each question it publishes with a runtime height,
-    /// and the proxy labels each answer the walk takes with its stage's
-    /// typed height. This check holds the two labelings to each other:
-    /// under every label, the answers taken never outnumber the questions
-    /// published before them, and by the end of the trace the two counts
-    /// are equal. Once the labels agree, the ordering half holds by
-    /// construction, since the walk takes only replies decoded against the
-    /// dequeued record of a published question; what the check can fail on
-    /// is a label one side computes differently, or a question published
-    /// and never answered and taken. The root opening is the one answer
-    /// taken without a question: it answers the greeting, at most once per
-    /// endpoint.
+    /// The encoder labels each question it publishes with a runtime height, and
+    /// the proxy labels each answer the walk takes with its stage's typed
+    /// height. This check holds the two labelings to each other: under every
+    /// label, the answers taken never outnumber the questions published before
+    /// them, and by the end of the trace the two counts are equal. Once the
+    /// labels agree, the ordering half holds by construction, since the walk
+    /// takes only replies decoded against the dequeued record of a published
+    /// question; what the check can fail on is a label one side computes
+    /// differently, or a question published and never answered and taken. The
+    /// root opening is the one answer taken without a question: it answers the
+    /// greeting, at most once per endpoint.
     ///
     /// Only a completed session's trace balances, so call this on those.
     pub fn assert_takes_answer_published_questions(&self) {

@@ -9,8 +9,8 @@ use super::{Digits, DIGIT_LIMIT};
 /// Inspect signed digits and their written set without exposing mutable fields.
 impl Digits {
     /// Stream the stored digits through the Euclidean carry of a value of the
-    /// nonzero sign `sign`, as [`add_magnitude`](Digits::add_magnitude)
-    /// streams them, and return the digits it yields, from the lowest.
+    /// nonzero sign `sign`, as [`add_magnitude`](Digits::add_magnitude) streams
+    /// them, and return the digits it yields, from the lowest.
     pub fn streamed_magnitude_digits(&self, sign: Ordering) -> Vec<u32> {
         let mut magnitude = MagnitudeCarry::new(self.orient(sign));
         let mut streamed: Vec<u32> = self
@@ -22,8 +22,8 @@ impl Digits {
         streamed
     }
 
-    /// Return whether the flag is set, so that the value is the negation of
-    /// the stored digits' sum.
+    /// Return whether the flag is set, so that the value is the negation of the
+    /// stored digits' sum.
     pub fn is_negated(&self) -> bool {
         self.negated
     }
@@ -44,7 +44,8 @@ impl Digits {
         self.written.climb_counts()
     }
 
-    /// Check digit bounds, exact highest position, the unwritten prefix, and the written set.
+    /// Check digit bounds, exact highest position, the unwritten prefix, and
+    /// the written set.
     pub fn assert_invariants(&self, idle: bool, schedule: &[u8]) {
         self.written.assert_structure(&schedule);
         if idle {

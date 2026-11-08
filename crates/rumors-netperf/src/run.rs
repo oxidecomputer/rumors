@@ -3,61 +3,60 @@
 //!
 //! # The results directory
 //!
-//! - `sessions.csv`: one row per session ([`crate::record::Row`]),
-//!   appended and synced to the disk as each finishes, so a run cut short,
-//!   by a killed process or a crash of the host, keeps what it finished;
+//! - `sessions.csv`: one row per session ([`crate::record::Row`]), appended and
+//!   synced to the disk as each finishes, so a run cut short, by a killed
+//!   process or a crash of the host, keeps what it finished;
 //! - `environment.json`: the host, kernel, TCP limits, and build;
 //! - `plan.json`: what the run set out to measure ([`Plan`]): the grid's
 //!   points, the points it skipped and why, and the sessions of this run;
 //! - `run.json`: how the run was invoked and what happened to it
-//!   ([`RunRecord`]), written before the first session and again when it
-//!   ends, which is how a reader tells a finished run from one cut short;
+//!   ([`RunRecord`]), written before the first session and again when it ends,
+//!   which is how a reader tells a finished run from one cut short;
 //! - `calibration.json`: the calibration the job count came from, if any;
 //! - `report.md` and its plots, rendered from the files above when the run
 //!   ends, and again by `rumors-netperf report`.
 //!
 //! # Preparing and timing
 //!
-//! Each session is prepared, then timed ([`Executor`]). The run prepares
-//! many sessions at once and times them only while no preparation runs,
-//! as many at once as calibration's job count, in windows that bound the
-//! memory prepared sessions hold while they wait ([`crate::schedule`]).
-//! Each row records when its session's preparation and timed session ran,
-//! on one monotonic clock per part, so `check` can confirm that no timed
-//! session overlapped a preparation ([`crate::check`]).
+//! Each session is prepared, then timed ([`Executor`]). The run prepares many
+//! sessions at once and times them only while no preparation runs, as many at
+//! once as calibration's job count, in windows that bound the memory prepared
+//! sessions hold while they wait ([`crate::schedule`]). Each row records when
+//! its session's preparation and timed session ran, on one monotonic clock per
+//! part, so `check` can confirm that no timed session overlapped a preparation
+//! ([`crate::check`]).
 //!
 //! # Order and sentinels
 //!
-//! Sessions are timed in an order shuffled afresh for every run, so a
-//! drift in the host's state over the run spreads across points instead
-//! of landing on whichever points happened to run last. Calibration's noise
-//! probe recurs through the run as a *sentinel*: when the median of the
-//! last three sentinels exceeds the slowest session calibration saw at the
-//! chosen job count, the host has drifted (its load changed, or the
-//! calibration was optimistic). The run says so as it happens and the
-//! report flags it; it never drops or adjusts a measurement.
+//! Sessions are timed in an order shuffled afresh for every run, so a drift in
+//! the host's state over the run spreads across points instead of landing on
+//! whichever points happened to run last. Calibration's noise probe recurs
+//! through the run as a *sentinel*: when the median of the last three sentinels
+//! exceeds the slowest session calibration saw at the chosen job count, the
+//! host has drifted (its load changed, or the calibration was optimistic). The
+//! run says so as it happens and the report flags it; it never drops or adjusts
+//! a measurement.
 //!
 //! # Resuming a run cut short
 //!
-//! A run is a sequence of *parts*: the part [`Part::begin`] starts, and a
-//! part [`Part::resume`] starts for each time the run is continued after
-//! it was cut short. A resumed part reads the directory back and runs
-//! exactly the sessions without a row, so the parts together record every
-//! planned session once:
+//! A run is a sequence of *parts*: the part [`Part::begin`] starts, and a part
+//! [`Part::resume`] starts for each time the run is continued after it was cut
+//! short. A resumed part reads the directory back and runs exactly the sessions
+//! without a row, so the parts together record every planned session once:
 //!
 //! - It refuses unless this build, host, and kernel match the run's
-//!   ([`Environment::differences`]): rows measured under two of them are
-//!   not one run's.
+//!   ([`Environment::differences`]): rows measured under two of them are not
+//!   one run's.
 //! - It runs as the first part did: the same plan, shard, job count,
 //!   preparation limits, calibration, and sentinels, from the directory's
 //!   files.
 //! - It identifies a session by its group, point, kind, and repetition
-//!   ([`Planned`]), and skips each session `sessions.csv` records, failed
-//!   ones included.
-//! - It removes a torn final row before appending ([`record::recover`]),
-//!   and runs that session again.
-//! - Its rows continue the run's sequence numbers, and the sentinels'
-//!   drift check continues from the sentinels already recorded.
+//!   ([`Planned`]), and skips each session `sessions.csv` records, failed ones
+//!   included.
+//! - It removes a torn final row before appending ([`record::recover`]), and
+//!   runs that session again.
+//! - Its rows continue the run's sequence numbers, and the sentinels' drift
+//!   check continues from the sentinels already recorded.
 //! - It adds a [`Resumption`] to `run.json`.
 
 use std::collections::BTreeSet;
@@ -103,8 +102,8 @@ pub const EMULATION: &str = "emulation";
 /// The [`RunRecord::mode`] of a run between two hosts.
 pub const PAIR: &str = "pair";
 
-/// What `run.json` records: how the run was set up, written before its
-/// first session, and what happened to it, written again when it ends.
+/// What `run.json` records: how the run was set up, written before its first
+/// session, and what happened to it, written again when it ends.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RunRecord {
     /// [`EMULATION`] or [`PAIR`].
@@ -113,8 +112,8 @@ pub struct RunRecord {
     pub command: Vec<String>,
     /// Seconds since the Unix epoch when the run started.
     pub started: u64,
-    /// Seconds since the Unix epoch when the run's last part ended; empty
-    /// while a part runs, and in a run cut short.
+    /// Seconds since the Unix epoch when the run's last part ended; empty while
+    /// a part runs, and in a run cut short.
     #[serde(default)]
     pub ended: Option<u64>,
     /// Wall seconds from the run's start to its end, including any time it
@@ -124,8 +123,8 @@ pub struct RunRecord {
     pub jobs: usize,
     /// Where the job count came from.
     pub jobs_source: String,
-    /// How the run prepares its sessions; empty in the record of a run
-    /// that prepared each session just before timing it.
+    /// How the run prepares its sessions; empty in the record of a run that
+    /// prepared each session just before timing it.
     #[serde(default)]
     pub preparation: Option<Preparation>,
     /// The shard this run covered, if any.
@@ -139,8 +138,8 @@ pub struct RunRecord {
     pub failures: usize,
     /// The sentinel bound, in seconds, if the run had sentinels.
     pub sentinel_bound_seconds: Option<f64>,
-    /// Each moment the sentinels' recent median exceeded the bound: the
-    /// session sequence number and the median.
+    /// Each moment the sentinels' recent median exceeded the bound: the session
+    /// sequence number and the median.
     pub drift: Vec<(u64, f64)>,
     /// The host's usable TCP window, in bytes, as the run computed it.
     pub usable_window: Option<u64>,
@@ -182,34 +181,33 @@ pub struct Resumption {
     pub started: u64,
     /// Sessions `sessions.csv` already recorded whole, which it skipped.
     pub found: usize,
-    /// Sessions it ran: every session of the run `sessions.csv` did not
-    /// record whole. A part that was itself cut short ran only some of
-    /// them, and the next resumption finds the rest.
+    /// Sessions it ran: every session of the run `sessions.csv` did not record
+    /// whole. A part that was itself cut short ran only some of them, and the
+    /// next resumption finds the rest.
     pub ran: usize,
-    /// Bytes of a torn final row it removed before appending; zero when
-    /// the file ended on a whole row.
+    /// Bytes of a torn final row it removed before appending; zero when the
+    /// file ended on a whole row.
     pub torn_bytes: u64,
 }
 
-/// What `plan.json` records: what a run set out to measure, written
-/// before its first session, so a run cut short still says what it lacks.
+/// What `plan.json` records: what a run set out to measure, written before its
+/// first session, so a run cut short still says what it lacks.
 ///
-/// Every shard of one run records the same points and skips, the whole
-/// grid's; each records only its own sessions.
+/// Every shard of one run records the same points and skips, the whole grid's;
+/// each records only its own sessions.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     /// Sessions per point.
     pub repetitions: u32,
     /// The shard this run covered, if any.
     pub shard: Option<Shard>,
-    /// Every point the grid plans, with its group, in grid order: in pair
-    /// mode, with the link the network between the hosts.
+    /// Every point the grid plans, with its group, in grid order: in pair mode,
+    /// with the link the network between the hosts.
     pub points: Vec<(String, Point)>,
     /// The points the grid skips, with their reasons, keyed as the grid
     /// describes them.
     pub skipped: Vec<Skip>,
-    /// This run's sessions, raised-limit reruns included and sentinels
-    /// aside.
+    /// This run's sessions, raised-limit reruns included and sentinels aside.
     pub sessions: Vec<Planned>,
 }
 
@@ -249,8 +247,8 @@ impl Planned {
 }
 
 impl Plan {
-    /// The plan of a run of `points` and `skipped`, `repetitions` times
-    /// each, whose sessions are `sessions`.
+    /// The plan of a run of `points` and `skipped`, `repetitions` times each,
+    /// whose sessions are `sessions`.
     pub fn new(
         repetitions: u32,
         shard: Option<Shard>,
@@ -279,12 +277,12 @@ pub fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// Writes `value` as pretty JSON to `dir/name`, replacing any file there
-/// whole, and returns once the file is on the disk.
+/// Writes `value` as pretty JSON to `dir/name`, replacing any file there whole,
+/// and returns once the file is on the disk.
 ///
-/// The JSON goes to a temporary file beside the target, synced, which is
-/// then renamed over it, so a reader sees either the old file or the new
-/// one, never a mixture, even after a crash of the host.
+/// The JSON goes to a temporary file beside the target, synced, which is then
+/// renamed over it, so a reader sees either the old file or the new one, never
+/// a mixture, even after a crash of the host.
 pub fn write_json<T: Serialize>(dir: &Path, name: &str, value: &T) -> Result<()> {
     let path = dir.join(name);
     let partial = dir.join(format!(".{name}.partial"));
@@ -332,21 +330,20 @@ pub fn with_sentinels(sessions: Vec<Session>, sentinels: Vec<Session>) -> Vec<Se
     out
 }
 
-/// The order a part runs its sessions in: `sessions` shuffled, with
-/// `sentinels` interleaved through them.
+/// The order a part runs its sessions in: `sessions` shuffled, with `sentinels`
+/// interleaved through them.
 pub fn order(mut sessions: Vec<Session>, sentinels: Vec<Session>) -> Vec<Session> {
     shuffle(&mut sessions);
     with_sentinels(sessions, sentinels)
 }
 
-/// How many sentinels of `calibration`'s noise point a run of `sessions`
-/// gets: enough to take [`SENTINEL_SHARE`] of the predicted time, within
+/// How many sentinels of `calibration`'s noise point a run of `sessions` gets:
+/// enough to take [`SENTINEL_SHARE`] of the predicted time, within
 /// [`MIN_SENTINELS`] and [`MAX_SENTINELS`].
 ///
-/// A run records the count in `run.json` rather than have a resumed part
-/// count again: the sum of predicted times depends on the order it adds
-/// them in, by rounding, so a count near a boundary could come out
-/// differently.
+/// A run records the count in `run.json` rather than have a resumed part count
+/// again: the sum of predicted times depends on the order it adds them in, by
+/// rounding, so a count near a boundary could come out differently.
 pub fn sentinel_count(sessions: &[Session], calibration: &Calibration) -> usize {
     let costs = &calibration.costs;
     let total: f64 = sessions.iter().map(|s| costs.total_seconds(&s.point)).sum();
@@ -369,12 +366,12 @@ pub fn shard(sessions: Vec<Session>, shard: Option<Shard>) -> Vec<Session> {
     }
 }
 
-/// How a run prepares and times its sessions: in emulation, peer
-/// processes in network namespaces on this host ([`crate::emulate`]); in
-/// pair mode, one peer here and one behind `serve` ([`crate::pair`]).
+/// How a run prepares and times its sessions: in emulation, peer processes in
+/// network namespaces on this host ([`crate::emulate`]); in pair mode, one peer
+/// here and one behind `serve` ([`crate::pair`]).
 pub trait Executor: Sync {
-    /// A prepared session: its processes running and idle, holding the
-    /// pair, waiting for its timed session.
+    /// A prepared session: its processes running and idle, holding the pair,
+    /// waiting for its timed session.
     type Prepared: Send;
 
     /// Prepares `session` in preparation slot `slot`, which no other
@@ -385,26 +382,24 @@ pub trait Executor: Sync {
     /// If the preparation fails; the session's row records the error.
     fn prepare(&self, session: &Session, slot: usize) -> Result<Self::Prepared>;
 
-    /// Runs the timed session of `prepared`, and returns once its
-    /// processes on this host have exited.
+    /// Runs the timed session of `prepared`, and returns once its processes on
+    /// this host have exited.
     ///
     /// # Errors
     ///
-    /// If a peer fails or answers out of order; the session's row records
-    /// the error. A session that fails is not an error: its outcomes say
-    /// so.
+    /// If a peer fails or answers out of order; the session's row records the
+    /// error. A session that fails is not an error: its outcomes say so.
     fn finish(&self, session: &Session, prepared: Self::Prepared) -> Result<Measured>;
 
-    /// The `netem` queue limits `session` runs with, if it runs on an
-    /// emulated link.
+    /// The `netem` queue limits `session` runs with, if it runs on an emulated
+    /// link.
     fn queues(&self, _session: &Session) -> Option<(u64, u64)> {
         None
     }
 }
 
 /// A part's clock: monotonic, read in seconds since the Unix epoch, so
-/// intervals from one part compare exactly and parts order by when they
-/// ran.
+/// intervals from one part compare exactly and parts order by when they ran.
 #[derive(Clone, Copy, Debug)]
 struct Clock {
     /// The instant the part's clock started.
@@ -456,8 +451,8 @@ enum Event<P> {
     Panicked(Box<dyn std::any::Any + Send>),
 }
 
-/// The jobs [`Scheduler`] sees for `sessions`: each one's predicted
-/// preparation and memory.
+/// The jobs [`Scheduler`] sees for `sessions`: each one's predicted preparation
+/// and memory.
 pub fn jobs(sessions: &[Session], costs: &CostModel, memory: &MemoryModel) -> Vec<Job> {
     sessions
         .iter()
@@ -468,16 +463,16 @@ pub fn jobs(sessions: &[Session], costs: &CostModel, memory: &MemoryModel) -> Ve
         .collect()
 }
 
-/// The sentinels' drift check: whether the median of the last
-/// [`DRIFT_WINDOW`] sentinels exceeds the calibration's bound.
+/// The sentinels' drift check: whether the median of the last [`DRIFT_WINDOW`]
+/// sentinels exceeds the calibration's bound.
 #[derive(Clone, Debug, Default)]
 pub struct Drift {
     /// The bound, when the run has a calibration.
     bound: Option<f64>,
     /// The wall seconds of every sentinel observed, in order.
     sentinels: Vec<f64>,
-    /// Each moment the median exceeded the bound: the sequence number of
-    /// the sentinel that completed the window, and the median.
+    /// Each moment the median exceeded the bound: the sequence number of the
+    /// sentinel that completed the window, and the median.
     events: Vec<(u64, f64)>,
 }
 
@@ -515,8 +510,8 @@ impl Drift {
     }
 }
 
-/// One part of a run, ready to run its sessions: the whole run, or what a
-/// run cut short has left.
+/// One part of a run, ready to run its sessions: the whole run, or what a run
+/// cut short has left.
 #[derive(Debug)]
 pub struct Part {
     /// The results directory.
@@ -543,8 +538,8 @@ pub struct Part {
 
 impl Part {
     /// Begins a run in `dir`, creating it, and writing every file that
-    /// describes the run before its first session: the environment, the
-    /// plan, the calibration, and `record`, which [`Part::run`] completes.
+    /// describes the run before its first session: the environment, the plan,
+    /// the calibration, and `record`, which [`Part::run`] completes.
     ///
     /// `sessions` are the run's, in the order it times them, sentinels
     /// included; `record` counts them, names the sentinels, and records the
@@ -552,11 +547,10 @@ impl Part {
     ///
     /// # Errors
     ///
-    /// If `dir` already holds a run's `run.json` or `sessions.csv`, finished
-    /// or cut short, before writing anything: beginning there would
-    /// overwrite that run's results, or the rows `run --resume` finishes it
-    /// from. Also if `record` has no preparation limits, or a file cannot be
-    /// written.
+    /// If `dir` already holds a run's `run.json` or `sessions.csv`, finished or
+    /// cut short, before writing anything: beginning there would overwrite that
+    /// run's results, or the rows `run --resume` finishes it from. Also if
+    /// `record` has no preparation limits, or a file cannot be written.
     pub fn begin(
         dir: &Path,
         environment: &Environment,
@@ -603,15 +597,15 @@ impl Part {
         })
     }
 
-    /// Resumes the emulated run in `dir`, which was cut short, as described
-    /// in [this module's docs](self): its sessions are the run's sessions
-    /// that `sessions.csv` does not record whole.
+    /// Resumes the emulated run in `dir`, which was cut short, as described in
+    /// [this module's docs](self): its sessions are the run's sessions that
+    /// `sessions.csv` does not record whole.
     ///
     /// # Errors
     ///
-    /// If `environment` differs from the run's, naming each difference; if
-    /// a file the run writes before its first session is absent or cannot
-    /// be read; if the run already finished, or ran in pair mode; or if the
+    /// If `environment` differs from the run's, naming each difference; if a
+    /// file the run writes before its first session is absent or cannot be
+    /// read; if the run already finished, or ran in pair mode; or if the
     /// recorded rows are not the run's.
     pub fn resume(dir: &Path, environment: &Environment) -> Result<Self> {
         let recorded: Environment = read_json(dir, "environment.json")?;
@@ -753,8 +747,8 @@ impl Part {
         self.resumption.as_ref()
     }
 
-    /// The per-message costs the schedule and the progress bar predict
-    /// with: the calibration's, or the defaults.
+    /// The per-message costs the schedule and the progress bar predict with:
+    /// the calibration's, or the defaults.
     pub fn costs(&self) -> CostModel {
         self.calibration
             .as_ref()
@@ -779,16 +773,15 @@ impl Part {
         self.calibration.as_ref()
     }
 
-    /// Prepares and times `sessions`, in their order, as [`Scheduler`]
-    /// directs.
+    /// Prepares and times `sessions`, in their order, as [`Scheduler`] directs.
     ///
-    /// It numbers them from this part's first sequence number, appends
-    /// each row as its timed session ends, and observes it for drift, with
-    /// a progress bar counted in predicted seconds.
+    /// It numbers them from this part's first sequence number, appends each row
+    /// as its timed session ends, and observes it for drift, with a progress
+    /// bar counted in predicted seconds.
     ///
-    /// Each step runs on a thread of its own. The run appends a row, and
-    /// syncs it, before it starts the next step, so with one timed job the
-    /// sync never overlaps a timed session.
+    /// Each step runs on a thread of its own. The run appends a row, and syncs
+    /// it, before it starts the next step, so with one timed job the sync never
+    /// overlaps a timed session.
     ///
     /// Returns the rows' failure count.
     fn execute<E: Executor>(&mut self, sessions: Vec<Session>, executor: &E) -> Result<usize> {
@@ -958,8 +951,8 @@ impl Part {
         Ok(failures)
     }
 
-    /// Runs this part's sessions with `executor`, then completes `run.json`
-    /// and returns the record it holds.
+    /// Runs this part's sessions with `executor`, then completes `run.json` and
+    /// returns the record it holds.
     pub fn run<E: Executor>(mut self, executor: &E) -> Result<RunRecord> {
         let sessions = std::mem::take(&mut self.sessions);
         let failures = self.execute(sessions, executor)?;
@@ -975,8 +968,8 @@ impl Part {
     }
 }
 
-/// The `count` sentinel sessions of a calibration's noise point, numbered
-/// from zero.
+/// The `count` sentinel sessions of a calibration's noise point, numbered from
+/// zero.
 pub fn sentinels(calibration: &Calibration, count: usize) -> Vec<Session> {
     (0..count as u32)
         .map(|repetition| Session {
@@ -991,14 +984,13 @@ pub fn sentinels(calibration: &Calibration, count: usize) -> Vec<Session> {
 /// Refuses a build of the tool whose library carries `test-internals`.
 ///
 /// Cargo unifies the library's features across everything one invocation
-/// builds, so building this tool beside a crate that enables
-/// `test-internals` compiles the feature into its copy of the library,
-/// and the feature's hooks cost time on the paths the tool measures
-/// ([`rumors::TEST_INTERNALS`]). We refuse at run time rather than fail
-/// the build: a compile-time assertion would also break builds that only
-/// check or lint the tool beside those crates, such as
-/// `cargo check --workspace` and editors that check the whole workspace,
-/// where nothing is measured.
+/// builds, so building this tool beside a crate that enables `test-internals`
+/// compiles the feature into its copy of the library, and the feature's hooks
+/// cost time on the paths the tool measures ([`rumors::TEST_INTERNALS`]). We
+/// refuse at run time rather than fail the build: a compile-time assertion
+/// would also break builds that only check or lint the tool beside those
+/// crates, such as `cargo check --workspace` and editors that check the whole
+/// workspace, where nothing is measured.
 ///
 /// # Errors
 ///
@@ -1014,9 +1006,8 @@ pub fn refuse_test_internals() -> Result<()> {
     Ok(())
 }
 
-/// The environment, refusing a build whose library carries
-/// `test-internals` ([`refuse_test_internals`]), and a debug build of the
-/// tool unless allowed.
+/// The environment, refusing a build whose library carries `test-internals`
+/// ([`refuse_test_internals`]), and a debug build of the tool unless allowed.
 pub fn checked_environment(allow_debug: bool) -> Result<Environment> {
     refuse_test_internals()?;
     let environment = Environment::capture()?;

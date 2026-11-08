@@ -18,9 +18,9 @@
 //! once and emits the remainder. If simplification never differs, the recorded
 //! route drives one splice that raises the selected region.
 //!
-//! An owned left child's replacement needs the later right sibling's minimum.
-//! A pre-scan computes it and every nested lookahead within the same range.
-//! The main walk consumes those memoized results as it catches up, and starts
+//! An owned left child's replacement needs the later right sibling's minimum. A
+//! pre-scan computes it and every nested lookahead within the same range. The
+//! main walk consumes those memoized results as it catches up, and starts
 //! another scan only after that range ends. Separate pre-scans thus cover
 //! disjoint ranges. Child results wait on compact stacks, keeping traversal
 //! linear without one machine-word frame per tree level.
@@ -85,10 +85,10 @@ impl StoredAccumulator {
     /// Retain a narrow value inline, and box a wide one without reading it.
     ///
     /// A value whose working width is at most 64 bits converts at constant
-    /// cost. A wider one stays boxed even if its value would fit: converting
-    /// it would read its top through the accumulator's stability query,
-    /// compacting the top only to learn that it does not fit, on every value
-    /// the traversal retains.
+    /// cost. A wider one stays boxed even if its value would fit: converting it
+    /// would read its top through the accumulator's stability query, compacting
+    /// the top only to learn that it does not fit, on every value the traversal
+    /// retains.
     fn new(value: Accumulator) -> Self {
         if value.stored_bits() > 64 {
             return Self::Wide(Box::new(value));
@@ -160,8 +160,8 @@ impl TickWalk<'_> {
     ///
     /// Panics if `version` is not a canonical Version stream. Every
     /// [`Party`](crate::Party) owns at least one region, because its encoding
-    /// has no spelling for an empty party, so the walk always finds a region
-    /// to raise.
+    /// has no spelling for an empty party, so the walk always finds a region to
+    /// raise.
     pub fn tick(version: &Version, party: &crate::Party) -> Version {
         match Self::decide(version, party) {
             Decision::Simplified(bits) => bits,
@@ -184,8 +184,8 @@ impl TickWalk<'_> {
     ///
     /// Panics if `version` is not a canonical Version stream. Every
     /// [`Party`](crate::Party) owns at least one region, because its encoding
-    /// has no spelling for an empty party, so the walk always finds a region
-    /// to raise.
+    /// has no spelling for an empty party, so the walk always finds a region to
+    /// raise.
     pub fn ticks(version: &Version, party: &crate::Party, n: &BigUint) -> Version {
         // Width distinguishes zero from one without inspecting the digits.
         if n.bits() == 0 {
@@ -270,9 +270,9 @@ impl TickWalk<'_> {
 ///
 /// A pre-scan stores each minimum as a difference from the preceding reference
 /// minimum. As the main walk catches up, that reference is either recoverable
-/// from the current height or from the minimum tracker. [`Min`](Self::Min) always
-/// owns the tracker's [`REL_FOLLOWER`] slot; every transition changes the variant
-/// and slot together.
+/// from the current height or from the minimum tracker. [`Min`](Self::Min)
+/// always owns the tracker's [`REL_FOLLOWER`] slot; every transition changes
+/// the variant and slot together.
 enum MemoReference {
     /// No pre-scanned range is active.
     None,
@@ -611,10 +611,10 @@ impl TickWalk<'_> {
 
     /// Close a pre-scanned range and prepare its minimum as the next reference.
     ///
-    /// At this point the open range contains exactly the simplified
-    /// sibling and its raised owned leaf, so its tracked minimum is the value
-    /// from the memo. An enclosing range can therefore refer to that minimum
-    /// directly, without reconstructing an absolute height.
+    /// At this point the open range contains exactly the simplified sibling and
+    /// its raised owned leaf, so its tracked minimum is the value from the
+    /// memo. An enclosing range can therefore refer to that minimum directly,
+    /// without reconstructing an absolute height.
     fn pop_lookahead(&mut self, outermost: bool) {
         match core::mem::replace(&mut self.memo_reference, MemoReference::None) {
             MemoReference::None => unreachable!("a consumed lookahead keeps a reference"),

@@ -166,8 +166,8 @@ proptest! {
     }
 }
 
-/// Even outside the ascending-action contract, an inserted leaf keeps its
-/// own version, rather than the join of concurrent actions at its key.
+/// Even outside the ascending-action contract, an inserted leaf keeps its own
+/// version, rather than the join of concurrent actions at its key.
 #[test]
 fn concurrent_fixture_stores_insert_version() {
     let a = version_for("A", 1);
@@ -184,8 +184,8 @@ fn concurrent_fixture_stores_insert_version() {
     assert!(tree.get(&c).is_some());
 }
 
-/// Descending actions are outside `react`'s contract: a forget followed by
-/// an earlier insert need not stay deleted, but the leaf's version is its own.
+/// Descending actions are outside `react`'s contract: a forget followed by an
+/// earlier insert need not stay deleted, but the leaf's version is its own.
 #[test]
 fn descending_fixture_stores_insert_version() {
     let earlier = version_for("P", 1);

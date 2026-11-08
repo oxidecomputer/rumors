@@ -1,14 +1,14 @@
 //! Medians and their distribution-free confidence intervals.
 //!
-//! Wall-time measurements are skewed (a session can be slowed by
-//! interference, never sped up by it) and few per point, so the report
-//! summarizes each point by its median and an interval between two order
-//! statistics. For *n* samples from any continuous distribution, the
-//! interval from the *k*-th smallest to the *k*-th largest contains the
-//! median with probability `1 − 2·P(X < k)` for `X ~ Binomial(n, 1/2)`,
-//! whatever the distribution. No resampling is involved, and the coverage
-//! is exact: with five samples, the interval from the smallest to the
-//! largest covers the median with probability 1 − 2/32 = 93.75%.
+//! Wall-time measurements are skewed (a session can be slowed by interference,
+//! never sped up by it) and few per point, so the report summarizes each point
+//! by its median and an interval between two order statistics. For *n* samples
+//! from any continuous distribution, the interval from the *k*-th smallest to
+//! the *k*-th largest contains the median with probability `1 − 2·P(X < k)` for
+//! `X ~ Binomial(n, 1/2)`, whatever the distribution. No resampling is
+//! involved, and the coverage is exact: with five samples, the interval from
+//! the smallest to the largest covers the median with probability 1 − 2/32
+//! = 93.75%.
 
 /// The coverage the report asks of every median's interval.
 pub const CONFIDENCE: f64 = 0.90;
@@ -45,8 +45,8 @@ pub fn binomial_half_cdf(n: usize, k: usize) -> f64 {
 /// The median of `samples` and the narrowest order-statistic interval that
 /// covers it with probability at least `confidence`; `None` for no samples.
 ///
-/// When even the full range cannot reach `confidence`, the interval is the
-/// full range, with the coverage it has.
+/// When even the full range cannot reach `confidence`, the interval is the full
+/// range, with the coverage it has.
 pub fn summarize(samples: &[f64], confidence: f64) -> Option<Summary> {
     let mut sorted: Vec<f64> = samples.iter().copied().filter(|x| x.is_finite()).collect();
     if sorted.is_empty() {

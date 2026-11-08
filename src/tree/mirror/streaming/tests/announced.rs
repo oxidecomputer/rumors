@@ -1,17 +1,17 @@
 //! Reconstruction of the dispute skeleton from outgoing replies.
 //!
-//! These tests reconstruct the dispute skeleton from the payload-erased
-//! reply transcript and compare it with the walk's internal progress trace.
-//! The comparison checks that replies announce every choice needed to
-//! determine how a session consumes its channels.
+//! These tests reconstruct the dispute skeleton from the payload-erased reply
+//! transcript and compare it with the walk's internal progress trace. The
+//! comparison checks that replies announce every choice needed to determine how
+//! a session consumes its channels.
 //!
 //! Each case also runs with different message contents but identical paths and
 //! versions. This changes the leaf and ancestor hashes while preserving the
 //! dispute shape and role election. The publication sequence on each channel
 //! and reply sequence on each stream must remain unchanged.
 //!
-//! Payload independence here concerns each channel's operation count and
-//! order. Cross-channel interleavings are outside this comparison: they remain
+//! Payload independence here concerns each channel's operation count and order.
+//! Cross-channel interleavings are outside this comparison: they remain
 //! scheduler freedom. Local scheduling replay is checked separately by
 //! `local_session_schedule_replays`.
 

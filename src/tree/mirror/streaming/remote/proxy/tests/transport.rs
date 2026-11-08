@@ -6,8 +6,8 @@ use super::{harness, reconcile_locally};
 use crate::testing::run_to_quiescence;
 use crate::tree::arb::arb_divergent_pair;
 
-/// A one-byte pipe whose writers publish only on flush still completes a
-/// full divergent session, not merely the preamble.
+/// A one-byte pipe whose writers publish only on flush still completes a full
+/// divergent session, not merely the preamble.
 #[test]
 fn flush_only_one_byte_transport_reconciles() {
     let (left, right) = harness::disjoint_pair(8, 8);

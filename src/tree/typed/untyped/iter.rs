@@ -21,16 +21,16 @@ use crate::tree::typed::hash::PATH_LEN;
 struct Frame<'a> {
     /// The subtree not yet entered.
     node: &'a Node,
-    /// Whether an ancestor was already promoted: every leaf beneath `node`
-    /// is known to satisfy the walk's range, so its descent skips the
-    /// version comparisons.
+    /// Whether an ancestor was already promoted: every leaf beneath `node` is
+    /// known to satisfy the walk's range, so its descent skips the version
+    /// comparisons.
     passes: bool,
 }
 
 /// A bidirectional walk shared by [`Iter`] and [`Range`].
 ///
-/// The frontier holds unvisited subtrees in path order. Each step expands
-/// only enough of one end to yield a leaf, borrowing its version and message.
+/// The frontier holds unvisited subtrees in path order. Each step expands only
+/// enough of one end to yield a leaf, borrowing its version and message.
 /// [`Iter`] uses [`causally::all`] to visit every leaf.
 ///
 /// [`Query::coverage`] classifies each subtree's version span: `Empty` skips
@@ -41,21 +41,20 @@ struct Walk<'a, P: Polarity> {
     ///
     /// Forward steps consume the front, backward steps the back; a branch is
     /// expanded in place into its children (preserving the ordering), so the
-    /// frontier always describes exactly the not-yet-yielded leaves. Empty
-    /// once exhausted.
+    /// frontier always describes exactly the not-yet-yielded leaves. Empty once
+    /// exhausted.
     frames: VecDeque<Frame<'a>>,
     /// Leaves not yet visited — the leaf count still reachable from the
     /// frontier.
     ///
-    /// Seeded from the root's [`Node::len`], decremented once per
-    /// yielded leaf and by a pruned subtree's whole count. Exploding a branch
-    /// into its children preserves it (a branch's `len` is the sum of its
-    /// children's). Under [`causally::all`] nothing is ever pruned, so this
-    /// is exact — what lets [`Iter`] be an [`ExactSizeIterator`]; under any
-    /// other query it is an upper bound.
+    /// Seeded from the root's [`Node::len`], decremented once per yielded leaf
+    /// and by a pruned subtree's whole count. Exploding a branch into its
+    /// children preserves it (a branch's `len` is the sum of its children's).
+    /// Under [`causally::all`] nothing is ever pruned, so this is exact — what
+    /// lets [`Iter`] be an [`ExactSizeIterator`]; under any other query it is
+    /// an upper bound.
     remaining: usize,
-    /// The causal query filter; [`causally::all`] for the unfiltered
-    /// [`Iter`].
+    /// The causal query filter; [`causally::all`] for the unfiltered [`Iter`].
     query: Query<'a, P>,
 }
 
@@ -143,12 +142,13 @@ impl<'a, P: Polarity> Walk<'a, P> {
 
 /// Borrow every leaf's version and message in ascending path order.
 ///
-/// Forward and backward steps share one frontier, so interleaving them
-/// visits each leaf once. The remaining length is exact. Path order comes
-/// from version hashes and does not imply causal order.
+/// Forward and backward steps share one frontier, so interleaving them visits
+/// each leaf once. The remaining length is exact. Path order comes from version
+/// hashes and does not imply causal order.
 ///
 /// [`Message`] provides both the payload and its cached encoding. Use
-/// [`Message::arc`] for a typed payload handle. [`Range`] adds causal filtering.
+/// [`Message::arc`] for a typed payload handle. [`Range`] adds causal
+/// filtering.
 pub struct Iter<'a> {
     /// Unfiltered frontier shared by both directions.
     walk: Walk<'a, causally::Neutral>,
@@ -203,8 +203,8 @@ impl<'a> ExactSizeIterator for Iter<'a> {}
 /// Borrow leaves whose versions satisfy a causal [`Query`], in path order.
 ///
 /// Version bounds allow entire subtrees to be accepted or skipped. Both
-/// directions share a frontier, as in [`Iter`]. The number of matching
-/// leaves is unknown until visited, so the size hint is an upper bound.
+/// directions share a frontier, as in [`Iter`]. The number of matching leaves
+/// is unknown until visited, so the size hint is an upper bound.
 pub struct Range<'a, P: Polarity> {
     /// Filtered frontier shared by both directions.
     walk: Walk<'a, P>,
@@ -212,8 +212,8 @@ pub struct Range<'a, P: Polarity> {
 
 /// Construct borrowing walks with a causal filter.
 impl<'a, P: Polarity> Range<'a, P> {
-    /// Iterate the leaves of the (possibly absent) height-32 root `node`
-    /// whose versions the causal `query` admits.
+    /// Iterate the leaves of the (possibly absent) height-32 root `node` whose
+    /// versions the causal `query` admits.
     pub(crate) fn root(node: Option<&'a Node>, query: Query<'a, P>) -> Self {
         Self {
             walk: Walk::new(node, query),
@@ -251,8 +251,8 @@ impl<'a, P: Polarity> DoubleEndedIterator for Range<'a, P> {
 /// Node handles and an owned query let the walk outlive its caller's tree
 /// handle. Filtering follows [`Range`]; traversal is forward-only.
 ///
-/// The descent uses a path buffer and one [`Level`] per branch, bounded by
-/// the 32-byte path. Each level selects one child at a time and retains its
+/// The descent uses a path buffer and one [`Level`] per branch, bounded by the
+/// 32-byte path. Each level selects one child at a time and retains its
 /// branch's subtree until traversal leaves it.
 pub struct RangeOwned<P: Polarity> {
     /// The not-yet-visited root, consumed by the first advance.
@@ -261,12 +261,12 @@ pub struct RangeOwned<P: Polarity> {
     /// level currently being walked. Always branch nodes (leaves are yielded,
     /// never pushed).
     spine: Vec<Level>,
-    /// The path bytes accumulated along the spine, extended and rolled back
-    /// as the walk descends and ascends; a leaf is yielded exactly when it
-    /// reaches 32 bytes.
+    /// The path bytes accumulated along the spine, extended and rolled back as
+    /// the walk descends and ascends; a leaf is yielded exactly when it reaches
+    /// 32 bytes.
     path: ArrayVec<[u8; PATH_LEN]>,
-    /// The causal query filter, its bounds settled owned so the walk
-    /// carries no lifetime.
+    /// The causal query filter, its bounds settled owned so the walk carries no
+    /// lifetime.
     query: Query<'static, P>,
 }
 
@@ -277,11 +277,11 @@ struct Level {
     /// The smallest radix still to visit, or `None` when this level is done.
     next: Option<u8>,
     /// Whether an ancestor (or this level itself) was promoted: every leaf
-    /// beneath is known to satisfy the range, so descendants skip the
-    /// version comparisons.
+    /// beneath is known to satisfy the range, so descendants skip the version
+    /// comparisons.
     passes: bool,
-    /// The path length to restore when this level is popped: its length
-    /// before this node's radix and compressed prefix were appended.
+    /// The path length to restore when this level is popped: its length before
+    /// this node's radix and compressed prefix were appended.
     rollback: usize,
 }
 
@@ -298,8 +298,8 @@ impl Leaf {
         self.0.ceiling()
     }
 
-    /// The message's value as its concrete payload type: an owned handle,
-    /// one reference bump on the shared allocation.
+    /// The message's value as its concrete payload type: an owned handle, one
+    /// reference bump on the shared allocation.
     ///
     /// # Panics
     ///
@@ -311,12 +311,12 @@ impl Leaf {
             .arc::<T>()
     }
 
-    /// View the stored leaf at height zero: its body, with its whole
-    /// compressed path hidden.
+    /// View the stored leaf at height zero: its body, with its whole compressed
+    /// path hidden.
     ///
     /// Height-zero nodes hash an empty suffix, as the view does. The view
-    /// shares the stored node, so it allocates nothing and leaves the
-    /// stored path intact for other readers.
+    /// shares the stored node, so it allocates nothing and leaves the stored
+    /// path intact for other readers.
     pub(crate) fn into_view(self) -> View {
         View::body(self.0)
     }
@@ -324,8 +324,8 @@ impl Leaf {
 
 /// Start an owned walk at the root or at a known path within the tree.
 impl<P: Polarity> RangeOwned<P> {
-    /// Walk the leaves of the (possibly absent) height-32 root `node`
-    /// whose versions the causal `query` admits.
+    /// Walk the leaves of the (possibly absent) height-32 root `node` whose
+    /// versions the causal `query` admits.
     pub(crate) fn root(node: Option<Node>, query: Query<'static, P>) -> Self {
         Self::within(node, &[], query)
     }

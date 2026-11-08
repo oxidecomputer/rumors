@@ -29,8 +29,8 @@ use crate::{
 /// A wire-bound protocol participant ready for the greeting exchange.
 ///
 /// Consumes the two halves of one duplex byte stream for one session: the
-/// greetings, every logical stream's frames, and the session's closing
-/// items all share it, and the halves are the session's output.
+/// greetings, every logical stream's frames, and the session's closing items
+/// all share it, and the halves are the session's output.
 pub struct Handshaking<B, R, W, V = Start>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -43,16 +43,16 @@ where
     write: W,
     /// State retained by the current greeting phase.
     versions: V,
-    /// The session's stats recorder: the pipe counts its codec bytes
-    /// through it.
+    /// The session's stats recorder: the pipe counts its codec bytes through
+    /// it.
     stats: Recorder,
     /// This replica's payload codec for supplied messages.
     codec: PayloadCodec,
-    /// The network's keys, whose path key places supplied leaves; `None`
-    /// admits no supply.
+    /// The network's keys, whose path key places supplied leaves; `None` admits
+    /// no supply.
     keys: Option<Arc<NetworkKeys>>,
-    /// The session's observation handle: every wire item this session
-    /// moves is delivered through it (inert unless a handler attached).
+    /// The session's observation handle: every wire item this session moves is
+    /// delivered through it (inert unless a handler attached).
     observe: SessionHandle,
     /// How many bytes of frames one flush of the session's multiplexer may
     /// carry.
@@ -93,8 +93,8 @@ where
         }
     }
 
-    /// Share the session's stats recorder, so a driver holding its clone
-    /// can read the codec boundary's byte counts after the session completes.
+    /// Share the session's stats recorder, so a driver holding its clone can
+    /// read the codec boundary's byte counts after the session completes.
     ///
     /// Without this call the session still counts, into a recorder nobody
     /// reads.
@@ -103,9 +103,8 @@ where
         self
     }
 
-    /// Share the session's observation handle, so the greeting exchange
-    /// and every logical stream this session binds deliver their wire
-    /// items.
+    /// Share the session's observation handle, so the greeting exchange and
+    /// every logical stream this session binds deliver their wire items.
     ///
     /// Without this call the session runs with the inert default.
     pub fn observe(mut self, observe: SessionHandle) -> Self {
@@ -115,16 +114,15 @@ where
 
     /// Batch the session's outgoing frames within `write_batch`.
     ///
-    /// Without this call the session batches within the default
-    /// [`WriteBatch`].
+    /// Without this call the session batches within the default [`WriteBatch`].
     pub fn write_batch(mut self, write_batch: WriteBatch) -> Self {
         self.write_batch = write_batch;
         self
     }
 
-    /// Size each of the session's wire pools at `runs` runs' worth of bytes
-    /// at this side's own target, rather than [`WIRE_POOL_RUNS`], for the
-    /// tests that establish progress at the smallest pools.
+    /// Size each of the session's wire pools at `runs` runs' worth of bytes at
+    /// this side's own target, rather than [`WIRE_POOL_RUNS`], for the tests
+    /// that establish progress at the smallest pools.
     #[cfg(test)]
     pub fn wire_pool_runs(mut self, runs: usize) -> Self {
         self.pool_runs = runs;
@@ -137,8 +135,8 @@ pub struct Start;
 
 /// The peer greeting received before the local server produces its response.
 ///
-/// Reached only through the [`Connect`] impl below, which the test
-/// harness's wire-path arrangement runs and production never does.
+/// Reached only through the [`Connect`] impl below, which the test harness's
+/// wire-path arrangement runs and production never does.
 pub struct Connecting {
     /// The remote greeting retained until the local greeting is ready.
     remote: Greeting,
@@ -213,9 +211,9 @@ where
     }
 }
 
-/// The wire participant in the protocol's client position: this impl and
-/// its [`CompleteConnect`] continuation exist for the test harness's
-/// wire-path arrangement and have no production caller.
+/// The wire participant in the protocol's client position: this impl and its
+/// [`CompleteConnect`] continuation exist for the test harness's wire-path
+/// arrangement and have no production caller.
 impl<B, R, W> Connect<B> for Handshaking<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -244,8 +242,8 @@ where
     }
 }
 
-/// The client-position continuation of [`Connect`]: for the test
-/// harness's wire-path arrangement, with no production caller.
+/// The client-position continuation of [`Connect`]: for the test harness's
+/// wire-path arrangement, with no production caller.
 impl<B, R, W> CompleteConnect<B> for Handshaking<B, R, W, Connecting>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -289,14 +287,13 @@ where
 
 /// Require the peer's declared payload depth limit to equal ours.
 ///
-/// The limit is a property of the shared set — every replica must be
-/// able to hold and forward all content — so it is exchanged for
-/// equality, never negotiated: negotiating down is unsound (a peer may
-/// already hold messages deeper than a negotiated bound, which it would
-/// then not be allowed to gossip), so any negotiation scheme merely
-/// relocates the failure to mid-session, conditional on which leaves
-/// differ. Both sides detect the mismatch symmetrically, like a network
-/// mismatch.
+/// The limit is a property of the shared set — every replica must be able to
+/// hold and forward all content — so it is exchanged for equality, never
+/// negotiated: negotiating down is unsound (a peer may already hold messages
+/// deeper than a negotiated bound, which it would then not be allowed to
+/// gossip), so any negotiation scheme merely relocates the failure to
+/// mid-session, conditional on which leaves differ. Both sides detect the
+/// mismatch symmetrically, like a network mismatch.
 fn payload_depth_limits_match<E>(codec: &PayloadCodec, remote: &Greeting) -> Result<(), Error<E>> {
     let local = codec.limit().get();
     let declared = remote.payload_depth_limit;
@@ -311,9 +308,9 @@ fn payload_depth_limits_match<E>(codec: &PayloadCodec, remote: &Greeting) -> Res
 
 /// Compute the session's supply-run budget.
 ///
-/// The budget is the smaller of the two greetings' targets, so each
-/// side's setting bounds both what it builds and what is built for it,
-/// and the more memory-constrained end sets the pace.
+/// The budget is the smaller of the two greetings' targets, so each side's
+/// setting bounds both what it builds and what is built for it, and the more
+/// memory-constrained end sets the pace.
 fn run_budget(ours: &Greeting, theirs: &Greeting) -> RunBudget {
     let bytes = ours.target_message_size.min(theirs.target_message_size);
     RunBudget::from_bytes(usize::try_from(bytes).unwrap_or(usize::MAX))
@@ -353,11 +350,10 @@ where
 
 /// Receive and canonically decode one greeting item.
 ///
-/// The greeting is peer-controlled, so its whole spelling is enforced
-/// on ingress — deterministic heads, the exact key roster, and the
-/// listing's canonical strictly-ascending radix order, the same rule the
-/// frame codec applies to a wire query — before any scope is built
-/// from it.
+/// The greeting is peer-controlled, so its whole spelling is enforced on
+/// ingress — deterministic heads, the exact key roster, and the listing's
+/// canonical strictly-ascending radix order, the same rule the frame codec
+/// applies to a wire query — before any scope is built from it.
 async fn receive<E, R>(read: &mut R, observe: &SessionHandle) -> Result<Greeting, Error<E>>
 where
     R: AsyncRead + Unpin,

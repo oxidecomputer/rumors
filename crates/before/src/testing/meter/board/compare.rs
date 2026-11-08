@@ -12,16 +12,16 @@
 //! # The capture format
 //!
 //! A capture is UTF-8 text. Its first line is a header of four tab-separated
-//! fields: the format name and version; whether debug assertions were
-//! compiled into the code that ran the cells (`debug_assertions=<bool>`); the
-//! target architecture and operating system that code was built for
-//! (`target=<arch>-<os>`), which for a fuel run is the wasm guest, not the
-//! host that wrote the capture; and the source tree it measured
-//! (`tree=<id>`, the runner's `AMP_BOARD_SOURCE_TREE`). [`compare`] compares
-//! readings only between captures whose builds match, because debug
-//! assertions add metered work and some operations allocate differently by
-//! target; comparing two trees is what it is for. A calibration reads
-//! readings only from captures of the tree it calibrates.
+//! fields: the format name and version; whether debug assertions were compiled
+//! into the code that ran the cells (`debug_assertions=<bool>`); the target
+//! architecture and operating system that code was built for
+//! (`target=<arch>-<os>`), which for a fuel run is the wasm guest, not the host
+//! that wrote the capture; and the source tree it measured (`tree=<id>`, the
+//! runner's `AMP_BOARD_SOURCE_TREE`). [`compare`] compares readings only
+//! between captures whose builds match, because debug assertions add metered
+//! work and some operations allocate differently by target; comparing two trees
+//! is what it is for. A calibration reads readings only from captures of the
+//! tree it calibrates.
 //!
 //! Each line after the header, but for the last, holds one reading in eight
 //! tab-separated fields:
@@ -39,22 +39,21 @@
 //!   pair just past a power of two (`pow2+2`), then the growth ladder's two
 //!   pairs ([`DEFAULT_SCALE`](super::DEFAULT_SCALE), then
 //!   [`LADDER_TOP_SCALE`](super::LADDER_TOP_SCALE)).
-//! - `axis` is the size the board fits that currency's growth trend against,
-//!   in the cell's growth units (input bytes, unless the rendered board's row
-//!   names another unit),
-//!   so two captures' readings compare at equal size.
+//! - `axis` is the size the board fits that currency's growth trend against, in
+//!   the cell's growth units (input bytes, unless the rendered board's row
+//!   names another unit), so two captures' readings compare at equal size.
 //! - `units` is the size the cell's proportional ceilings divide that
-//!   currency's reading by, in the cell's constant units (input bytes, or
-//!   input and output bytes for an I/O-denominated row, unless the row
-//!   declares a model), so a per-cell ceiling can be derived from a capture
-//!   alone ([`recalibrate_from_captures`](super::recalibrate_from_captures)).
+//!   currency's reading by, in the cell's constant units (input bytes, or input
+//!   and output bytes for an I/O-denominated row, unless the row declares a
+//!   model), so a per-cell ceiling can be derived from a capture alone
+//!   ([`recalibrate_from_captures`](super::recalibrate_from_captures)).
 //! - `reading` is the exact counter value.
 //!
-//! Rows follow board order. The last line, `end` and the number of rows
-//! (cells times currencies), marks the capture complete, so a capture cut
-//! short by a failed run is refused rather than read as a smaller board. The
-//! format belongs to this tool and carries no stability promise beyond its
-//! version tag.
+//! Rows follow board order. The last line, `end` and the number of rows (cells
+//! times currencies), marks the capture complete, so a capture cut short by a
+//! failed run is refused rather than read as a smaller board. The format
+//! belongs to this tool and carries no stability promise beyond its version
+//! tag.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
@@ -72,12 +71,12 @@ mod tests;
 /// The format name and version that open every capture's header.
 const FORMAT: &str = "amp-board readings v4";
 
-/// The readings each cell and currency carries: two samples at every
-/// sampling, in [`LADDER_SAMPLINGS`] order.
+/// The readings each cell and currency carries: two samples at every sampling,
+/// in [`LADDER_SAMPLINGS`] order.
 const LADDER_SIZES: usize = 2 * LADDER_SAMPLINGS.len();
 
-/// The ladder index of the first size just past a power of two; the
-/// small-input pair precedes it.
+/// The ladder index of the first size just past a power of two; the small-input
+/// pair precedes it.
 const PAST_POWER_START: usize = 2;
 
 /// The ladder index of the first growth-ladder size; the small-input and
@@ -89,8 +88,7 @@ const GROWTH_START: usize = 4;
 pub(super) struct Point {
     /// The units the board fits this currency's growth trend against.
     pub(super) axis: u64,
-    /// The units this currency's proportional ceilings divide the reading
-    /// by.
+    /// The units this currency's proportional ceilings divide the reading by.
     pub(super) units: u64,
     /// The exact counter value.
     pub(super) reading: u64,
@@ -109,8 +107,8 @@ struct Row {
     points: [Point; LADDER_SIZES],
 }
 
-/// A whole capture: its header's build stamp and source tree, and its rows
-/// in board order.
+/// A whole capture: its header's build stamp and source tree, and its rows in
+/// board order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Capture {
     /// The build that measured the readings.
@@ -124,10 +122,10 @@ struct Capture {
 /// What a build measures with: whether debug assertions are compiled in, and
 /// the target it is built for.
 ///
-/// Every shard child reports its own stamp, so a ladder records the build
-/// that measured it even when another program merges the readings. It
-/// renders, and parses, as `debug_assertions=<bool>` and
-/// `target=<arch>-<os>`, tab-separated.
+/// Every shard child reports its own stamp, so a ladder records the build that
+/// measured it even when another program merges the readings. It renders, and
+/// parses, as `debug_assertions=<bool>` and `target=<arch>-<os>`,
+/// tab-separated.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct BuildStamp {
     /// Whether debug assertions are compiled in.
@@ -172,9 +170,9 @@ impl std::fmt::Display for BuildStamp {
     }
 }
 
-/// The environment variable through which a runner names the source tree
-/// its build was compiled from; the just recipes set it to the git tree of
-/// the checkout's tracked files.
+/// The environment variable through which a runner names the source tree its
+/// build was compiled from; the just recipes set it to the git tree of the
+/// checkout's tracked files.
 pub const SOURCE_TREE_ENV: &str = "AMP_BOARD_SOURCE_TREE";
 
 /// Returns the source tree [`SOURCE_TREE_ENV`] names.
@@ -318,9 +316,9 @@ pub(super) fn measured(ladder: &Ladder, currency: Currency) -> bool {
     read.contains(&true)
 }
 
-/// One capture's build stamp, source tree, and every reading it holds, keyed
-/// by operation, family, and currency, each with the readings' sizes in
-/// ladder order.
+/// One capture's build stamp, source tree, and every reading it holds, keyed by
+/// operation, family, and currency, each with the readings' sizes in ladder
+/// order.
 pub(super) struct Readings {
     /// The build that measured the readings.
     pub(super) measured_on: BuildStamp,
@@ -717,9 +715,8 @@ fn evidence(compared: &Compared) -> String {
 /// operation and family, the class's figure (a constant's shift, a growing
 /// difference's slope), and the difference at each ladder size as
 /// `axis:difference`, the small-input and past-power pairs apart from the
-/// growth ladder. Rows
-/// print grouped by class in the order listed below, and unchanged rows are
-/// only counted.
+/// growth ladder. Rows print grouped by class in the order listed below, and
+/// unchanged rows are only counted.
 ///
 /// # The classification
 ///
@@ -727,42 +724,41 @@ fn evidence(compared: &Compared) -> String {
 /// by its difference `after − before`. The four growth-ladder sizes decide its
 /// shape, because they alone feed the board's growth fit; minimum allocation
 /// sizes dominate the small-input pair, and the past-power pair sits at a
-/// different point of every doubling period, so either would otherwise read
-/// as changes in shape.
+/// different point of every doubling period, so either would otherwise read as
+/// changes in shape.
 ///
 /// - **growing**: the difference moves further from zero at every step up the
-///   growth ladder, never crossing it. The slope is the difference's
-///   change from the first growth size to the last, divided by their axis
-///   distance: reading units per axis unit. A negative slope is a saving that
-///   grows with input.
-/// - **uneven**: the difference changes along the growth ladder without
-///   growing in magnitude at every step. A fixed change to the heap can land
-///   here rather than in constant: a transient allocation raises the
-///   peak only while it overlaps the peak, so larger inputs' own allocations
-///   absorb it and the difference shrinks toward zero across the ladder.
-/// - **constant**: the difference is the same nonzero value at all four
-///   growth sizes, or zero there with a change in the small-input or
-///   past-power pairs alone (a zero shift).
+///   growth ladder, never crossing it. The slope is the difference's change
+///   from the first growth size to the last, divided by their axis distance:
+///   reading units per axis unit. A negative slope is a saving that grows with
+///   input.
+/// - **uneven**: the difference changes along the growth ladder without growing
+///   in magnitude at every step. A fixed change to the heap can land here
+///   rather than in constant: a transient allocation raises the peak only while
+///   it overlaps the peak, so larger inputs' own allocations absorb it and the
+///   difference shrinks toward zero across the ladder.
+/// - **constant**: the difference is the same nonzero value at all four growth
+///   sizes, or zero there with a change in the small-input or past-power pairs
+///   alone (a zero shift).
 /// - **unchanged**: the difference is zero at every size.
 ///
 /// Rows outside that rule are reported, never classified: **resized** when the
-/// captures measured the row at different axes (an I/O-denominated
-/// operation's output size changed), printed before the constant rows, and
-/// **only-before** or **only-after**, last, when one capture lacks the row.
+/// captures measured the row at different axes (an I/O-denominated operation's
+/// output size changed), printed before the constant rows, and **only-before**
+/// or **only-after**, last, when one capture lacks the row.
 ///
 /// # What the classification cannot distinguish
 ///
-/// - A step from growth seen late. A fixed cost that appears once an
-///   allocation crosses a size threshold inside the ladder, such as a 112-byte
-///   block present only at the largest size, is uneven; so is a proportional
-///   change too small to register below the largest sizes. Telling them apart
-///   takes the mechanism, not more of these four sizes.
+/// - A step from growth seen late. A fixed cost that appears once an allocation
+///   crosses a size threshold inside the ladder, such as a 112-byte block
+///   present only at the largest size, is uneven; so is a proportional change
+///   too small to register below the largest sizes. Telling them apart takes
+///   the mechanism, not more of these four sizes.
 /// - Growth below the counter's granularity at every step, or growth that
 ///   begins beyond the ladder's top, reads as constant or unchanged.
-/// - The order of growth. A linear and a quadratic difference are both
-///   growing, and the slope is a secant across the ladder. The printed
-///   differences show the order: a proportional difference doubles from each
-///   size to its double.
+/// - The order of growth. A linear and a quadratic difference are both growing,
+///   and the slope is a secant across the ladder. The printed differences show
+///   the order: a proportional difference doubles from each size to its double.
 /// - A fixed shift beside a proportional change. The row is growing when the
 ///   proportional part pushes the difference further from zero at every step,
 ///   which opposite signs allow only once the proportional part outweighs the

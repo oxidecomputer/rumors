@@ -31,8 +31,8 @@ pub fn nth_party(index: usize) -> Party {
 /// Largest number of ticks an [`arb_version`] draw places on a single party.
 const MAX_VERSION_TICKS: u64 = 4;
 
-/// Number of distinct disjoint parties an [`arb_version`] draw may tick. Drawing
-/// ticks from more than one party lets generated versions be mutually
+/// Number of distinct disjoint parties an [`arb_version`] draw may tick.
+/// Drawing ticks from more than one party lets generated versions be mutually
 /// *concurrent*, not just points on a single totally-ordered chain.
 const VERSION_PARTIES: usize = 3;
 
@@ -142,12 +142,13 @@ pub fn arb_tree_root(
         .boxed()
 }
 
-/// Replicas with a shared history, independent inserts, and shared-key redactions.
+/// Replicas with a shared history, independent inserts, and shared-key
+/// redactions.
 ///
-/// All parties descend from one seed. Each side retains the common history
-/// even when it redacts every shared leaf, so joins must distinguish a missing
-/// message from one the side has already seen and deleted.
-/// `shared` and `per_side` bound the insertion counts before redaction.
+/// All parties descend from one seed. Each side retains the common history even
+/// when it redacts every shared leaf, so joins must distinguish a missing
+/// message from one the side has already seen and deleted. `shared` and
+/// `per_side` bound the insertion counts before redaction.
 pub fn arb_divergent_roots<const N: usize>(
     shared: Range<usize>,
     per_side: Range<usize>,
@@ -196,7 +197,8 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Ro
         .boxed()
 }
 
-/// A broader pair, giving wire tests more root children and shared hash prefixes.
+/// A broader pair, giving wire tests more root children and shared hash
+/// prefixes.
 ///
 /// More leaves increase the chance that a reply mixes whole-subtree supplies
 /// with disputed children. This samples breadth; tests requiring a particular
@@ -217,9 +219,9 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tre
 ///
 /// The roots serve in-memory reconciliation only. They place leaves at
 /// addresses other than their versions' hashes, and a wire session's decoder
-/// recomputes each supplied leaf's path from its version (`Path::for_leaf`)
-/// and rejects such a leaf as `LeafOutsideScope`: a session between these
-/// roots violates the protocol by construction.
+/// recomputes each supplied leaf's path from its version (`Path::for_leaf`) and
+/// rejects such a leaf as `LeafOutsideScope`: a session between these roots
+/// violates the protocol by construction.
 pub fn roots_at_depth<const N: usize>(
     roots: [crate::tree::Root; N],
     depth: usize,
@@ -255,9 +257,9 @@ pub fn roots_at_depth<const N: usize>(
 /// A redacting pair placed below a drawn-length shared prefix.
 ///
 /// Every version still names exactly one leaf. Only placement changes, to
-/// exercise deep traversal that version hashing would almost never produce.
-/// The pair serves in-memory reconciliation only, for the reason
-/// [`roots_at_depth`] gives: a wire session rejects its placed leaves.
+/// exercise deep traversal that version hashing would almost never produce. The
+/// pair serves in-memory reconciliation only, for the reason [`roots_at_depth`]
+/// gives: a wire session rejects its placed leaves.
 pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
     (arb_divergent_pair(), 0usize..32)
         .prop_map(|((a, b), depth)| {
@@ -267,7 +269,8 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tre
         .boxed()
 }
 
-/// A version-addressed pair whose first root child requires deeper reconciliation.
+/// A version-addressed pair whose first root child requires deeper
+/// reconciliation.
 ///
 /// Both sides hold divergent content under that child, with branching on at
 /// least one side. Later root children include whole-subtree supplies queued
@@ -335,8 +338,8 @@ const EARLY_DISPUTE_RIGHT_LEAVES: usize = 8;
 const EARLY_DISPUTE_STRIDE: usize = 64;
 
 /// Candidate chosen by searching for the geometry under the current leaf-path
-/// derivation; `early_dispute_hint_matches_current_paths` checks it and
-/// finds a replacement when it goes stale.
+/// derivation; `early_dispute_hint_matches_current_paths` checks it and finds a
+/// replacement when it goes stale.
 const EARLY_DISPUTE_HINT: usize = 60;
 
 /// Derive the first radix of `leaves` successive paths after `skip` ticks.
@@ -400,13 +403,12 @@ const ESCAPE_MARGIN: usize = 64;
 /// poisoned tree holds one leaf whose version escapes its declared ceiling.
 ///
 /// A conforming tree cannot take this shape because its ceiling joins every
-/// version it applies.
-/// The escaped version is built to dominate the join of both declared
-/// ceilings by a 64-tick margin on *both* parties, so nothing derived from
-/// the declared versions within a test's horizon — the session ceiling the
-/// receiver adopts, or the receiver's own later redact ticks — ever
-/// contains it. Returns the two roots plus the escaped leaf's
-/// version-derived path and its version.
+/// version it applies. The escaped version is built to dominate the join of
+/// both declared ceilings by a 64-tick margin on *both* parties, so nothing
+/// derived from the declared versions within a test's horizon — the session
+/// ceiling the receiver adopts, or the receiver's own later redact ticks — ever
+/// contains it. Returns the two roots plus the escaped leaf's version-derived
+/// path and its version.
 pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path, Version) {
     // The party pair: disjoint parties whose single-tick versions order
     // the *sender's* above the receiver's in canonical bytes, so the
@@ -481,9 +483,9 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
 /// A path all-zero except its final byte: siblings under a single leaf-parent
 /// (`S<Z>`) prefix.
 ///
-/// Real leaves are version-addressed, so two distinct messages share a
-/// 31-byte prefix only under a hash-prefix collision; these hand-picked
-/// paths let a test construct that shape deliberately.
+/// Real leaves are version-addressed, so two distinct messages share a 31-byte
+/// prefix only under a hash-prefix collision; these hand-picked paths let a
+/// test construct that shape deliberately.
 pub fn leaf_sibling_path(last: u8) -> Path {
     let mut bytes = [0u8; 32];
     bytes[31] = last;
@@ -499,14 +501,13 @@ fn root_with_ceiling(node: Option<Node<Root>>, ceiling: Version) -> crate::tree:
 /// A poisoned root for the local join boundary: one leaf whose version escapes
 /// `base` by a 64-tick margin on `party`, declared at the empty ceiling.
 ///
-/// Joining it into a store whose ceiling is at or above `base` plants the
-/// leaf (the escaped version defeats the join's deletion filter) while
-/// leaving the store's own declared ceiling untouched — the shape only a
-/// nonconforming implementation can then transmit. The margin bounds the
-/// ticks a test may perform afterward without containing the
-/// escape. The leaf sits at its path under `key`, which must be the key of
-/// the store it is joined into. Returns the root plus the escaped leaf's
-/// version-derived path and its version.
+/// Joining it into a store whose ceiling is at or above `base` plants the leaf
+/// (the escaped version defeats the join's deletion filter) while leaving the
+/// store's own declared ceiling untouched — the shape only a nonconforming
+/// implementation can then transmit. The margin bounds the ticks a test may
+/// perform afterward without containing the escape. The leaf sits at its path
+/// under `key`, which must be the key of the store it is joined into. Returns
+/// the root plus the escaped leaf's version-derived path and its version.
 pub fn poisoned_root(
     key: &crate::tree::typed::PathKey,
     party: &Party,
@@ -529,14 +530,14 @@ pub fn poisoned_root(
     (root, path, escaped)
 }
 
-/// Versions on `party`'s chain whose leaf paths open with each of
-/// `prefixes`, one per prefix, in prefix order, at the tick counts in `hint`.
+/// Versions on `party`'s chain whose leaf paths open with each of `prefixes`,
+/// one per prefix, in prefix order, at the tick counts in `hint`.
 ///
-/// Leaf paths are keyed hashes of versions, so a fixture that needs leaves under
-/// chosen prefixes takes versions a search of the chain found. Skipped
-/// versions read as content the side sent and redacted, which is invisible
-/// to a peer on another party. `None` means the hint is stale: some tick
-/// count no longer lands under its prefix.
+/// Leaf paths are keyed hashes of versions, so a fixture that needs leaves
+/// under chosen prefixes takes versions a search of the chain found. Skipped
+/// versions read as content the side sent and redacted, which is invisible to a
+/// peer on another party. `None` means the hint is stale: some tick count no
+/// longer lands under its prefix.
 fn hinted_versions(party: &Party, prefixes: &[[u8; 2]], hint: &[usize]) -> Option<Vec<Version>> {
     if hint.len() != prefixes.len() {
         return None;
@@ -553,15 +554,14 @@ fn hinted_versions(party: &Party, prefixes: &[[u8; 2]], hint: &[usize]) -> Optio
         .collect()
 }
 
-/// The prefixes the full-fan fixture's initiator needs: `[0, 1]` and
-/// `[1, 0]`.
+/// The prefixes the full-fan fixture's initiator needs: `[0, 1]` and `[1, 0]`.
 const FULL_FAN_INITIATOR_PREFIXES: [[u8; 2]; 2] = [[0, 1], [1, 0]];
 
 /// Tick counts on party 2 reaching [`FULL_FAN_INITIATOR_PREFIXES`], found by
 /// searching the chain under the current leaf-path derivation.
 ///
-/// `full_fan_hints_match_current_paths` checks them and finds replacements
-/// when they go stale.
+/// `full_fan_hints_match_current_paths` checks them and finds replacements when
+/// they go stale.
 const FULL_FAN_INITIATOR_HINT: [usize; 2] = [9_609, 4_740];
 
 /// The prefixes the full-fan fixture's responder needs: `[0, 1]`, `[0, 2]`,
@@ -572,8 +572,8 @@ fn full_fan_responder_prefixes() -> Vec<[u8; 2]> {
     prefixes
 }
 
-/// Tick counts on party 1 reaching [`full_fan_responder_prefixes`], in
-/// order, found and checked as [`FULL_FAN_INITIATOR_HINT`] is.
+/// Tick counts on party 1 reaching [`full_fan_responder_prefixes`], in order,
+/// found and checked as [`FULL_FAN_INITIATOR_HINT`] is.
 const FULL_FAN_RESPONDER_HINT: [usize; 258] = [
     59_036, 97_616, 57_860, 9_325, 81_292, 127_271, 639, 113_482, 50_757, 38_052, 30_149, 17_063,
     42_078, 7_189, 151_151, 234_927, 20_704, 69_426, 130_699, 60_998, 287_954, 37_950, 76_339,
@@ -618,18 +618,18 @@ fn tree_of(versions: Vec<Version>) -> crate::tree::Root {
     root_with_ceiling(act(None, actions, &mut |_, _| ()), ceiling)
 }
 
-/// Two trees, initiator first, whose initiator answers one disputed root
-/// child with a reply carrying two level-3 questions and the next with a
-/// reply carrying a full fan of them.
+/// Two trees, initiator first, whose initiator answers one disputed root child
+/// with a reply carrying two level-3 questions and the next with a reply
+/// carrying a full fan of them.
 ///
 /// Both sides hold root children 0 and 1, on concurrent parties, so every
 /// prefix both hold differs. Under 0 the responder lists `[0, 1]`, which the
 /// initiator also holds, and `[0, 2]`, which it lacks: two questions. Under 1
-/// the responder lists all 256 depth-2 prefixes, of which the initiator
-/// holds only `[1, 0]`: 256 questions. The initiator holds two leaves
-/// against the responder's 258, so it wins the smaller-set election. Paths
-/// are version hashes, at versions hinted from a search of each party's
-/// chain, so the pair crosses a real wire.
+/// the responder lists all 256 depth-2 prefixes, of which the initiator holds
+/// only `[1, 0]`: 256 questions. The initiator holds two leaves against the
+/// responder's 258, so it wins the smaller-set election. Paths are version
+/// hashes, at versions hinted from a search of each party's chain, so the pair
+/// crosses a real wire.
 ///
 /// The initiator's second reply asks a full fan of questions, the most one
 /// reply can ask, behind the two its first reply asked.
@@ -656,10 +656,10 @@ pub fn full_fan_behind_two_pair() -> (crate::tree::Root, crate::tree::Root) {
 /// same leaf-parent (`S<Z>`) prefix, plus the union both sides must converge
 /// to.
 ///
-/// The paths differ only in their final byte, so every level from the root
-/// down to `S<Z>` holds exactly one child on each side and disputes at every
-/// height: the difference survives to the closing rounds, where each side
-/// must provide its own extra and absorb the other's.
+/// The paths differ only in their final byte, so every level from the root down
+/// to `S<Z>` holds exactly one child on each side and disputes at every height:
+/// the difference survives to the closing rounds, where each side must provide
+/// its own extra and absorb the other's.
 pub fn leaf_parent_dispute_pair() -> (crate::tree::Root, crate::tree::Root, crate::tree::Root) {
     // The shared leaf: one tick on party 0, literally the same node in both
     // trees (each side is built on top of `base`).
@@ -711,13 +711,13 @@ pub fn leaf_parent_dispute_pair() -> (crate::tree::Root, crate::tree::Root, crat
 }
 
 /// A pair of trees where `b` has redacted the one leaf `a` still holds, and
-/// concurrently inserted a sibling under the same leaf-parent (`S<Z>`)
-/// prefix, plus the tree both sides must converge to.
+/// concurrently inserted a sibling under the same leaf-parent (`S<Z>`) prefix,
+/// plus the tree both sides must converge to.
 ///
-/// The redacted leaf's version is causally at or before `b`'s ceiling while
-/// `b` lacks the leaf, so reconciliation must delete it from `a` too — with
-/// no tombstone to say so, only the version bounds. The surviving tree is
-/// `b`'s: the concurrent insert alone.
+/// The redacted leaf's version is causally at or before `b`'s ceiling while `b`
+/// lacks the leaf, so reconciliation must delete it from `a` too — with no
+/// tombstone to say so, only the version bounds. The surviving tree is `b`'s:
+/// the concurrent insert alone.
 pub fn leaf_parent_redaction_pair() -> (crate::tree::Root, crate::tree::Root, crate::tree::Root) {
     // a's only leaf, on party 0.
     let mut a_version = Version::new();
@@ -765,15 +765,14 @@ pub fn leaf_parent_redaction_pair() -> (crate::tree::Root, crate::tree::Root, cr
     )
 }
 
-/// A pair where `a` holds two concurrent leaves under one leaf-parent
-/// (`S<Z>`) prefix and `b` has forgotten one of them and never held the
-/// other, plus the tree both sides must converge to.
+/// A pair where `a` holds two concurrent leaves under one leaf-parent (`S<Z>`)
+/// prefix and `b` has forgotten one of them and never held the other, plus the
+/// tree both sides must converge to.
 ///
-/// `b` holds nothing under the parent, so the parent is never disputed:
-/// the streaming filter judges `a`'s leaves one at a time, at leaf height,
-/// against `b`'s ceiling, which dominates the forgotten leaf's version and
-/// is concurrent with the other's. The survivor is the concurrent leaf
-/// alone.
+/// `b` holds nothing under the parent, so the parent is never disputed: the
+/// streaming filter judges `a`'s leaves one at a time, at leaf height, against
+/// `b`'s ceiling, which dominates the forgotten leaf's version and is
+/// concurrent with the other's. The survivor is the concurrent leaf alone.
 pub fn forgotten_sibling_pair() -> (crate::tree::Root, crate::tree::Root, crate::tree::Root) {
     let mut forgotten_version = Version::new();
     forgotten_version.tick(&nth_party(0));
@@ -816,13 +815,13 @@ pub fn forgotten_sibling_pair() -> (crate::tree::Root, crate::tree::Root, crate:
 }
 
 /// Generate a pair where `a` holds concurrent sibling leaves under one
-/// leaf-parent prefix and `b` has forgotten a drawn subset of them and
-/// never held the rest, plus the count of forgotten leaves.
+/// leaf-parent prefix and `b` has forgotten a drawn subset of them and never
+/// held the rest, plus the count of forgotten leaves.
 ///
 /// Each leaf sits on its own party. The general form of
-/// [`forgotten_sibling_pair`]: every subset, the empty one (nothing to
-/// shed) and the full one (the whole parent sheds without a leaf-height
-/// verdict) included.
+/// [`forgotten_sibling_pair`]: every subset, the empty one (nothing to shed)
+/// and the full one (the whole parent sheds without a leaf-height verdict)
+/// included.
 pub fn arb_forgotten_siblings() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root, usize)> {
     vec(any::<bool>(), 1..=8)
         .prop_map(|forgotten| {

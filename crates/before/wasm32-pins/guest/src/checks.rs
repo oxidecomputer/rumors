@@ -41,8 +41,8 @@ const EXHAUSTING_BLOCK_BYTES: usize = 1 << 30;
 
 /// The number of blocks [`exhaust_memory`] reserves.
 ///
-/// Together they span exactly wasm32's 4 GiB address space, before counting
-/// the allocator's headers and the guest's own data, so they cannot all fit.
+/// Together they span exactly wasm32's 4 GiB address space, before counting the
+/// allocator's headers and the guest's own data, so they cannot all fit.
 const EXHAUSTING_BLOCKS: usize = 4;
 
 /// Aborts on allocation failure without panicking.
@@ -246,8 +246,8 @@ enum RankRoute {
     /// The `Sum` fold over `[small, deep]`, whose second summand shifts the
     /// held value by the whole gap.
     SumShift,
-    /// The `Sum` fold over `[small, deep, small]`, whose third summand lands
-    /// at the gap's bit offset without a further shift.
+    /// The `Sum` fold over `[small, deep, small]`, whose third summand lands at
+    /// the gap's bit offset without a further shift.
     SumLanding,
 }
 
@@ -360,9 +360,8 @@ fn suanpan_landing(case: u64) -> Result<(), Failure> {
 ///
 /// The scalar accumulator keeps its storage while the digit accumulator
 /// reserves, so a request for `2^31 - 8` bytes can be granted at most once in
-/// wasm32's 4 GiB linear memory. Correct code returns from every
-/// `reserve_bits` call and leaves each value exact, so undoing the setup
-/// update reads zero.
+/// wasm32's 4 GiB linear memory. Correct code returns from every `reserve_bits`
+/// call and leaves each value exact, so undoing the setup update reads zero.
 fn suanpan_reserve(bits: u64) -> Result<(), Failure> {
     let mut scalar = Accumulator::new();
     scalar += 7_u64;
@@ -382,12 +381,13 @@ fn suanpan_reserve(bits: u64) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Shifts zero onto digit position `2^32 - 1`, which no 32-bit buffer can address.
+/// Shifts zero onto digit position `2^32 - 1`, which no 32-bit buffer can
+/// address.
 ///
 /// Case 0 holds a known zero. Case 1 stores zero as the cancelling digits
-/// `-2^32` at position 0 and `1` at position 1. The result is zero either
-/// way, so neither case may trap; depositing case 1's digits at the shifted
-/// position would panic on the unaddressable landing.
+/// `-2^32` at position 0 and `1` at position 1. The result is zero either way,
+/// so neither case may trap; depositing case 1's digits at the shifted position
+/// would panic on the unaddressable landing.
 fn suanpan_zero_shift(case: u64) -> Result<(), Failure> {
     let mut accumulator = Accumulator::new();
     match case {

@@ -5,12 +5,11 @@
 //! rejection test checks the outbound wire spelling, the reported error, and
 //! that the local set remains unchanged. The preamble is one self-described
 //! CBOR item of exactly 30 bytes with no redundant length:
-//! `55799(["rumors", version: uint, network: bstr(16), intent: uint])`.
-//! The layout is transcribed here so the test remains independent of the
-//! encoder and decoder it checks.
-//! Network mismatch rejection rides the same preamble but needs
-//! a real peer in a different universe, so it is exercised separately in
-//! `tests/network.rs`.
+//! `55799(["rumors", version: uint, network: bstr(16), intent: uint])`. The
+//! layout is transcribed here so the test remains independent of the encoder
+//! and decoder it checks. Network mismatch rejection rides the same preamble
+//! but needs a real peer in a different universe, so it is exercised separately
+//! in `tests/network.rs`.
 
 use rumors_testkit::common;
 
@@ -23,9 +22,9 @@ use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
-/// Length of the complete V2 preamble item: the self-described tag (3),
-/// the four-item array head (1), the text `"rumors"` (7), the version
-/// uint (1), the network byte string (1 + 16), and the intent uint (1).
+/// Length of the complete V2 preamble item: the self-described tag (3), the
+/// four-item array head (1), the text `"rumors"` (7), the version uint (1), the
+/// network byte string (1 + 16), and the intent uint (1).
 const PREAMBLE_LEN: usize = 30;
 
 /// The V2 preamble's leading bytes: tag 55799, array(4), text "rumors".
@@ -60,8 +59,8 @@ fn preamble(opening: [u8; 11], version: u8, network: [u8; 16], intent: u8) -> [u
 /// against a hand-written preamble reply.
 ///
 /// The fake peer checks every stable outbound byte: the opening, version,
-/// network byte-string head, and intent. Its network value varies per seed,
-/// so only that field is omitted. A rejected reply must leave the local set
+/// network byte-string head, and intent. Its network value varies per seed, so
+/// only that field is omitted. A rejected reply must leave the local set
 /// byte-for-byte unchanged.
 async fn gossip_against(network: NetworkSeed, reply: &[u8]) -> Result<Gossiped, Error> {
     let alice: Rumors<String> = network.peer().sync_memory_budget(0).into_rumors();

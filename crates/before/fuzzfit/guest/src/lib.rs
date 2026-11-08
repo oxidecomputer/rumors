@@ -14,18 +14,18 @@
 //!
 //! - Registers are dense indices into a growable file; a slot holds a
 //!   `Version`, `Party`, `Clock`, `Rank`, `Count`, `Span`, or an owned causal
-//!   query. Ops that consume an operand
-//!   (`join`, `without`, fold drains) take it out of its slot — the register
-//!   file is linear exactly where the API is linear, so a generator that
-//!   replays a valid program here cannot alias a `Party`.
+//!   query. Ops that consume an operand (`join`, `without`, fold drains) take
+//!   it out of its slot — the register file is linear exactly where the API is
+//!   linear, so a generator that replays a valid program here cannot alias a
+//!   `Party`.
 //! - Operation exports return `0` for success or a negative error code;
 //!   observation exports return their result. Callers check the expected
 //!   result, including public-operation rejection. Missing registers and wrong
 //!   register types are harness errors.
-//! - Staging (`ff_stage_prepare` plus a host-side memory write,
-//!   `ff_stage_ptr` plus a host-side read) executes no measured code; the
-//!   measured codec, parsing, and formatting kernels
-//!   then read or write the staged bytes inside the fuel window.
+//! - Staging (`ff_stage_prepare` plus a host-side memory write, `ff_stage_ptr`
+//!   plus a host-side read) executes no measured code; the measured codec,
+//!   parsing, and formatting kernels then read or write the staged bytes inside
+//!   the fuel window.
 
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -51,10 +51,9 @@ enum Val {
 
 /// An owned causal query, its polarity settled at construction.
 ///
-/// `Query`'s polarity is a type parameter, so one register slot holds
-/// the three owned instantiations behind one dispatch; both public
-/// observations are polarity-uniform, so each dispatch arm is the same
-/// call.
+/// `Query`'s polarity is a type parameter, so one register slot holds the three
+/// owned instantiations behind one dispatch; both public observations are
+/// polarity-uniform, so each dispatch arm is the same call.
 enum StoredQuery {
     N(Query<'static, Neutral>),
     D(Query<'static, Down>),
@@ -71,8 +70,8 @@ impl StoredQuery {
         }
     }
 
-    /// `Query::coverage`, dispatched over the stored polarity (the probe
-    /// rides as a reborrow, so the span stays in its register).
+    /// `Query::coverage`, dispatched over the stored polarity (the probe rides
+    /// as a reborrow, so the span stays in its register).
     fn coverage(&self, span: &Span<'static>) -> Coverage {
         match self {
             StoredQuery::N(q) => q.coverage(span.reborrow()),
@@ -235,8 +234,8 @@ fn with_q<T>(reg: u32, f: impl FnOnce(&StoredQuery) -> T) -> Option<T> {
     })
 }
 
-/// Clone the `Version` in `reg` (a refcount-bump buffer share: the
-/// query construction kernels' unmeasured operand fetch).
+/// Clone the `Version` in `reg` (a refcount-bump buffer share: the query
+/// construction kernels' unmeasured operand fetch).
 fn clone_v(reg: u32) -> Option<Version> {
     with_v(reg, Version::clone)
 }
@@ -287,17 +286,16 @@ pub extern "C" fn ff_reset() -> i32 {
     OK
 }
 
-/// Pre-reserve `n` register slots (unmeasured; the harness calls this once
-/// per instance).
+/// Pre-reserve `n` register slots (unmeasured; the harness calls this once per
+/// instance).
 ///
 /// Without the reservation, a measured kernel whose `put` lands on a `Vec`
 /// doubling boundary pays an O(file) reallocation inside its fuel window —
-/// register-machine bookkeeping billed to a public operation. The
-/// enforcement suite caught exactly that as a false above-band flag on
-/// `ff_party_seed` (the committed seed in
-/// `harness/proptest-regressions/enforce.txt` replays it); with the file
-/// pre-reserved to the program budget, `put` fills at most one fresh slot
-/// per call, O(1) forever.
+/// register-machine bookkeeping billed to a public operation. The enforcement
+/// suite caught exactly that as a false above-band flag on `ff_party_seed` (the
+/// committed seed in `harness/proptest-regressions/enforce.txt` replays it);
+/// with the file pre-reserved to the program budget, `put` fills at most one
+/// fresh slot per call, O(1) forever.
 #[no_mangle]
 pub extern "C" fn ff_regs_reserve(n: u32) -> i32 {
     REGS.with_borrow_mut(|regs| regs.reserve(n as usize));
@@ -477,8 +475,8 @@ pub extern "C" fn ff_version_tick(ver: u32, party: u32) -> i32 {
     })
 }
 
-/// `Version::ticks`: advance the version in `ver` by `n` events for the
-/// party in `party` (the fused multi-tick walk, flat in the count).
+/// `Version::ticks`: advance the version in `ver` by `n` events for the party
+/// in `party` (the fused multi-tick walk, flat in the count).
 #[no_mangle]
 pub extern "C" fn ff_version_ticks(ver: u32, party: u32, n: u32) -> i32 {
     REGS.with_borrow_mut(|regs| {
@@ -538,9 +536,9 @@ pub extern "C" fn ff_version_meet(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Version` projection, materialized: `dst = (&v / &p).to_version()`,
-/// the output-dominated row (the view construction itself is O(1) and
-/// prices nothing; this kernel prices the explicit materialization).
+/// `Version` projection, materialized: `dst = (&v / &p).to_version()`, the
+/// output-dominated row (the view construction itself is O(1) and prices
+/// nothing; this kernel prices the explicit materialization).
 #[no_mangle]
 pub extern "C" fn ff_version_project(dst: u32, v: u32, p: u32) -> i32 {
     let projected = with_v(v, |ver| with_p(p, |party| (ver / party).to_version()));
@@ -553,8 +551,8 @@ pub extern "C" fn ff_version_project(dst: u32, v: u32, p: u32) -> i32 {
     }
 }
 
-/// `PartialOrd` on versions: returns 0 `Less`, 1 `Equal`, 2 `Greater`,
-/// 3 concurrent (no ordering).
+/// `PartialOrd` on versions: returns 0 `Less`, 1 `Equal`, 2 `Greater`, 3
+/// concurrent (no ordering).
 #[no_mangle]
 pub extern "C" fn ff_version_cmp(a: u32, b: u32) -> i32 {
     let r = with_v(a, |va| with_v(b, |vb| va.partial_cmp(vb)));
@@ -571,8 +569,8 @@ pub extern "C" fn ff_version_cmp(a: u32, b: u32) -> i32 {
 
 /// Directional causal comparison on versions: returns whether `a <= b`.
 ///
-/// Unlike [`ff_version_cmp`], this can stop as soon as one region disproves
-/// the requested direction.
+/// Unlike [`ff_version_cmp`], this can stop as soon as one region disproves the
+/// requested direction.
 #[no_mangle]
 pub extern "C" fn ff_version_le(a: u32, b: u32) -> i32 {
     match with_v(a, |va| with_v(b, |vb| va <= vb)) {
@@ -593,9 +591,9 @@ pub extern "C" fn ff_version_concurrent(a: u32, b: u32) -> i32 {
 /// `Version` equality (`==` on the canonical forms): 0 or 1.
 ///
 /// The byte compare short-circuits at the first differing byte, so its
-/// size-proportional worst case is the equal pair; the atlas's eq panel
-/// decodes one sampled encoding into both operand registers so the
-/// measured compare runs the whole length.
+/// size-proportional worst case is the equal pair; the atlas's eq panel decodes
+/// one sampled encoding into both operand registers so the measured compare
+/// runs the whole length.
 #[no_mangle]
 pub extern "C" fn ff_version_eq(a: u32, b: u32) -> i32 {
     match with_v(a, |va| with_v(b, |vb| va == vb)) {
@@ -604,9 +602,9 @@ pub extern "C" fn ff_version_eq(a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Version`'s `Hash` through std's `DefaultHasher`; returns the
-/// finished hash masked nonnegative, with `-1` reserved for a bad
-/// register (the `i64` channel, as `ff_version_min_ticks`).
+/// `Version`'s `Hash` through std's `DefaultHasher`; returns the finished hash
+/// masked nonnegative, with `-1` reserved for a bad register (the `i64`
+/// channel, as `ff_version_min_ticks`).
 #[no_mangle]
 pub extern "C" fn ff_version_hash(src: u32) -> i64 {
     with_v(src, |v| {
@@ -655,12 +653,11 @@ pub extern "C" fn ff_version_lag(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Version::min_ticks`; the return value is the count's decimal
-/// digest, with `-1` reserved for a bad register.
+/// `Version::min_ticks`; the return value is the count's decimal digest, with
+/// `-1` reserved for a bad register.
 ///
-/// The count itself is unbounded, so the `i64` channel carries a
-/// nonnegative FNV-1a of its decimal rendering, computed identically
-/// on the native side.
+/// The count itself is unbounded, so the `i64` channel carries a nonnegative
+/// FNV-1a of its decimal rendering, computed identically on the native side.
 #[no_mangle]
 pub extern "C" fn ff_version_min_ticks(src: u32) -> i64 {
     match with_v(src, |v| v.min_ticks()) {
@@ -672,8 +669,8 @@ pub extern "C" fn ff_version_min_ticks(src: u32) -> i64 {
 /// A nonnegative FNV-1a digest of a decimal rendering.
 ///
 /// The `i64` channel's encoding for unbounded counts: both sides of the
-/// differential compute it, so equality is equality of counts up to a
-/// collision no fuel schedule can steer.
+/// differential compute it, so equality is equality of counts up to a collision
+/// no fuel schedule can steer.
 fn decimal_digest(text: &str) -> i64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in text.bytes() {
@@ -683,9 +680,9 @@ fn decimal_digest(text: &str) -> i64 {
     (h & 0x7fff_ffff_ffff_ffff) as i64
 }
 
-/// An incremental FNV-1a over the shape vocabulary: the digest every
-/// shape kernel returns, so a drain cannot be optimized away and the
-/// items' full content rides the `i64` channel.
+/// An incremental FNV-1a over the shape vocabulary: the digest every shape
+/// kernel returns, so a drain cannot be optimized away and the items' full
+/// content rides the `i64` channel.
 struct ShapeDigest(u64);
 
 impl ShapeDigest {
@@ -704,8 +701,8 @@ impl ShapeDigest {
         }
     }
 
-    /// One rise: a tag byte, then the magnitude's limbs under a
-    /// terminator (so limb sequences cannot alias across items).
+    /// One rise: a tag byte, then the magnitude's limbs under a terminator (so
+    /// limb sequences cannot alias across items).
     fn rise(&mut self, rise: &Option<Rise>) {
         match rise {
             None => self.byte(0),
@@ -731,8 +728,8 @@ impl ShapeDigest {
     }
 }
 
-/// `Version::shape`: drain the plateau walk, digesting every item; the
-/// `i64` channel carries the digest, `-1` a bad register.
+/// `Version::shape`: drain the plateau walk, digesting every item; the `i64`
+/// channel carries the digest, `-1` a bad register.
 #[no_mangle]
 pub extern "C" fn ff_version_shape(src: u32) -> i64 {
     with_v(src, |v| {
@@ -746,8 +743,8 @@ pub extern "C" fn ff_version_shape(src: u32) -> i64 {
     .unwrap_or(-1)
 }
 
-/// `Party::shape`: drain the region walk, digesting every item; the
-/// `i64` channel carries the digest, `-1` a bad register.
+/// `Party::shape`: drain the region walk, digesting every item; the `i64`
+/// channel carries the digest, `-1` a bad register.
 #[no_mangle]
 pub extern "C" fn ff_party_shape(src: u32) -> i64 {
     with_p(src, |p| {
@@ -761,8 +758,8 @@ pub extern "C" fn ff_party_shape(src: u32) -> i64 {
     .unwrap_or(-1)
 }
 
-/// `Clock::shape`: drain the overlay walk, digesting every item; the
-/// `i64` channel carries the digest, `-1` a bad register.
+/// `Clock::shape`: drain the overlay walk, digesting every item; the `i64`
+/// channel carries the digest, `-1` a bad register.
 #[no_mangle]
 pub extern "C" fn ff_clock_shape(src: u32) -> i64 {
     with_c(src, |c| {
@@ -777,15 +774,16 @@ pub extern "C" fn ff_clock_shape(src: u32) -> i64 {
     .unwrap_or(-1)
 }
 
-/// `shape::combine` over the versions in `src..src + n`, drained and
-/// digested; the `i64` channel carries the digest, `-1` a bad register
-/// or unsupported arity.
+/// `shape::combine` over the versions in `src..src + n`, drained and digested;
+/// the `i64` channel carries the digest, `-1` a bad register or unsupported
+/// arity.
 ///
-/// The const-generic dispatch admits `0..=16` for
-/// fuelscape sampling and powers of two through 256 for arity growth tests.
+/// The const-generic dispatch admits `0..=16` for fuelscape sampling and powers
+/// of two through 256 for arity growth tests.
 #[no_mangle]
 pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
-    /// Drain one const-generic refinement and retain every output in its digest.
+    /// Drain one const-generic refinement and retain every output in its
+    /// digest.
     fn digest_cells<const N: usize>(versions: [&Version; N]) -> i64 {
         let mut digest = ShapeDigest::new();
         for cell in combine(versions) {
@@ -807,8 +805,8 @@ pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
                 _ => return -1,
             }
         }
-        /// One dispatch arm per arity: the arity-checked register list
-        /// becomes the const-generic array the public combiner takes.
+        /// One dispatch arm per arity: the arity-checked register list becomes
+        /// the const-generic array the public combiner takes.
         macro_rules! dispatch {
             ($($arity:literal),*) => {
                 match n {
@@ -823,9 +821,9 @@ pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
     })
 }
 
-/// `Version::join_all` over registers `src..src + n` (the first register
-/// the receiver, the rest the items), result into `dst`; an empty range
-/// has no receiver and refuses with `ERR_OP`.
+/// `Version::join_all` over registers `src..src + n` (the first register the
+/// receiver, the rest the items), result into `dst`; an empty range has no
+/// receiver and refuses with `ERR_OP`.
 #[no_mangle]
 pub extern "C" fn ff_version_join_all(dst: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -845,9 +843,9 @@ pub extern "C" fn ff_version_join_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Version::meet_all` over registers `src..src + n` (the first register
-/// the receiver, the rest the items), result into `dst`; an empty range
-/// has no receiver and refuses with `ERR_OP`.
+/// `Version::meet_all` over registers `src..src + n` (the first register the
+/// receiver, the rest the items), result into `dst`; an empty range has no
+/// receiver and refuses with `ERR_OP`.
 #[no_mangle]
 pub extern "C" fn ff_version_meet_all(dst: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -880,11 +878,11 @@ pub extern "C" fn ff_version_span(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Version::span_all`: the lattice hull of the versions in
-/// `src..src + n` into `dst`.
+/// `Version::span_all`: the lattice hull of the versions in `src..src + n` into
+/// `dst`.
 ///
-/// The version in `src` is the receiver. The remaining versions are borrowed
-/// in register order, and the resulting endpoints are owned.
+/// The version in `src` is the receiver. The remaining versions are borrowed in
+/// register order, and the resulting endpoints are owned.
 #[no_mangle]
 pub extern "C" fn ff_version_span_all(dst: u32, src: u32, n: u32) -> i32 {
     if n == 0 {
@@ -908,9 +906,8 @@ pub extern "C" fn ff_version_span_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// The fused three-stream masked comparison `(v / p) ⋚ w`, no
-/// materialization: returns 0 `Less`, 1 `Equal`, 2 `Greater`,
-/// 3 concurrent (no ordering).
+/// The fused three-stream masked comparison `(v / p) ⋚ w`, no materialization:
+/// returns 0 `Less`, 1 `Equal`, 2 `Greater`, 3 concurrent (no ordering).
 #[no_mangle]
 pub extern "C" fn ff_own_version_cmp(v: u32, p: u32, w: u32) -> i32 {
     let r = with_v(v, |ver| {
@@ -969,8 +966,8 @@ pub extern "C" fn ff_own_version_eq(v: u32, p: u32, w: u32) -> i32 {
 }
 
 /// The fused four-stream masked comparison `(v₁ / p₁) ⋚ (v₂ / p₂)`, no
-/// materialization: returns 0 `Less`, 1 `Equal`, 2 `Greater`,
-/// 3 concurrent (no ordering).
+/// materialization: returns 0 `Less`, 1 `Equal`, 2 `Greater`, 3 concurrent (no
+/// ordering).
 #[no_mangle]
 pub extern "C" fn ff_own_version_pair_cmp(v1: u32, p1: u32, v2: u32, p2: u32) -> i32 {
     let r = with_v(v1, |va| {
@@ -1041,8 +1038,8 @@ pub extern "C" fn ff_party_fork(dst: u32, src: u32) -> i32 {
     }
 }
 
-/// `Party::forks(n)`: balanced shares into `dst..dst + n` (replaces `src`:
-/// the iterator borrows the source, which keeps its remainder).
+/// `Party::forks(n)`: balanced shares into `dst..dst + n` (replaces `src`: the
+/// iterator borrows the source, which keeps its remainder).
 #[no_mangle]
 pub extern "C" fn ff_party_forks(dst: u32, src: u32, n: u32) -> i32 {
     let shares = with_p_mut(src, |p| p.forks(u64::from(n)).collect::<Vec<_>>());
@@ -1076,10 +1073,10 @@ pub extern "C" fn ff_party_join(a: u32, b: u32) -> i32 {
 
 /// `Party::join_all`: consume and fold `src..src + n` into `a`.
 ///
-/// On an overlap rejection the handed-back parties are dropped rather
-/// than restored: the harness aborts the case on any nonzero return, and
-/// generated fold populations are disjoint, so rejection indicates an invalid
-/// program rather than a measurement outcome.
+/// On an overlap rejection the handed-back parties are dropped rather than
+/// restored: the harness aborts the case on any nonzero return, and generated
+/// fold populations are disjoint, so rejection indicates an invalid program
+/// rather than a measurement outcome.
 #[no_mangle]
 pub extern "C" fn ff_party_join_all(a: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -1131,9 +1128,9 @@ pub extern "C" fn ff_party_without(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Party`'s `Hash` through std's `DefaultHasher`; returns the finished
-/// hash masked nonnegative, with `-1` reserved for a bad register (the
-/// `i64` channel, as `ff_version_hash`).
+/// `Party`'s `Hash` through std's `DefaultHasher`; returns the finished hash
+/// masked nonnegative, with `-1` reserved for a bad register (the `i64`
+/// channel, as `ff_version_hash`).
 #[no_mangle]
 pub extern "C" fn ff_party_hash(src: u32) -> i64 {
     with_p(src, |p| {
@@ -1175,11 +1172,11 @@ pub extern "C" fn ff_clock_fork(dst: u32, src: u32) -> i32 {
     }
 }
 
-/// `Clock::forks(n)`: balanced child clocks into `dst..dst + n`, fully
-/// drained (the source keeps the remainder share, as `ff_party_forks`).
+/// `Clock::forks(n)`: balanced child clocks into `dst..dst + n`, fully drained
+/// (the source keeps the remainder share, as `ff_party_forks`).
 ///
-/// The drain pays the balanced party split plus one refcount-bump
-/// version clone per child.
+/// The drain pays the balanced party split plus one refcount-bump version clone
+/// per child.
 #[no_mangle]
 pub extern "C" fn ff_clock_forks(dst: u32, src: u32, n: u32) -> i32 {
     let children = with_c_mut(src, |c| c.forks(u64::from(n)).collect::<Vec<_>>());
@@ -1213,9 +1210,9 @@ pub extern "C" fn ff_clock_join(a: u32, b: u32) -> i32 {
 
 /// `Clock::join_all`: consume and fold `src..src + n` into `a`.
 ///
-/// On an overlap rejection the handed-back clocks are dropped rather
-/// than restored. Generated inputs are disjoint, so rejection indicates an
-/// invalid program rather than a measurement outcome.
+/// On an overlap rejection the handed-back clocks are dropped rather than
+/// restored. Generated inputs are disjoint, so rejection indicates an invalid
+/// program rather than a measurement outcome.
 #[no_mangle]
 pub extern "C" fn ff_clock_join_all(a: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -1232,12 +1229,12 @@ pub extern "C" fn ff_clock_join_all(a: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Clock::sync_all`: reconcile the clocks in `src..src + n` with `a`,
-/// every participant re-shared in place.
+/// `Clock::sync_all`: reconcile the clocks in `src..src + n` with `a`, every
+/// participant re-shared in place.
 ///
-/// On an overlap rejection the participants are dropped rather than
-/// restored. Generated inputs are disjoint, so rejection indicates an invalid
-/// program rather than a measurement outcome.
+/// On an overlap rejection the participants are dropped rather than restored.
+/// Generated inputs are disjoint, so rejection indicates an invalid program
+/// rather than a measurement outcome.
 #[no_mangle]
 pub extern "C" fn ff_clock_sync_all(a: u32, src: u32, n: u32) -> i32 {
     let mut ops = Vec::with_capacity(n as usize);
@@ -1260,9 +1257,9 @@ pub extern "C" fn ff_clock_sync_all(a: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Clock::recv_all`: receive the versions in `src..src + n` into the
-/// clock in `c` (consumes the range; the batch is absorbed whole and
-/// recorded as one tick).
+/// `Clock::recv_all`: receive the versions in `src..src + n` into the clock in
+/// `c` (consumes the range; the batch is absorbed whole and recorded as one
+/// tick).
 #[no_mangle]
 pub extern "C" fn ff_clock_recv_all(c: u32, src: u32, n: u32) -> i32 {
     let mut msgs = Vec::with_capacity(n as usize);
@@ -1336,8 +1333,8 @@ pub extern "C" fn ff_clock_sync(a: u32, b: u32) -> i32 {
 }
 
 /// `Clock::own_version`, materialized into a `Version` register (the
-/// output-dominated row; the view is O(1), the materialization is what
-/// this kernel prices).
+/// output-dominated row; the view is O(1), the materialization is what this
+/// kernel prices).
 #[no_mangle]
 pub extern "C" fn ff_clock_own_version(dst: u32, src: u32) -> i32 {
     let own = REGS.with_borrow(|regs| match regs.get(src as usize) {
@@ -1370,8 +1367,8 @@ pub extern "C" fn ff_clock_version(dst: u32, src: u32) -> i32 {
     }
 }
 
-/// `Clock::into_parts`: split the clock in `src` into a `Party` in `dst_p`
-/// and a `Version` in `dst_v`.
+/// `Clock::into_parts`: split the clock in `src` into a `Party` in `dst_p` and
+/// a `Version` in `dst_v`.
 #[no_mangle]
 pub extern "C" fn ff_clock_into_parts(dst_p: u32, dst_v: u32, src: u32) -> i32 {
     let Some(clock) = take_c(src) else {
@@ -1383,8 +1380,8 @@ pub extern "C" fn ff_clock_into_parts(dst_p: u32, dst_v: u32, src: u32) -> i32 {
     OK
 }
 
-/// `Clock::from_parts`: assemble a clock in `dst` from the `Party` in `p`
-/// and the `Version` in `v` (both consumed).
+/// `Clock::from_parts`: assemble a clock in `dst` from the `Party` in `p` and
+/// the `Version` in `v` (both consumed).
 #[no_mangle]
 pub extern "C" fn ff_clock_from_parts(dst: u32, p: u32, v: u32) -> i32 {
     let Some(party) = take_p(p) else {
@@ -1634,11 +1631,11 @@ pub extern "C" fn ff_count_parse(dst: u32) -> i32 {
     })
 }
 
-/// `Ranked::encode`: the composite causal-ordering key of the version
-/// in `src`, into the staging buffer.
+/// `Ranked::encode`: the composite causal-ordering key of the version in `src`,
+/// into the staging buffer.
 ///
-/// View construction is O(1) inside the window; the priced work is the
-/// rank fold, the rank stream emission, and the version byte copy.
+/// View construction is O(1) inside the window; the priced work is the rank
+/// fold, the rank stream emission, and the version byte copy.
 #[no_mangle]
 pub extern "C" fn ff_ranked_encode(src: u32) -> i32 {
     code(with_v(src, |v| {
@@ -1648,8 +1645,8 @@ pub extern "C" fn ff_ranked_encode(src: u32) -> i32 {
     }))
 }
 
-/// `Ranked::encode_rank`: the composite key's rank component alone,
-/// into the staging buffer (one fused rank fold and emission).
+/// `Ranked::encode_rank`: the composite key's rank component alone, into the
+/// staging buffer (one fused rank fold and emission).
 #[no_mangle]
 pub extern "C" fn ff_ranked_encode_rank(src: u32) -> i32 {
     code(with_v(src, |v| {
@@ -1659,9 +1656,8 @@ pub extern "C" fn ff_ranked_encode_rank(src: u32) -> i32 {
     }))
 }
 
-/// `Ranked::decode`: parse the staged composite key — the strict parse
-/// plus the verifying rank fold — storing the recovered version in
-/// `dst`.
+/// `Ranked::decode`: parse the staged composite key — the strict parse plus the
+/// verifying rank fold — storing the recovered version in `dst`.
 #[no_mangle]
 pub extern "C" fn ff_ranked_decode(dst: u32) -> i32 {
     STAGE.with_borrow(|stage| match Ranked::decode(stage.as_slice()) {
@@ -1673,12 +1669,12 @@ pub extern "C" fn ff_ranked_decode(dst: u32) -> i32 {
     })
 }
 
-/// The `Ranked` total order between the versions in `a` and `b`:
-/// 0 `Less`, 1 `Equal`, 2 `Greater`.
+/// The `Ranked` total order between the versions in `a` and `b`: 0 `Less`, 1
+/// `Equal`, 2 `Greater`.
 ///
-/// View construction is O(1) inside the window (the masked-comparison
-/// kernels' discipline); the priced work is the fused signed rank
-/// co-sweep, plus the version byte tiebreak on rank ties.
+/// View construction is O(1) inside the window (the masked-comparison kernels'
+/// discipline); the priced work is the fused signed rank co-sweep, plus the
+/// version byte tiebreak on rank ties.
 #[no_mangle]
 pub extern "C" fn ff_ranked_cmp(a: u32, b: u32) -> i32 {
     let verdict = with_v(a, |va| {
@@ -1694,8 +1690,8 @@ pub extern "C" fn ff_ranked_cmp(a: u32, b: u32) -> i32 {
 
 // ─── Span operations (measured) ──────────────────────────────────────────────
 
-/// `Span::place`: the nine-way placement of the version in `probe`
-/// against the span in `s`, encoded 0..=8.
+/// `Span::place`: the nine-way placement of the version in `probe` against the
+/// span in `s`, encoded 0..=8.
 ///
 /// The encoding follows the variant order `Before, At(Start), At(End),
 /// At(Both), Between, Concurrent(Start), Concurrent(End),
@@ -1719,12 +1715,11 @@ pub extern "C" fn ff_span_place(s: u32, probe: u32) -> i32 {
     }
 }
 
-/// `Span::dominance`: the three-way dominance coarsening of the
-/// version in `probe` against the span in `s`, encoded 0 `Before`,
-/// 1 `Between`, 2 `After`.
+/// `Span::dominance`: the three-way dominance coarsening of the version in
+/// `probe` against the span in `s`, encoded 0 `Before`, 1 `Between`, 2 `After`.
 ///
-/// The placement family's earliest exits live in this verdict, so its
-/// fuel can undercut `ff_span_place`'s on refuting probes.
+/// The placement family's earliest exits live in this verdict, so its fuel can
+/// undercut `ff_span_place`'s on refuting probes.
 #[no_mangle]
 pub extern "C" fn ff_span_dominance(s: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| with_v(probe, |p| span.dominance(p)));
@@ -1738,13 +1733,11 @@ pub extern "C" fn ff_span_dominance(s: u32, probe: u32) -> i32 {
     }
 }
 
-/// `Span::precedence`: the three-way precedence coarsening of the
-/// version in `probe` against the span in `s`, encoded 0 `Before`,
-/// 1 `Between`, 2 `After`.
+/// `Span::precedence`: the three-way precedence coarsening of the version in
+/// `probe` against the span in `s`, encoded 0 `Before`, 1 `Between`, 2 `After`.
 ///
-/// The placement family's earliest exits live in this verdict's mirror
-/// pair, so its fuel can undercut `ff_span_place`'s on probes the end
-/// bound refutes.
+/// The placement family's earliest exits live in this verdict's mirror pair, so
+/// its fuel can undercut `ff_span_place`'s on probes the end bound refutes.
 #[no_mangle]
 pub extern "C" fn ff_span_precedence(s: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| with_v(probe, |p| span.precedence(p)));
@@ -1758,11 +1751,11 @@ pub extern "C" fn ff_span_precedence(s: u32, probe: u32) -> i32 {
     }
 }
 
-/// `Span::contains`: whether the version in `probe` lies within the
-/// span in `s`, encoded 0 outside, 1 within.
+/// `Span::contains`: whether the version in `probe` lies within the span in
+/// `s`, encoded 0 outside, 1 within.
 ///
-/// Either bound's refutation is the whole verdict, so the fused walk's
-/// fuel can undercut `ff_span_place`'s on refuting probes.
+/// Either bound's refutation is the whole verdict, so the fused walk's fuel can
+/// undercut `ff_span_place`'s on refuting probes.
 #[no_mangle]
 pub extern "C" fn ff_span_contains(s: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| with_v(probe, |p| span.contains(p)));
@@ -1772,8 +1765,8 @@ pub extern "C" fn ff_span_contains(s: u32, probe: u32) -> i32 {
     }
 }
 
-/// Encode the `Span` in `src` into the staging buffer (the meet's
-/// canonical bytes, then the join's).
+/// Encode the `Span` in `src` into the staging buffer (the meet's canonical
+/// bytes, then the join's).
 #[no_mangle]
 pub extern "C" fn ff_span_encode(src: u32) -> i32 {
     code(with_s(src, |s| {
@@ -1783,9 +1776,9 @@ pub extern "C" fn ff_span_encode(src: u32) -> i32 {
     }))
 }
 
-/// Decode the staged bytes as a canonical `Span` into `dst` (the one
-/// forward pass whose second parse also proves, in the same walk, that
-/// the pair is ordered).
+/// Decode the staged bytes as a canonical `Span` into `dst` (the one forward
+/// pass whose second parse also proves, in the same walk, that the pair is
+/// ordered).
 #[no_mangle]
 pub extern "C" fn ff_span_decode(dst: u32) -> i32 {
     STAGE.with_borrow(|stage| match Span::decode(stage.as_slice()) {
@@ -1810,12 +1803,10 @@ pub extern "C" fn ff_span_union(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Span * Span`: the containment meet of the spans in `a` and `b`
-/// into `dst`.
+/// `Span * Span`: the containment meet of the spans in `a` and `b` into `dst`.
 ///
-/// Returns 1 with `dst` written when the segments share a version, 0
-/// with `dst` untouched on the empty intersection — both measured
-/// verdicts, not errors.
+/// Returns 1 with `dst` written when the segments share a version, 0 with `dst`
+/// untouched on the empty intersection — both measured verdicts, not errors.
 #[no_mangle]
 pub extern "C" fn ff_span_intersect(dst: u32, a: u32, b: u32) -> i32 {
     let r = with_s(a, |sa| with_s(b, |sb| sa.intersect(sb)));
@@ -1829,8 +1820,7 @@ pub extern "C" fn ff_span_intersect(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Span | Span`: the pointwise join of the spans in `a` and `b` into
-/// `dst`.
+/// `Span | Span`: the pointwise join of the spans in `a` and `b` into `dst`.
 #[no_mangle]
 pub extern "C" fn ff_span_join(dst: u32, a: u32, b: u32) -> i32 {
     let r = with_s(a, |sa| with_s(b, |sb| sa.join(sb)));
@@ -1843,8 +1833,7 @@ pub extern "C" fn ff_span_join(dst: u32, a: u32, b: u32) -> i32 {
     }
 }
 
-/// `Span & Span`: the pointwise meet of the spans in `a` and `b` into
-/// `dst`.
+/// `Span & Span`: the pointwise meet of the spans in `a` and `b` into `dst`.
 #[no_mangle]
 pub extern "C" fn ff_span_meet(dst: u32, a: u32, b: u32) -> i32 {
     let r = with_s(a, |sa| with_s(b, |sb| sa.meet(sb)));
@@ -1880,9 +1869,9 @@ fn span_fold<T>(
     })
 }
 
-/// `Span::union_all`: the containment join of the spans in
-/// `src..src + n` into `dst` (the receiver-seeded balanced fold; the
-/// span in `src` is the receiver, feed order preserved).
+/// `Span::union_all`: the containment join of the spans in `src..src + n` into
+/// `dst` (the receiver-seeded balanced fold; the span in `src` is the receiver,
+/// feed order preserved).
 #[no_mangle]
 pub extern "C" fn ff_span_union_all(dst: u32, src: u32, n: u32) -> i32 {
     match span_fold(src, n, |receiver, others| receiver.union_all(others)) {
@@ -1894,11 +1883,11 @@ pub extern "C" fn ff_span_union_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Span::intersect_all`: the containment meet of the spans in
-/// `src..src + n` into `dst` (the receiver-seeded balanced fold).
+/// `Span::intersect_all`: the containment meet of the spans in `src..src + n`
+/// into `dst` (the receiver-seeded balanced fold).
 ///
-/// Returns 1 with `dst` written on a shared segment, 0 with `dst`
-/// untouched on the empty intersection — both measured verdicts.
+/// Returns 1 with `dst` written on a shared segment, 0 with `dst` untouched on
+/// the empty intersection — both measured verdicts.
 #[no_mangle]
 pub extern "C" fn ff_span_intersect_all(dst: u32, src: u32, n: u32) -> i32 {
     match span_fold(src, n, |receiver, others| receiver.intersect_all(others)) {
@@ -1911,8 +1900,8 @@ pub extern "C" fn ff_span_intersect_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Span::join_all`: the pointwise join of the spans in `src..src + n`
-/// into `dst` (the receiver-seeded balanced fold).
+/// `Span::join_all`: the pointwise join of the spans in `src..src + n` into
+/// `dst` (the receiver-seeded balanced fold).
 #[no_mangle]
 pub extern "C" fn ff_span_join_all(dst: u32, src: u32, n: u32) -> i32 {
     match span_fold(src, n, |receiver, others| receiver.join_all(others)) {
@@ -1924,8 +1913,8 @@ pub extern "C" fn ff_span_join_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// `Span::meet_all`: the pointwise meet of the spans in
-/// `src..src + n` into `dst` (the receiver-seeded balanced fold).
+/// `Span::meet_all`: the pointwise meet of the spans in `src..src + n` into
+/// `dst` (the receiver-seeded balanced fold).
 #[no_mangle]
 pub extern "C" fn ff_span_meet_all(dst: u32, src: u32, n: u32) -> i32 {
     match span_fold(src, n, |receiver, others| receiver.meet_all(others)) {
@@ -1937,9 +1926,9 @@ pub extern "C" fn ff_span_meet_all(dst: u32, src: u32, n: u32) -> i32 {
     }
 }
 
-/// The span projection, materialized: `dst = (&span / &party).to_span()`
-/// (the view construction is O(1) and prices nothing; this kernel
-/// prices the two-endpoint materialization).
+/// The span projection, materialized: `dst = (&span / &party).to_span()` (the
+/// view construction is O(1) and prices nothing; this kernel prices the
+/// two-endpoint materialization).
 #[no_mangle]
 pub extern "C" fn ff_span_project(dst: u32, s: u32, p: u32) -> i32 {
     let out = with_s(s, |span| with_p(p, |party| (span / party).to_span()));
@@ -1952,9 +1941,9 @@ pub extern "C" fn ff_span_project(dst: u32, s: u32, p: u32) -> i32 {
     }
 }
 
-/// `OwnSpan::place`: the nine-way placement of the version in `probe`
-/// against the projection of the span in `s` by the party in `p`,
-/// encoded 0..=8 as `ff_span_place` encodes its verdict.
+/// `OwnSpan::place`: the nine-way placement of the version in `probe` against
+/// the projection of the span in `s` by the party in `p`, encoded 0..=8 as
+/// `ff_span_place` encodes its verdict.
 #[no_mangle]
 pub extern "C" fn ff_own_span_place(s: u32, p: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| {
@@ -1976,13 +1965,13 @@ pub extern "C" fn ff_own_span_place(s: u32, p: u32, probe: u32) -> i32 {
     }
 }
 
-/// `OwnSpan::dominance`: the three-way dominance coarsening of the
-/// version in `probe` against the projection of the span in `s` by
-/// the party in `p`, encoded 0 `Before`, 1 `Between`, 2 `After`.
+/// `OwnSpan::dominance`: the three-way dominance coarsening of the version in
+/// `probe` against the projection of the span in `s` by the party in `p`,
+/// encoded 0 `Before`, 1 `Between`, 2 `After`.
 ///
-/// The coarse question buys the projected placement's early exit: a
-/// probe the projected start refutes never walks the end, so its fuel
-/// can undercut `ff_own_span_place`'s there.
+/// The coarse question buys the projected placement's early exit: a probe the
+/// projected start refutes never walks the end, so its fuel can undercut
+/// `ff_own_span_place`'s there.
 #[no_mangle]
 pub extern "C" fn ff_own_span_dominance(s: u32, p: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| {
@@ -1998,13 +1987,13 @@ pub extern "C" fn ff_own_span_dominance(s: u32, p: u32, probe: u32) -> i32 {
     }
 }
 
-/// `OwnSpan::precedence`: the three-way precedence coarsening of the
-/// version in `probe` against the projection of the span in `s` by
-/// the party in `p`, encoded 0 `Before`, 1 `Between`, 2 `After`.
+/// `OwnSpan::precedence`: the three-way precedence coarsening of the version in
+/// `probe` against the projection of the span in `s` by the party in `p`,
+/// encoded 0 `Before`, 1 `Between`, 2 `After`.
 ///
-/// The coarse question buys the projected placement's early exit: a
-/// probe the projected end refutes never walks the start, so its fuel
-/// can undercut `ff_own_span_place`'s there.
+/// The coarse question buys the projected placement's early exit: a probe the
+/// projected end refutes never walks the start, so its fuel can undercut
+/// `ff_own_span_place`'s there.
 #[no_mangle]
 pub extern "C" fn ff_own_span_precedence(s: u32, p: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| {
@@ -2021,12 +2010,12 @@ pub extern "C" fn ff_own_span_precedence(s: u32, p: u32, probe: u32) -> i32 {
 }
 
 /// `OwnSpan::contains`: whether the version in `probe` lies within the
-/// projection of the span in `s` by the party in `p`, encoded
-/// 0 outside, 1 within.
+/// projection of the span in `s` by the party in `p`, encoded 0 outside, 1
+/// within.
 ///
-/// Either projected bound's refutation is the whole verdict: a probe
-/// the projected start refutes never walks the end, so its fuel can
-/// undercut `ff_own_span_place`'s there.
+/// Either projected bound's refutation is the whole verdict: a probe the
+/// projected start refutes never walks the end, so its fuel can undercut
+/// `ff_own_span_place`'s there.
 #[no_mangle]
 pub extern "C" fn ff_own_span_contains(s: u32, p: u32, probe: u32) -> i32 {
     let r = with_s(s, |span| {
@@ -2047,8 +2036,8 @@ pub extern "C" fn ff_own_span_contains(s: u32, p: u32, probe: u32) -> i32 {
 // holes against same-side bounds, and these spellings are chosen so no
 // operand draw can prune the shape away.
 
-/// Build `after(f) & all()` — the floor-only query — into `dst`
-/// (unmeasured preparation).
+/// Build `after(f) & all()` — the floor-only query — into `dst` (unmeasured
+/// preparation).
 #[no_mangle]
 pub extern "C" fn ff_query_floor(dst: u32, f: u32) -> i32 {
     let Some(floor) = clone_v(f) else {
@@ -2059,8 +2048,8 @@ pub extern "C" fn ff_query_floor(dst: u32, f: u32) -> i32 {
     OK
 }
 
-/// Build `before(c) & all()` — the ceiling-only query — into `dst`
-/// (unmeasured preparation).
+/// Build `before(c) & all()` — the ceiling-only query — into `dst` (unmeasured
+/// preparation).
 #[no_mangle]
 pub extern "C" fn ff_query_ceiling(dst: u32, c: u32) -> i32 {
     let Some(ceiling) = clone_v(c) else {
@@ -2071,8 +2060,8 @@ pub extern "C" fn ff_query_ceiling(dst: u32, c: u32) -> i32 {
     OK
 }
 
-/// Build `after(f) & before(c)` — floor and ceiling, no hole — into
-/// `dst` (unmeasured preparation).
+/// Build `after(f) & before(c)` — floor and ceiling, no hole — into `dst`
+/// (unmeasured preparation).
 #[no_mangle]
 pub extern "C" fn ff_query_floor_ceiling(dst: u32, f: u32, c: u32) -> i32 {
     let (Some(floor), Some(ceiling)) = (clone_v(f), clone_v(c)) else {
@@ -2107,8 +2096,8 @@ pub extern "C" fn ff_query_floor_hole(dst: u32, s: u32, t: u32) -> i32 {
 }
 
 /// Build `delta(s, e)` — ceiling plus one hole — into `dst` (unmeasured
-/// preparation; no floor bounds the hole, so it survives whatever the
-/// operands' causal relation).
+/// preparation; no floor bounds the hole, so it survives whatever the operands'
+/// causal relation).
 #[no_mangle]
 pub extern "C" fn ff_query_ceiling_hole(dst: u32, s: u32, e: u32) -> i32 {
     let (Some(s), Some(e)) = (clone_v(s), clone_v(e)) else {
@@ -2118,9 +2107,9 @@ pub extern "C" fn ff_query_ceiling_hole(dst: u32, s: u32, e: u32) -> i32 {
     OK
 }
 
-/// Build `strictly_after(a) & before(c)` — floor, ceiling, and one hole
-/// — into `dst` (unmeasured preparation; the hole sits at the floor
-/// itself, so the merge's pruning keeps it whatever the operands).
+/// Build `strictly_after(a) & before(c)` — floor, ceiling, and one hole — into
+/// `dst` (unmeasured preparation; the hole sits at the floor itself, so the
+/// merge's pruning keeps it whatever the operands).
 #[no_mangle]
 pub extern "C" fn ff_query_floor_ceiling_hole(dst: u32, a: u32, c: u32) -> i32 {
     let (Some(a), Some(c)) = (clone_v(a), clone_v(c)) else {
@@ -2131,9 +2120,8 @@ pub extern "C" fn ff_query_floor_ceiling_hole(dst: u32, a: u32, c: u32) -> i32 {
     OK
 }
 
-/// `Query::contains`: whether the query in `q` admits the version in
-/// `probe` (0 or 1) — the fused membership co-walk over the probe and
-/// every stored bound.
+/// `Query::contains`: whether the query in `q` admits the version in `probe` (0
+/// or 1) — the fused membership co-walk over the probe and every stored bound.
 #[no_mangle]
 pub extern "C" fn ff_query_contains(q: u32, probe: u32) -> i32 {
     match with_q(q, |query| with_v(probe, |v| query.contains(v))) {
@@ -2142,9 +2130,9 @@ pub extern "C" fn ff_query_contains(q: u32, probe: u32) -> i32 {
     }
 }
 
-/// `Query::coverage` of the span in `s` against the query in `q`:
-/// 0 `Empty`, 1 `Partial`, 2 `Full` — the fused two-probe co-walk plus,
-/// on verdicts the walk alone cannot close, the clamp legs.
+/// `Query::coverage` of the span in `s` against the query in `q`: 0 `Empty`, 1
+/// `Partial`, 2 `Full` — the fused two-probe co-walk plus, on verdicts the walk
+/// alone cannot close, the clamp legs.
 #[no_mangle]
 pub extern "C" fn ff_query_coverage(q: u32, s: u32) -> i32 {
     coverage_code(with_q(q, |query| with_s(s, |span| query.coverage(span))))
@@ -2176,17 +2164,17 @@ fn coverage_code(verdict: Option<Option<Coverage>>) -> i32 {
     }
 }
 
-/// `Query & Query`: the normal-form merge of the queries in `a` and
-/// `b` into `dst`.
+/// `Query & Query`: the normal-form merge of the queries in `a` and `b` into
+/// `dst`.
 ///
-/// Floors join, ceilings meet, and every hole from either side
-/// re-admits against the merged bounds and the growing antichain (the
-/// comparison-driven pruning).
+/// Floors join, ceilings meet, and every hole from either side re-admits
+/// against the merged bounds and the growing antichain (the comparison-driven
+/// pruning).
 ///
-/// Operands are read in place and cloned at entry (buffer-sharing
-/// bumps, no walk); the priced work is the merge itself. Polarities
-/// must conjoin under the algebra — the `Down` × `Up` pairing is its
-/// one absent arm and reads as a register error.
+/// Operands are read in place and cloned at entry (buffer-sharing bumps, no
+/// walk); the priced work is the merge itself. Polarities must conjoin under
+/// the algebra — the `Down` × `Up` pairing is its one absent arm and reads as a
+/// register error.
 #[no_mangle]
 pub extern "C" fn ff_query_conjoin(dst: u32, a: u32, b: u32) -> i32 {
     use StoredQuery as Q;
@@ -2213,9 +2201,8 @@ pub extern "C" fn ff_query_conjoin(dst: u32, a: u32, b: u32) -> i32 {
 
 /// `Floor::contains` (the `after` atom's own membership): 0 or 1.
 ///
-/// The atom is constructed in the measured window from the borrowed
-/// bound — an O(1) view; the priced work is one pair sweep under its
-/// O(1) verdict fold.
+/// The atom is constructed in the measured window from the borrowed bound — an
+/// O(1) view; the priced work is one pair sweep under its O(1) verdict fold.
 #[no_mangle]
 pub extern "C" fn ff_floor_contains(bound: u32, probe: u32) -> i32 {
     let verdict = with_v(bound, |b| with_v(probe, |v| causally::after(b).contains(v)));
@@ -2225,8 +2212,8 @@ pub extern "C" fn ff_floor_contains(bound: u32, probe: u32) -> i32 {
     }
 }
 
-/// `Ceiling::contains` (the `before` atom's own membership): 0 or 1,
-/// the dual of `ff_floor_contains`.
+/// `Ceiling::contains` (the `before` atom's own membership): 0 or 1, the dual
+/// of `ff_floor_contains`.
 #[no_mangle]
 pub extern "C" fn ff_ceiling_contains(bound: u32, probe: u32) -> i32 {
     let verdict = with_v(bound, |b| {
@@ -2240,16 +2227,15 @@ pub extern "C" fn ff_ceiling_contains(bound: u32, probe: u32) -> i32 {
 
 // ─── instrument self-test (measured, deliberately not a kernel) ──────────────
 
-/// A deliberately quadratic burner: `n²` iterations, each pinned by
-/// `black_box` so no strength reduction can collapse the nest into a
-/// closed form that reads linear.
+/// A deliberately quadratic burner: `n²` iterations, each pinned by `black_box`
+/// so no strength reduction can collapse the nest into a closed form that reads
+/// linear.
 ///
-/// Not a kernel: no `before` operation runs here, no strategy emits it,
-/// and calibration never bands it. The enforcement suite calls it
-/// directly as an instrument-liveness check — the full detection path
-/// (wasm execution, fuel metering, band judgment) must flag this genuine
-/// superlinear mechanism ABOVE a linear band, or the instrument is blind
-/// whatever the real kernels read.
+/// Not a kernel: no `before` operation runs here, no strategy emits it, and
+/// calibration never bands it. The enforcement suite calls it directly as an
+/// instrument-liveness check — the full detection path (wasm execution, fuel
+/// metering, band judgment) must flag this genuine superlinear mechanism ABOVE
+/// a linear band, or the instrument is blind whatever the real kernels read.
 #[no_mangle]
 pub extern "C" fn ff_selftest_quadratic(n: u32) -> i32 {
     let mut acc: u64 = 0;

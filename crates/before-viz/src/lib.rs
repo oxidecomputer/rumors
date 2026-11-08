@@ -1,18 +1,20 @@
 //! WASM engine for the interactive Interval Tree Clocks visualizer.
 //!
-//! The engine owns the authoritative **operation log** and the immutable causal-history
-//! DAG it induces. Gestures call [`Engine::apply`] (or the wasm `tick`/`fork`/`join`/
-//! `send` methods), which rewinds the futures the op supersedes (`oplog::rewind_and_apply`)
-//! and appends the op; the engine then re-materializes clock values and reports the
-//! derived state (node descriptors, causal edges, the live set) to the front-end, which
-//! is purely presentational. The log also round-trips to a URL fragment, so any figure
-//! is a shareable link.
+//! The engine owns the authoritative **operation log** and the immutable
+//! causal-history DAG it induces. Gestures call [`Engine::apply`] (or the wasm
+//! `tick`/`fork`/`join`/ `send` methods), which rewinds the futures the op
+//! supersedes (`oplog::rewind_and_apply`) and appends the op; the engine then
+//! re-materializes clock values and reports the derived state (node
+//! descriptors, causal edges, the live set) to the front-end, which is purely
+//! presentational. The log also round-trips to a URL fragment, so any figure is
+//! a shareable link.
 //!
-//! Immutability is achieved through the `before` codec: every node is stored as its
-//! canonical [`before::Clock::encode`] bytes. Applying an op decodes a fresh value from a
-//! source node, mutates it, and re-encodes the result; source bytes are never touched.
-//! Because `encode`/`decode` round-trips canonically and `fork`/`join` are
-//! deterministic, replaying the same log always reconstructs byte-identical nodes.
+//! Immutability is achieved through the `before` codec: every node is stored as
+//! its canonical [`before::Clock::encode`] bytes. Applying an op decodes a
+//! fresh value from a source node, mutates it, and re-encodes the result;
+//! source bytes are never touched. Because `encode`/`decode` round-trips
+//! canonically and `fork`/`join` are deterministic, replaying the same log
+//! always reconstructs byte-identical nodes.
 
 use before::shape::Rise;
 use before::{Clock, Version};
@@ -63,8 +65,8 @@ pub struct State {
     pub live: Vec<usize>,
 }
 
-/// Why an operation failed. All variants are recoverable on the JS side (a rejected op
-/// is not committed).
+/// Why an operation failed. All variants are recoverable on the JS side (a
+/// rejected op is not committed).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineError {
     IndexOutOfRange(usize),
@@ -80,9 +82,9 @@ pub enum EngineError {
     /// The log would exceed the engine's op budget; carries the offending
     /// length.
     ///
-    /// The budget bounds replay cost at teaching scale, and the fragment
-    /// codec enforces the same bound on the wire, so every fragment the
-    /// engine produces reloads.
+    /// The budget bounds replay cost at teaching scale, and the fragment codec
+    /// enforces the same bound on the wire, so every fragment the engine
+    /// produces reloads.
     TooManyOps(usize),
 }
 
@@ -116,8 +118,9 @@ struct Node {
     bytes: Vec<u8>,
 }
 
-/// The host-testable engine: owns the op-log and the arena it replays to. Carries no
-/// wasm types, so it can be unit-tested (and property-tested) on the native target.
+/// The host-testable engine: owns the op-log and the arena it replays to.
+/// Carries no wasm types, so it can be unit-tested (and property-tested) on the
+/// native target.
 pub struct Engine {
     log: Vec<Op>,
     arena: Vec<Node>,
@@ -138,8 +141,9 @@ impl Engine {
         }
     }
 
-    /// Apply an op referencing current node indices: rewind the futures it supersedes,
-    /// append it, and re-materialize. On error the prior state is left intact.
+    /// Apply an op referencing current node indices: rewind the futures it
+    /// supersedes, append it, and re-materialize. On error the prior state is
+    /// left intact.
     pub fn apply(&mut self, op: Op) -> Result<(), EngineError> {
         let log = rewind_and_apply(&self.log, op)
             .map_err(|oplog::Orphaned(operand)| EngineError::Orphaned { operand })?;
@@ -220,7 +224,8 @@ impl Engine {
         }
     }
 
-    /// The descendant cone of `anchors` in the current log (test/diagnostic helper).
+    /// The descendant cone of `anchors` in the current log (test/diagnostic
+    /// helper).
     pub fn descendant_cone(&self, anchors: &[usize]) -> std::collections::HashSet<usize> {
         descendant_cone(&analyze(&self.log).edges, anchors)
     }
@@ -322,8 +327,9 @@ fn apply_to_arena(arena: &mut Vec<Node>, op: Op) -> Result<(), EngineError> {
     Ok(())
 }
 
-/// The `#[wasm_bindgen]` surface, exported to JavaScript as `Engine`. Gesture methods
-/// return the new [`State`] as JSON; the front-end derives layout and renders from it.
+/// The `#[wasm_bindgen]` surface, exported to JavaScript as `Engine`. Gesture
+/// methods return the new [`State`] as JSON; the front-end derives layout and
+/// renders from it.
 #[wasm_bindgen(js_name = Engine)]
 pub struct WasmEngine {
     inner: Engine,

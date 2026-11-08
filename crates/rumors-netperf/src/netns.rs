@@ -1,26 +1,25 @@
-//! Linux network namespaces, virtual links, and `netem` shaping, through
-//! the standard tools: `unshare` and `nsenter` from util-linux, `ip` and
-//! `tc` from iproute2, `ethtool`, and `sysctl` from procps.
+//! Linux network namespaces, virtual links, and `netem` shaping, through the
+//! standard tools: `unshare` and `nsenter` from util-linux, `ip` and `tc` from
+//! iproute2, `ethtool`, and `sysctl` from procps.
 //!
 //! # The sandbox
 //!
 //! Emulation never touches the host's network. The tool first re-executes
-//! itself in a *sandbox*: a new network namespace, inside a new user
-//! namespace when it runs unprivileged (`unshare --user --map-root-user
-//! --net`), where it holds the capabilities the steps below need. Inside
-//! it, each peer process starts in a network namespace of its own
-//! (`unshare --net`), and the two are joined by a virtual Ethernet pair
-//! (a *veth*) created in the sandbox and moved into them. When the peers
-//! exit, their namespaces, the veth, and its shaping vanish with them.
+//! itself in a *sandbox*: a new network namespace, inside a new user namespace
+//! when it runs unprivileged (`unshare --user --map-root-user
+//! --net`), where it holds the capabilities the steps below need. Inside it,
+//! each peer process starts in a network namespace of its own
+//! (`unshare --net`), and the two are joined by a virtual Ethernet pair (a
+//! *veth*) created in the sandbox and moved into them. When the peers exit,
+//! their namespaces, the veth, and its shaping vanish with them.
 //!
 //! # Shaping
 //!
 //! Each direction is shaped on its sender's end of the veth by one `netem`
-//! queue: it delays every packet by half the round trip and, unless the
-//! link is uncapped, serializes packets at the link's rate. Segmentation
-//! offload is off on both ends, so the queue shapes wire-sized packets
-//! rather than 64 KiB bursts. [`Netem::for_direction`] derives the queue's
-//! limit.
+//! queue: it delays every packet by half the round trip and, unless the link is
+//! uncapped, serializes packets at the link's rate. Segmentation offload is off
+//! on both ends, so the queue shapes wire-sized packets rather than 64 KiB
+//! bursts. [`Netem::for_direction`] derives the queue's limit.
 
 use std::fmt;
 use std::fs;
@@ -35,27 +34,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::units::{Rate, Rtt};
 
-/// The environment variable that marks a process as already inside the
-/// sandbox, so it does not re-execute itself again.
+/// The environment variable that marks a process as already inside the sandbox,
+/// so it does not re-execute itself again.
 pub const SANDBOX_MARKER: &str = "RUMORS_NETPERF_SANDBOX";
 
-/// Side A's address on every virtual link; each link lives in namespaces
-/// of its own, so every link reuses it.
+/// Side A's address on every virtual link; each link lives in namespaces of its
+/// own, so every link reuses it.
 pub const ADDRESS_A: &str = "10.77.0.1";
 
 /// Side B's address on every virtual link.
 pub const ADDRESS_B: &str = "10.77.0.2";
 
-/// The bytes of one full-sized packet on the veth: the default Ethernet
-/// MTU.
+/// The bytes of one full-sized packet on the veth: the default Ethernet MTU.
 const PACKET_BYTES: f64 = 1500.0;
 
 /// The payload of one full-sized TCP segment over IPv4 with timestamps.
 const SEGMENT_BYTES: f64 = 1448.0;
 
-/// Packets every `netem` queue holds beyond what its derivation requires,
-/// so a link whose bandwidth-delay product is a handful of packets still
-/// absorbs a TCP initial window's burst without loss.
+/// Packets every `netem` queue holds beyond what its derivation requires, so a
+/// link whose bandwidth-delay product is a handful of packets still absorbs a
+/// TCP initial window's burst without loss.
 const QUEUE_FLOOR_PACKETS: u64 = 32;
 
 /// How long a new peer process may take to enter its network namespace.
@@ -66,8 +64,8 @@ pub fn in_sandbox() -> bool {
     std::env::var_os(SANDBOX_MARKER).is_some()
 }
 
-/// Whether this process runs as the host's root, which needs no user
-/// namespace to create network namespaces.
+/// Whether this process runs as the host's root, which needs no user namespace
+/// to create network namespaces.
 pub fn is_root() -> bool {
     nix::unistd::geteuid().is_root()
 }
@@ -83,8 +81,8 @@ pub fn sandbox_command(program: &Path, args: &[String]) -> Command {
     command
 }
 
-/// Runs a command to completion, failing with its command line and its
-/// standard error if it fails.
+/// Runs a command to completion, failing with its command line and its standard
+/// error if it fails.
 pub fn run(program: &str, args: &[&str]) -> Result<()> {
     let output = Command::new(program).args(args).output().with_context(|| {
         format!("running `{program}`: is it installed? (`rumors-netperf doctor` checks)")
@@ -146,10 +144,10 @@ impl Namespaced {
 
     /// Waits until the process has entered its new network namespace.
     ///
-    /// The process exists before `unshare` has created the namespace, and
-    /// a device moved to it in that window lands in the sandbox's namespace
-    /// instead, so every step that names the process's namespace waits for
-    /// its namespace link to differ from this process's own.
+    /// The process exists before `unshare` has created the namespace, and a
+    /// device moved to it in that window lands in the sandbox's namespace
+    /// instead, so every step that names the process's namespace waits for its
+    /// namespace link to differ from this process's own.
     fn await_own_namespace(&self) -> Result<()> {
         let ours = fs::read_link("/proc/self/ns/net")
             .context("reading this process's network namespace")?;
@@ -228,18 +226,17 @@ pub struct Netem {
 }
 
 impl Netem {
-    /// The queue for one direction of a link at `rate` with round trip
-    /// `rtt`, for a connection whose window can reach `window` bytes.
+    /// The queue for one direction of a link at `rate` with round trip `rtt`,
+    /// for a connection whose window can reach `window` bytes.
     ///
-    /// The queue holds every packet in flight on the delay line, since
-    /// `netem` keeps delayed packets in its queue. On a rate-limited
-    /// direction that is `rate × rtt / 2` bytes, and the limit adds one
-    /// bandwidth-delay product, `rate × rtt`, as the bottleneck's buffer,
-    /// the classic sizing for a router serving long flows. On an uncapped
-    /// direction nothing queues for the rate, and what the delay line holds
-    /// is bounded by the window instead: the window's segments and an
-    /// acknowledgement for each, which the queue therefore never overflows.
-    /// Both add [`QUEUE_FLOOR_PACKETS`].
+    /// The queue holds every packet in flight on the delay line, since `netem`
+    /// keeps delayed packets in its queue. On a rate-limited direction that is
+    /// `rate × rtt / 2` bytes, and the limit adds one bandwidth-delay product,
+    /// `rate × rtt`, as the bottleneck's buffer, the classic sizing for a
+    /// router serving long flows. On an uncapped direction nothing queues for
+    /// the rate, and what the delay line holds is bounded by the window
+    /// instead: the window's segments and an acknowledgement for each, which
+    /// the queue therefore never overflows. Both add [`QUEUE_FLOOR_PACKETS`].
     pub fn for_direction(rate: Rate, rtt: Rtt, window: u64) -> Self {
         let delay = rtt.duration() / 2;
         let packets = match rate.bytes_per_second() {
@@ -281,8 +278,8 @@ impl Netem {
     }
 }
 
-/// Installs `netem` on the sending end of each direction of slot `slot`'s
-/// veth: `a_to_b` on A's end, `b_to_a` on B's.
+/// Installs `netem` on the sending end of each direction of slot `slot`'s veth:
+/// `a_to_b` on A's end, `b_to_a` on B's.
 pub fn shape(slot: usize, a: u32, b: u32, a_to_b: &Netem, b_to_a: &Netem) -> Result<()> {
     let (end_a, end_b) = interface_names(slot);
     for (pid, end, netem) in [(a, &end_a, a_to_b), (b, &end_b, b_to_a)] {
@@ -299,9 +296,9 @@ pub fn shape(slot: usize, a: u32, b: u32, a_to_b: &Netem, b_to_a: &Netem) -> Res
     Ok(())
 }
 
-/// Sets the largest autotuned TCP send and receive buffer to `bytes`
-/// inside the namespace of process `pid`, keeping the minimum and default
-/// the namespace started with.
+/// Sets the largest autotuned TCP send and receive buffer to `bytes` inside the
+/// namespace of process `pid`, keeping the minimum and default the namespace
+/// started with.
 ///
 /// The host's limits are untouched: these settings belong to each network
 /// namespace (Linux 4.15 and later).

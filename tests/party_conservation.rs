@@ -1,40 +1,38 @@
 //! Gate-permanent identity invariants: party disjointness, conservation,
-//! donated-exactly-once, and the fragmentation bound, over the peer
-//! lifecycle.
+//! donated-exactly-once, and the fragmentation bound, over the peer lifecycle.
 //!
-//! Motivation: an identity-touching change can pass every functional test
-//! while regressing the party *size/shape* algebra — speculative pre-forks,
-//! for example, fragment a bootstrap provider's id tree into non-contiguous
-//! shards under contention. These tests pin the conservation algebra and
-//! that shape bound on mainline, so such a change fails the gate instead of
-//! relying on a reviewer to spot the hazard.
+//! Motivation: an identity-touching change can pass every functional test while
+//! regressing the party *size/shape* algebra — speculative pre-forks, for
+//! example, fragment a bootstrap provider's id tree into non-contiguous shards
+//! under contention. These tests pin the conservation algebra and that shape
+//! bound on mainline, so such a change fails the gate instead of relying on a
+//! reviewer to spot the hazard.
 //!
 //! Four invariant families, each observed through the accounting-only alias
 //! (`Rumors::dangerously_alias_party`; aliases here are compared and folded,
 //! never ticked or treated as live):
 //!
-//! 1. **Disjointness** (the Law of Disjointness): all live parties are
-//!    pairwise disjoint after every step of an arbitrary lifecycle
-//!    schedule.
-//! 2. **Conservation**: the fold-join of all live parties is invariant
-//!    along the same schedules — it reconstitutes exactly [`Party::seed`]'s
-//!    whole interval, the baseline established when the universe is seeded.
-//!    Identity is moved and split, never created or destroyed; because each
-//!    step is one clean session driven to completion, nothing is in flight
-//!    between steps, and the fold covering the whole interval proves it.
+//! 1. **Disjointness** (the Law of Disjointness): all live parties are pairwise
+//!    disjoint after every step of an arbitrary lifecycle schedule.
+//! 2. **Conservation**: the fold-join of all live parties is invariant along
+//!    the same schedules — it reconstitutes exactly [`Party::seed`]'s whole
+//!    interval, the baseline established when the universe is seeded. Identity
+//!    is moved and split, never created or destroyed; because each step is one
+//!    clean session driven to completion, nothing is in flight between steps,
+//!    and the fold covering the whole interval proves it.
 //! 3. **Donated exactly once**: a bootstrap moves one fork (the newcomer's
 //!    party rejoins the provider's remainder to exactly the provider's
 //!    pre-session party), and a retirement moves one whole party (the
 //!    absorber's post-party is exactly the join of the two pre-parties).
 //! 4. **The fragmentation bound**: bootstrap-then-retire cycles return the
-//!    provider's party bit-for-bit to its baseline — sequential and
-//!    interleaved alike — so the ITC id tree's encoded size is bounded
-//!    independent of lifecycle churn.
+//!    provider's party bit-for-bit to its baseline — sequential and interleaved
+//!    alike — so the ITC id tree's encoded size is bounded independent of
+//!    lifecycle churn.
 //!
-//! The concurrent counterpart — disjointness probed mid-flight, under
-//! injected faults — lives in `disruption.rs` via `common::sim`. These
-//! schedules instead run one clean session at a time, which is what lets
-//! the sharper equalities (2)–(4) hold after *every* step.
+//! The concurrent counterpart — disjointness probed mid-flight, under injected
+//! faults — lives in `disruption.rs` via `common::sim`. These schedules instead
+//! run one clean session at a time, which is what lets the sharper equalities
+//! (2)–(4) hold after *every* step.
 
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
@@ -58,22 +56,21 @@ use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 /// second trie level. A case runs two sessions per departing peer, so its cost
 /// grows with the fleet, and this cap keeps the test's time at high case counts
 /// in line with the suite's other end-to-end properties. Larger sets, deeper
-/// parties, and budget pressure have suites of their own:
-/// the multi-peer gossip suites, `before`'s deep party laws, and the budget
-/// suites.
+/// parties, and budget pressure have suites of their own: the multi-peer gossip
+/// suites, `before`'s deep party laws, and the budget suites.
 const MAX_FLEET: usize = 16;
 
 /// Alias a live handle's party for accounting.
 ///
-/// The alias is compared, folded, and dropped — never ticked, and never
-/// joined into any live peer's state — per the
+/// The alias is compared, folded, and dropped — never ticked, and never joined
+/// into any live peer's state — per the
 /// [`dangerously_alias_party`](Rumors::dangerously_alias_party) contract.
 fn alias(handle: &Rumors<u64>) -> Party {
     handle.dangerously_alias_party()
 }
 
-/// Assert every pair of live parties disjoint: the Law of Disjointness,
-/// checked directly rather than via a fold, so a violation names the pair.
+/// Assert every pair of live parties disjoint: the Law of Disjointness, checked
+/// directly rather than via a fold, so a violation names the pair.
 fn assert_pairwise_disjoint(fleet: &[Rumors<u64>]) {
     let parties: Vec<Party> = fleet.iter().map(alias).collect();
     for (i, pi) in parties.iter().enumerate() {
@@ -87,8 +84,8 @@ fn assert_pairwise_disjoint(fleet: &[Rumors<u64>]) {
     }
 }
 
-/// Assert the fold-join of all live parties reconstitutes exactly the
-/// seed's whole interval: identity is conserved, and none is in flight.
+/// Assert the fold-join of all live parties reconstitutes exactly the seed's
+/// whole interval: identity is conserved, and none is in flight.
 fn assert_seed_conserved(fleet: &[Rumors<u64>]) {
     let mut parties = fleet.iter().map(alias);
     let mut whole = parties
@@ -104,9 +101,9 @@ fn assert_seed_conserved(fleet: &[Rumors<u64>]) {
     );
 }
 
-/// Retire `retiree` into `absorber` over a clean in-memory connection, requiring
-/// the retirement to complete (a clean wire and a gossiping counterparty
-/// admit no other outcome).
+/// Retire `retiree` into `absorber` over a clean in-memory connection,
+/// requiring the retirement to complete (a clean wire and a gossiping
+/// counterparty admit no other outcome).
 fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
     let outcome = block_on(async move {
         let retiree = retiree
@@ -139,18 +136,17 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
 
 /// One abstract lifecycle step.
 ///
-/// Peer indices are drawn from all of `usize`
-/// and resolved modulo the live fleet at execution time (the `sim.rs`
-/// idiom), so every generated schedule is valid at every fleet size and the
-/// shrinker can simplify steps independently.
+/// Peer indices are drawn from all of `usize` and resolved modulo the live
+/// fleet at execution time (the `sim.rs` idiom), so every generated schedule is
+/// valid at every fleet size and the shrinker can simplify steps independently.
 #[derive(Debug, Clone, Copy)]
 enum Op {
     /// One peer originates a message, advancing its version with its party.
     Send { peer: usize, value: u64 },
     /// Plain gossip between two distinct live peers: no identity moves.
     Gossip { a: usize, off: usize },
-    /// A brand-new peer bootstraps off a live provider, which donates a
-    /// fork of its party; the newcomer joins the fleet.
+    /// A brand-new peer bootstraps off a live provider, which donates a fork of
+    /// its party; the newcomer joins the fleet.
     Bootstrap { provider: usize },
     /// A live peer retires into another (distinct) live peer, donating its
     /// whole party; the retiree leaves the fleet.
@@ -168,10 +164,9 @@ fn arb_op() -> impl Strategy<Value = Op> {
 
 /// Execute one step against the live fleet.
 ///
-/// Steps whose lifecycle
-/// preconditions cannot be met at the current fleet size — gossip or
-/// retirement with no distinct counterparty — are skipped, so the fleet
-/// never empties and every executed session respects the API's contract.
+/// Steps whose lifecycle preconditions cannot be met at the current fleet size
+/// — gossip or retirement with no distinct counterparty — are skipped, so the
+/// fleet never empties and every executed session respects the API's contract.
 fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
     let n = fleet.len();
     match op {
@@ -201,8 +196,8 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
     }
 }
 
-/// Run `ops` from the universe `network` founds, invoking `check` on the
-/// live fleet at the baseline and after every step.
+/// Run `ops` from the universe `network` founds, invoking `check` on the live
+/// fleet at the baseline and after every step.
 fn run_schedule(network: NetworkSeed, ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
     let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
     check(&fleet);

@@ -12,9 +12,9 @@
 //! accumulator used by the standalone validator. [`CheckedVersionReader`] still
 //! rejects truncation and collapsible sibling leaves as it parses `hi`.
 //!
-//! Once dominance fails, further comparison cannot change the verdict. The
-//! walk stops advancing `lo` and the difference, but continues parsing `hi` so
-//! a later structural error is still returned. All traversal is iterative;
+//! Once dominance fails, further comparison cannot change the verdict. The walk
+//! stops advancing `lo` and the difference, but continues parsing `hi` so a
+//! later structural error is still returned. All traversal is iterative;
 //! transient state is two compact path stacks and one accumulator.
 
 use core::cmp::Ordering;
@@ -34,19 +34,19 @@ use crate::Version;
 
 /// A validating leaf cursor over one untrusted Version stream.
 ///
-/// [`VersionRegionReader`]'s region vocabulary (depth, done, step), with the strict
-/// validator's obligations folded into the same reads: truncation surfaces as
-/// the cursor's own errors, and minimal topology (no collapsible sibling pair)
-/// is checked as each internal node closes. It need not track `hi`'s height
-/// separately: dominance over the validated, nonnegative `lo` establishes
-/// nonnegativity on every accepted region.
+/// [`VersionRegionReader`]'s region vocabulary (depth, done, step), with the
+/// strict validator's obligations folded into the same reads: truncation
+/// surfaces as the cursor's own errors, and minimal topology (no collapsible
+/// sibling pair) is checked as each internal node closes. It need not track
+/// `hi`'s height separately: dominance over the validated, nonnegative `lo`
+/// establishes nonnegativity on every accepted region.
 ///
 /// Two parallel per-ancestor bit stacks ride the walk: the branch path (the
 /// advance law's tie test, as [`VersionRegionReader`]'s), and the validator's
 /// left-was-leaf bits (what the sibling-collapse check reads at each close).
-/// `open_lefts` counts the path's left branches, so exhaustion (the tree's
-/// root completing) is an O(1) question where the path itself would need a
-/// full scan.
+/// `open_lefts` counts the path's left branches, so exhaustion (the tree's root
+/// completing) is an O(1) question where the path itself would need a full
+/// scan.
 struct CheckedVersionReader<'a, C> {
     cursor: &'a mut C,
     /// Root-to-leaf branch directions, root first (`false`: inside the left
@@ -56,11 +56,11 @@ struct CheckedVersionReader<'a, C> {
     /// placeholder `false` until that child completes).
     left_was_leaf: BitStack,
     /// The count of `false` bits in `path`: zero exactly when the current
-    /// leaf's plateau ends at the unit interval's right edge: the tree is
-    /// whole and the stream's bits end here.
+    /// leaf's plateau ends at the unit interval's right edge: the tree is whole
+    /// and the stream's bits end here.
     ///
-    /// `u64`, as the path height it counts within: each open left branch
-    /// is one stored path bit.
+    /// `u64`, as the path height it counts within: each open left branch is one
+    /// stored path bit.
     open_lefts: u64,
     /// Whether the current leaf's payload code was zero, the collapsible-pair
     /// check's right-child half. Never read for the first leaf (preorder puts
@@ -101,9 +101,9 @@ where
 
     /// The current leaf's depth: its plateau has width `2^-depth`.
     ///
-    /// Depths are `u64` across the walk surface, as every stream position
-    /// is: each open ancestor costs at least one bit of the walked stream,
-    /// whose live length outgrows a 32-bit `usize` from 512 MiB.
+    /// Depths are `u64` across the walk surface, as every stream position is:
+    /// each open ancestor costs at least one bit of the walked stream, whose
+    /// live length outgrows a 32-bit `usize` from 512 MiB.
     fn depth(&self) -> u64 {
         self.path.len()
     }
@@ -119,8 +119,7 @@ where
     ///
     /// An internal node whose two children are leaves with a zero right delta
     /// is the shape minimal topology forbids. The closed pair then reads as an
-    /// internal subtree for the next close up (`is_leaf`/`zero_delta`
-    /// cleared).
+    /// internal subtree for the next close up (`is_leaf`/`zero_delta` cleared).
     fn close_ancestor(&mut self, is_leaf: &mut bool, zero_delta: &mut bool) -> Result<(), Decode> {
         let left_was_leaf = self
             .left_was_leaf
@@ -231,8 +230,7 @@ pub enum Admission {
 ///
 /// # Errors
 ///
-/// - [`Decode::Truncated`]: the cursor's bits end mid-tree or
-///   mid-integer.
+/// - [`Decode::Truncated`]: the cursor's bits end mid-tree or mid-integer.
 /// - [`Decode::NotCanonical`]: a collapsible sibling pair. A negative running
 ///   height produces [`Admission::Refuted`] instead.
 /// - [`Decode::Io`]: the cursor's own reads fail. A slice cursor reports
@@ -244,8 +242,8 @@ pub enum Admission {
 /// # Panics
 ///
 /// `lo` must be a canonical Version stream: its cursor is the pair sweep's and
-/// shares [`Version::partial_cmp`]'s contract. The parsed
-/// stream needs no such trust; that is the point.
+/// shares [`Version::partial_cmp`]'s contract. The parsed stream needs no such
+/// trust; that is the point.
 pub fn dominating_from<C: BitRead>(lo: &Version, cursor: &mut C) -> Result<Admission, Decode>
 where
     Decode: From<C::Error>,

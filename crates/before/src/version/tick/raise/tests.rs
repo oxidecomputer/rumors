@@ -142,11 +142,11 @@ enum RefId {
 }
 
 /// Probe the cheapest inflation by direct recursion over the `(id, ev)` shape:
-/// the transliteration of the recursive traversal whose route fold the fused tick
-/// walk carries, kept as its structural witness.
+/// the transliteration of the recursive traversal whose route fold the fused
+/// tick walk carries, kept as its structural witness.
 ///
-/// The recursion keeps one native frame per level of `party`, plus one for
-/// the full regime at a leaf. Every grid and property draws its parties from
+/// The recursion keeps one native frame per level of `party`, plus one for the
+/// full regime at a leaf. Every grid and property draws its parties from
 /// bounded pools and generators; [`deep_spines_grow_identically`] drives a
 /// [`DEEP_SPINE_DEPTH`]-level party, on a thread sized for it.
 fn reference_probe(version: &Version, party: &Party) -> (Route, Cost) {
@@ -256,8 +256,8 @@ fn event_pool() -> Vec<Version> {
     ]
 }
 
-/// The party pool: the seed, deep and diverted unary spines,
-/// scattered ownership, and every exhaustive small-scope id that owns anything.
+/// The party pool: the seed, deep and diverted unary spines, scattered
+/// ownership, and every exhaustive small-scope id that owns anything.
 fn party_pool() -> Vec<Party> {
     let mut pool = vec![
         Party::seed(),
@@ -284,8 +284,8 @@ fn party_pool() -> Vec<Party> {
 /// asserts) moves this pin.
 const FAMILY_GROW_PAIRS: usize = 182;
 
-/// Every grow-branch event-family × party-family pair ticks
-/// byte-identically to the recursive oracle's inflation.
+/// Every grow-branch event-family × party-family pair ticks byte-identically to
+/// the recursive oracle's inflation.
 ///
 /// Each pair also validates and probes route-identically to the recursive
 /// reference, and the grow-branch coverage count is pinned exactly.
@@ -314,8 +314,8 @@ fn family_pairs_grow_identically() {
 /// [`FAMILY_GROW_PAIRS`]).
 const EXHAUSTIVE_GROW_PAIRS: usize = 114_621;
 
-/// Exhaustive small scope: every grow-branch pair grows identically
-/// to the oracle and the brute force.
+/// Exhaustive small scope: every grow-branch pair grows identically to the
+/// oracle and the brute force.
 ///
 /// Each normal-form event tree × owning normal-form id on the grow branch must
 /// tick byte-identically to the recursive oracle's inflation AND to the
@@ -428,19 +428,19 @@ const DEEP_SPINE_DEPTH: usize = 4096;
 
 /// The stack the deep-spine test reserves per level of the reference probe.
 ///
-/// The probe's frame measures 112 bytes per level on x86_64 in the dev
-/// profile, which builds `before` at opt-level 2, read as the span of stack
-/// addresses its recursion covers over a [`DEEP_SPINE_DEPTH`]-level party. A
-/// KiB per level leaves roughly nine times that, for targets and codegen
-/// settings with wider frames.
+/// The probe's frame measures 112 bytes per level on x86_64 in the dev profile,
+/// which builds `before` at opt-level 2, read as the span of stack addresses
+/// its recursion covers over a [`DEEP_SPINE_DEPTH`]-level party. A KiB per
+/// level leaves roughly nine times that, for targets and codegen settings with
+/// wider frames.
 const PROBE_LEVEL_STACK: usize = 1024;
 
-/// The deep-spine test thread's stack: [`PROBE_LEVEL_STACK`] for each frame
-/// of the reference probe's recursion, plus libtest's default 2 MiB test
-/// stack for everything else the test runs.
+/// The deep-spine test thread's stack: [`PROBE_LEVEL_STACK`] for each frame of
+/// the reference probe's recursion, plus libtest's default 2 MiB test stack for
+/// everything else the test runs.
 ///
-/// Over a spine of [`DEEP_SPINE_DEPTH`] branches, the probe holds one frame
-/// per branch, one at the owned leaf, and one for the full regime below it.
+/// Over a spine of [`DEEP_SPINE_DEPTH`] branches, the probe holds one frame per
+/// branch, one at the owned leaf, and one for the full regime below it.
 const DEEP_SPINE_STACK: usize = (DEEP_SPINE_DEPTH + 2) * PROBE_LEVEL_STACK + 2 * 1024 * 1024;
 
 /// The version that is `1` on the leftmost `2^-depth` interval and `0`
@@ -448,30 +448,30 @@ const DEEP_SPINE_STACK: usize = (DEEP_SPINE_DEPTH + 2) * PROBE_LEVEL_STACK + 2 *
 /// the bottom left.
 ///
 /// Built by projecting a uniform version onto the party that owns that
-/// interval, so the expected spine comes from the projection kernel rather
-/// than from the grow walk under test.
+/// interval, so the expected spine comes from the projection kernel rather than
+/// from the grow walk under test.
 fn left_spike(depth: usize) -> Version {
     spike(std::iter::repeat_n(true, depth))
 }
 
-/// Deep spines in the grow branch grow to the right value along the
-/// reference route, [`DEEP_SPINE_DEPTH`] levels deep.
+/// Deep spines in the grow branch grow to the right value along the reference
+/// route, [`DEEP_SPINE_DEPTH`] levels deep.
 ///
 /// The regimes: a deep expansion chain (unary id spine over one leaf) and a
 /// deep two-cursor descent mixing into an id-only expansion where the id
-/// outruns the event. Stack safety at a depth that overflows any walk keeping
-/// a frame per level is `clock::tests::deep_tree_stack_safety`'s claim, which
+/// outruns the event. Stack safety at a depth that overflows any walk keeping a
+/// frame per level is `clock::tests::deep_tree_stack_safety`'s claim, which
 /// ticks the grow branch over a far deeper spine.
 ///
-/// The recursive oracle's traversals run on native frames, so the value witnesses here are
-/// closed forms, derived per case: the deep unary id over the empty version
-/// grows the expansion chain to its owned tip, the left spike; and over the
-/// deep alternating spine the same id turns left into the spine's depth-2 zero
-/// leaf, so the forced route raises exactly the owned region from 0 to 1: the
-/// pointwise max with the spike. Each max is realized through the
-/// independently-pinned join kernel and is byte-exact by canonical uniqueness;
-/// canonicality and the route pin ride along. The route pin's reference probe
-/// recurses on native frames, so the test runs on a thread of
+/// The recursive oracle's traversals run on native frames, so the value
+/// witnesses here are closed forms, derived per case: the deep unary id over
+/// the empty version grows the expansion chain to its owned tip, the left
+/// spike; and over the deep alternating spine the same id turns left into the
+/// spine's depth-2 zero leaf, so the forced route raises exactly the owned
+/// region from 0 to 1: the pointwise max with the spike. Each max is realized
+/// through the independently-pinned join kernel and is byte-exact by canonical
+/// uniqueness; canonicality and the route pin ride along. The route pin's
+/// reference probe recurses on native frames, so the test runs on a thread of
 /// [`DEEP_SPINE_STACK`] bytes.
 #[test]
 fn deep_spines_grow_identically() {

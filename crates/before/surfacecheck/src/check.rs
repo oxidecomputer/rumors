@@ -1,17 +1,17 @@
 //! The judgment: extracted surface against the resource board, pinned censuses,
 //! committed exceptions, and scan-liveness anchors.
 //!
-//! Functions reconcile against the board's per-operation inventory.
-//! Trait impls, non-function items, and `usize` signatures reconcile against
-//! the pinned lists in [`crate::census`]. Every exception is named and reasoned,
-//! the registry exemption-list discipline, and every exception and
-//! census entry must still *match* something: an entry whose item
-//! vanished is a dead entry this check fails on, so the lists are
-//! self-pruning. The anchors are the extractor's liveness floor: a traversal
-//! that returns nothing (or the wrong tree) cannot pass, because two
-//! known-public items must be present by name; the censuses need no
-//! separate anchor because their reconciliation is two-way: an impl
-//! traversal that goes silent orphans every pinned row at once.
+//! Functions reconcile against the board's per-operation inventory. Trait
+//! impls, non-function items, and `usize` signatures reconcile against the
+//! pinned lists in [`crate::census`]. Every exception is named and reasoned,
+//! the registry exemption-list discipline, and every exception and census entry
+//! must still *match* something: an entry whose item vanished is a dead entry
+//! this check fails on, so the lists are self-pruning. The anchors are the
+//! extractor's liveness floor: a traversal that returns nothing (or the wrong
+//! tree) cannot pass, because two known-public items must be present by name;
+//! the censuses need no separate anchor because their reconciliation is
+//! two-way: an impl traversal that goes silent orphans every pinned row at
+//! once.
 
 use std::collections::BTreeSet;
 
@@ -23,8 +23,8 @@ mod tests;
 
 /// One named exception: public surface deliberately outside the board.
 pub(crate) struct Exception {
-    /// The extracted name (item exceptions) or `::`-terminated path
-    /// prefix (module exceptions) this exception covers.
+    /// The extracted name (item exceptions) or `::`-terminated path prefix
+    /// (module exceptions) this exception covers.
     pub name: &'static str,
     /// Why the board does not apply to this surface.
     pub reason: &'static str,
@@ -35,9 +35,9 @@ pub(crate) struct Exception {
 /// the board inventory.
 pub(crate) const ITEM_EXCEPTIONS: &[Exception] = &[];
 
-/// Module-scope exceptions: entire public trees deliberately outside the
-/// board inventory. Each is a feature-gated instrument surface with its own
-/// totality discipline.
+/// Module-scope exceptions: entire public trees deliberately outside the board
+/// inventory. Each is a feature-gated instrument surface with its own totality
+/// discipline.
 ///
 /// Prefixes must end in `::` so they can never match a sibling module by
 /// accident.
@@ -66,12 +66,12 @@ pub(crate) const MODULE_EXCEPTIONS: &[Exception] = &[
     },
 ];
 
-/// The extractor's liveness anchors: known-public items that must be
-/// extracted by name, so a traversal that silently returns nothing (or traverses
-/// the wrong tree) reads red instead of green.
+/// The extractor's liveness anchors: known-public items that must be extracted
+/// by name, so a traversal that silently returns nothing (or traverses the
+/// wrong tree) reads red instead of green.
 ///
-/// One root re-export method and one public-module free function, so
-/// both naming paths (bare `Type::fn`, `module::fn`) are proven live.
+/// One root re-export method and one public-module free function, so both
+/// naming paths (bare `Type::fn`, `module::fn`) are proven live.
 pub(crate) const ANCHORS: &[&str] = &["Party::seed", "causally::all"];
 
 /// The pinned censuses a sweep reconciles against, one list per category.
@@ -96,8 +96,8 @@ pub(crate) struct Findings {
     pub unpinned_impls: Vec<String>,
     /// Census impl pins naming no reachable trait impl.
     pub orphaned_impls: Vec<String>,
-    /// Reachable consts, statics, associated types, or macros with no
-    /// census pin and no module exception.
+    /// Reachable consts, statics, associated types, or macros with no census
+    /// pin and no module exception.
     pub unpinned_items: Vec<String>,
     /// Census item pins naming no reachable item.
     pub orphaned_items: Vec<String>,
@@ -106,8 +106,8 @@ pub(crate) struct Findings {
     pub unpinned_usize_signatures: Vec<String>,
     /// Census `usize` pins naming no reachable signature.
     pub orphaned_usize_signatures: Vec<String>,
-    /// Item exceptions matching no extracted item, or also covered by a
-    /// board row.
+    /// Item exceptions matching no extracted item, or also covered by a board
+    /// row.
     pub dead_item_exceptions: Vec<String>,
     /// Module exceptions matching nothing in any extracted category.
     pub dead_module_exceptions: Vec<String>,
@@ -124,8 +124,7 @@ impl Findings {
         *self == Findings::default()
     }
 
-    /// The findings as a report, one guidance-bearing block per
-    /// category.
+    /// The findings as a report, one guidance-bearing block per category.
     pub fn render(&self) -> String {
         let mut out = String::new();
         let mut block = |title: &str, guidance: &str, names: &[String]| {
@@ -233,9 +232,8 @@ pub(crate) fn reconcile(surface: &Surface, board: &BTreeSet<&str>) -> Findings {
     )
 }
 
-/// [`reconcile`] over explicit exception, anchor, and census tables, so
-/// the judgment is a pure function the unit tests drive with synthetic
-/// inputs.
+/// [`reconcile`] over explicit exception, anchor, and census tables, so the
+/// judgment is a pure function the unit tests drive with synthetic inputs.
 pub(crate) fn reconcile_with(
     surface: &Surface,
     board: &BTreeSet<&str>,

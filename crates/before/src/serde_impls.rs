@@ -2,20 +2,20 @@
 //!
 //! Binary formats use each type's canonical byte encoding and strict decoder.
 //! The deserializers also accept two bridgings between byte strings and
-//! sequences: a byte string that a format presents as a sequence of its
-//! bytes, where a sequence is requested, and a sequence of byte-sized
-//! integers where bytes are requested. CBOR makes both: it decodes a byte
-//! string as [`Count`]'s limbs, and an array of byte-sized integers as the
-//! bytes of a byte-encoded type. The content must still be canonical.
-//! Human-readable formats use the public text forms for scalar values and
-//! named records for composite values.
+//! sequences: a byte string that a format presents as a sequence of its bytes,
+//! where a sequence is requested, and a sequence of byte-sized integers where
+//! bytes are requested. CBOR makes both: it decodes a byte string as
+//! [`Count`]'s limbs, and an array of byte-sized integers as the bytes of a
+//! byte-encoded type. The content must still be canonical. Human-readable
+//! formats use the public text forms for scalar values and named records for
+//! composite values.
 //!
 //! A composite also deserializes from its fields in order, as a sequence or
-//! keyed by position, because headerless csv and `rmp-serde`'s tuple mode
-//! write structs that way and a visitor cannot tell which format called it.
-//! Named keys may come in any order and as bytes. A record that omits,
-//! repeats, or adds a field is rejected. The derived `Deserialize` of the
-//! records below does all of this; a hand-written one must too.
+//! keyed by position, because headerless csv and `rmp-serde`'s tuple mode write
+//! structs that way and a visitor cannot tell which format called it. Named
+//! keys may come in any order and as bytes. A record that omits, repeats, or
+//! adds a field is rejected. The derived `Deserialize` of the records below
+//! does all of this; a hand-written one must too.
 //!
 //! Deserializing a [`Party`] or [`Clock`] duplicates identity exactly as
 //! [`Party::decode`]/[`Clock::decode`] do: nothing ties serialized bytes to

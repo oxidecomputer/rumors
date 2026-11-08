@@ -1,30 +1,35 @@
 //! Bookmark recovery preserves durable write history and identity ownership.
 //!
-//! The simulator generates sends, redactions, sessions, crashes, and retirement,
-//! with wire and storage failures. Wire faults affect ordinary gossip;
-//! bootstrap and retirement use clean connections but may fail through storage.
-//! Each network descends from its own seed; histories from different networks
-//! are never compared or reconciled.
+//! The simulator generates sends, redactions, sessions, crashes, and
+//! retirement, with wire and storage failures. Wire faults affect ordinary
+//! gossip; bootstrap and retirement use clean connections but may fail through
+//! storage. Each network descends from its own seed; histories from different
+//! networks are never compared or reconciled.
 //!
 //! A local change becomes durable for these checks when its bookmark records it
 //! or another replica learns it. Changes lost before either event may disappear
 //! with their emitter. The tests check three independent consequences:
 //!
-//! - Every live identity is disjoint from the other live identities in its network.
+//! - Every live identity is disjoint from the other live identities in its
+//!   network.
 //! - Its replica knows all durable writes made within the region it now owns.
-//!   This catches premature recovery before a subsequent send can reuse a version.
-//! - Successful synchronization preserves unredacted messages, and a final clean
-//!   heal converges. Version-order checks also reject repeated durable emissions.
+//!   This catches premature recovery before a subsequent send can reuse a
+//!   version.
+//! - Successful synchronization preserves unredacted messages, and a final
+//!   clean heal converges. Version-order checks also reject repeated durable
+//!   emissions.
 //!
 //! The ordinary plans finish each session before taking another step. The
-//! `concurrent` suite holds bootstrap forks in flight while generated operations
-//! advance the fleet, then completes or cancels the bootstraps and tests recovery.
-//! The storage-window suite separately controls pauses inside individual stores.
+//! `concurrent` suite holds bootstrap forks in flight while generated
+//! operations advance the fleet, then completes or cancels the bootstraps and
+//! tests recovery. The storage-window suite separately controls pauses inside
+//! individual stores.
 //!
 //! All sessions use the closed-world poller, so a stalled in-memory exchange
-//! fails locally. Plans fix message IDs, network IDs, faults, and operation order.
-//! Tokio's internal `select!` ordering can still change which frame meets a wire
-//! cut; clean schedules replay exactly, while faulted schedules retain that limit.
+//! fails locally. Plans fix message IDs, network IDs, faults, and operation
+//! order. Tokio's internal `select!` ordering can still change which frame
+//! meets a wire cut; clean schedules replay exactly, while faulted schedules
+//! retain that limit.
 
 use rumors_testkit::common;
 #[path = "bookmark_causality/concurrent.rs"]
@@ -58,12 +63,12 @@ type Msg = u64;
 /// The network seed of the deterministic scenarios: the seed of their
 /// [`World`]'s network RNG.
 ///
-/// Each universe a world creates draws its network's secret from that
-/// stream, and with it its [`Network`] identifier; the identifiers decide
-/// the `(min_ticks, network)` tie-break between fresh peers. A scenario
-/// pins one path through those tie-breaks, so its seed stays fixed; the
-/// properties draw theirs. The stream is ChaCha, whose output for a seed is
-/// fixed across platforms and `rand` versions.
+/// Each universe a world creates draws its network's secret from that stream,
+/// and with it its [`Network`] identifier; the identifiers decide the
+/// `(min_ticks, network)` tie-break between fresh peers. A scenario pins one
+/// path through those tie-breaks, so its seed stays fixed; the properties draw
+/// theirs. The stream is ChaCha, whose output for a seed is fixed across
+/// platforms and `rand` versions.
 const SCENARIO_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0);
 
 /// A hard ceiling on heal-phase full-mesh rounds, per peer. A correct fleet
@@ -166,8 +171,8 @@ fn store_covers(record: &BTreeMap<Network, Vec<before::Clock>>, emission: &Emiss
 /// Decode the id-regions a node has durably checkpointed for `network`, via the
 /// same encode/decode round trip the bookmark itself makes.
 ///
-/// A region recorded here can still be reclaimed after a crash, so it counts
-/// as recoverable rather than lost.
+/// A region recorded here can still be reclaimed after a crash, so it counts as
+/// recoverable rather than lost.
 fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
     persisted_record(store)
         .into_iter()
@@ -225,14 +230,15 @@ struct Node {
     /// The network this node currently belongs to (its last-known one while
     /// dormant), so a revival rejoins the right universe.
     network: Network,
-    /// Emissions made by this incarnation that are not yet known to the network:
-    /// neither persisted nor seen by another peer, so still erasable by a crash.
-    /// Promoted to the durable [`EmissionLog`] once persisted or propagated.
+    /// Emissions made by this incarnation that are not yet known to the
+    /// network: neither persisted nor seen by another peer, so still erasable
+    /// by a crash. Promoted to the durable [`EmissionLog`] once persisted or
+    /// propagated.
     pending: Vec<Emission>,
     /// Redactions made by this incarnation that no other peer has seen.
     ///
-    /// A crash discards them with the incarnation, and the message they
-    /// deleted stays owed to the fleet. Promoted to the network's ledger
+    /// A crash discards them with the incarnation, and the message they deleted
+    /// stays owed to the fleet. Promoted to the network's ledger
     /// ([`World::redacted`]) once another live peer's frontier dominates the
     /// redacter's.
     pending_redactions: Vec<Redacted>,
@@ -278,11 +284,12 @@ struct World {
     emissions: EmissionLog,
     /// Unique payload for the next send.
     next_seq: u64,
-    /// Durable own-write progress, including records that a later store removes.
+    /// Durable own-write progress, including records that a later store
+    /// removes.
     protected: BTreeMap<Network, Version>,
-    /// The source of every universe's [`Network`] identifier, seeded from
-    /// the world's network seed, so a run replays its tie-breaks between
-    /// fresh peers.
+    /// The source of every universe's [`Network`] identifier, seeded from the
+    /// world's network seed, so a run replays its tie-breaks between fresh
+    /// peers.
     rng: ChaChaRng,
     /// Every network this world has seeded, to assert they are pairwise
     /// distinct: two universes sharing an identifier would gossip as one
@@ -291,18 +298,18 @@ struct World {
     /// The path this world took through every place a network identifier
     /// decides the outcome, which a reconstructed counterexample pins.
     path: Vec<PathEvent>,
-    /// Every redaction the network has learned of, by network: the messages
-    /// a session or the heal may legitimately end without.
+    /// Every redaction the network has learned of, by network: the messages a
+    /// session or the heal may legitimately end without.
     ///
     /// A redaction is modeled like an emission: it waits in its redacter's
     /// [`pending_redactions`](Node::pending_redactions) until some other live
-    /// peer's frontier dominates the redacter's (the deletion propagated),
-    /// and a crash before then discards it, so a message whose only
-    /// redaction died with its redacter stays owed to the fleet.
+    /// peer's frontier dominates the redacter's (the deletion propagated), and
+    /// a crash before then discards it, so a message whose only redaction died
+    /// with its redacter stays owed to the fleet.
     redacted: BTreeMap<Network, Vec<Redacted>>,
-    /// The winning network's live content when the heal began, and the
-    /// network itself: what [`assert_healed`](World::assert_healed) holds the
-    /// converged fleet to, less the ledger. `None` until a heal has run.
+    /// The winning network's live content when the heal began, and the network
+    /// itself: what [`assert_healed`](World::assert_healed) holds the converged
+    /// fleet to, less the ledger. `None` until a heal has run.
     heal_start: Option<(Network, BTreeSet<u64>)>,
 }
 
@@ -322,8 +329,8 @@ struct Redacted {
 }
 
 /// One step of the path a plan takes through the places where a universe's
-/// identifier decides what happens; the reconstructed counterexamples pin
-/// the whole path.
+/// identifier decides what happens; the reconstructed counterexamples pin the
+/// whole path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PathEvent {
     /// A cross-network session resolved: `loser` re-bootstraps into `winner`.
@@ -339,8 +346,7 @@ enum PathEvent {
 }
 
 impl World {
-    /// A world with no nodes yet, whose network RNG starts from
-    /// `network_seed`.
+    /// A world with no nodes yet, whose network RNG starts from `network_seed`.
     fn empty(network_seed: NetworkSeed) -> Self {
         World {
             nodes: Vec::new(),
@@ -375,8 +381,8 @@ impl World {
         peer
     }
 
-    /// Build `n` nodes, each its own freshly-seeded universe, with
-    /// identifiers from `network_seed`'s stream.
+    /// Build `n` nodes, each its own freshly-seeded universe, with identifiers
+    /// from `network_seed`'s stream.
     fn seed(
         n: usize,
         read_faults: Vec<Vec<bool>>,
@@ -409,17 +415,16 @@ impl World {
     /// Build `n` nodes that all share *one* network: node 0 seeds it, and nodes
     /// `1..n` bootstrap into it over clean wires.
     ///
-    /// Every bookmark is reliable (an
-    /// empty fault schedule never fails), the precondition the leakage property
-    /// rests on.
+    /// Every bookmark is reliable (an empty fault schedule never fails), the
+    /// precondition the leakage property rests on.
     ///
     /// Unlike [`seed`](World::seed), which starts the fleet fragmented into
     /// per-peer universes and lets [`heal`](World::heal) force-collapse them, a
-    /// single shared seed means the id-space is partitioned *once* and then only
-    /// moves between peers by donation and reclaim. That is what makes coverage
-    /// (`fold` of all live and checkpointed regions equals [`Party::seed`])
-    /// meaningful: a region a recovery drops shows up as a genuine gap rather
-    /// than being re-created by a fresh fork.
+    /// single shared seed means the id-space is partitioned *once* and then
+    /// only moves between peers by donation and reclaim. That is what makes
+    /// coverage (`fold` of all live and checkpointed regions equals
+    /// [`Party::seed`]) meaningful: a region a recovery drops shows up as a
+    /// genuine gap rather than being re-created by a fresh fork.
     fn single_network(n: usize, network_seed: NetworkSeed) -> Self {
         assert!(n >= 1, "a fleet needs at least one node");
         let reliable = || Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
@@ -487,10 +492,10 @@ impl World {
     /// Whether some peer *other than* `who` is live in `who`'s network: a peer
     /// `who` could reboot from.
     ///
-    /// The leakage simulation refuses any crash that
-    /// would leave this false, so a restarted party always has a live member to
-    /// reclaim its identity from — the precondition that "every party which
-    /// restarted eventually restores itself" demands.
+    /// The leakage simulation refuses any crash that would leave this false, so
+    /// a restarted party always has a live member to reclaim its identity from
+    /// — the precondition that "every party which restarted eventually restores
+    /// itself" demands.
     fn other_live_in_network(&self, who: usize) -> bool {
         let network = self.nodes[who].network;
         (0..self.n())
@@ -513,9 +518,9 @@ impl World {
             .unwrap_or_default()
     }
 
-    /// After a session both sides completed, every message `expected`
-    /// (what the sides held before it, less the network's ledger) is live at
-    /// each of `sides`.
+    /// After a session both sides completed, every message `expected` (what the
+    /// sides held before it, less the network's ledger) is live at each of
+    /// `sides`.
     ///
     /// The recycle check by consequence at session granularity: a reclaimed
     /// region's re-issued versions make the causal sieve delete the message
@@ -523,13 +528,13 @@ impl World {
     /// long before the heal. Sound because a correct bookmark's frontier
     /// dominates a durable emission only by having merged it or a redacter's
     /// frontier, so the ledger's entries are the only legitimate losses.
-    /// Complete because the session contract commits whole or not at all:
-    /// on `Err` the replica's content is unchanged, and the exceptions
+    /// Complete because the session contract commits whole or not at all: on
+    /// `Err` the replica's content is unchanged, and the exceptions
     /// (`Epilogue`, and a `Bookmark` error after absorbing a retiree) commit
     /// the session whole, so a destruction cannot hide inside an unchecked
-    /// failed session; `expected` is recomputed from live content before
-    /// every session, so a partial commit could never have produced a false
-    /// positive either way.
+    /// failed session; `expected` is recomputed from live content before every
+    /// session, so a partial commit could never have produced a false positive
+    /// either way.
     fn assert_session_preserved(
         &self,
         step: &str,
@@ -555,9 +560,9 @@ impl World {
         self.nodes[who].faults.lock().unwrap().may_fail()
     }
 
-    /// Whether a session between `a` and `b` can fail for a reason other
-    /// than a crate bug or a network mismatch: a wire cut scheduled on either
-    /// side, or a bookmark fault still queued on either side's feed.
+    /// Whether a session between `a` and `b` can fail for a reason other than a
+    /// crate bug or a network mismatch: a wire cut scheduled on either side, or
+    /// a bookmark fault still queued on either side's feed.
     ///
     /// Decided before the session, since the session consumes the schedule.
     fn session_may_fail(&self, a: usize, b: usize, fault_a: FaultPlan, fault_b: FaultPlan) -> bool {
@@ -650,8 +655,8 @@ impl World {
     /// propagated remains pending, erasable by a crash with no recycle.
     ///
     /// A pending redaction is promoted to the network's ledger by the second
-    /// route only: a persisted frontier carries no deletion to anyone, so
-    /// only propagation makes a redaction one the fleet has learned of.
+    /// route only: a persisted frontier carries no deletion to anyone, so only
+    /// propagation makes a redaction one the fleet has learned of.
     fn secure(&mut self, who: usize) {
         let record = persisted_record(&self.nodes[who].store);
         for (network, clocks) in &record {
@@ -709,11 +714,10 @@ impl World {
 
     /// Secure what is now known to the network, then discard the rest.
     ///
-    /// `who`'s
-    /// in-memory state is about to vanish (a crash or a re-bootstrap), so any
-    /// emission that was neither persisted nor seen by another peer is lost —
-    /// never known to the network, and so no later reuse of its version is a
-    /// recycle.
+    /// `who`'s in-memory state is about to vanish (a crash or a re-bootstrap),
+    /// so any emission that was neither persisted nor seen by another peer is
+    /// lost — never known to the network, and so no later reuse of its version
+    /// is a recycle.
     fn secure_and_lose(&mut self, who: usize) {
         self.secure(who);
         self.nodes[who].pending.clear();
@@ -730,12 +734,12 @@ impl World {
     /// Run one gossip session between `a` and `b` over a wire faulted per
     /// `fault_a`/`fault_b`.
     ///
-    /// A cross-network pair surfaces
-    /// [`Mismatch::Network`] on at least one side; the loser of the
-    /// `(min_ticks, network)` tie-break re-bootstraps into the winner. Any other
-    /// error is a disruption, admitted only when the step scheduled a fault
-    /// or met a mismatch; a step that cannot fail must succeed on both sides,
-    /// and a session both sides complete loses no unredacted message.
+    /// A cross-network pair surfaces [`Mismatch::Network`] on at least one
+    /// side; the loser of the `(min_ticks, network)` tie-break re-bootstraps
+    /// into the winner. Any other error is a disruption, admitted only when the
+    /// step scheduled a fault or met a mismatch; a step that cannot fail must
+    /// succeed on both sides, and a session both sides complete loses no
+    /// unredacted message.
     fn gossip(&mut self, a: usize, b: usize, fault_a: FaultPlan, fault_b: FaultPlan) {
         if a == b {
             return;
@@ -836,19 +840,19 @@ impl World {
         Some((rumors.snapshot().latest().min_ticks(), rumors.network()))
     }
 
-    /// (Re)create `who` as a fresh replica in `server`'s network by bootstrapping
-    /// from it over a clean wire.
+    /// (Re)create `who` as a fresh replica in `server`'s network by
+    /// bootstrapping from it over a clean wire.
     ///
-    /// Reuses `who`'s durable store (so it reclaims
-    /// any of its own identity the pulled frontier now dominates) and its still-
-    /// active fault schedule. Returns whether `who` is live afterwards.
+    /// Reuses `who`'s durable store (so it reclaims any of its own identity the
+    /// pulled frontier now dominates) and its still- active fault schedule.
+    /// Returns whether `who` is live afterwards.
     ///
     /// The bootstrap's wire is clean so the fleet can make progress, but the
-    /// bookmarks on both sides stay flaky: the server's donating `slice`/`write`
-    /// and `who`'s eager identity persist can each fail, which is precisely the
-    /// adversarial persistence path. On any failure `who` is left dormant for a
-    /// later attempt. Over reliable bookmarks nothing can fail, and the step
-    /// asserts that both sides succeed.
+    /// bookmarks on both sides stay flaky: the server's donating
+    /// `slice`/`write` and `who`'s eager identity persist can each fail, which
+    /// is precisely the adversarial persistence path. On any failure `who` is
+    /// left dormant for a later attempt. Over reliable bookmarks nothing can
+    /// fail, and the step asserts that both sides succeed.
     fn bootstrap_into(&mut self, who: usize, server: usize) -> bool {
         let Some(server_rumors) = self.nodes[server].live() else {
             return false;
@@ -960,9 +964,9 @@ impl World {
         }
     }
 
-    /// Bring `who` back to life if it is dormant: rejoin its last network from a
-    /// live member if one remains (reclaiming its stranded identity), else seed
-    /// a brand-new universe (the degenerate solo recovery).
+    /// Bring `who` back to life if it is dormant: rejoin its last network from
+    /// a live member if one remains (reclaiming its stranded identity), else
+    /// seed a brand-new universe (the degenerate solo recovery).
     fn revive(&mut self, who: usize) {
         if self.nodes[who].is_live() {
             return;
@@ -997,12 +1001,12 @@ impl World {
 
     /// Retire `retiree` into `absorber`, donating its identity.
     ///
-    /// Same-network
-    /// only: a cross-network retire cannot be absorbed, so it is skipped. The
-    /// retiree's durable store may later resurrect it -- exercising party reuse
-    /// across a donation, where a failed `slice` would let the donated region
-    /// live twice. Over reliable bookmarks the clean-wire retirement cannot
-    /// fail: the absorber must succeed and the retiree must report `Retired`.
+    /// Same-network only: a cross-network retire cannot be absorbed, so it is
+    /// skipped. The retiree's durable store may later resurrect it
+    /// -- exercising party reuse across a donation, where a failed `slice`
+    /// would let the donated region live twice. Over reliable bookmarks the
+    /// clean-wire retirement cannot fail: the absorber must succeed and the
+    /// retiree must report `Retired`.
     fn retire(&mut self, retiree: usize, absorber: usize) {
         if retiree == absorber {
             return;
@@ -1249,8 +1253,8 @@ impl World {
     }
 
     /// Give every live peer one checkpoint taken after it has caught up and
-    /// with no fork reserved: a local change, then a clean session to carry
-    /// it. Run this after a heal, so that each checkpoint sees the converged
+    /// with no fork reserved: a local change, then a clean session to carry it.
+    /// Run this after a heal, so that each checkpoint sees the converged
     /// frontier.
     fn settle(&mut self) {
         let live: Vec<usize> = (0..self.n()).filter(|&k| self.nodes[k].is_live()).collect();
@@ -1318,8 +1322,8 @@ impl World {
         self.assert_durable_content_survived(&live);
     }
 
-    /// Every message live in the winning network when the heal began, and
-    /// never redacted there, is live at every peer after it.
+    /// Every message live in the winning network when the heal began, and never
+    /// redacted there, is live at every peer after it.
     ///
     /// The heal-window half of the recycle check by consequence
     /// ([`assert_session_preserved`](World::assert_session_preserved) is the
@@ -1364,8 +1368,8 @@ impl World {
     /// fault-free heal, every surviving live message must have an exact durable
     /// emission witness.
     ///
-    /// The witness must exist because the converged fleet has now persisted
-    /// and propagated all surviving content.
+    /// The witness must exist because the converged fleet has now persisted and
+    /// propagated all surviving content.
     fn assert_live_content_is_durable(&self, live: &[usize]) {
         let mut live_leaves = 0;
         for &k in live {
@@ -1396,23 +1400,23 @@ impl World {
     /// After a clean heal of a single-network fleet: no id-region has leaked.
     ///
     /// Every region of the seed identity must be *accounted for* — held by a
-    /// live peer, or checkpointed in some peer's bookmark store, where a crashed
-    /// peer can still reclaim it. Folding all such regions out of
+    /// live peer, or checkpointed in some peer's bookmark store, where a
+    /// crashed peer can still reclaim it. Folding all such regions out of
     /// [`Party::seed`] must leave nothing: a region held nowhere and recorded
     /// nowhere has been lost forever, the leak this property forbids.
     ///
     /// This is the dual of [`assert_healed`](World::assert_healed)'s live-party
     /// disjointness. Disjointness catches a region claimed *twice* (a recovery
-    /// that re-owned a donated region the absorber still holds); coverage catches
-    /// a region claimed *zero* times (a recovery that dropped a fragment). A
-    /// correct retire/reboot leaves the donated region live in its absorber and
-    /// every other fragment live or checkpointed, so both hold.
+    /// that re-owned a donated region the absorber still holds); coverage
+    /// catches a region claimed *zero* times (a recovery that dropped a
+    /// fragment). A correct retire/reboot leaves the donated region live in its
+    /// absorber and every other fragment live or checkpointed, so both hold.
     ///
     /// Counting checkpointed-but-not-live regions is essential, not lenient: a
-    /// reboot reclaims a stored region only once the live frontier dominates its
-    /// recorded version, so a just-rebooted peer may legitimately hold a region
-    /// only in its store, awaiting a later reclaim. That region is recoverable,
-    /// hence not leaked.
+    /// reboot reclaims a stored region only once the live frontier dominates
+    /// its recorded version, so a just-rebooted peer may legitimately hold a
+    /// region only in its store, awaiting a later reclaim. That region is
+    /// recoverable, hence not leaked.
     fn assert_no_leak(&self) {
         // A single-network fleet converges to one network; any live peer names
         // it. The heal guarantees at least one live peer.
@@ -1484,9 +1488,9 @@ struct Plan {
 
 /// Sample sparse failures across a peer's storage calls, or disable failures.
 ///
-/// Successful prefixes let a peer build up checkpoints before a failure.
-/// Sparse positions shrink toward fewer, earlier faults without requiring
-/// every intervening successful call to be an independent generated choice.
+/// Successful prefixes let a peer build up checkpoints before a failure. Sparse
+/// positions shrink toward fewer, earlier faults without requiring every
+/// intervening successful call to be an independent generated choice.
 fn arb_fault_bits(faults: bool) -> BoxedStrategy<Vec<bool>> {
     if !faults {
         return Just(Vec::new()).boxed();
@@ -1519,8 +1523,8 @@ fn arb_step(n: usize, faults: bool) -> BoxedStrategy<Step> {
 }
 
 /// A whole plan. The top-level `faults` boolean is the first thing proptest
-/// shrinks: clearing it disables every wire and bookmark fault, so the loss-free
-/// convergence path is exercised often and shrinks toward cleanly.
+/// shrinks: clearing it disables every wire and bookmark fault, so the
+/// loss-free convergence path is exercised often and shrinks toward cleanly.
 fn arb_plan() -> impl Strategy<Value = Plan> {
     (any::<bool>(), 2usize..=4).prop_flat_map(|(faults, n)| {
         (
@@ -1570,9 +1574,8 @@ fn run_plan(plan: Plan) -> World {
 /// wire is clean ([`FaultPlan::NONE`]) and every bookmark reliable, so the only
 /// adversity is crash/restart and retirement.
 ///
-/// Crash and retire weigh heavier
-/// than in [`arb_step`] because recovery — not fault injection — is the property
-/// under test.
+/// Crash and retire weigh heavier than in [`arb_step`] because recovery — not
+/// fault injection — is the property under test.
 fn arb_reliable_step(n: usize) -> BoxedStrategy<Step> {
     prop_oneof![
         3 => (0..n).prop_map(Step::Send),
@@ -1619,8 +1622,8 @@ fn arb_reliable_plan() -> impl Strategy<Value = Plan> {
 ///
 /// No `World` harness, no faults, one universe, empty content — raw library
 /// calls — so it pins the fix at the library boundary. The trigger is **both**
-/// peers having reclaimed: with only one side rebooted the absorption was always
-/// clean.
+/// peers having reclaimed: with only one side rebooted the absorption was
+/// always clean.
 #[test]
 fn retire_into_rebooted_absorber_absorbs_cleanly() {
     let store_a = Arc::new(Mutex::new(None));
@@ -1757,12 +1760,11 @@ fn run_reliable_plan(plan: Plan) -> World {
     world
 }
 
-/// Negative control for the verifier itself: the log must reject the witness
-/// of a recycled coordinate.
+/// Negative control for the verifier itself: the log must reject the witness of
+/// a recycled coordinate.
 ///
-/// A mutant bookmark that handed out
-/// the same causal coordinate twice would surface as two durable emissions in
-/// one network with equal versions.
+/// A mutant bookmark that handed out the same causal coordinate twice would
+/// surface as two durable emissions in one network with equal versions.
 #[test]
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
@@ -1788,9 +1790,9 @@ fn negative_control_recycled_durable_emission_panics() {
     });
 }
 
-/// Negative control for the session error classifier: each error the
-/// harness deems an unconditional crate bug fails the step it is reported
-/// on, and an injected disruption does not.
+/// Negative control for the session error classifier: each error the harness
+/// deems an unconditional crate bug fails the step it is reported on, and an
+/// injected disruption does not.
 #[test]
 fn negative_control_classifier_rejects_codec_bugs() {
     /// Whether the classifier rejects a synthetic outcome.
@@ -1842,17 +1844,16 @@ fn negative_control_classifier_rejects_codec_bugs() {
     }
 }
 
-/// A message made durable by propagation survives its emitter's crash, a
-/// rejoin from a peer that never saw it, and the emitter's reclaim and later
-/// sends.
+/// A message made durable by propagation survives its emitter's crash, a rejoin
+/// from a peer that never saw it, and the emitter's reclaim and later sends.
 ///
-/// A sends `m` and gossips it to B; C sends three times without meeting `m`;
-/// A crashes, revives from C (the lowest-index live member), gossips with C
-/// so its bookmark update runs, and sends again. A bookmark that re-admits
-/// every stored region on reboot has A' re-issue coordinates below `m`'s,
-/// compared `Greater` to `m`'s version because A' carries C's ticks, and the
-/// heal's sieve deletes `m` fleet-wide: the survival check catches that and
-/// the version order cannot.
+/// A sends `m` and gossips it to B; C sends three times without meeting `m`; A
+/// crashes, revives from C (the lowest-index live member), gossips with C so
+/// its bookmark update runs, and sends again. A bookmark that re-admits every
+/// stored region on reboot has A' re-issue coordinates below `m`'s, compared
+/// `Greater` to `m`'s version because A' carries C's ticks, and the heal's
+/// sieve deletes `m` fleet-wide: the survival check catches that and the
+/// version order cannot.
 #[test]
 fn reconstructed_reclaim_after_crash_keeps_durable_content() {
     let (a, b, c) = (2, 1, 0);
@@ -1892,20 +1893,19 @@ fn reconstructed_reclaim_after_crash_keeps_durable_content() {
     }
 }
 
-/// Known-bad artifact for the survival checks, against unmodified
-/// production code: a stale bookmark record makes a correct `reclaim`
-/// destroy a durable message, and the checks must catch it.
+/// Known-bad artifact for the survival checks, against unmodified production
+/// code: a stale bookmark record makes a correct `reclaim` destroy a durable
+/// message, and the checks must catch it.
 ///
 /// The shape of [`reconstructed_reclaim_after_crash_keeps_durable_content`]
-/// with one change: A's store is snapshotted right after the fleet forms
-/// and put back after A's crash, so A' reboots from a record that predates
-/// `m` (the lost-write hazard the bookmark's own docs describe). C's
-/// frontier dominates that stale record, so A''s first update reclaims A's
-/// old region, its sends re-issue coordinates below `m`'s, and the next
-/// session with B sieves `m` out of it. That session is the one the
-/// per-session check names, so the pin is on that check alone: without it,
-/// `m` is live nowhere when the heal begins and the heal-window check would
-/// pass.
+/// with one change: A's store is snapshotted right after the fleet forms and
+/// put back after A's crash, so A' reboots from a record that predates `m` (the
+/// lost-write hazard the bookmark's own docs describe). C's frontier dominates
+/// that stale record, so A''s first update reclaims A's old region, its sends
+/// re-issue coordinates below `m`'s, and the next session with B sieves `m` out
+/// of it. That session is the one the per-session check names, so the pin is on
+/// that check alone: without it, `m` is live nowhere when the heal begins and
+/// the heal-window check would pass.
 #[test]
 #[should_panic(expected = "before gossip 2<->1")]
 fn known_bad_stale_record_destroys_durable_content() {
@@ -1934,13 +1934,13 @@ fn known_bad_stale_record_destroys_durable_content() {
     world.assert_healed();
 }
 
-/// Negative control for the survival check: a message that left the fleet
-/// fails the check unless the ledger accounts for it.
+/// Negative control for the survival check: a message that left the fleet fails
+/// the check unless the ledger accounts for it.
 ///
-/// One peer redacts a propagated message and the heal carries the
-/// redaction everywhere; with the ledger emptied the same converged fleet
-/// fails the check naming the message, which is what a destroyed message or
-/// an unrecorded redaction looks like.
+/// One peer redacts a propagated message and the heal carries the redaction
+/// everywhere; with the ledger emptied the same converged fleet fails the check
+/// naming the message, which is what a destroyed message or an unrecorded
+/// redaction looks like.
 #[test]
 fn negative_control_unledgered_loss_fails_the_survival_check() {
     let mut world = World::single_network(2, SCENARIO_NETWORK_SEED);
@@ -2053,11 +2053,11 @@ proptest! {
 /// Reconstructed counterexample: both peers crash around a send, then the
 /// crashed-and-rebooted peer retires into the sender.
 ///
-/// The bookmark must not recycle a version across the crash/retire
-/// pair, and the heal must still converge. The path is pinned: each crash
-/// re-seeds its node (neither has a live member to reboot from), the
-/// cross-network retire is skipped, and the heal collapses node 1 into
-/// node 0, whose one send outranks a fresh universe.
+/// The bookmark must not recycle a version across the crash/retire pair, and
+/// the heal must still converge. The path is pinned: each crash re-seeds its
+/// node (neither has a live member to reboot from), the cross-network retire is
+/// skipped, and the heal collapses node 1 into node 0, whose one send outranks
+/// a fresh universe.
 #[test]
 fn reconstructed_crash_pair_then_retire() {
     let world = run_plan(Plan {
@@ -2088,22 +2088,23 @@ fn reconstructed_crash_pair_then_retire() {
     world.assert_healed();
 }
 
-/// The network seed of [`reconstructed_cut_gossip_then_retire_under_bookmark_faults`].
+/// The network seed of
+/// [`reconstructed_cut_gossip_then_retire_under_bookmark_faults`].
 ///
 /// Nodes 1 and 2 meet with equal event counts, so the greater network
 /// identifier wins their mismatch. The identifiers derive from the seeded
-/// secrets, and this seed gives node 1 the greater one, which the plan's
-/// path requires.
+/// secrets, and this seed gives node 1 the greater one, which the plan's path
+/// requires.
 const RECONSTRUCTED_NETWORK_SEED: NetworkSeed = NetworkSeed::new(2);
 
 /// A cut gossip followed by failed retirement must preserve durable versions.
 ///
-/// Both cut budgets limit traffic from node 1 to node 2: one at the writer,
-/// the other at the reader. The session still detects the network mismatch,
-/// after which node 2 joins node 1's network. Storage faults then prevent
-/// node 1 from retiring. The final heal brings both into node 0's network,
-/// where its earlier send must survive. The path assertion checks that the
-/// fixture actually takes these steps.
+/// Both cut budgets limit traffic from node 1 to node 2: one at the writer, the
+/// other at the reader. The session still detects the network mismatch, after
+/// which node 2 joins node 1's network. Storage faults then prevent node 1 from
+/// retiring. The final heal brings both into node 0's network, where its
+/// earlier send must survive. The path assertion checks that the fixture
+/// actually takes these steps.
 #[test]
 fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
     let world = run_plan(Plan {

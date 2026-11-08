@@ -1,21 +1,18 @@
 //! Partition tolerance.
 //!
-//! A network split during which gossip is restricted to one side or
-//! the other, followed by a heal phase, must produce a
-//! self-consistent state: every peer agrees, and the state matches an
-//! oracle constructed from the events that actually applied during
-//! the partitioned execution.
+//! A network split during which gossip is restricted to one side or the other,
+//! followed by a heal phase, must produce a self-consistent state: every peer
+//! agrees, and the state matches an oracle constructed from the events that
+//! actually applied during the partitioned execution.
 //!
-//! We deliberately do *not* compare against an unrestricted run of
-//! the same schedule. Doing so would assume order-independence of
-//! redactions, but a redact event can only happen at peer `P` once
-//! `P` has already observed the targeted message, which depends on the gossip
-//! schedule. A partitioned schedule
-//! may legitimately suppress some redacts (because the targeted peer
-//! hasn't observed the key yet), so the two schedules can converge
-//! to genuinely different states. The meaningful property is
-//! *self-consistency*, not equality with a hypothetical
-//! un-partitioned twin.
+//! We deliberately do *not* compare against an unrestricted run of the same
+//! schedule. Doing so would assume order-independence of redactions, but a
+//! redact event can only happen at peer `P` once `P` has already observed the
+//! targeted message, which depends on the gossip schedule. A partitioned
+//! schedule may legitimately suppress some redacts (because the targeted peer
+//! hasn't observed the key yet), so the two schedules can converge to genuinely
+//! different states. The meaningful property is *self-consistency*, not
+//! equality with a hypothetical un-partitioned twin.
 
 use std::collections::BTreeMap;
 

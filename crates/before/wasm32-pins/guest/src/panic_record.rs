@@ -8,16 +8,16 @@
 //!
 //! The converse is weaker: a trap with nothing recorded means only that no
 //! panic reached the hook. Usually the guest ran out of memory, and that can
-//! happen while a panic is under way. Std formats every panic message that
-//! has runtime arguments into a heap-allocated `String` before it calls the
-//! hook. Every `expect` message is built that way, even when the caller
-//! passes a literal, and so is `Result::unwrap`'s. Such a panic raised after
-//! memory is exhausted aborts while formatting and records nothing. A panic
-//! whose message is a constant with no runtime arguments, such as
-//! `Option::unwrap`'s, needs no allocation and is recorded even then.
+//! happen while a panic is under way. Std formats every panic message that has
+//! runtime arguments into a heap-allocated `String` before it calls the hook.
+//! Every `expect` message is built that way, even when the caller passes a
+//! literal, and so is `Result::unwrap`'s. Such a panic raised after memory is
+//! exhausted aborts while formatting and records nothing. A panic whose message
+//! is a constant with no runtime arguments, such as `Option::unwrap`'s, needs
+//! no allocation and is recorded even then.
 //!
-//! The hook itself copies the message into static storage without
-//! allocating, so recording adds no allocation of its own.
+//! The hook itself copies the message into static storage without allocating,
+//! so recording adds no allocation of its own.
 
 use std::panic::{self, PanicHookInfo};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -69,8 +69,8 @@ fn record(info: &PanicHookInfo<'_>) {
 /// Locks the record.
 ///
 /// A panic aborts this guest without unwinding, so no guard is dropped
-/// mid-panic and the lock is never poisoned; recovering the inner record
-/// keeps the exports total regardless.
+/// mid-panic and the lock is never poisoned; recovering the inner record keeps
+/// the exports total regardless.
 fn lock() -> MutexGuard<'static, PanicRecord> {
     RECORD.lock().unwrap_or_else(PoisonError::into_inner)
 }

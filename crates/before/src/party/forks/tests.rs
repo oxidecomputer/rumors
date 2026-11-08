@@ -345,8 +345,7 @@ impl Plan {
 }
 
 /// A plan's stored remainder equals the remainder its position implies, at
-/// every step, so exhaustion and the size hint follow the shares actually
-/// left.
+/// every step, so exhaustion and the size hint follow the shares actually left.
 ///
 /// Every count through 256 drains completely. Counts wider than `usize`, with
 /// and without extra forks, take real steps from their start; wide powers of
@@ -418,10 +417,10 @@ fn rightmost_leaf(depth: u64) -> Party {
 /// [`TAIL_SHARES`] shares, and its last share is the rightmost leaf at its
 /// depth.
 ///
-/// Each plan takes one real step from its start, skips through
-/// `skip_shares` to its last [`TAIL_SHARES`] shares or every share left, and
-/// drains them through real steps, checking the hint before every step and
-/// exhaustion at the end. A balanced split hands out the rightmost leaf last.
+/// Each plan takes one real step from its start, skips through `skip_shares` to
+/// its last [`TAIL_SHARES`] shares or every share left, and drains them through
+/// real steps, checking the hint before every step and exhaustion at the end. A
+/// balanced split hands out the rightmost leaf last.
 #[test]
 fn every_power_of_two_plan_drains_its_tail_exactly() {
     let party = Party::seed();
@@ -457,14 +456,14 @@ fn every_power_of_two_plan_drains_its_tail_exactly() {
 /// [`MAX_TAIL_DEPTH`], drains its last [`TAIL_SHARES`] children exactly and
 /// leaves the borrower holding every region it has not handed out.
 ///
-/// The size hint before each step must be the exact remainder, and the
-/// iterator must yield exactly that many children.
+/// The size hint before each step must be the exact remainder, and the iterator
+/// must yield exactly that many children.
 ///
 /// Each iterator yields one child through a real step, skips its plan through
 /// `skip_shares` to the last [`TAIL_SHARES`] children or every child left, and
-/// drains them through real steps. The skipped children were never handed
-/// out, so joining the children produced back into the borrowed party must
-/// rebuild the seed.
+/// drains them through real steps. The skipped children were never handed out,
+/// so joining the children produced back into the borrowed party must rebuild
+/// the seed.
 #[test]
 fn every_power_of_two_party_forks_drains_its_tail_and_conserves() {
     for depth in 1..=MAX_TAIL_DEPTH {

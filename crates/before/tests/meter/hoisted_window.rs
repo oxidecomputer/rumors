@@ -1,52 +1,51 @@
 //! A rank family that separates live spans from absolute positions.
 //!
-//! The settle's densified-image span case. The family is the wide-arming
-//! close with its block terminal deepened into a dense tail: the tail
-//! funds no window density, no settle width, and no freeze — its consumed
-//! interval mass is one contiguous run whose balanced spelling compacts
-//! to O(1) digits — but it hoists the absolute digit position of every
-//! settle cluster (the trailing window's punctured run, the block's
-//! banked mass) by ~t/32 base-2^32 digits while every cluster's span
-//! stays put. So across a tail doubling, span-priced work (the walk, the
-//! folds, the settle products, the images the settle densifies) grows
-//! only with the tail's own linear scan work, and work priced by a
-//! cluster's absolute position — the case invisible in operand widths and
-//! accumulator digits, because a zeroed image byte no digit lands on enters
-//! no operand width and touches no accumulator digit — scales with the
-//! knob instead. The fold's time on this family is judged in fuel by the
-//! board's `version_rank` cell.
+//! The settle's densified-image span case. The family is the wide-arming close
+//! with its block terminal deepened into a dense tail: the tail funds no window
+//! density, no settle width, and no freeze — its consumed interval mass is one
+//! contiguous run whose balanced spelling compacts to O(1) digits — but it
+//! hoists the absolute digit position of every settle cluster (the trailing
+//! window's punctured run, the block's banked mass) by ~t/32 base-2^32 digits
+//! while every cluster's span stays put. So across a tail doubling, span-priced
+//! work (the walk, the folds, the settle products, the images the settle
+//! densifies) grows only with the tail's own linear scan work, and work priced
+//! by a cluster's absolute position — the case invisible in operand widths and
+//! accumulator digits, because a zeroed image byte no digit lands on enters no
+//! operand width and touches no accumulator digit — scales with the knob
+//! instead. The fold's time on this family is judged in fuel by the board's
+//! `version_rank` cell.
 
 use super::min_ticks_from_big;
 use before::testing::meter;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
 
-/// Arming width (base-2^32 digits) of every run: the narrowest arming
-/// the settle freeze defers, so the close settles a deferred height
-/// against the trailing window.
+/// Arming width (base-2^32 digits) of every run: the narrowest arming the
+/// settle freeze defers, so the close settles a deferred height against the
+/// trailing window.
 ///
-/// That is wide enough that the window's unit-gap digits sit far inside
-/// every settle factor's cluster gap limit, so the punctured run
-/// densifies as one cluster.
+/// That is wide enough that the window's unit-gap digits sit far inside every
+/// settle factor's cluster gap limit, so the punctured run densifies as one
+/// cluster.
 const HOISTED_WINDOW_WIDTH: usize = meter::MIN_DEFERRED_ARMING_DIGITS;
 
-/// Gap count of every run: the trailing window's punctured digit span,
-/// the family's fixed span axis.
+/// Gap count of every run: the trailing window's punctured digit span, the
+/// family's fixed span axis.
 const HOISTED_WINDOW_GAPS: usize = 40;
 
 /// Tail depth of the band's small run (the large run doubles it).
 ///
-/// A position hoist of ~8× the window span in digits, so span-priced
-/// and position-priced densification separate by nearly an order of
-/// magnitude before the doubling separates them again.
+/// A position hoist of ~8× the window span in digits, so span-priced and
+/// position-priced densification separate by nearly an order of magnitude
+/// before the doubling separates them again.
 const HOISTED_WINDOW_SMALL_TAIL: usize = 10_240;
 
-/// One public `Version::rank` run over `HW(w, d, t)` at the band's
-/// fixed width and gap knobs, with its densification count.
+/// One public `Version::rank` run over `HW(w, d, t)` at the band's fixed width
+/// and gap knobs, with its densification count.
 ///
 /// Carries `min_ticks`' closed form as the cross-fold semantic leg —
-/// tail-independent by construction, so it also proves the tail adds
-/// no stored-base mass.
+/// tail-independent by construction, so it also proves the tail adds no
+/// stored-base mass.
 fn run(t: usize) -> (u64, u64) {
     let v = Shape::HoistedWindow
         .build3(HOISTED_WINDOW_WIDTH, HOISTED_WINDOW_GAPS, t)
@@ -68,46 +67,44 @@ fn run(t: usize) -> (u64, u64) {
     (bytes, meter::densified_digits())
 }
 
-/// Absolute two-scale densify ceilings for rank on the hoisted-window
-/// family: the measured record ×1.25, rounded up (the record and every
-/// re-pin's movement live in the pin commits).
+/// Absolute two-scale densify ceilings for rank on the hoisted-window family:
+/// the measured record ×1.25, rounded up (the record and every re-pin's
+/// movement live in the pin commits).
 ///
-/// Judged absolute, never per byte: the tail doubling adds no window
-/// density and no settle width, so the densified spans — and this
-/// column with them — must not grow across it at all. An image sized
-/// by a cluster's absolute digit position grows with the tail knob —
-/// roughly ×2 across the doubling — while a span-priced column does not
-/// move at all.
+/// Judged absolute, never per byte: the tail doubling adds no window density
+/// and no settle width, so the densified spans — and this column with them —
+/// must not grow across it at all. An image sized by a cluster's absolute digit
+/// position grows with the tail knob — roughly ×2 across the doubling — while a
+/// span-priced column does not move at all.
 const HOISTED_WINDOW_DENSIFY_CEILINGS: [u64; 2] = [210, 210];
 
-/// The densify liveness floor at both scales: two span-wide images for each
-/// of the two charges against the trailing window's punctured cluster.
+/// The densify liveness floor at both scales: two span-wide images for each of
+/// the two charges against the trailing window's punctured cluster.
 ///
-/// The premise is the mechanism's irreducible per-charge work, never a
-/// reading. The family's close settles two charges against the trailing
-/// window: the deferred reduction multiplies the deferred arming by every
-/// width after its deferral, and the final segment multiplies its parked
-/// height by the window. The window's punctured run holds the `d` gap digits
-/// at unit interior gaps — inside every settle factor's cluster gap limit —
-/// so each charge densifies it as one multi-digit cluster of span at least
-/// `d`, and every multi-digit cluster's densification zero-fills two
-/// span-wide images. A run under this floor means the settle stopped
-/// densifying the window for one of those charges: without the deferral,
-/// the descent cancels the parked arming before the window, and only the
-/// final segment's charge remains. Every densify ceiling above the floor
-/// would then be passing over a regime this band does not claim to price.
+/// The premise is the mechanism's irreducible per-charge work, never a reading.
+/// The family's close settles two charges against the trailing window: the
+/// deferred reduction multiplies the deferred arming by every width after its
+/// deferral, and the final segment multiplies its parked height by the window.
+/// The window's punctured run holds the `d` gap digits at unit interior gaps —
+/// inside every settle factor's cluster gap limit — so each charge densifies it
+/// as one multi-digit cluster of span at least `d`, and every multi-digit
+/// cluster's densification zero-fills two span-wide images. A run under this
+/// floor means the settle stopped densifying the window for one of those
+/// charges: without the deferral, the descent cancels the parked arming before
+/// the window, and only the final segment's charge remains. Every densify
+/// ceiling above the floor would then be passing over a regime this band does
+/// not claim to price.
 const HOISTED_WINDOW_DENSIFY_FLOOR: u64 = 4 * HOISTED_WINDOW_GAPS as u64;
 
-/// rank's densified-image fill is span-priced on the hoisted-window
-/// family: the densify column stays within ×1.25 *absolute* across the
-/// tail doubling, under two-scale ceilings and over the four-image
-/// liveness floor.
+/// rank's densified-image fill is span-priced on the hoisted-window family: the
+/// densify column stays within ×1.25 *absolute* across the tail doubling, under
+/// two-scale ceilings and over the four-image liveness floor.
 ///
-/// The tail moves cluster positions only, so this column must not move
-/// with it. Operand widths and accumulator digits cannot express it: an
-/// image sized by a cluster's absolute digit position zero-fills
-/// O(position) bytes per cluster that enter no operand width and touch
-/// no accumulator digit, while this column scales with the tail knob.
+/// The tail moves cluster positions only, so this column must not move with it.
+/// Operand widths and accumulator digits cannot express it: an image sized by a
+/// cluster's absolute digit position zero-fills O(position) bytes per cluster
+/// that enter no operand width and touch no accumulator digit, while this
+/// column scales with the tail knob.
 #[test]
 fn rank_hoisted_window_densify_span_band() {
     let (small_bytes, small_densify) = run(HOISTED_WINDOW_SMALL_TAIL);

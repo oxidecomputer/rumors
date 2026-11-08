@@ -41,8 +41,8 @@ pub struct OwnSpan<'a> {
 }
 
 impl<'a> OwnSpan<'a> {
-    /// The view's lower endpoint, projected: `span.lo() / party`,
-    /// as the lazy [`OwnVersion`] view.
+    /// The view's lower endpoint, projected: `span.lo() / party`, as the lazy
+    /// [`OwnVersion`] view.
     ///
     /// # Complexity
     ///
@@ -65,8 +65,8 @@ impl<'a> OwnSpan<'a> {
         self.span.lo() / self.party
     }
 
-    /// The view's upper endpoint, projected: `span.hi() / party`,
-    /// dually to [`lo`](Self::lo).
+    /// The view's upper endpoint, projected: `span.hi() / party`, dually to
+    /// [`lo`](Self::lo).
     ///
     /// # Complexity
     ///
@@ -135,19 +135,19 @@ impl<'a> OwnSpan<'a> {
         }
     }
 
-    /// Determines how much of this [`OwnSpan`] `version` *dominates*, rendering a
-    /// three-way [`Dominance`] verdict:
+    /// Determines how much of this [`OwnSpan`] `version` *dominates*, rendering
+    /// a three-way [`Dominance`] verdict:
     ///
     /// - A [`Version`] is [`After`](Dominance::After) an [`OwnSpan`] if it is
     ///   greater than or equal to both endpoints of the span.
-    /// - A [`Version`] is [`Between`](Dominance::Between) an [`OwnSpan`] if
-    ///   it is greater than or equal to the lower bound of the [`OwnSpan`],
-    ///   but strictly less than or concurrent to its upper bound.
-    /// - A [`Version`] is [`Before`](Dominance::Before) an [`OwnSpan`] if it
-    ///   is strictly less than or concurrent to both endpoints of the span.
+    /// - A [`Version`] is [`Between`](Dominance::Between) an [`OwnSpan`] if it
+    ///   is greater than or equal to the lower bound of the [`OwnSpan`], but
+    ///   strictly less than or concurrent to its upper bound.
+    /// - A [`Version`] is [`Before`](Dominance::Before) an [`OwnSpan`] if it is
+    ///   strictly less than or concurrent to both endpoints of the span.
     ///
-    /// This is a coarsening of [`place`](OwnSpan::place)'s [`Placement`] verdict
-    /// which can be computed more efficiently.
+    /// This is a coarsening of [`place`](OwnSpan::place)'s [`Placement`]
+    /// verdict which can be computed more efficiently.
     ///
     /// # Complexity
     ///
@@ -181,19 +181,19 @@ impl<'a> OwnSpan<'a> {
         }
     }
 
-    /// Determines how much of this [`OwnSpan`] `version` *precedes*, rendering a
-    /// three-way [`Precedence`] verdict:
+    /// Determines how much of this [`OwnSpan`] `version` *precedes*, rendering
+    /// a three-way [`Precedence`] verdict:
     ///
-    /// - A [`Version`] is [`Before`](Precedence::Before) an [`OwnSpan`] if it is
-    ///   less than or equal to both endpoints of the span.
-    /// - A [`Version`] is [`Between`](Precedence::Between) an [`OwnSpan`] if
-    ///   it is less than or equal to the upper bound of the [`OwnSpan`],
-    ///   but strictly greater than or concurrent to its lower bound.
-    /// - A [`Version`] is [`After`](Precedence::After) an [`OwnSpan`] if it
-    ///   is strictly greater than or concurrent to both endpoints of the span.
+    /// - A [`Version`] is [`Before`](Precedence::Before) an [`OwnSpan`] if it
+    ///   is less than or equal to both endpoints of the span.
+    /// - A [`Version`] is [`Between`](Precedence::Between) an [`OwnSpan`] if it
+    ///   is less than or equal to the upper bound of the [`OwnSpan`], but
+    ///   strictly greater than or concurrent to its lower bound.
+    /// - A [`Version`] is [`After`](Precedence::After) an [`OwnSpan`] if it is
+    ///   strictly greater than or concurrent to both endpoints of the span.
     ///
-    /// This is a coarsening of [`place`](OwnSpan::place)'s [`Placement`] verdict
-    /// which can be computed more efficiently.
+    /// This is a coarsening of [`place`](OwnSpan::place)'s [`Placement`]
+    /// verdict which can be computed more efficiently.
     ///
     /// # Complexity
     ///
@@ -281,8 +281,8 @@ impl<'a> OwnSpan<'a> {
     }
 }
 
-/// `&span / &party`: the part of the [`Span`] wholly owned by the [`Party`],
-/// as a lazy [`OwnSpan`] view.
+/// `&span / &party`: the part of the [`Span`] wholly owned by the [`Party`], as
+/// a lazy [`OwnSpan`] view.
 ///
 /// [`Span::project`] is the named spelling of the same view.
 ///

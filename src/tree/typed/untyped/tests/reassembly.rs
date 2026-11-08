@@ -1,5 +1,5 @@
-//! Reassembling a view from its listed children, given the view they came
-//! from ([`View::rebuild`]).
+//! Reassembling a view from its listed children, given the view they came from
+//! ([`View::rebuild`]).
 
 use before::Party;
 use proptest::collection::vec;
@@ -47,8 +47,7 @@ fn nodes(listing: &Listing) -> Fan {
         .collect()
 }
 
-/// The hash of the subtree reassembly returned, if any, under the fixture
-/// key.
+/// The hash of the subtree reassembly returned, if any, under the fixture key.
 fn hash_of(view: Option<&View>) -> Option<crate::tree::typed::Hash> {
     view.map(|view| view.hash(&key()))
 }
@@ -58,16 +57,16 @@ fn node_hash(node: Option<&Node>) -> Option<crate::tree::typed::Hash> {
     node.map(|node| node.hash(&key()))
 }
 
-/// A leaf at `version`, under a path of zero bytes reaching `height`: a
-/// node that can stand among children at that height.
+/// A leaf at `version`, under a path of zero bytes reaching `height`: a node
+/// that can stand among children at that height.
 fn leaf_at(version: Version, height: usize) -> Node {
     let leaf = Node::leaf(version, Message::new(()));
     (0..height).fold(leaf, |node, _| node.beneath(0))
 }
 
 /// A leaf whose version no generated tree holds, reaching `height`
-/// ([`leaf_at`]): the generators tick the first few parties of the fork
-/// chain, and this one ticks a later one.
+/// ([`leaf_at`]): the generators tick the first few parties of the fork chain,
+/// and this one ticks a later one.
 fn foreign_leaf(height: usize) -> Node {
     let mut version = Version::new();
     version.tick(&nth_party(64));
@@ -86,8 +85,8 @@ enum Change {
     Remove(Index),
     /// Replace the child at the drawn position with a leaf no tree holds.
     Replace(Index),
-    /// Add a leaf no tree holds at the drawn radix, replacing the child
-    /// there if there is one.
+    /// Add a leaf no tree holds at the drawn radix, replacing the child there
+    /// if there is one.
     Add(u8),
     /// Move the child at the drawn position to another radix ([`moved`]).
     Move(Index, u8),
@@ -103,11 +102,11 @@ fn arb_change() -> impl Strategy<Value = Change> {
     ]
 }
 
-/// `entries` with the child at `at` moved to `radix`, or to the radix after
-/// it where the child already sits at `radix`, replacing any child there.
+/// `entries` with the child at `at` moved to `radix`, or to the radix after it
+/// where the child already sits at `radix`, replacing any child there.
 ///
-/// The child is the same handle under another path, so the listing
-/// describes another subtree.
+/// The child is the same handle under another path, so the listing describes
+/// another subtree.
 fn moved(entries: &mut Listing, at: Index, radix: u8) {
     let (from, child) = entries.remove(at.index(entries.len()));
     let to = if radix == from {
@@ -120,9 +119,9 @@ fn moved(entries: &mut Listing, at: Index, radix: u8) {
     entries.sort_by_key(|(at, _)| *at);
 }
 
-/// The subtree `view` represents, in allocations of its own: equal to it,
-/// yet no view of any stored node a listing yields, with its hash cold, and
-/// a bare branch's bounds cold too.
+/// The subtree `view` represents, in allocations of its own: equal to it, yet
+/// no view of any stored node a listing yields, with its hash cold, and a bare
+/// branch's bounds cold too.
 ///
 /// It is the child a session hands reassembly when it rebuilds a child and
 /// arrives back at the same contents.
@@ -206,10 +205,9 @@ proptest! {
 
 /// One edit to a listing for the seeding properties.
 ///
-/// That is a removal, a leaf at a drawn version, reaching the listing's
-/// height ([`leaf_at`]), replacing the child at a drawn position or placed
-/// at a drawn radix, a child moved to another radix, or a child replaced
-/// by an equal copy.
+/// That is a removal, a leaf at a drawn version, reaching the listing's height
+/// ([`leaf_at`]), replacing the child at a drawn position or placed at a drawn
+/// radix, a child moved to another radix, or a child replaced by an equal copy.
 #[derive(Clone, Debug)]
 enum Edit {
     /// Remove the child at the drawn position, if any child is left.
@@ -218,16 +216,16 @@ enum Edit {
     Replace(Index, Version),
     /// Place a leaf at the drawn radix, replacing any child there.
     Place(u8, Version),
-    /// Move the child at the drawn position to another radix ([`moved`]),
-    /// if any child is left.
+    /// Move the child at the drawn position to another radix ([`moved`]), if
+    /// any child is left.
     Move(Index, u8),
     /// Replace the child at the drawn position with an equal subtree in
     /// allocations of its own ([`copy_of`]), if any child is left.
     Copy(Index),
 }
 
-/// Any [`Edit`], its versions drawn from several parties, so a new leaf
-/// can be older, newer, or concurrent with those it joins.
+/// Any [`Edit`], its versions drawn from several parties, so a new leaf can be
+/// older, newer, or concurrent with those it joins.
 fn arb_edit() -> impl Strategy<Value = Edit> {
     prop_oneof![
         any::<Index>().prop_map(Edit::Remove),
@@ -238,8 +236,8 @@ fn arb_edit() -> impl Strategy<Value = Edit> {
     ]
 }
 
-/// `listing`, which holds children at `height`, with `edits` applied in
-/// turn; a removal from an empty listing does nothing.
+/// `listing`, which holds children at `height`, with `edits` applied in turn; a
+/// removal from an empty listing does nothing.
 fn edited(listing: &Listing, height: usize, edits: &[Edit]) -> Listing {
     let mut entries = listing.clone();
     let leaf = |version: &Version| View::from(leaf_at(version.clone(), height));
@@ -343,8 +341,7 @@ fn leaves(versions: &[Version]) -> Fan {
         .collect()
 }
 
-/// The listing of the fan `original` stores, its children shared, for
-/// editing.
+/// The listing of the fan `original` stores, its children shared, for editing.
 fn listed(original: &Node) -> Listing {
     View::from(original.clone())
         .children()
@@ -352,12 +349,12 @@ fn listed(original: &Node) -> Listing {
         .collect()
 }
 
-/// Rebuild `original`, warmed, from `children`, asserting the rebuilt
-/// node's memos equal a direct walk's.
+/// Rebuild `original`, warmed, from `children`, asserting the rebuilt node's
+/// memos equal a direct walk's.
 ///
 /// Returns the counts of each seeding outcome the rebuild recorded, in the
-/// order seeded, seeded at one endpoint, seeded with an unchanged child's
-/// help, and declined.
+/// order seeded, seeded at one endpoint, seeded with an unchanged child's help,
+/// and declined.
 fn seeding(original: &Node, children: Listing) -> [u64; 4] {
     original.span();
     let outcomes = [
@@ -378,9 +375,9 @@ fn seeding(original: &Node, children: Listing) -> [u64; 4] {
     std::array::from_fn(|at| after[at] - before[at])
 }
 
-/// Removing the middle of three successive leaves seeds both endpoints from
-/// the unchanged leaves: the oldest certifies the floor and the newest the
-/// ceiling, though no changed child is left to certify either.
+/// Removing the middle of three successive leaves seeds both endpoints from the
+/// unchanged leaves: the oldest certifies the floor and the newest the ceiling,
+/// though no changed child is left to certify either.
 #[test]
 fn a_removal_covered_by_unchanged_siblings_seeds_by_their_certificates() {
     let versions = chain(3);
@@ -391,8 +388,8 @@ fn a_removal_covered_by_unchanged_siblings_seeds_by_their_certificates() {
 }
 
 /// Removing the newest of three successive leaves lowers the ceiling, which
-/// nothing certifies: the floor is seeded from the oldest leaf, and the
-/// ceiling folded from the children left.
+/// nothing certifies: the floor is seeded from the oldest leaf, and the ceiling
+/// folded from the children left.
 #[test]
 fn a_removal_covered_by_nothing_folds_its_endpoint() {
     let versions = chain(3);
@@ -402,8 +399,8 @@ fn a_removal_covered_by_nothing_folds_its_endpoint() {
     assert_eq!(seeding(&original, children), [0, 1, 1, 0]);
 }
 
-/// Removing one of three concurrent leaves certifies neither endpoint, so
-/// the bounds are left for the full computation.
+/// Removing one of three concurrent leaves certifies neither endpoint, so the
+/// bounds are left for the full computation.
 #[test]
 fn a_removal_from_an_antichain_declines_to_seed() {
     let versions = antichain(3);
@@ -413,10 +410,9 @@ fn a_removal_from_an_antichain_declines_to_seed() {
     assert_eq!(seeding(&original, children), [0, 0, 0, 1]);
 }
 
-/// Removing a leaf while adding an older and a newer one seeds both
-/// endpoints from the added leaves alone: their union contains the removed
-/// leaf, and the one unchanged leaf, concurrent with all of them, certifies
-/// nothing.
+/// Removing a leaf while adding an older and a newer one seeds both endpoints
+/// from the added leaves alone: their union contains the removed leaf, and the
+/// one unchanged leaf, concurrent with all of them, certifies nothing.
 #[test]
 fn a_removal_covered_by_the_changed_children_seeds_without_siblings() {
     let mut seed = Party::seed();

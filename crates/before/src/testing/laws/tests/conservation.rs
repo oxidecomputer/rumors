@@ -165,13 +165,13 @@ fn small_families() -> Vec<Vec<tree::Party>> {
 /// families give each quarter every multiplicity from zero to
 /// [`SMALL_FAMILY_LEN`].
 ///
-/// Both comparisons are equivalence relations: the laws' compares owner
-/// layers for equality, and the oracle's compares multiplicity functions. The
-/// sweep groups the families by their layers, which makes the laws' verdicts
-/// true by construction; the content is the oracle's. Each family must match
-/// its group's first member, and the first members of any two groups must
-/// differ, in either order. By transitivity, the oracle then partitions the
-/// domain exactly as the layers do.
+/// Both comparisons are equivalence relations: the laws' compares owner layers
+/// for equality, and the oracle's compares multiplicity functions. The sweep
+/// groups the families by their layers, which makes the laws' verdicts true by
+/// construction; the content is the oracle's. Each family must match its
+/// group's first member, and the first members of any two groups must differ,
+/// in either order. By transitivity, the oracle then partitions the domain
+/// exactly as the layers do.
 #[test]
 fn same_multiplicity_agrees_with_the_tree_oracle_on_small_families() {
     let families = small_families();

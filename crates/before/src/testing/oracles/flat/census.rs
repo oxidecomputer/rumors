@@ -1,22 +1,22 @@
-//! Exact coverage of a segment by a causal predicate, judged by a census
-//! over versions read off the flat model's common refinement.
+//! Exact coverage of a segment by a causal predicate, judged by a census over
+//! versions read off the flat model's common refinement.
 //!
-//! [`Coverage`] is exact by its definition: `Full` when a query admits
-//! every version a segment covers, `Empty` when it admits none, and
-//! `Partial` otherwise. A segment covers infinitely many versions, so no
-//! oracle counts them all. [`census`] counts a finite set of covered
-//! versions that provably holds a witness for every verdict, and needs no
-//! complete grid of versions to do it, so it judges segments between
-//! versions at any depth and with heights of any width.
+//! [`Coverage`] is exact by its definition: `Full` when a query admits every
+//! version a segment covers, `Empty` when it admits none, and `Partial`
+//! otherwise. A segment covers infinitely many versions, so no oracle counts
+//! them all. [`census`] counts a finite set of covered versions that provably
+//! holds a witness for every verdict, and needs no complete grid of versions to
+//! do it, so it judges segments between versions at any depth and with heights
+//! of any width.
 //!
 //! # The view
 //!
 //! The census works on a view of the flat model, not on a model of its own.
-//! [`Grid`] reads a pool of flat [`Version`]s on their common refinement:
-//! every pool version is constant on each refinement cell, so each one is a
-//! vector of heights, one per cell, and the causal order, join, and meet of
-//! any versions built from the pool by joins and meets are the pointwise
-//! order, maximum, and minimum of those vectors.
+//! [`Grid`] reads a pool of flat [`Version`]s on their common refinement: every
+//! pool version is constant on each refinement cell, so each one is a vector of
+//! heights, one per cell, and the causal order, join, and meet of any versions
+//! built from the pool by joins and meets are the pointwise order, maximum, and
+//! minimum of those vectors.
 //!
 //! [`Grid::order_view`] then keeps only what the causal order reads. On each
 //! cell it replaces every height by its rank among the heights the pool takes
@@ -37,45 +37,44 @@
 //! [`census`] judges a predicate over the segment `[lo, hi]` given the
 //! predicate's *anchors*, the versions its clauses compare a probe with. Its
 //! *generators* are `lo`, `hi`, and every anchor *clamped* into the segment,
-//! `(lo ∨ a) ∧ hi`. The census set is every meet and every join of a
-//! nonempty set of generators, and the verdict is `Full` when the predicate
-//! admits every member, `Empty` when it admits none, and `Partial`
-//! otherwise.
+//! `(lo ∨ a) ∧ hi`. The census set is every meet and every join of a nonempty
+//! set of generators, and the verdict is `Full` when the predicate admits every
+//! member, `Empty` when it admits none, and `Partial` otherwise.
 //!
-//! The verdict is exact for every predicate that admits, inside the segment,
-//! an up-closed set `U` intersected with a down-closed set `D`, minus either
-//! a down-closed set or an up-closed set `H`, with `D` cut out by inclusive
-//! upper bounds `v <= e` and `U` by inclusive lower bounds `s <= v`. Every
-//! causal query has this form, with `H` the union of its holes, down-closed
-//! for [`Down`](crate::causally::Down) and up-closed for
+//! The verdict is exact for every predicate that admits, inside the segment, an
+//! up-closed set `U` intersected with a down-closed set `D`, minus either a
+//! down-closed set or an up-closed set `H`, with `D` cut out by inclusive upper
+//! bounds `v <= e` and `U` by inclusive lower bounds `s <= v`. Every causal
+//! query has this form, with `H` the union of its holes, down-closed for
+//! [`Down`](crate::causally::Down) and up-closed for
 //! [`Up`](crate::causally::Up). Every member lies in the segment, so the
-//! verdict is exact once the set holds a rejected member whenever any
-//! covered version is rejected, and an admitted member whenever any covered
-//! version is admitted:
+//! verdict is exact once the set holds a rejected member whenever any covered
+//! version is rejected, and an admitted member whenever any covered version is
+//! admitted:
 //!
-//! - A covered version outside `U`, or inside a down-closed `H`, has `lo`
-//!   below it, so `lo` is rejected too; one outside `D`, or inside an
-//!   up-closed `H`, has `hi` above it, so `hi` is rejected.
+//! - A covered version outside `U`, or inside a down-closed `H`, has `lo` below
+//!   it, so `lo` is rejected too; one outside `D`, or inside an up-closed `H`,
+//!   has `hi` above it, so `hi` is rejected.
 //! - Let `t` be `hi` met with every upper bound. An admitted covered version
-//!   `v` lies at or below `t`. The meet of `hi` and the upper bounds' clamps
-//!   is `lo ∨ t` by distributivity, which holds pointwise for height vectors
-//!   as the laws `meet_distributes_over_join` and `join_distributes_over_meet`
+//!   `v` lies at or below `t`. The meet of `hi` and the upper bounds' clamps is
+//!   `lo ∨ t` by distributivity, which holds pointwise for height vectors as
+//!   the laws `meet_distributes_over_join` and `join_distributes_over_meet`
 //!   state for versions, and `lo ∨ t` is `t` because `lo <= v <= t`, so `t` is
-//!   a meet of generators. When `H` is down-closed, `t` is admitted: it lies
-//!   in `U` above `v`, in `D`, and outside `H`, which would hold `v` if it
-//!   held `t`. When `H` is up-closed, the dual point, `lo` joined with every
-//!   lower bound, is admitted, and it is a join of generators.
+//!   a meet of generators. When `H` is down-closed, `t` is admitted: it lies in
+//!   `U` above `v`, in `D`, and outside `H`, which would hold `v` if it held
+//!   `t`. When `H` is up-closed, the dual point, `lo` joined with every lower
+//!   bound, is admitted, and it is a join of generators.
 //!
 //! The census never learns which anchors are upper bounds, lower bounds, or
 //! holes: the set holds every meet and join of generators, so it holds the
 //! witness for any assignment of roles. It shares no code with production's
-//! comparison, its fused walks, or the endpoint refinement those walks
-//! finish with, which decides by the same two witnesses but must know each
-//! bound's role.
+//! comparison, its fused walks, or the endpoint refinement those walks finish
+//! with, which decides by the same two witnesses but must know each bound's
+//! role.
 //!
-//! `causally`'s census tests check the census on small segments against a
-//! count over a finer pool, which realizes every verdict a covered version
-//! can receive.
+//! `causally`'s census tests check the census on small segments against a count
+//! over a finer pool, which realizes every verdict a covered version can
+//! receive.
 
 use std::collections::HashSet;
 
@@ -86,14 +85,13 @@ use crate::causally::Coverage;
 
 mod tests;
 
-/// The most members either half of a census set, its meets or its joins,
-/// may hold; past it the census panics.
+/// The most members either half of a census set, its meets or its joins, may
+/// hold; past it the census panics.
 ///
-/// Each half holds the combination of every nonempty subset of `g`
-/// generators, so it can reach `2^g − 1` members, and the whole set twice
-/// that. The pools the census tests draw stay far below the cap; a pool
-/// that reaches it is too large to judge exactly, and the census panics
-/// rather than skipping it.
+/// Each half holds the combination of every nonempty subset of `g` generators,
+/// so it can reach `2^g − 1` members, and the whole set twice that. The pools
+/// the census tests draw stay far below the cap; a pool that reaches it is too
+/// large to judge exactly, and the census panics rather than skipping it.
 pub(crate) const CENSUS_CAP: usize = 1 << 16;
 
 /// A pool of flat versions read on their common refinement.
@@ -163,12 +161,12 @@ impl Grid {
     }
 }
 
-/// A version's heights on the cells of one partition, as small integers
-/// ordered as the heights are: what [`Grid::order_view`] keeps, or small
-/// heights themselves.
+/// A version's heights on the cells of one partition, as small integers ordered
+/// as the heights are: what [`Grid::order_view`] keeps, or small heights
+/// themselves.
 ///
-/// Every operation compares two vectors over one partition, cell by cell,
-/// and panics if their lengths differ.
+/// Every operation compares two vectors over one partition, cell by cell, and
+/// panics if their lengths differ.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Heights(pub(crate) Vec<u64>);
 
@@ -182,8 +180,7 @@ impl Heights {
         );
     }
 
-    /// Whether `self` lies at or below `other` on every cell: the causal
-    /// order.
+    /// Whether `self` lies at or below `other` on every cell: the causal order.
     pub(crate) fn le(&self, other: &Heights) -> bool {
         self.same_partition(other);
         self.0.iter().zip(&other.0).all(|(a, b)| a <= b)
@@ -214,8 +211,8 @@ impl Heights {
     }
 }
 
-/// Classifies a census: `Full` when every member is admitted, `Empty` when
-/// none is, and `Partial` otherwise.
+/// Classifies a census: `Full` when every member is admitted, `Empty` when none
+/// is, and `Partial` otherwise.
 ///
 /// # Panics
 ///
@@ -231,8 +228,8 @@ pub(crate) fn classify(admitted: usize, members: usize) -> Coverage {
     }
 }
 
-/// Every combination under `combine`, a meet or a join, of a nonempty subset
-/// of `items`.
+/// Every combination under `combine`, a meet or a join, of a nonempty subset of
+/// `items`.
 ///
 /// The set grows one item at a time: each new item joins the set alone and
 /// combined with every member so far, so after `k` items it holds the
@@ -262,17 +259,17 @@ fn closure(items: &[Heights], combine: impl Fn(&Heights, &Heights) -> Heights) -
 /// The exact coverage of the segment `[lo, hi]` by a predicate, given the
 /// anchors its clauses compare a probe with.
 ///
-/// The census set is every meet and every join of a nonempty set of
-/// generators: `lo`, `hi`, and every anchor clamped into the segment,
-/// `(lo ∨ a) ∧ hi`. The verdict counts the members `admits` accepts. The
-/// module docs give the argument that it is exact for every causal query's
-/// predicate. All vectors must come from one [`Grid::order_view`], so that
-/// order and lattice operations on them are the versions' own.
+/// The census set is every meet and every join of a nonempty set of generators:
+/// `lo`, `hi`, and every anchor clamped into the segment, `(lo ∨ a) ∧ hi`. The
+/// verdict counts the members `admits` accepts. The module docs give the
+/// argument that it is exact for every causal query's predicate. All vectors
+/// must come from one [`Grid::order_view`], so that order and lattice
+/// operations on them are the versions' own.
 ///
 /// # Panics
 ///
-/// Panics if `lo` does not lie at or below `hi`, if the vectors do not share
-/// a partition, or if the meets or the joins of the generators would exceed
+/// Panics if `lo` does not lie at or below `hi`, if the vectors do not share a
+/// partition, or if the meets or the joins of the generators would exceed
 /// [`CENSUS_CAP`] members.
 pub(crate) fn census<'h>(
     lo: &Heights,

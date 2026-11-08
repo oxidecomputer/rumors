@@ -10,9 +10,8 @@ pub enum ScopeError {
     UnpositionedQuery,
     /// A match followed all children named by its question.
     ///
-    /// Detected at the offending frame, so a reply cannot grow its
-    /// decoded skeleton past the question's fan before the overrun
-    /// surfaces.
+    /// Detected at the offending frame, so a reply cannot grow its decoded
+    /// skeleton past the question's fan before the overrun surfaces.
     #[error("a match has no remaining child in its question")]
     UnpositionedMatch,
     /// A nonempty query cannot descend below leaf height.
@@ -22,22 +21,22 @@ pub enum ScopeError {
     /// listed child that also matches, so no later match takes a frame.
     #[error("a reply carries a match after its first")]
     RepeatedMatch,
-    /// A match covers a radix that is not a position after its own: one
-    /// the question did not list, or one the reply has already passed.
+    /// A match covers a radix that is not a position after its own: one the
+    /// question did not list, or one the reply has already passed.
     #[error("a match covers radix {radix:#04x}, which is not a later listed child")]
     UnlistedCover {
         /// The radix covered.
         radix: u8,
     },
-    /// A reply ended with a listed child it neither took a reaction for
-    /// nor covered by its match.
+    /// A reply ended with a listed child it neither took a reaction for nor
+    /// covered by its match.
     #[error("a reply ends without answering or covering listed radix {radix:#04x}")]
     UncoveredEnd {
         /// The first listed radix left.
         radix: u8,
     },
-    /// A reply supplied a node at a radix its match covers, which both
-    /// sides hold.
+    /// A reply supplied a node at a radix its match covers, which both sides
+    /// hold.
     #[error("a reply supplies radix {radix:#04x}, which its match covers")]
     CoveredSupply {
         /// The radix supplied.
@@ -55,8 +54,8 @@ pub enum ScopeError {
     },
 }
 
-/// The initiator's distinguished opening reply violated its canonical
-/// shape: exactly one query.
+/// The initiator's distinguished opening reply violated its canonical shape:
+/// exactly one query.
 ///
 /// Local-only by construction: the peer's opening question arrives as the
 /// greeting's listing, validated at greeting decode, so only the locally
@@ -110,8 +109,8 @@ pub enum DecodeError<E> {
     /// nothing, and cannot place a leaf without its network's key.
     #[error("a leaf was supplied to a bootstrapper holding no network secret")]
     UnkeyedSupply,
-    /// A supplied leaf's keyed path lies outside the scope its run was
-    /// supplied under.
+    /// A supplied leaf's keyed path lies outside the scope its run was supplied
+    /// under.
     ///
     /// The message prints keyed paths, which reveal no key (see
     /// [`NetworkSecret`](crate::network::NetworkSecret)).
@@ -133,30 +132,29 @@ pub enum DecodeError<E> {
         /// The keyed path of the leaf out of order.
         current: [u8; 32],
     },
-    /// A supplied version's encoding exceeds the peer's declared `max_version_bytes`.
+    /// A supplied version's encoding exceeds the peer's declared
+    /// `max_version_bytes`.
     ///
-    /// Every leaf version a peer supplies is one its own tree
-    /// materializes, so the aggregate its greeting declared must cover
-    /// it. A version arriving over it shows the declaration false, so the
-    /// session fails fast rather than run on it. The greeting's own causal
-    /// version is *not*
-    /// held to the declaration — an empty tree honestly declares a
-    /// zero aggregate while its redaction-advanced version is nonempty
-    /// — so only supplied leaf records are checked.
+    /// Every leaf version a peer supplies is one its own tree materializes, so
+    /// the aggregate its greeting declared must cover it. A version arriving
+    /// over it shows the declaration false, so the session fails fast rather
+    /// than run on it. The greeting's own causal version is *not* held to the
+    /// declaration — an empty tree honestly declares a zero aggregate while its
+    /// redaction-advanced version is nonempty — so only supplied leaf records
+    /// are checked.
     #[error(
         "supplied version encodes {actual} bytes, over the peer's declared {declared}-byte bound"
     )]
     OversizedVersion { declared: u64, actual: usize },
-    /// A supplied leaf's version is not contained in the peer's own
-    /// greeting version, which joins every version the peer's tree holds.
+    /// A supplied leaf's version is not contained in the peer's own greeting
+    /// version, which joins every version the peer's tree holds.
     ///
     /// A conforming peer supplies only leaves its tree holds, so it never
-    /// supplies such a leaf. Absorbed, the leaf would lie outside the
-    /// ceiling this side adopts for the session, where no later redaction
-    /// this side makes can cover it, so the session fails at the offending
-    /// record, before its payload takes backend custody. Containment is a
-    /// partial order: a version incomparable with the peer's is as
-    /// uncontained as one above it.
+    /// supplies such a leaf. Absorbed, the leaf would lie outside the ceiling
+    /// this side adopts for the session, where no later redaction this side
+    /// makes can cover it, so the session fails at the offending record, before
+    /// its payload takes backend custody. Containment is a partial order: a
+    /// version incomparable with the peer's is as uncontained as one above it.
     ///
     /// The message prints the leaf's keyed path, which reveals no key (see
     /// [`NetworkSecret`](crate::network::NetworkSecret)).
@@ -168,11 +166,11 @@ pub enum DecodeError<E> {
     /// A supplied leaf's version is contained in this side's own greeting
     /// version: the leaf is one this side holds or has redacted.
     ///
-    /// A peer filters its supplies against that version and ships only
-    /// leaves it does not contain, so a conforming peer never supplies such
-    /// a leaf. Absorbing one would bring back a message this side
-    /// redacted, so the session fails at the offending record, before its
-    /// payload takes backend custody.
+    /// A peer filters its supplies against that version and ships only leaves
+    /// it does not contain, so a conforming peer never supplies such a leaf.
+    /// Absorbing one would bring back a message this side redacted, so the
+    /// session fails at the offending record, before its payload takes backend
+    /// custody.
     ///
     /// The message prints the leaf's keyed path, which reveals no key (see
     /// [`NetworkSecret`](crate::network::NetworkSecret)).
@@ -183,24 +181,22 @@ pub enum DecodeError<E> {
     },
     /// A supplied leaf record past the peer's declared `set_len`.
     ///
-    /// An honest peer supplies each leaf at most once and only leaves its
-    /// own set holds, so its greeting-declared set length bounds the
-    /// session's total supplied records. The charge lands at
-    /// ingress, before the record's payload takes backend custody, so a
-    /// peer supplying past its declaration fails the session at the
-    /// offending record while its reply is still open, never after the
-    /// reply materializes. The in-process walk enforces the same premise
-    /// at absorption as
+    /// An honest peer supplies each leaf at most once and only leaves its own
+    /// set holds, so its greeting-declared set length bounds the session's
+    /// total supplied records. The charge lands at ingress, before the record's
+    /// payload takes backend custody, so a peer supplying past its declaration
+    /// fails the session at the offending record while its reply is still open,
+    /// never after the reply materializes. The in-process walk enforces the
+    /// same premise at absorption as
     /// [`Violation::OverdrawnSupply`](crate::tree::mirror::streaming::materialized::Violation::OverdrawnSupply).
     #[error("supplied leaf overruns the peer's declared set length of {declared}")]
     OverdrawnSupply { declared: u64 },
-    /// A reply holds more reactions, or carries more listing entries, than
-    /// the grandchild count the replier gave the node it is about allows
+    /// A reply holds more reactions, or carries more listing entries, than the
+    /// grandchild count the replier gave the node it is about allows
     /// ([`ReplyBound`](crate::tree::mirror::streaming::ledger::ReplyBound)).
     ///
-    /// The asker reserved memory for the reply from that count before it
-    /// asked, so a reply over it fails the session at the frame that
-    /// overruns.
+    /// The asker reserved memory for the reply from that count before it asked,
+    /// so a reply over it fails the session at the frame that overruns.
     #[error("a reply exceeds its bound of {bound} {part}")]
     ExceedsBound { part: BoundedPart, bound: usize },
     /// A positional wire reaction cannot be scoped without another child.
@@ -211,9 +207,8 @@ pub enum DecodeError<E> {
     Record(#[source] DecodeLeafError),
 }
 
-/// The error a reply's frame reveals by asking its quota for more than
-/// it can give: the bound it would exceed, or the scope rule it would
-/// break.
+/// The error a reply's frame reveals by asking its quota for more than it can
+/// give: the bound it would exceed, or the scope rule it would break.
 impl<E> From<Overdraft> for DecodeError<E> {
     fn from(overdraft: Overdraft) -> Self {
         match overdraft {

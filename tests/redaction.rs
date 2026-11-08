@@ -2,8 +2,8 @@
 //!
 //! Most redaction behavior is exercised by the multi-peer properties, whose
 //! oracle includes redactions and whose exact readout must match every peer.
-//! These tests target the redaction-specific corners with smaller,
-//! more legible schedules.
+//! These tests target the redaction-specific corners with smaller, more legible
+//! schedules.
 
 use rumors_testkit::common;
 

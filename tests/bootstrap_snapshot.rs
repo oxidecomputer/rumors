@@ -4,12 +4,13 @@
 //!
 //! The companion to `gossip_snapshot.rs` for the *bootstrap* leg of the
 //! protocol. Each test stages a provider, drives one bootstrap through the
-//! recording connection in [`common::gossip_snapshot::capture_session`], and pins
-//! every wire byte. Traffic is grouped by logical stream while preserving
-//! its exact per-stream order. Drift in the preamble, reconciliation, or trailing
-//! party hand-off shows up as a diff. Re-accept only after a deliberate
-//! protocol change: a new protocol version, never a mutation of an existing
-//! one. The re-accept procedure (`cargo insta review`) is in `AGENTS.md`.
+//! recording connection in [`common::gossip_snapshot::capture_session`], and
+//! pins every wire byte. Traffic is grouped by logical stream while preserving
+//! its exact per-stream order. Drift in the preamble, reconciliation, or
+//! trailing party hand-off shows up as a diff. Re-accept only after a
+//! deliberate protocol change: a new protocol version, never a mutation of an
+//! existing one. The re-accept procedure (`cargo insta review`) is in
+//! `AGENTS.md`.
 //!
 //! Party convention: **A is the provider** — the established peer serving its
 //! state through `gossip` — and **B is the bootstrapping newcomer**, running
@@ -70,10 +71,9 @@ fn empty_provider() {
 
 /// Bootstrap from a populated provider.
 ///
-/// The provider holds three distinct
-/// messages (`1`, `2`, `3`); the newcomer receives the whole tree in one
-/// descent, so this pins the content-bearing whole-tree frame that the empty
-/// case never exercises.
+/// The provider holds three distinct messages (`1`, `2`, `3`); the newcomer
+/// receives the whole tree in one descent, so this pins the content-bearing
+/// whole-tree frame that the empty case never exercises.
 #[test]
 fn populated_provider() {
     let provider: Rumors<u64> = seeded();
@@ -83,10 +83,10 @@ fn populated_provider() {
 
 /// Bootstrap of a non-primitive, variable-length payload.
 ///
-/// A `u64` payload CBOR-encodes
-/// as one compact integer; a `String` encodes as a CBOR text string with
-/// its own length header, so this is the only bootstrap scenario that pins
-/// how a variable-length value is framed inside a served leaf.
+/// A `u64` payload CBOR-encodes as one compact integer; a `String` encodes as a
+/// CBOR text string with its own length header, so this is the only bootstrap
+/// scenario that pins how a variable-length value is framed inside a served
+/// leaf.
 #[test]
 fn string_payload() {
     let provider: Rumors<String> = seeded();
@@ -99,9 +99,8 @@ fn string_payload() {
 /// Both sides declare bootstrapping: neither has state to give, so each reads
 /// the other's bootstrap intent from the preamble and bails.
 ///
-/// The capture pins
-/// the bytes of that mutual stand-down — the preamble exchange and nothing
-/// after it.
+/// The capture pins the bytes of that mutual stand-down — the preamble exchange
+/// and nothing after it.
 #[test]
 fn mutual_bootstrap_bails() {
     let capture = capture_session(

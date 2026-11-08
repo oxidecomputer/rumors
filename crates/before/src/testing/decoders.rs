@@ -1,50 +1,48 @@
 //! Totality and specified verdicts of every decoder, on near-valid encodings
 //! and on short arbitrary bytes.
 //!
-//! `Eq` and `Hash` on versions, parties, clocks, spans, and ranked keys
-//! compare canonical bytes, and on ranks they compare the normalized
-//! numerator and exponent, which the canonical rank encoding spells one to
-//! one. A decoder that accepts a non-canonical spelling therefore builds a
-//! value whose equality disagrees with its bytes. Every operation is also
-//! promised total, so a decoder must return an error, never panic, on any
-//! bytes.
+//! `Eq` and `Hash` on versions, parties, clocks, spans, and ranked keys compare
+//! canonical bytes, and on ranks they compare the normalized numerator and
+//! exponent, which the canonical rank encoding spells one to one. A decoder
+//! that accepts a non-canonical spelling therefore builds a value whose
+//! equality disagrees with its bytes. Every operation is also promised total,
+//! so a decoder must return an error, never panic, on any bytes.
 //!
 //! Each type decodes through several entry points ([`entry_points`]): its
 //! reader `decode` on a whole and on a chunked, interrupting reader,
 //! hexadecimal text (parties and versions only), and the serde impls under a
-//! binary format (postcard and CBOR here). Borsh reads a value from a
-//! stream, and a span also decodes from its human-readable record through
-//! `Span::new`. Each is documented to accept exactly the canonical
-//! encodings. The *slice decode*, the reader `decode` over the bytes in
-//! memory, is the reference the other production paths are compared against,
-//! and the specification ([`verdict`]) is the reference for all of them. The
-//! near-valid strategies ([`near_valid`](crate::testing::generators::near_valid))
-//! reach deep trees, wide heights, and damaged encodings far past the
-//! committed rejection tests' small trees, and two properties drive every
-//! entry point with them:
+//! binary format (postcard and CBOR here). Borsh reads a value from a stream,
+//! and a span also decodes from its human-readable record through `Span::new`.
+//! Each is documented to accept exactly the canonical encodings. The *slice
+//! decode*, the reader `decode` over the bytes in memory, is the reference the
+//! other production paths are compared against, and the specification
+//! ([`verdict`]) is the reference for all of them. The near-valid strategies
+//! ([`near_valid`](crate::testing::generators::near_valid)) reach deep trees,
+//! wide heights, and damaged encodings far past the committed rejection tests'
+//! small trees, and two properties drive every entry point with them:
 //!
 //! - **Totality.** Every entry point of every type decodes every near-valid
-//!   encoding of every type without panicking. A version decoder meets
-//!   parties, ranks, and composites as well as versions: inputs that no
-//!   type's own strategy draws for it.
+//!   encoding of every type without panicking. A version decoder meets parties,
+//!   ranks, and composites as well as versions: inputs that no type's own
+//!   strategy draws for it.
 //! - **Agreement.** For each type, [`check_agreement`] requires every
-//!   whole-input entry point and borsh to follow the specification's verdict
-//!   on every input ([`follows`]): to accept exactly the canonical encodings,
-//!   each as the value the specification reads, and to reject with an error
-//!   that names a class the input carries. Postcard alone is exempt from
-//!   naming the class, because its error drops the decoder's message, but its
-//!   rejection must still come from the decoder. The span's human-readable
-//!   record decodes through `Span::new` rather than the binary decoder, so it
-//!   is judged by agreement with the slice decode instead. The property also
-//!   requires the entry points to agree with the slice decode, and the
-//!   specification to agree with what construction settles.
+//!   whole-input entry point and borsh to follow the specification's verdict on
+//!   every input ([`follows`]): to accept exactly the canonical encodings, each
+//!   as the value the specification reads, and to reject with an error that
+//!   names a class the input carries. Postcard alone is exempt from naming the
+//!   class, because its error drops the decoder's message, but its rejection
+//!   must still come from the decoder. The span's human-readable record decodes
+//!   through `Span::new` rather than the binary decoder, so it is judged by
+//!   agreement with the slice decode instead. The property also requires the
+//!   entry points to agree with the slice decode, and the specification to
+//!   agree with what construction settles.
 //!
 //! Two more tests per type hold the slice decode and borsh to the
-//! specification, and the record to the slice decode, on short arbitrary
-//! bytes, which the near-valid strategies reach only by chance
-//! ([`check_short_input`]). One decodes every input of up to
-//! [`EXHAUSTED_LEN`] bytes; the other is a property that draws fresh inputs
-//! of the next few lengths, up to [`SAMPLED_LEN`] bytes, on every run.
+//! specification, and the record to the slice decode, on short arbitrary bytes,
+//! which the near-valid strategies reach only by chance
+//! ([`check_short_input`]). One decodes every input of up to [`EXHAUSTED_LEN`]
+//! bytes; the other is a property that draws fresh inputs of the next few
+//! lengths, up to [`SAMPLED_LEN`] bytes, on every run.
 //!
 //! No decoder promises which error variant reports an input with several
 //! defects, so a rejection may name any class the input carries. The one
@@ -70,8 +68,8 @@ use crate::testing::oracles::{codec, flat};
 use crate::testing::scripted_io::{arb_io_schedule, IoSchedule, ScriptedReader};
 use crate::{Clock, Party, Rank, Ranked, Span, Version};
 
-/// A type with a canonical encoding and the entry points that decode it,
-/// its reader `decode` included through [`Canonical`].
+/// A type with a canonical encoding and the entry points that decode it, its
+/// reader `decode` included through [`Canonical`].
 trait Wire: Canonical + DeserializeOwned + BorshDeserialize {
     /// A value of the type as the specification reads it.
     type Spec: PartialEq + Debug;
@@ -81,8 +79,8 @@ trait Wire: Canonical + DeserializeOwned + BorshDeserialize {
         None
     }
 
-    /// Decodes the type's human-readable record of `bytes`, if it has one
-    /// and the specification frames its fields in `bytes`.
+    /// Decodes the type's human-readable record of `bytes`, if it has one and
+    /// the specification frames its fields in `bytes`.
     fn record(_bytes: &[u8]) -> Option<Result<Self, String>> {
         None
     }
@@ -98,9 +96,9 @@ trait Wire: Canonical + DeserializeOwned + BorshDeserialize {
     ///
     /// The value is read back through the recursive oracle, normalized, and
     /// spelled by [`codec`], which shares no code with production's writers.
-    /// Normalizing is what makes the comparison a canonicity check: a
-    /// decoder that accepted a non-canonical spelling yields a value whose
-    /// normalized spelling differs from the bytes it accepted.
+    /// Normalizing is what makes the comparison a canonicity check: a decoder
+    /// that accepted a non-canonical spelling yields a value whose normalized
+    /// spelling differs from the bytes it accepted.
     fn spelling(&self) -> Option<Vec<u8>>;
 }
 
@@ -110,14 +108,13 @@ fn flat_version(version: &Version) -> codec::Version {
     codec::Version::from_oracle(&to_oracle_version(version)).normalized()
 }
 
-/// The normalized flat form of a party, read back through the recursive
-/// oracle.
+/// The normalized flat form of a party, read back through the recursive oracle.
 fn flat_party(party: &Party) -> codec::Party {
     codec::Party::from_oracle(&to_oracle_party(party)).normalized()
 }
 
-/// A version reads back as its normalized flat form, and spells as that
-/// form's encoding.
+/// A version reads back as its normalized flat form, and spells as that form's
+/// encoding.
 impl Wire for Version {
     type Spec = codec::Version;
 
@@ -138,8 +135,8 @@ impl Wire for Version {
     }
 }
 
-/// A party reads back as its normalized flat form, and spells as that
-/// form's encoding.
+/// A party reads back as its normalized flat form, and spells as that form's
+/// encoding.
 impl Wire for Party {
     type Spec = codec::Party;
 
@@ -160,9 +157,8 @@ impl Wire for Party {
     }
 }
 
-/// A rank reads back as its stored numerator and exponent, which its
-/// invariant keeps normalized, and spells as the encoding of their
-/// normalized form.
+/// A rank reads back as its stored numerator and exponent, which its invariant
+/// keeps normalized, and spells as the encoding of their normalized form.
 impl Wire for Rank {
     type Spec = (BigUint, u64);
 
@@ -182,8 +178,8 @@ impl Wire for Rank {
     }
 }
 
-/// A clock reads back as its party's and its version's flat forms, and
-/// spells as its party's spelling followed by its version's.
+/// A clock reads back as its party's and its version's flat forms, and spells
+/// as its party's spelling followed by its version's.
 impl Wire for Clock {
     type Spec = (codec::Party, codec::Version);
 
@@ -209,9 +205,8 @@ impl Wire for Clock {
 /// A span reads back as its endpoints' flat forms, and spells as its lower
 /// endpoint's spelling followed by its upper endpoint's.
 ///
-/// The spelling exists only when the lower endpoint lies at or below the
-/// upper, which the flat model judges independently of production's
-/// comparison.
+/// The spelling exists only when the lower endpoint lies at or below the upper,
+/// which the flat model judges independently of production's comparison.
 impl Wire for Span<'static> {
     type Spec = (codec::Version, codec::Version);
 
@@ -246,8 +241,8 @@ impl Wire for Span<'static> {
 /// A ranked key reads back as its version's flat form, and spells as the
 /// encoding of that version's rank followed by the version's spelling.
 ///
-/// The rank is the flat model's, computed independently of production's
-/// rank fold.
+/// The rank is the flat model's, computed independently of production's rank
+/// fold.
 impl Wire for Ranked<'static> {
     type Spec = codec::Version;
 
@@ -266,8 +261,8 @@ impl Wire for Ranked<'static> {
     }
 }
 
-/// The defect class a decode error names, or `None` for a reader failure or
-/// an input too large to measure, which no test input can reach.
+/// The defect class a decode error names, or `None` for a reader failure or an
+/// input too large to measure, which no test input can reach.
 fn class_of(error: &Decode) -> Option<Class> {
     match error {
         Decode::Truncated => Some(Class::Truncated),
@@ -277,8 +272,7 @@ fn class_of(error: &Decode) -> Option<Class> {
     }
 }
 
-/// The defect class whose `Decode` message an error message carries, if
-/// any.
+/// The defect class whose `Decode` message an error message carries, if any.
 fn class_in_message(message: &str) -> Option<Class> {
     [
         (Decode::Truncated, Class::Truncated),
@@ -294,11 +288,11 @@ fn class_in_message(message: &str) -> Option<Class> {
 enum Cause {
     /// The error names this defect class.
     Class(Class),
-    /// The error says only that the type's decoder raised it: postcard's,
-    /// which keeps a deserializer's custom error but drops its message.
+    /// The error says only that the type's decoder raised it: postcard's, which
+    /// keeps a deserializer's custom error but drops its message.
     Decoder,
-    /// The error names no defect class: a reader failure, a syntax error, or
-    /// a framing error raised before the type's decoder ran.
+    /// The error names no defect class: a reader failure, a syntax error, or a
+    /// framing error raised before the type's decoder ran.
     Unexplained,
 }
 
@@ -344,8 +338,8 @@ fn decoded<T>(entry: &'static str, result: Result<T, Decode>) -> Outcome<T> {
     }
 }
 
-/// Every entry point of `T` that reads the whole of `bytes`, the slice
-/// decode first.
+/// Every entry point of `T` that reads the whole of `bytes`, the slice decode
+/// first.
 ///
 /// The chunked reader serves the bytes on `schedule`. Postcard and CBOR read
 /// the bytes framed as one byte string. Postcard's error drops the decoder's
@@ -395,8 +389,8 @@ fn entry_points<T: Wire>(bytes: &[u8], schedule: &IoSchedule) -> Vec<Outcome<T>>
     outcomes
 }
 
-/// The defect class a borsh error names: the reader running out is
-/// truncation, and the decoder's own errors carry their `Decode`.
+/// The defect class a borsh error names: the reader running out is truncation,
+/// and the decoder's own errors carry their `Decode`.
 fn borsh_class(error: &borsh::io::Error) -> Option<Class> {
     if error.kind() == borsh::io::ErrorKind::UnexpectedEof {
         return Some(Class::Truncated);
@@ -457,8 +451,8 @@ fn follows<T: Wire>(
 }
 
 /// Reads one `T` from `stream` through borsh, and requires it to follow the
-/// specification's verdict on the stream ([`follows`]), consuming exactly
-/// the bytes an accepted value spans.
+/// specification's verdict on the stream ([`follows`]), consuming exactly the
+/// bytes an accepted value spans.
 ///
 /// Returns borsh's result and the bytes it consumed.
 fn check_borsh<T: Wire>(
@@ -482,8 +476,8 @@ fn check_borsh<T: Wire>(
     Ok((streamed, consumed))
 }
 
-/// Requires an entry point's decoded value to equal the slice decode's, or
-/// both to reject.
+/// Requires an entry point's decoded value to equal the slice decode's, or both
+/// to reject.
 fn agree<T: Wire>(entry: &str, slice: Option<&T>, other: Option<&T>) -> Result<(), TestCaseError> {
     prop_assert_eq!(
         slice,
@@ -499,29 +493,27 @@ fn agree<T: Wire>(entry: &str, slice: Option<&T>, other: Option<&T>) -> Result<(
 /// specification's verdict and the slice decode, `T::decode(&input.bytes[..])`.
 ///
 /// 1. The specification agrees with what construction settles: it accepts a
-///    canonical encoding, rejects a defective one, and rejects a span with
-///    both a structural defect and out-of-order endpoints with structural
-///    classes alone, the precedence `Span::decode` documents. This
-///    calibrates the specification on the inputs whose verdict construction
-///    knows.
+///    canonical encoding, rejects a defective one, and rejects a span with both
+///    a structural defect and out-of-order endpoints with structural classes
+///    alone, the precedence `Span::decode` documents. This calibrates the
+///    specification on the inputs whose verdict construction knows.
 /// 2. Every whole-input entry point ([`entry_points`]) follows the
-///    specification's verdict on the bytes ([`follows`]), on every input,
-///    those construction leaves open included.
+///    specification's verdict on the bytes ([`follows`]), on every input, those
+///    construction leaves open included.
 /// 3. An accepted encoding is canonical: it equals the independent encoder's
 ///    spelling of the decoded value ([`Wire::spelling`]).
-/// 4. Every other whole-input entry point accepts exactly when the slice
-///    decode does, with a value equal under `T`'s own equality.
+/// 4. Every other whole-input entry point accepts exactly when the slice decode
+///    does, with a value equal under `T`'s own equality.
 /// 5. Where the specification frames a span's lower endpoint, the
-///    human-readable record of the two endpoints decodes exactly when the
-///    slice decode accepts, to an equal span.
-/// 6. Borsh reads one value from the bytes followed by `junk`, and follows
-///    the specification's verdict on that stream, consuming exactly the
-///    bytes an accepted value spans. When the slice decode accepts, borsh
-///    decodes an equal value and leaves the junk unread. When borsh accepts,
-///    the bytes it consumed are a canonical encoding of its value by the
-///    slice decode. Where construction puts a span's structural defect
-///    inside the encoding, borsh on the bytes alone reports a structural
-///    error.
+///    human-readable record of the two endpoints decodes exactly when the slice
+///    decode accepts, to an equal span.
+/// 6. Borsh reads one value from the bytes followed by `junk`, and follows the
+///    specification's verdict on that stream, consuming exactly the bytes an
+///    accepted value spans. When the slice decode accepts, borsh decodes an
+///    equal value and leaves the junk unread. When borsh accepts, the bytes it
+///    consumed are a canonical encoding of its value by the slice decode. Where
+///    construction puts a span's structural defect inside the encoding, borsh
+///    on the bytes alone reports a structural error.
 fn check_agreement<T: Wire>(
     input: &NearValid,
     schedule: &IoSchedule,
@@ -613,8 +605,7 @@ fn check_agreement<T: Wire>(
     Ok(())
 }
 
-/// Decodes `bytes` through every entry point of `T`, discarding the
-/// verdicts.
+/// Decodes `bytes` through every entry point of `T`, discarding the verdicts.
 fn decode_everywhere<T: Wire>(bytes: &[u8], schedule: &IoSchedule) {
     drop(entry_points::<T>(bytes, schedule));
     drop(T::record(bytes));
@@ -628,8 +619,8 @@ const EXHAUSTED_LEN: usize = 2;
 /// The longest input length the sampled short-input properties draw.
 const SAMPLED_LEN: usize = 8;
 
-/// Checks `T`'s slice decode, borsh on the bytes alone, and the
-/// human-readable record against the specification on one short input.
+/// Checks `T`'s slice decode, borsh on the bytes alone, and the human-readable
+/// record against the specification on one short input.
 ///
 /// The slice decode and borsh must each follow the specification's verdict
 /// ([`follows`], [`check_borsh`]); the record, where the type has one and the
@@ -661,9 +652,9 @@ fn exhausted_short_inputs() -> impl Iterator<Item = Vec<u8>> {
 /// Runs [`check_short_input`] for `T` on every byte string of up to
 /// [`EXHAUSTED_LEN`] bytes, and panics with the first input that fails.
 ///
-/// Every type has a canonical encoding of at most [`EXHAUSTED_LEN`] bytes
-/// (an empty version, the seed party, a zero rank, and their composites), so
-/// the inputs must include both a verdict that accepts and one that rejects;
+/// Every type has a canonical encoding of at most [`EXHAUSTED_LEN`] bytes (an
+/// empty version, the seed party, a zero rank, and their composites), so the
+/// inputs must include both a verdict that accepts and one that rejects;
 /// otherwise the check judged only one side.
 fn check_exhausted_short_inputs<T: Wire>() {
     let (mut accepted, mut rejected) = (0usize, 0usize);
@@ -690,8 +681,7 @@ fn arb_sampled_short_input() -> impl Strategy<Value = Vec<u8>> {
     prop::collection::vec(any::<u8>(), EXHAUSTED_LEN + 1..=SAMPLED_LEN)
 }
 
-/// A near-valid encoding of any of the six types, for decoding as every
-/// type.
+/// A near-valid encoding of any of the six types, for decoding as every type.
 fn arb_any_encoding() -> impl Strategy<Value = NearValid> {
     prop_oneof![
         arb_version_encoding(),
@@ -808,49 +798,49 @@ proptest! {
     }
 }
 
-/// `Version`'s slice decode, borsh, and the specification agree on every
-/// input of up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
+/// `Version`'s slice decode, borsh, and the specification agree on every input
+/// of up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
 ///
 /// The near-valid strategies draw arbitrary bytes for versions, parties, and
-/// ranks one input in thirteen, and never for composites; these tests
-/// exhaust the shortest lengths for every type, and the sampled short-input
-/// properties draw the next few.
+/// ranks one input in thirteen, and never for composites; these tests exhaust
+/// the shortest lengths for every type, and the sampled short-input properties
+/// draw the next few.
 #[test]
 fn version_decoders_follow_the_specification_on_exhausted_short_inputs() {
     check_exhausted_short_inputs::<Version>();
 }
 
-/// `Party`'s slice decode, borsh, and the specification agree on every input
-/// of up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
+/// `Party`'s slice decode, borsh, and the specification agree on every input of
+/// up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
 #[test]
 fn party_decoders_follow_the_specification_on_exhausted_short_inputs() {
     check_exhausted_short_inputs::<Party>();
 }
 
-/// `Rank`'s slice decode, borsh, and the specification agree on every input
-/// of up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
+/// `Rank`'s slice decode, borsh, and the specification agree on every input of
+/// up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
 #[test]
 fn rank_decoders_follow_the_specification_on_exhausted_short_inputs() {
     check_exhausted_short_inputs::<Rank>();
 }
 
-/// `Clock`'s slice decode, borsh, and the specification agree on every input
-/// of up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
+/// `Clock`'s slice decode, borsh, and the specification agree on every input of
+/// up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
 #[test]
 fn clock_decoders_follow_the_specification_on_exhausted_short_inputs() {
     check_exhausted_short_inputs::<Clock>();
 }
 
-/// `Span`'s slice decode, borsh, human-readable record, and the
-/// specification agree on every input of up to [`EXHAUSTED_LEN`] bytes, as
+/// `Span`'s slice decode, borsh, human-readable record, and the specification
+/// agree on every input of up to [`EXHAUSTED_LEN`] bytes, as
 /// [`check_short_input`] states.
 #[test]
 fn span_decoders_follow_the_specification_on_exhausted_short_inputs() {
     check_exhausted_short_inputs::<Span<'static>>();
 }
 
-/// `Ranked`'s slice decode, borsh, and the specification agree on every
-/// input of up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
+/// `Ranked`'s slice decode, borsh, and the specification agree on every input
+/// of up to [`EXHAUSTED_LEN`] bytes, as [`check_short_input`] states.
 #[test]
 fn ranked_decoders_follow_the_specification_on_exhausted_short_inputs() {
     check_exhausted_short_inputs::<Ranked<'static>>();

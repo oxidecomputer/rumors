@@ -28,8 +28,8 @@ enum Form {
     Owned,
 }
 
-/// Which value a case's result is, and so which operand, if any, an entry
-/// point may clone.
+/// Which value a case's result is, and so which operand, if any, an entry point
+/// may clone.
 #[derive(Clone, Copy, Debug)]
 enum Yields {
     /// The left operand.
@@ -120,8 +120,8 @@ const ENTRIES: [(&str, Form, Form, Entry); 7] = [
     ),
 ];
 
-/// Decode a fresh twin of `bytes`: a buffer-distinct version no one has
-/// cloned yet.
+/// Decode a fresh twin of `bytes`: a buffer-distinct version no one has cloned
+/// yet.
 fn twin(bytes: &[u8]) -> Version {
     Version::decode(bytes).expect("fixture bytes are canonical")
 }
@@ -186,8 +186,8 @@ fn concurrent_pair() -> (Vec<u8>, Vec<u8>) {
 /// entry point borrows that operand. An entry point that owns the operand the
 /// result is moves it, and allocates no clone.
 ///
-/// A floor first proves that a fresh twin's clone does allocate; without it,
-/// a change in buffer sizing would make every comparison pass trivially.
+/// A floor first proves that a fresh twin's clone does allocate; without it, a
+/// change in buffer sizing would make every comparison pass trivially.
 #[test]
 fn lattice_entry_points_clone_only_borrowed_results() {
     let (v, w) = concurrent_pair();

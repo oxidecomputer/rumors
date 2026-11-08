@@ -1,11 +1,11 @@
 //! A stack of subtree-minimum records, written once and read once.
 //!
-//! Each distinct live minimum has one record: the supplying leaf's offset
-//! from its reference, the number of subtree closes charged to it, and
-//! whether it is the first record at its reference. The current minimum is
-//! the top record; suspending it pushes the new minimum above it, so a
-//! suspended record is never moved or reread until it is settled. Only the
-//! top record's close count changes, so it is held explicitly.
+//! Each distinct live minimum has one record: the supplying leaf's offset from
+//! its reference, the number of subtree closes charged to it, and whether it is
+//! the first record at its reference. The current minimum is the top record;
+//! suspending it pushes the new minimum above it, so a suspended record is
+//! never moved or reread until it is settled. Only the top record's close count
+//! changes, so it is held explicitly.
 //!
 //! Offsets live in an [`IntegerStack`], so every record costs space in
 //! proportion to its offset's width.
@@ -40,12 +40,12 @@ pub struct Records {
     first: BitStack,
     /// The top record's close count.
     ///
-    /// Every count is below 2^63. Each close charges one distinct internal
-    /// node of the version, and a stream with `I` internal nodes spends at
-    /// least `3I + 2` bits: one topology bit per internal node, and a
-    /// topology bit and a payload of at least one bit for each of its `I + 1`
-    /// leaves. The fold reads the stream through a reader whose bit positions
-    /// are `u64`, so `3I + 2 < 2^64`.
+    /// Every count is below 2^63. Each close charges one distinct internal node
+    /// of the version, and a stream with `I` internal nodes spends at least
+    /// `3I + 2` bits: one topology bit per internal node, and a topology bit
+    /// and a payload of at least one bit for each of its `I + 1` leaves. The
+    /// fold reads the stream through a reader whose bit positions are `u64`, so
+    /// `3I + 2 < 2^64`.
     top_closes: u64,
 }
 

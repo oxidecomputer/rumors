@@ -16,14 +16,13 @@
 //! 2008, §2–§4): versions form a distributive lattice under `|`/`&` whose
 //! partial order is causality, parties join when disjoint and `fork` splits
 //! ownership, events inflate strictly and only within the owned region, and
-//! `rank` is a strictly monotone
-//! valuation. The representational laws pin the crate's own contracts: the
-//! codec is a section of canonical bytes, `Eq`/`Hash` ride byte equality, text
-//! round-trips, and [`Ranked`]'s total order linearly extends causality. Every
-//! law holds unconditionally on the inputs its group admits (below);
-//! conditional laws are stated as implications, vacuously true when the
-//! antecedent fails, and where they can, they *construct* a witness for the
-//! antecedent instead of waiting for one.
+//! `rank` is a strictly monotone valuation. The representational laws pin the
+//! crate's own contracts: the codec is a section of canonical bytes,
+//! `Eq`/`Hash` ride byte equality, text round-trips, and [`Ranked`]'s total
+//! order linearly extends causality. Every law holds unconditionally on the
+//! inputs its group admits (below); conditional laws are stated as
+//! implications, vacuously true when the antecedent fails, and where they can,
+//! they *construct* a witness for the antecedent instead of waiting for one.
 //!
 //! # Group signatures and admissible inputs
 //!
@@ -71,8 +70,8 @@ use crate::shape;
 use crate::span::{Dominance, Endpoint, Placement, Precedence, Span};
 use crate::{Clock, Count, Party, Rank, Ranked, Version};
 
-/// A named law: the name a failure reports, and the predicate that must
-/// hold on every admissible input.
+/// A named law: the name a failure reports, and the predicate that must hold on
+/// every admissible input.
 pub type Law<F> = (&'static str, F);
 
 /// Apply a function to each algebraic law asserted about this crate.
@@ -81,12 +80,12 @@ pub type Law<F> = (&'static str, F);
 /// roster to a caller-supplied macro, with an optional argument clause
 /// (`consumer(args)`) forwarded as `args: (...)`. Consumers select inputs by
 /// signature: a new known signature is driven automatically, while a new
-/// signature fails to compile until the consumer defines how to supply it.
-/// A test independently checks that every declared group appears here.
+/// signature fails to compile until the consumer defines how to supply it. A
+/// test independently checks that every declared group appears here.
 ///
-/// The signature kinds name what each predicate borrows: `version`,
-/// `party`, `rank`, `clock` for single values, and `versions`,
-/// `parties`, `clocks` for the variadic item lists.
+/// The signature kinds name what each predicate borrows: `version`, `party`,
+/// `rank`, `clock` for single values, and `versions`, `parties`, `clocks` for
+/// the variadic item lists.
 #[cfg(any(test, feature = "laws"))]
 #[macro_export]
 macro_rules! for_each_law_group {

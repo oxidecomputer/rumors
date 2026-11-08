@@ -25,26 +25,24 @@ use super::{
     scope::{Replay, ReplyLevel, Scope},
 };
 
-/// A wire frame, the lower question it makes publishable once written, and
-/// the charge and the permit it carries to the multiplexer.
+/// A wire frame, the lower question it makes publishable once written, and the
+/// charge and the permit it carries to the multiplexer.
 pub struct Encoded {
     /// The reply frame ready to write.
     frame: ReplyFrame,
     /// The scope made publishable by successfully writing `frame`.
     question: Option<Scope>,
-    /// The charge of the chunk whose last frame this is, or no charge for
-    /// every earlier frame: the multiplexer drops it once `frame` is
-    /// written.
+    /// The charge of the chunk whose last frame this is, or no charge for every
+    /// earlier frame: the multiplexer drops it once `frame` is written.
     charge: Charge,
-    /// The send pool's permit for a supply run's bytes, which the
-    /// multiplexer drops once `frame` is written; empty for every other
-    /// frame.
+    /// The send pool's permit for a supply run's bytes, which the multiplexer
+    /// drops once `frame` is written; empty for every other frame.
     permit: WirePermit,
 }
 
 impl Encoded {
-    /// Hand this frame, its charge and its permit to `write`, and release
-    /// its question only after a successful write.
+    /// Hand this frame, its charge and its permit to `write`, and release its
+    /// question only after a successful write.
     pub async fn write_with<E, W, F>(self, write: W) -> Result<Option<Scope>, E>
     where
         W: FnOnce(ReplyFrame, Charge, WirePermit) -> F,
@@ -79,8 +77,8 @@ impl Encoded {
     }
 }
 
-/// A fallible stream of the wire frames of one whole protocol reply, boxed
-/// as the test encoders return it.
+/// A fallible stream of the wire frames of one whole protocol reply, boxed as
+/// the test encoders return it.
 #[cfg(test)]
 pub type Frames<'a, E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> + Send + 'a>>;
 
@@ -89,9 +87,8 @@ pub type Frames<'a, E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E
 ///
 /// The opening writes no frame of its own: its one query's content already
 /// crossed inside the greeting's root-fan listing. Its encoding therefore
-/// reduces to checking the canonical shape, exactly one query, and
-/// returning the listing whose scope will interpret the responder's
-/// top-level reply.
+/// reduces to checking the canonical shape, exactly one query, and returning
+/// the listing whose scope will interpret the responder's top-level reply.
 pub fn opening_listing<E>(
     reactions: impl IntoIterator<Item = ProtocolReaction<E>>,
 ) -> Result<Vec<Listed>, OpeningError> {
@@ -108,32 +105,31 @@ pub fn opening_listing<E>(
     Ok(listing)
 }
 
-/// One outgoing reply's encoding, carried across its chunks: the record of
-/// the question it answers, how far its reactions have replayed against
-/// that record, and whether any of its frames has been written.
+/// One outgoing reply's encoding, carried across its chunks: the record of the
+/// question it answers, how far its reactions have replayed against that
+/// record, and whether any of its frames has been written.
 ///
 /// Every frame but the reply's last is flagged [`Flow::Continue`], and a
-/// chunk's frames are all released by the time its stream ends, so a chunk
-/// that does not end its reply reaches the peer whole before the next
-/// chunk exists. The reply's last reaction carries [`Flow::End`], which
-/// requires the sender to put that reaction in the reply's last chunk; an
-/// empty reply is one empty last chunk, encoded as a bare end.
+/// chunk's frames are all released by the time its stream ends, so a chunk that
+/// does not end its reply reaches the peer whole before the next chunk exists.
+/// The reply's last reaction carries [`Flow::End`], which requires the sender
+/// to put that reaction in the reply's last chunk; an empty reply is one empty
+/// last chunk, encoded as a bare end.
 ///
-/// Each frame's flow is known as soon as the frame is complete, so the
-/// encoder yields every frame then: it never holds a complete frame, a
-/// supply run included, besides the one it is yielding. Each run's buffer
-/// grows to at most the body the run budget admits, unless one record
-/// alone needs more ([`LeafRun::push`]).
+/// Each frame's flow is known as soon as the frame is complete, so the encoder
+/// yields every frame then: it never holds a complete frame, a supply run
+/// included, besides the one it is yielding. Each run's buffer grows to at most
+/// the body the run budget admits, unless one record alone needs more
+/// ([`LeafRun::push`]).
 ///
-/// With a send pool ([`pooled`](Self::pooled)), the encoder takes each
-/// run's permit when the run's first record arrives, before it copies any
-/// of it: a whole run's worth, the body the run budget admits, or the
-/// record's own bytes if it alone needs more, beside the run's node in the
-/// lane, at most the whole pool ([`WirePool::acquire`]). Once the run
-/// closes, it keeps only what the run's buffer holds and returns the rest,
-/// and the permit rides the run to the multiplexer. It holds at most one
-/// permit at a time: it yields each run, with its permit, before the next
-/// record can open another.
+/// With a send pool ([`pooled`](Self::pooled)), the encoder takes each run's
+/// permit when the run's first record arrives, before it copies any of it: a
+/// whole run's worth, the body the run budget admits, or the record's own bytes
+/// if it alone needs more, beside the run's node in the lane, at most the whole
+/// pool ([`WirePool::acquire`]). Once the run closes, it keeps only what the
+/// run's buffer holds and returns the rest, and the permit rides the run to the
+/// multiplexer. It holds at most one permit at a time: it yields each run, with
+/// its permit, before the next record can open another.
 pub struct ReplyEncoder<B> {
     /// The store whose supplied nodes are flattened into leaf runs.
     backend: B,
@@ -145,8 +141,8 @@ pub struct ReplyEncoder<B> {
     scope: Scope,
     /// How the reply's queries pair with positions.
     level: ReplyLevel,
-    /// How far the reply's reactions have replayed against the record:
-    /// the positions they took, and the later positions its match covers.
+    /// How far the reply's reactions have replayed against the record: the
+    /// positions they took, and the later positions its match covers.
     replay: Replay,
     /// Whether the reply has yielded any frame.
     written: bool,
@@ -186,19 +182,17 @@ where
         self
     }
 
-    /// Encode the reply's next `chunk`, deriving the lower questions it
-    /// asks.
+    /// Encode the reply's next `chunk`, deriving the lower questions it asks.
     ///
-    /// The stream borrows the encoder until it ends. It is returned unboxed
-    /// for the caller to pin where it polls it, so encoding a chunk
-    /// allocates nothing for the stream itself.
+    /// The stream borrows the encoder until it ends. It is returned unboxed for
+    /// the caller to pin where it polls it, so encoding a chunk allocates
+    /// nothing for the stream itself.
     ///
     /// # Panics
     ///
-    /// The stream panics on an empty last chunk after frames of the same
-    /// reply: those frames left flagged to continue, so nothing can end the
-    /// reply, and the sender broke the rule that its last chunk holds its
-    /// last reaction.
+    /// The stream panics on an empty last chunk after frames of the same reply:
+    /// those frames left flagged to continue, so nothing can end the reply, and
+    /// the sender broke the rule that its last chunk holds its last reaction.
     pub fn chunk(
         &mut self,
         chunk: Reply<B::Erased>,
@@ -357,8 +351,8 @@ where
     whole(ReplyEncoder::branch(backend, budget, scope), reply)
 }
 
-/// Encode one whole leaf-height `reply`, given as one last chunk, where
-/// only an empty request for the leaf is valid.
+/// Encode one whole leaf-height `reply`, given as one last chunk, where only an
+/// empty request for the leaf is valid.
 #[cfg(test)]
 pub fn encode_leaf_reply<B>(
     backend: B,

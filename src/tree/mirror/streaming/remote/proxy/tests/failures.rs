@@ -195,8 +195,8 @@ proptest! {
     }
 }
 
-/// Every meaningful operation/unit pair can fail immediately through its
-/// typed surface, and the pre-exchange cut terminates the counterparty too.
+/// Every meaningful operation/unit pair can fail immediately through its typed
+/// surface, and the pre-exchange cut terminates the counterparty too.
 #[test]
 fn every_transport_fault_surface_is_reachable() {
     let variants = [

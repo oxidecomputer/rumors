@@ -9,8 +9,8 @@
 //! An accumulator operand is read, never copied, and the read compacts any
 //! cancellation at its top. An assignment borrows its receiver mutably, so its
 //! operand is always a different accumulator. Two borrowed operands may be the
-//! same accumulator; their reads happen one after the other, so `&a + &a`
-//! needs no special case.
+//! same accumulator; their reads happen one after the other, so `&a + &a` needs
+//! no special case.
 //!
 //! Primitive integers keep sign and magnitude separate, so signed minima never
 //! pass through an overflowing cast. Shift counts are checked, never wrapped.
@@ -133,9 +133,8 @@ primitive_operators!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, us
 
 /// The remaining primitive forms, each forwarding to a form above.
 ///
-/// A borrowed primitive is copied. A primitive on the left moves to the
-/// right: addition commutes, and `value - accumulator` is
-/// `-accumulator + value`.
+/// A borrowed primitive is copied. A primitive on the left moves to the right:
+/// addition commutes, and `value - accumulator` is `-accumulator + value`.
 macro_rules! forwarded_primitive_operators {
     ($($operand:ty),* $(,)?) => {$(
         /// Add a borrowed primitive, at the cost of `+=`.
@@ -300,9 +299,9 @@ impl AddAssign<&Accumulator> for Accumulator {
     }
 }
 
-/// Subtract a borrowed accumulator in amortized O(1 + `n`) time for an
-/// operand `n` limbs wide, as [`sub_shifted`](Accumulator::sub_shifted) at
-/// shift 0 does.
+/// Subtract a borrowed accumulator in amortized O(1 + `n`) time for an operand
+/// `n` limbs wide, as [`sub_shifted`](Accumulator::sub_shifted) at shift 0
+/// does.
 ///
 /// As for `+=`, the operand is a different accumulator:
 ///
@@ -321,8 +320,8 @@ impl SubAssign<&Accumulator> for Accumulator {
 
 /// Add an owned accumulator, reusing the wider input's storage.
 ///
-/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
-/// in limbs.
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width in
+/// limbs.
 impl AddAssign for Accumulator {
     fn add_assign(&mut self, rhs: Accumulator) {
         *self = core::mem::take(self) + rhs;
@@ -331,8 +330,8 @@ impl AddAssign for Accumulator {
 
 /// Subtract an owned accumulator, reusing the wider input's storage.
 ///
-/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
-/// in limbs.
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width in
+/// limbs.
 impl SubAssign for Accumulator {
     fn sub_assign(&mut self, rhs: Accumulator) {
         *self = core::mem::take(self) - rhs;
@@ -341,8 +340,8 @@ impl SubAssign for Accumulator {
 
 /// Add owned accumulators, reading the narrower into the wider's storage.
 ///
-/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
-/// in limbs. On equal widths the left operand's storage is kept.
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width in
+/// limbs. On equal widths the left operand's storage is kept.
 impl Add for Accumulator {
     type Output = Accumulator;
 
@@ -361,12 +360,12 @@ impl Add for Accumulator {
     }
 }
 
-/// Subtract owned accumulators, as `self + -rhs`, reading the narrower into
-/// the wider's storage.
+/// Subtract owned accumulators, as `self + -rhs`, reading the narrower into the
+/// wider's storage.
 ///
-/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width
-/// in limbs, as owned addition does: negating `rhs` costs O(1). On equal
-/// widths the left operand's storage is kept.
+/// Takes amortized O(1 + `n`) time, where `n` is the narrower value's width in
+/// limbs, as owned addition does: negating `rhs` costs O(1). On equal widths
+/// the left operand's storage is kept.
 impl Sub for Accumulator {
     type Output = Accumulator;
 
@@ -412,8 +411,8 @@ impl Add<Accumulator> for &Accumulator {
     }
 }
 
-/// Subtract the owned right operand, as `-rhs + self`, reusing its storage,
-/// at the cost of `+=` with a borrowed operand.
+/// Subtract the owned right operand, as `-rhs + self`, reusing its storage, at
+/// the cost of `+=` with a borrowed operand.
 impl Sub<Accumulator> for &Accumulator {
     type Output = Accumulator;
 
@@ -424,8 +423,8 @@ impl Sub<Accumulator> for &Accumulator {
 
 /// Add two borrowed accumulators into a new one.
 ///
-/// Takes the cost of cloning the left operand plus `+=` with the right. The
-/// two may be the same accumulator: `&a + &a` is twice `a`.
+/// Takes the cost of cloning the left operand plus `+=` with the right. The two
+/// may be the same accumulator: `&a + &a` is twice `a`.
 impl Add<&Accumulator> for &Accumulator {
     type Output = Accumulator;
 
@@ -436,8 +435,8 @@ impl Add<&Accumulator> for &Accumulator {
 
 /// Subtract two borrowed accumulators into a new one.
 ///
-/// Takes the cost of cloning the left operand plus `-=` with the right. The
-/// two may be the same accumulator: `&a - &a` is zero.
+/// Takes the cost of cloning the left operand plus `-=` with the right. The two
+/// may be the same accumulator: `&a - &a` is zero.
 impl Sub<&Accumulator> for &Accumulator {
     type Output = Accumulator;
 
@@ -449,8 +448,8 @@ impl Sub<&Accumulator> for &Accumulator {
 /// Sum owned accumulators, reusing the wider input at each addition.
 ///
 /// Takes amortized O(`k` + `T`) time for `k` inputs whose widths total `T`
-/// limbs: each addition reads only the narrower of the running total and
-/// the next input.
+/// limbs: each addition reads only the narrower of the running total and the
+/// next input.
 impl Sum for Accumulator {
     fn sum<I: Iterator<Item = Accumulator>>(iter: I) -> Accumulator {
         iter.reduce(Add::add).unwrap_or_default()

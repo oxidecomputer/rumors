@@ -22,22 +22,22 @@ mod tests;
 ///
 /// [`Span::new`] checks this ordering; [`Span::at`] creates the point span
 /// `v <= v`. [`Span::place`] gives the complete relation between a [`Version`]
-/// and the endpoints. [`Span::contains`],
-/// [`dominance`](Span::dominance), and [`precedence`](Span::precedence) answer
-/// coarser questions without computing more detail than they return.
+/// and the endpoints. [`Span::contains`], [`dominance`](Span::dominance), and
+/// [`precedence`](Span::precedence) answer coarser questions without computing
+/// more detail than they return.
 ///
-/// | Operation                                           | Meaning                                                         |
-/// |-----------------------------------------------------|-----------------------------------------------------------------|
-/// | `v ^ w`, [`v.span(&w)`](Version::span)              | the tightest span containing `v` and `w`                        |
-/// | [`Version::span_all`]                               | the tightest span containing a collection                       |
-/// | [`Span::new(lo, hi)`](Span::new)                    | construct `lo <= hi`, rejecting reversed or concurrent endpoints|
-/// | [`Span::at(v)`](Span::at)                           | the point span `v <= v`                                         |
-/// | [`s.place(&v)`](Span::place)                        | the complete relation between `v` and both endpoints            |
-/// | [`s.contains(&v)`](Span::contains)                  | whether `v` lies within the span                                |
-/// | `a \| b`, `a & b`                                   | pointwise join or meet of matching endpoints                    |
-/// | `a + b`, `a * b`                                    | containment union or optional intersection                      |
-/// | [`s.project(&p)`](Span::project), `&s / &p`         | a lazy view of both endpoints projected onto [`Party`] `p`      |
-/// | [`s.encode()`](Span::encode)/[`Span::decode`]       | encode or decode the canonical wire form                        |
+/// | Operation                                     | Meaning                                                          |
+/// |-----------------------------------------------|------------------------------------------------------------------|
+/// | `v ^ w`, [`v.span(&w)`](Version::span)        | the tightest span containing `v` and `w`                         |
+/// | [`Version::span_all`]                         | the tightest span containing a collection                        |
+/// | [`Span::new(lo, hi)`](Span::new)              | construct `lo <= hi`, rejecting reversed or concurrent endpoints |
+/// | [`Span::at(v)`](Span::at)                     | the point span `v <= v`                                          |
+/// | [`s.place(&v)`](Span::place)                  | the complete relation between `v` and both endpoints             |
+/// | [`s.contains(&v)`](Span::contains)            | whether `v` lies within the span                                 |
+/// | `a \| b`, `a & b`                             | pointwise join or meet of matching endpoints                     |
+/// | `a + b`, `a * b`                              | containment union or optional intersection                       |
+/// | [`s.project(&p)`](Span::project), `&s / &p`   | a lazy view of both endpoints projected onto [`Party`] `p`       |
+/// | [`s.encode()`](Span::encode)/[`Span::decode`] | encode or decode the canonical wire form                         |
 ///
 /// # The span algebra
 ///
@@ -45,22 +45,25 @@ mod tests;
 ///
 /// - The **pointwise** operations apply the [`Version`] lattice to matching
 ///   endpoints:
-///   - `a | b` ([`join`](Span::join)) has endpoints `lo_a | lo_b <= hi_a | hi_b`;
-///   - `a & b` ([`meet`](Span::meet)) has endpoints `lo_a & lo_b <= hi_a & hi_b`.
+///   - `a | b` ([`join`](Span::join)) has endpoints
+///     `lo_a | lo_b <= hi_a | hi_b`;
+///   - `a & b` ([`meet`](Span::meet)) has endpoints
+///     `lo_a & lo_b <= hi_a & hi_b`.
 ///
 /// - The **containment** operations treat spans as sets of versions:
-///   - `a + b` ([`union`](Span::union)) has endpoints `lo_a & lo_b <= hi_a | hi_b`;
-///   - `a * b` ([`intersect`](Span::intersect)) has endpoints `lo_a | lo_b <= hi_a & hi_b`,
-///     or [`None`] when the spans are non-overlapping.
+///   - `a + b` ([`union`](Span::union)) has endpoints
+///     `lo_a & lo_b <= hi_a | hi_b`;
+///   - `a * b` ([`intersect`](Span::intersect)) has endpoints
+///     `lo_a | lo_b <= hi_a & hi_b`, or [`None`] when the spans are
+///     non-overlapping.
 ///
 /// The assigning operators exist for the three total operations. Intersection
-/// is partial and therefore has no `*=` form. Each operation also has an
-/// `_all` form for a collection.
+/// is partial and therefore has no `*=` form. Each operation also has an `_all`
+/// form for a collection.
 ///
 /// [`Span::project`] applies [`Version::project`] to both endpoints.
 /// [`Span::encode`] concatenates the two self-delimiting endpoint encodings;
-/// [`Span::decode`] validates both endpoints and their
-/// ordering.
+/// [`Span::decode`] validates both endpoints and their ordering.
 ///
 /// # Example
 ///
@@ -252,11 +255,11 @@ impl<'a> Span<'a> {
     ///
     /// - A [`Version`] is [`After`](Dominance::After) a [`Span`] if it is
     ///   greater than or equal to both endpoints of the span.
-    /// - A [`Version`] is [`Between`](Dominance::Between) a [`Span`] if
-    ///   it is greater than or equal to the lower bound of the [`Span`],
-    ///   but strictly less than or concurrent to its upper bound.
-    /// - A [`Version`] is [`Before`](Dominance::Before) a [`Span`] if it
-    ///   is strictly less than or concurrent to both endpoints of the span.
+    /// - A [`Version`] is [`Between`](Dominance::Between) a [`Span`] if it is
+    ///   greater than or equal to the lower bound of the [`Span`], but strictly
+    ///   less than or concurrent to its upper bound.
+    /// - A [`Version`] is [`Before`](Dominance::Before) a [`Span`] if it is
+    ///   strictly less than or concurrent to both endpoints of the span.
     ///
     /// This is a coarsening of [`place`](Span::place)'s [`Placement`] verdict
     /// which can be computed more efficiently.
@@ -305,11 +308,11 @@ impl<'a> Span<'a> {
     ///
     /// - A [`Version`] is [`Before`](Precedence::Before) a [`Span`] if it is
     ///   less than or equal to both endpoints of the span.
-    /// - A [`Version`] is [`Between`](Precedence::Between) a [`Span`] if
-    ///   it is less than or equal to the upper bound of the [`Span`],
-    ///   but strictly greater than or concurrent to its lower bound.
-    /// - A [`Version`] is [`After`](Precedence::After) a [`Span`] if it
-    ///   is strictly greater than or concurrent to both endpoints of the span.
+    /// - A [`Version`] is [`Between`](Precedence::Between) a [`Span`] if it is
+    ///   less than or equal to the upper bound of the [`Span`], but strictly
+    ///   greater than or concurrent to its lower bound.
+    /// - A [`Version`] is [`After`](Precedence::After) a [`Span`] if it is
+    ///   strictly greater than or concurrent to both endpoints of the span.
     ///
     /// This is a coarsening of [`place`](Span::place)'s [`Placement`] verdict
     /// which can be computed more efficiently.

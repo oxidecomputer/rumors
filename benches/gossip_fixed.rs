@@ -6,8 +6,8 @@
 //! Every fixture starts with a total universe size of `N = 10_000` possible
 //! actions and varies only where the work lands: shared pre-fork insertions,
 //! post-fork divergent insertions, or post-fork redactions. Each benchmark
-//! drives [`Rumors::gossip`] over one persistent in-memory connection, so the timed
-//! body pays for the gossip session rather than transport allocation.
+//! drives [`Rumors::gossip`] over one persistent in-memory connection, so the
+//! timed body pays for the gossip session rather than transport allocation.
 //!
 //! The fixed-size groups measure the wire protocol on the same fixtures. Their
 //! series retain the `V2` label used by existing Criterion baselines:
@@ -21,25 +21,24 @@
 //!
 //! Two further groups reuse the bidirectional fixtures but add a third
 //! dimension: one-way link latency, swept as the x-axis at a few fixed
-//! divergence points (the full divergence sweep times a latency sweep
-//! would be quadratic in wall time for no added signal):
+//! divergence points (the full divergence sweep times a latency sweep would be
+//! quadratic in wall time for no added signal):
 //!
 //! - `gossip_latency_bidir_insertions`: `I ∈ {0, 5000}`.
 //! - `gossip_latency_bidir_redactions`: `R = 2500`.
 //!
-//! Sessions run over the test kit's delayed-pipe connection, which
-//! charges wire delay to a paused runtime clock, so the sweep costs
-//! wall-clock compute only and the reported duration is elapsed compute time
-//! plus virtual wire stall. Read each line's intercept as the protocol's
-//! computational cost and its slope as latency sensitivity: the slope at
-//! one-way delay `d`, divided by `d`, is the session's serialized one-way
-//! hop count. `I = 0` is the identical corner — the steady-state "nothing
-//! changed" handshake a production peer pays every gossip round.
+//! Sessions run over the test kit's delayed-pipe connection, which charges wire
+//! delay to a paused runtime clock, so the sweep costs wall-clock compute only
+//! and the reported duration is elapsed compute time plus virtual wire stall.
+//! Read each line's intercept as the protocol's computational cost and its
+//! slope as latency sensitivity: the slope at one-way delay `d`, divided by
+//! `d`, is the session's serialized one-way hop count. `I = 0` is the identical
+//! corner — the steady-state "nothing changed" handshake a production peer pays
+//! every gossip round.
 //!
-//! Read the slopes for regressions: a hop count scaling with disputed
-//! scopes rather than tree depth is the serialized regime the memory
-//! budget exists to avoid, and it shows up here as slope growing with
-//! divergence.
+//! Read the slopes for regressions: a hop count scaling with disputed scopes
+//! rather than tree depth is the serialized regime the memory budget exists to
+//! avoid, and it shows up here as slope growing with divergence.
 
 use std::hint::black_box;
 use std::time::Duration;
@@ -58,13 +57,13 @@ const INSERT_STEP: usize = 500;
 /// Distance between redaction-divergence samples.
 const REDACT_STEP: usize = 250;
 
-/// One-way link delays for the latency sweep, in whole milliseconds:
-/// Tokio's timer wheel rounds sub-millisecond deadlines up, so finer
-/// values would be quantized anyway.
+/// One-way link delays for the latency sweep, in whole milliseconds: Tokio's
+/// timer wheel rounds sub-millisecond deadlines up, so finer values would be
+/// quantized anyway.
 ///
-/// Zero anchors each line's intercept at the pure-compute cost; the
-/// wire-stall component scales linearly in the delay, so three nonzero
-/// decades pin the slope.
+/// Zero anchors each line's intercept at the pure-compute cost; the wire-stall
+/// component scales linearly in the delay, so three nonzero decades pin the
+/// slope.
 const LATENCY_SWEEP_MS: &[u64] = &[0, 1, 10, 100];
 
 /// Divergence points measured under latency: the identical corner (the
@@ -72,16 +71,16 @@ const LATENCY_SWEEP_MS: &[u64] = &[0, 1, 10, 100];
 /// fixture-build wall time without bending the latency lines.
 const LATENCY_INSERTIONS: &[usize] = &[0, 5_000];
 
-/// The single redaction divergence measured under latency; the insertion
-/// sweep already carries the size-scaling signal.
+/// The single redaction divergence measured under latency; the insertion sweep
+/// already carries the size-scaling signal.
 const LATENCY_REDACTIONS: &[usize] = &[2_500];
 
 /// Per-direction in-flight window for the latency sweep: far above any
 /// session's one-direction transfer at `N = 10_000`.
 ///
-/// Measurements therefore isolate round-trip serialization from
-/// bandwidth-delay throttling (the pipe's in-flight capacity caps each
-/// direction's throughput at `capacity / delay`).
+/// Measurements therefore isolate round-trip serialization from bandwidth-delay
+/// throttling (the pipe's in-flight capacity caps each direction's throughput
+/// at `capacity / delay`).
 const LATENCY_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// How the two peers diverge after their shared history.
@@ -288,8 +287,8 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u
     (left, right)
 }
 
-/// A seed peer measuring shipped behavior: the default memory budget in
-/// every build shape.
+/// A seed peer measuring shipped behavior: the default memory budget in every
+/// build shape.
 fn production_seed() -> Rumors<u8> {
     // Fixed, so every run benchmarks the same network.
     let mut rng = ChaChaRng::seed_from_u64(0xe9f4_fc18_d119_7299);

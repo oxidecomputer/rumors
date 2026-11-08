@@ -1,21 +1,21 @@
-//! The calibration sweep: sample every family, fit per-band-key fuel lines,
-//! and rewrite `src/bands.rs` (atomically) with the pinned result.
+//! The calibration sweep: sample every family, fit per-band-key fuel lines, and
+//! rewrite `src/bands.rs` (atomically) with the pinned result.
 //!
-//! Deterministic end to end: family draws come from proptest's
-//! deterministic runner, program seeds are the case index, and fuel is
-//! wasmtime's deterministic count — so two sweeps at the same code produce
-//! byte-identical bands, and a bands diff always means a real change
-//! (guest codegen, kernels, strategies), never noise.
+//! Deterministic end to end: family draws come from proptest's deterministic
+//! runner, program seeds are the case index, and fuel is wasmtime's
+//! deterministic count — so two sweeps at the same code produce byte-identical
+//! bands, and a bands diff always means a real change (guest codegen, kernels,
+//! strategies), never noise.
 //!
-//! The band key is kernel × outcome: rejection arms (`ERR_OP` outcomes)
-//! are fitted and pinned separately from success paths, so a regression in
-//! either arm is judged against its own law.
+//! The band key is kernel × outcome: rejection arms (`ERR_OP` outcomes) are
+//! fitted and pinned separately from success paths, so a regression in either
+//! arm is judged against its own law.
 //!
 //! The sweep reports within-program slope excess, prefix-refit divergence,
 //! floor distance from a no-op, and fixed escalation replays' ceiling excess.
-//! Review these measurements against the committed enforcement tolerances
-//! when re-pinning. Every fitted key must also be refittable from the prefix
-//! with the same constant-or-linear classification.
+//! Review these measurements against the committed enforcement tolerances when
+//! re-pinning. Every fitted key must also be refittable from the prefix with
+//! the same constant-or-linear classification.
 //!
 //! Usage: `calibrate [programs]` (default 4096, the calibration corpus; the
 //! committed pins state their corpus size per band).

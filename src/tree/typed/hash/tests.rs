@@ -22,9 +22,9 @@ fn arb_distinct_heights() -> impl Strategy<Value = (usize, usize)> {
 /// A branch commits to exactly `BRANCH_TAG ‖ height ‖ prefix_len ‖ prefix ‖
 /// child_count ‖ (radix ‖ child_hash)*`.
 ///
-/// The height and the prefix length use one byte each; the child count uses
-/// a big-endian `u16`. Each radix and hash follows in the supplied order,
-/// without padding.
+/// The height and the prefix length use one byte each; the child count uses a
+/// big-endian `u16`. Each radix and hash follows in the supplied order, without
+/// padding.
 #[test]
 fn branch_preimage_layout() {
     let prefix = [0x0a, 0x0b, 0x0c];
@@ -42,9 +42,9 @@ fn branch_preimage_layout() {
     assert_eq!(key().branch(20, &prefix, children), key().of(&expected));
 }
 
-/// A leaf hashes its kind tag, its height, and its length-tagged path
-/// suffix. The version determines the full path; its encoding and the
-/// payload are not repeated.
+/// A leaf hashes its kind tag, its height, and its length-tagged path suffix.
+/// The version determines the full path; its encoding and the payload are not
+/// repeated.
 #[test]
 fn leaf_preimage_layout() {
     let suffix = [0x01, 0x02, 0x03, 0x04];
@@ -148,7 +148,8 @@ proptest! {
     }
 }
 
-/// A single-child branch must be compressed into the child's prefix before hashing.
+/// A single-child branch must be compressed into the child's prefix before
+/// hashing.
 #[cfg(debug_assertions)]
 #[test]
 #[should_panic(expected = "one-child branch is unrepresentable")]
@@ -156,17 +157,17 @@ fn branch_rejects_a_single_child() {
     key().branch(1, &[], [(0, Hash::default())]);
 }
 
-/// Reject a leaf whose height, and suffix length, cannot be represented by
-/// the input's one-byte fields.
+/// Reject a leaf whose height, and suffix length, cannot be represented by the
+/// input's one-byte fields.
 #[test]
 #[should_panic(expected = "a trie position's height fits in one byte")]
 fn leaf_height_must_fit_one_byte() {
     key().leaf(256, &[0; 256]);
 }
 
-/// The empty tree hashes as a prefixless branch with no children at the
-/// root's height — `BRANCH_TAG ‖ 32 ‖ 0 ‖ 0u16` — and agrees with the
-/// general branch rule applied to empty fields.
+/// The empty tree hashes as a prefixless branch with no children at the root's
+/// height — `BRANCH_TAG ‖ 32 ‖ 0 ‖ 0u16` — and agrees with the general branch
+/// rule applied to empty fields.
 #[test]
 fn empty_root_is_the_empty_branch() {
     assert_eq!(
@@ -176,15 +177,14 @@ fn empty_root_is_the_empty_branch() {
     assert_eq!(key().empty_root(), key().branch(32, &[], []));
 }
 
-/// An empty-suffix leaf (its parent sits at depth 31) and an empty branch
-/// at height zero digest differently.
+/// An empty-suffix leaf (its parent sits at depth 31) and an empty branch at
+/// height zero digest differently.
 ///
-/// Their preimages differ in kind tag and in length, and each difference
-/// alone separates them. The tag is not the only separation between kinds:
-/// a leaf's preimage ends with the suffix its length byte declares, while a
-/// branch's continues past the prefix its length byte declares with a
-/// two-byte child count, so no leaf preimage equals a branch preimage even
-/// under one tag.
+/// Their preimages differ in kind tag and in length, and each difference alone
+/// separates them. The tag is not the only separation between kinds: a leaf's
+/// preimage ends with the suffix its length byte declares, while a branch's
+/// continues past the prefix its length byte declares with a two-byte child
+/// count, so no leaf preimage equals a branch preimage even under one tag.
 #[test]
 fn empty_suffix_leaf_is_not_an_empty_branch() {
     assert_ne!(key().leaf(0, &[]), key().branch(0, &[], []));
@@ -194,13 +194,12 @@ fn empty_suffix_leaf_is_not_an_empty_branch() {
 /// preimages would coincide without the `prefix_len` field must hash
 /// differently.
 ///
-/// The pair shifts one whole child record across the prefix/children
-/// boundary — a 1-byte prefix with four children versus a prefix
-/// lengthened by one full record with three — contrived so the untagged
-/// concatenation `prefix ‖ child_count ‖ records` is the same byte string
-/// for both (the test asserts that premise before asserting the hashes
-/// differ). Both sit at one height, so only the length tag separates the
-/// two parses.
+/// The pair shifts one whole child record across the prefix/children boundary —
+/// a 1-byte prefix with four children versus a prefix lengthened by one full
+/// record with three — contrived so the untagged concatenation
+/// `prefix ‖ child_count ‖ records` is the same byte string for both (the test
+/// asserts that premise before asserting the hashes differ). Both sit at one
+/// height, so only the length tag separates the two parses.
 #[test]
 fn prefix_len_separates_boundary_shifts() {
     // First child's hash ends in the bytes 0x00 0x03, which the shifted
@@ -248,8 +247,8 @@ fn prefix_len_separates_boundary_shifts() {
     );
 }
 
-/// A saturated 256-child branch encodes its count as big-endian `0x01 0x00`
-/// — the u16's high byte, the entire reason the field is not a biased byte,
+/// A saturated 256-child branch encodes its count as big-endian `0x01 0x00` —
+/// the u16's high byte, the entire reason the field is not a biased byte,
 /// carries through `HashKey::branch` correctly.
 #[test]
 fn saturated_fan_count_uses_the_high_byte() {

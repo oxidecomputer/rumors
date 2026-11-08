@@ -10,14 +10,14 @@ use crate::tree::arb::{arb_wide_divergent_pair, roots_at_depth};
 use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::{Action, Root, Tree};
 
-/// Replicas where one, `ahead`, has seen everything the other, `behind`,
-/// has, returned as `(ahead, behind)`.
+/// Replicas where one, `ahead`, has seen everything the other, `behind`, has,
+/// returned as `(ahead, behind)`.
 ///
-/// `behind` is `ahead` as it stood after a prefix of its actions. `ahead`
-/// then inserts more and may redact any leaf it holds, so its set contains
+/// `behind` is `ahead` as it stood after a prefix of its actions. `ahead` then
+/// inserts more and may redact any leaf it holds, so its set contains
 /// `behind`'s when it redacted none of `behind`'s leaves, and its version
-/// covers everything `behind` holds either way. With a drawn depth, both
-/// sides' leaves are placed below a shared prefix of that many bytes
+/// covers everything `behind` holds either way. With a drawn depth, both sides'
+/// leaves are placed below a shared prefix of that many bytes
 /// ([`roots_at_depth`]), so every scope the session explores sits on a
 /// compressed path.
 fn arb_contained_pair() -> impl Strategy<Value = (Root, Root)> {
@@ -96,8 +96,8 @@ proptest! {
     }
 }
 
-/// Compute every memo of `root`'s tree, as publication does before a
-/// replica serves it.
+/// Compute every memo of `root`'s tree, as publication does before a replica
+/// serves it.
 fn warmed(root: Root) -> Root {
     if let Some(node) = &root.node {
         node.hash(&crate::tree::typed::HashKey::fixture());

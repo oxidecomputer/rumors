@@ -37,15 +37,15 @@ pub(super) fn leaf_sibling_path(last: u8) -> Path {
     Path::from(leaf_sibling_bytes(last))
 }
 
-/// Extend `node` with one leaf per path, all carrying `value`, versioned on
-/// one fresh chain of party `party`, ticking `stride` times per leaf.
+/// Extend `node` with one leaf per path, all carrying `value`, versioned on one
+/// fresh chain of party `party`, ticking `stride` times per leaf.
 ///
-/// Building successive trees on top of a shared node keeps the shared
-/// subtrees hash-identical by construction; distinct parties keep each
-/// side's extras causally concurrent, so nothing is deletion-pruned when
-/// provided across. The `stride` and `value` parameters perturb payloads:
-/// they change versions or contents (hence every hash on the path) without
-/// touching the path structure the reconciliation keys on.
+/// Building successive trees on top of a shared node keeps the shared subtrees
+/// hash-identical by construction; distinct parties keep each side's extras
+/// causally concurrent, so nothing is deletion-pruned when provided across. The
+/// `stride` and `value` parameters perturb payloads: they change versions or
+/// contents (hence every hash on the path) without touching the path structure
+/// the reconciliation keys on.
 pub(super) fn grown<T>(
     node: Option<TreeNode<height::Root>>,
     party: usize,
@@ -84,12 +84,12 @@ pub(super) fn rooted(node: Option<TreeNode<height::Root>>) -> Root {
 /// Wrap a node as a [`Root`] advertising an explicit ceiling.
 ///
 /// Used to equalize two remote trees' greeting versions so role election
-/// (`streaming.rs::descend`: the smaller set initiates, canonical version
-/// bytes break ties) comes out identical across two sessions against the
-/// same local tree once the remotes' set sizes are also equal. Inflating a
-/// ceiling with ticks from parties absent from the tree's leaves is inert here:
-/// deletion pruning compares leaf versions with the counterparty's ceiling,
-/// and each fixture keeps supplied leaves on chains that ceiling never covers.
+/// (`streaming.rs::descend`: the smaller set initiates, canonical version bytes
+/// break ties) comes out identical across two sessions against the same local
+/// tree once the remotes' set sizes are also equal. Inflating a ceiling with
+/// ticks from parties absent from the tree's leaves is inert here: deletion
+/// pruning compares leaf versions with the counterparty's ceiling, and each
+/// fixture keeps supplied leaves on chains that ceiling never covers.
 pub(super) fn rooted_at(node: Option<TreeNode<height::Root>>, ceiling: Version) -> Root {
     Root { ceiling, node }
 }
@@ -107,8 +107,8 @@ pub(super) fn ceiling_of(node: &Option<TreeNode<height::Root>>) -> Version {
 /// The version-chain party index of each tree's leaves in a [`Divergence`].
 ///
 /// Parties are pairwise disjoint, so every side's extras stay causally
-/// concurrent with everything else and survive deletion-pruning when
-/// provided across (crate safety rules: one universe, linear parties).
+/// concurrent with everything else and survive deletion-pruning when provided
+/// across (crate safety rules: one universe, linear parties).
 const SHARED_PARTY: usize = 0;
 /// The first remote's extras chain.
 const REMOTE_0_PARTY: usize = 1;
@@ -127,15 +127,14 @@ const LOCAL_SLOT: u8 = 0x40;
 /// The remotes' one-sided extras under a cell.
 const REMOTE_SLOTS: [u8; 2] = [0x80, 0xc0];
 
-/// One divergence cell: a controlled prefix and the leaf populations under
-/// it.
+/// One divergence cell: a controlled prefix and the leaf populations under it.
 ///
-/// Every difference is one-sided (distinct slot columns per population), so
-/// no key is ever present on both sides with different content — the shape
-/// `answer::leaf_parent`'s unconditional `Both -> Match` makes meaningless.
-/// A `deep` cell is zero-extended to 31 bytes, so its populations share a
-/// leaf parent and the dispute descends the full trie: that is what
-/// exercises height-1 scopes and leaf requests.
+/// Every difference is one-sided (distinct slot columns per population), so no
+/// key is ever present on both sides with different content — the shape
+/// `answer::leaf_parent`'s unconditional `Both -> Match` makes meaningless. A
+/// `deep` cell is zero-extended to 31 bytes, so its populations share a leaf
+/// parent and the dispute descends the full trie: that is what exercises
+/// height-1 scopes and leaf requests.
 #[derive(Clone, Debug)]
 pub(super) struct CellSpec {
     /// The controlled prefix (bytes < 0x10, length <= 3).
@@ -158,8 +157,8 @@ pub(super) struct Divergence {
 }
 
 impl CellSpec {
-    /// The full 32-byte path of this cell's leaf in slot column `slot`,
-    /// offset by `index` within the column.
+    /// The full 32-byte path of this cell's leaf in slot column `slot`, offset
+    /// by `index` within the column.
     fn path(&self, slot: u8, index: u8) -> [u8; 32] {
         let mut bytes = [0u8; 32];
         bytes[..self.cell.len()].copy_from_slice(&self.cell);
@@ -171,8 +170,8 @@ impl CellSpec {
 
 impl Divergence {
     /// The shared leaves' paths, in cell order, first occurrence per path:
-    /// sampled cells may repeat a prefix, and one path is one leaf — an
-    /// insert never lands on an occupied path.
+    /// sampled cells may repeat a prefix, and one path is one leaf — an insert
+    /// never lands on an occupied path.
     pub fn shared_paths(&self) -> Vec<[u8; 32]> {
         let mut seen = BTreeSet::new();
         self.cells
@@ -194,16 +193,16 @@ impl Divergence {
             .collect()
     }
 
-    /// Remote `which`'s one-sided extras, padded so both remotes hold the
-    /// same leaf count.
+    /// Remote `which`'s one-sided extras, padded so both remotes hold the same
+    /// leaf count.
     ///
     /// Sampled cells may repeat a prefix, collapsing their extras onto one
     /// leaf, so the count that matters is *distinct* paths. The pad leaves
-    /// continue the remote's own slot column under the guaranteed anchor
-    /// cell (the empty prefix), so they collide with no other population.
-    /// Equal counts keep the two remotes' advertised set sizes identical:
-    /// with the shared join ceiling ([`Self::trees`]), the local tree's
-    /// role election is then identical across the two sessions.
+    /// continue the remote's own slot column under the guaranteed anchor cell
+    /// (the empty prefix), so they collide with no other population. Equal
+    /// counts keep the two remotes' advertised set sizes identical: with the
+    /// shared join ceiling ([`Self::trees`]), the local tree's role election is
+    /// then identical across the two sessions.
     pub fn remote_paths(&self, which: usize) -> Vec<[u8; 32]> {
         let distinct = |which: usize| -> BTreeSet<[u8; 32]> {
             self.cells
@@ -237,12 +236,11 @@ impl Divergence {
     /// Build `(local, remote_0, remote_1)`, every leaf carrying `value`.
     ///
     /// All three grow from one shared base node, so shared subtrees are
-    /// hash-identical by construction. Both remotes advertise the JOIN of
-    /// their natural ceilings ([`rooted_at`]'s inertness argument) and hold
-    /// equal leaf counts ([`Self::remote_paths`]' padding), so both of the
-    /// role election's keys — set size first, version bytes on ties — are
-    /// identical across the two sessions and the local tree plays one role
-    /// in both.
+    /// hash-identical by construction. Both remotes advertise the JOIN of their
+    /// natural ceilings ([`rooted_at`]'s inertness argument) and hold equal
+    /// leaf counts ([`Self::remote_paths`]' padding), so both of the role
+    /// election's keys — set size first, version bytes on ties — are identical
+    /// across the two sessions and the local tree plays one role in both.
     pub fn trees<T>(&self, value: &T) -> (Root, Root, Root)
     where
         T: Serialize + Clone + Send + Sync + 'static,
@@ -285,9 +283,9 @@ impl Divergence {
 /// The first cell is a fixed anchor at the root with a shared leaf and every
 /// one-sided extra: it guarantees nonempty trees, guarantees the local tree
 /// differs from both remotes (no equal-version short circuit), and puts at
-/// least one tick on every party's chain (distinct ceilings for role
-/// election). The rest is random shape: shallow and deep cells, one-sided
-/// extras in any combination.
+/// least one tick on every party's chain (distinct ceilings for role election).
+/// The rest is random shape: shallow and deep cells, one-sided extras in any
+/// combination.
 pub(super) fn arb_divergence() -> impl Strategy<Value = Divergence> {
     let cell = (
         proptest::collection::vec(0u8..4, 0..=3),

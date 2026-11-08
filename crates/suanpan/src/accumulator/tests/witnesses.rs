@@ -1,4 +1,5 @@
-//! Constructed boundary cases that random input generation is unlikely to reach.
+//! Constructed boundary cases that random input generation is unlikely to
+//! reach.
 
 use core::cmp::Ordering;
 
@@ -8,14 +9,16 @@ use super::{assert_value, from_limbs, park_extreme_negative_digit, Accumulator, 
 use crate::accumulator::digit_index;
 use crate::accumulator::small::{SMALL_MAX, SMALL_SHIFT_MAX};
 
-/// The last digit position whose required buffer length fits `usize` is accepted.
+/// The last digit position whose required buffer length fits `usize` is
+/// accepted.
 #[test]
 fn last_addressable_digit_is_accepted() {
     let position = usize::MAX as u128 - 1;
     assert_eq!(digit_index(position), usize::MAX - 1);
 }
 
-/// The next digit position panics because its required buffer length cannot fit.
+/// The next digit position panics because its required buffer length cannot
+/// fit.
 #[test]
 #[should_panic(expected = "a nonzero contribution needs an addressable digit position")]
 fn first_unaddressable_digit_panics() {
@@ -24,11 +27,10 @@ fn first_unaddressable_digit_panics() {
 
 /// A running partial of exactly 2 does not decide the comparison's sign.
 ///
-/// Lower digits can still overturn that partial, so the scan must continue.
-/// The fixture parks digits `[−(2^33 − 1), −(2^33 − 1), 2]`: its top partial
-/// is 2, but its full value is `−(2^32 − 1)`. The mirrored fixture, built
-/// from its own digits `[2^33 − 1, 2^33 − 1, −2]`, checks the opposite-sign
-/// boundary.
+/// Lower digits can still overturn that partial, so the scan must continue. The
+/// fixture parks digits `[−(2^33 − 1), −(2^33 − 1), 2]`: its top partial is 2,
+/// but its full value is `−(2^32 − 1)`. The mirrored fixture, built from its
+/// own digits `[2^33 − 1, 2^33 − 1, −2]`, checks the opposite-sign boundary.
 #[test]
 fn comparison_threshold_survives_extreme_cancellation() {
     let mut acc = Accumulator::new();
@@ -70,8 +72,8 @@ fn comparison_threshold_survives_extreme_cancellation() {
 
 /// A sign decided at digit two is not enough to cover every 64-bit adjustment.
 ///
-/// Digits [−(2^33−1), −(2^33−1), 3] represent 2^64−2^32+1: positive,
-/// but smaller than u64::MAX. Subtracting that permitted adjustment flips the sign.
+/// Digits [−(2^33−1), −(2^33−1), 3] represent 2^64−2^32+1: positive, but
+/// smaller than u64::MAX. Subtracting that permitted adjustment flips the sign.
 #[test]
 fn stability_needs_two_digits_of_clearance() {
     let mut acc = Accumulator::new();
@@ -98,9 +100,9 @@ fn stability_needs_two_digits_of_clearance() {
 /// A stability guarantee covers signed-digit operands wider in magnitude than
 /// their nominal 32-bit positions suggest.
 ///
-/// The operand places 2^33−1 at both covered positions. The larger value is only
-/// just large enough to decide one position higher; adding or subtracting the
-/// extreme operand must preserve its sign.
+/// The operand places 2^33−1 at both covered positions. The larger value is
+/// only just large enough to decide one position higher; adding or subtracting
+/// the extreme operand must preserve its sign.
 #[test]
 fn stability_covers_extreme_accumulator_operands() {
     let floor = 1usize;
@@ -145,10 +147,12 @@ fn stability_covers_extreme_accumulator_operands() {
     );
 }
 
-/// A scalar 2^65 cannot guarantee stability against every two-digit accumulator.
+/// A scalar 2^65 cannot guarantee stability against every two-digit
+/// accumulator.
 ///
 /// Two coefficients of 2^33−1 represent 2^65+2^32−1. That operand fits the
-/// requested stored width but exceeds 2^65 and reverses its sign on subtraction.
+/// requested stored width but exceeds 2^65 and reverses its sign on
+/// subtraction.
 #[test]
 fn small_value_stability_threshold_is_tight_from_below() {
     let mut larger = Accumulator::new();
@@ -208,13 +212,14 @@ fn maximum_adjustment_width_never_decides() {
     assert_eq!(acc.cmp_zero_stable_under(1984), Some(Ordering::Greater));
 }
 
-/// A stability query at the maximum adjustment width still compacts what it reads.
+/// A stability query at the maximum adjustment width still compacts what it
+/// reads.
 ///
 /// The value 5 · 2^64 is stored at digit 2, below a cancelling top: digit 10
 /// holds 1 and digit 9 holds −2^32. Answering `None` must not skip the scan,
-/// which decides at digit 2 and leaves three stored digits. The
-/// `wasm32-pins` executor checks the same construction where the
-/// adjustment's top digit index cannot fit a 32-bit `usize`.
+/// which decides at digit 2 and leaves three stored digits. The `wasm32-pins`
+/// executor checks the same construction where the adjustment's top digit index
+/// cannot fit a 32-bit `usize`.
 #[test]
 fn maximum_adjustment_width_still_compacts() {
     let mut acc = Accumulator::new();
@@ -231,7 +236,8 @@ fn maximum_adjustment_width_still_compacts() {
     assert_value(&acc, &(IBig::from(5) << 64usize));
 }
 
-/// The exact scalar comparison can prove stability without a high deciding digit.
+/// The exact scalar comparison can prove stability without a high deciding
+/// digit.
 ///
 /// u64::MAX exceeds 3·2^32 even though it occupies only two digit positions.
 #[test]
@@ -250,7 +256,8 @@ fn small_value_can_decide_before_a_digit_scan_could() {
     );
 }
 
-/// Equal values can give different stability answers without contradicting the contract.
+/// Equal values can give different stability answers without contradicting the
+/// contract.
 ///
 /// The scalar 2^80 exceeds 3·2^64. Stored as digits, its sign scan stops at
 /// index two, which is not high enough to establish the stronger operand bound.
@@ -277,10 +284,12 @@ fn stability_answer_can_depend_on_representation() {
     );
 }
 
-/// Removing leading cancellation tightens stored width enough for a useful stability test.
+/// Removing leading cancellation tightens stored width enough for a useful
+/// stability test.
 ///
-/// The value 1 initially occupies eleven positions. Comparing it with zero removes that
-/// cancellation, after which its reported width lets 5·2^128 prove it is larger.
+/// The value 1 initially occupies eleven positions. Comparing it with zero
+/// removes that cancellation, after which its reported width lets 5·2^128 prove
+/// it is larger.
 #[test]
 fn comparison_compaction_tightens_the_stored_width() {
     // Adding 2^320 and subtracting 2^320 − 1 leaves value 1 across eleven
@@ -325,12 +334,12 @@ fn comparison_compaction_tightens_the_stored_width() {
 /// scaled read factors out exactly the zero digits below it, whatever their
 /// parity.
 ///
-/// For 2^1280, one unit at digit 40, the read's comparison combines the top
-/// two positions and deposits the result at digit 39, one position lower. The
-/// read factors out the 39 digits below it, a 1,248-bit span that is not a
-/// whole number of limbs, and returns the one limb `2^32` above it: the same
-/// value, with no extra zero digit. It keeps the lowered position, so reading
-/// again returns the same triple.
+/// For 2^1280, one unit at digit 40, the read's comparison combines the top two
+/// positions and deposits the result at digit 39, one position lower. The read
+/// factors out the 39 digits below it, a 1,248-bit span that is not a whole
+/// number of limbs, and returns the one limb `2^32` above it: the same value,
+/// with no extra zero digit. It keeps the lowered position, so reading again
+/// returns the same triple.
 #[test]
 fn comparison_compaction_lowers_the_scaled_read_shift() {
     // One unit parked at digit 40: the 1280-bit shift exceeds the
@@ -382,7 +391,8 @@ fn flush_right_carry_tie_converts_exactly() {
 
 /// Word updates use the scalar until a wide operand requires digits.
 ///
-/// Subsequent small updates retain the digit representation; clear returns to the scalar.
+/// Subsequent small updates retain the digit representation; clear returns to
+/// the scalar.
 #[test]
 fn small_value_engages_and_retires() {
     let mut acc = Accumulator::new();
@@ -410,7 +420,8 @@ fn small_value_engages_and_retires() {
 }
 
 /// Empty and one-word limb streams preserve the small-value path, while a
-/// two-word stream enters the digit representation without changing the exact value.
+/// two-word stream enters the digit representation without changing the exact
+/// value.
 #[test]
 fn limb_stream_selects_the_narrowest_representation() {
     let mut acc = Accumulator::new();
@@ -458,7 +469,8 @@ fn full_small_value(negative: bool) -> (Accumulator, IBig) {
     (acc, oracle)
 }
 
-/// Every bounded scalar-input path handles its largest intermediate without overflow.
+/// Every bounded scalar-input path handles its largest intermediate without
+/// overflow.
 ///
 /// Apply extreme words and maximally shifted scalar operands at both ±2^96
 /// boundaries. Each result must match the independent arbitrary-width oracle.
@@ -541,8 +553,8 @@ fn small_value_extremes_spill_exactly() {
 
 /// Scalar and digit reads agree at zero and across the 64-bit limb boundary.
 ///
-/// Both signs are checked at u64::MAX, 2^64, and a two-limb composite.
-/// High zero limbs disappear; the low zero limb of 2^64 must remain.
+/// Both signs are checked at u64::MAX, 2^64, and a two-limb composite. High
+/// zero limbs disappear; the low zero limb of 2^64 must remain.
 #[test]
 fn normalized_limb_conversion_corners() {
     // Zero: empty limbs in both representations.
@@ -607,7 +619,8 @@ fn normalized_limb_conversion_corners() {
     }
 }
 
-/// Reserving capacity preserves values in both scalar and digit representations.
+/// Reserving capacity preserves values in both scalar and digit
+/// representations.
 ///
 /// Reservations below the stored width change nothing, and later writes behave
 /// identically whether or not their destination was reserved.
@@ -644,9 +657,9 @@ fn reserve_bits_is_value_neutral() {
 /// leaves the value unchanged, and leaves the accumulator usable for later
 /// updates. On a 64-bit target every `u64` request has a valid layout, so only
 /// the allocator can refuse one. The requests, `2^60` bits (`2^58` bytes of
-/// storage) and `u64::MAX` bits (`2^62` bytes), are two that no 64-bit
-/// platform can address. The `wasm32-pins` workspace covers the
-/// 32-bit regime, where a request can also overflow the capacity computation.
+/// storage) and `u64::MAX` bits (`2^62` bytes), are two that no 64-bit platform
+/// can address. The `wasm32-pins` workspace covers the 32-bit regime, where a
+/// request can also overflow the capacity computation.
 #[test]
 fn reserve_bits_ignores_unsatisfiable_requests() {
     for request in [u64::MAX, 1 << 60] {

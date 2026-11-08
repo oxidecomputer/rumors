@@ -18,9 +18,9 @@ use crate::error::Decode;
 ///
 /// Each stream's buffer holds only that stream's bytes: the constructors take
 /// an owned vector, sealed to its length, or static bytes, and never a view
-/// into a larger buffer. A value built from these streams therefore keeps
-/// alive only its own encoding, however it was decoded or split. Clones share
-/// the refcounted byte buffer. Readers exclude the marker and padding.
+/// into a larger buffer. A value built from these streams therefore keeps alive
+/// only its own encoding, however it was decoded or split. Clones share the
+/// refcounted byte buffer. Readers exclude the marker and padding.
 ///
 /// Every stream holds fewer than 2^61 bytes, so its length in bits fits a
 /// `u64`: decoders reject longer input, and a writer could build one only by
@@ -52,8 +52,8 @@ impl fmt::Binary for Bits {
 impl Bits {
     /// Adopt bytes whose canonical padding has already been validated.
     ///
-    /// `bytes` must be marker-padded (the live bits, one `1`, then zeros to
-    /// the byte boundary; empty for the empty stream), which is what
+    /// `bytes` must be marker-padded (the live bits, one `1`, then zeros to the
+    /// byte boundary; empty for the empty stream), which is what
     /// [`validate_padding`](Self::validate_padding) accepts. Debug builds
     /// assert it; release builds trust the validator.
     ///
@@ -94,8 +94,8 @@ impl Bits {
         BitsReader::at(self, 0)
     }
 
-    /// The canonical marker-padded bytes: the wire encoding, borrowed
-    /// without copying.
+    /// The canonical marker-padded bytes: the wire encoding, borrowed without
+    /// copying.
     pub fn as_raw_slice(&self) -> &[u8] {
         &self.bytes
     }

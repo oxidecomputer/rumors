@@ -43,11 +43,10 @@ pub fn whole(mut reader: BitsReader<'_>) -> Result<(), Decode> {
 
 /// Strictly validate one Version tree at the head of a reader.
 ///
-/// A Version tree is bit-self-delimiting
-/// (one complete tree), so the returned position is the end of the live stream.
-/// In a byte encoding that position holds the required marker bit, followed by
-/// zero padding. The position is `u64`, so every bit in a large 32-bit
-/// allocation remains addressable.
+/// A Version tree is bit-self-delimiting (one complete tree), so the returned
+/// position is the end of the live stream. In a byte encoding that position
+/// holds the required marker bit, followed by zero padding. The position is
+/// `u64`, so every bit in a large 32-bit allocation remains addressable.
 pub fn prefix(mut reader: BitsReader<'_>) -> Result<u64, Decode> {
     from_reader(&mut reader)?;
     Ok(reader.position())

@@ -35,9 +35,9 @@ fn decode_party(encoded: &Encoding) -> Party {
     Party::decode(&encoded.bytes[..]).expect("registry-built id bytes are canonical")
 }
 
-/// The scatter population's smallest organic instance: two balanced-fork
-/// halves of one universe, one tick each: concurrent, rank-tied, and
-/// byte-distinct, the committed witness for the rank-tiebreak leg.
+/// The scatter population's smallest organic instance: two balanced-fork halves
+/// of one universe, one tick each: concurrent, rank-tied, and byte-distinct,
+/// the committed witness for the rank-tiebreak leg.
 fn scatter_pair() -> (Version, Version) {
     let mut a = Clock::seed();
     let mut b = a.fork();
@@ -46,9 +46,9 @@ fn scatter_pair() -> (Version, Version) {
     (va, vb)
 }
 
-/// The weave population's smallest organic instance: four fork-tree
-/// parties of one universe, one tick each, joined round-robin so both
-/// operands interleave across the shared upper skeleton.
+/// The weave population's smallest organic instance: four fork-tree parties of
+/// one universe, one tick each, joined round-robin so both operands interleave
+/// across the shared upper skeleton.
 fn weave_pair() -> (Version, Version) {
     let mut a = Clock::seed();
     let mut b = a.fork();
@@ -61,9 +61,9 @@ fn weave_pair() -> (Version, Version) {
     (a.version().join(c.version()), b.version().join(d.version()))
 }
 
-/// The benign control's smallest organic instance: a shared history
-/// prefix, then divergent ticks, the ordinary overlapping-past pair every
-/// call site holds.
+/// The benign control's smallest organic instance: a shared history prefix,
+/// then divergent ticks, the ordinary overlapping-past pair every call site
+/// holds.
 fn benign_pair() -> (Version, Version) {
     let mut a = Clock::seed();
     a.tick();
@@ -75,14 +75,13 @@ fn benign_pair() -> (Version, Version) {
 
 /// The committed matrix-coverage answer for one input family.
 ///
-/// The match is exhaustive over [`FamilyId`], mirroring the registry's
-/// coverage pattern: a new family fails to compile until it answers here,
-/// and its answer is held nonempty by the floor test below. Each arm
-/// yields the first operands of the family's registered shapes in spec
-/// order (capped at two versions and two masks, the pool-budget rule the
-/// module doc derives), at the smallest committed-valid knobs, so every
-/// operand stays tens to hundreds of bytes while keeping its
-/// family's distinguishing structure.
+/// The match is exhaustive over [`FamilyId`], mirroring the registry's coverage
+/// pattern: a new family fails to compile until it answers here, and its answer
+/// is held nonempty by the floor test below. Each arm yields the first operands
+/// of the family's registered shapes in spec order (capped at two versions and
+/// two masks, the pool-budget rule the module doc derives), at the smallest
+/// committed-valid knobs, so every operand stays tens to hundreds of bytes
+/// while keeping its family's distinguishing structure.
 fn matrix_operands(family: FamilyId) -> MatrixOperands {
     let correlated_pair = |(version, party): (Encoding, Encoding)| {
         (vec![version.version()], vec![decode_party(&party)])
@@ -388,11 +387,11 @@ struct Pool {
     versions: Vec<Version>,
     /// A roster-stable ordinal per pool version, the mask schedule's key.
     ///
-    /// A seed carries its yield position in the roster-order yield stream
-    /// (the first yield wins under deduplication), a closure version a
-    /// fixed offset past every possible seed ordinal. Keying the schedule
-    /// on these, never on the intern order, means a pool collision
-    /// upstream cannot silently reshuffle which mask a cell exercises.
+    /// A seed carries its yield position in the roster-order yield stream (the
+    /// first yield wins under deduplication), a closure version a fixed offset
+    /// past every possible seed ordinal. Keying the schedule on these, never on
+    /// the intern order, means a pool collision upstream cannot silently
+    /// reshuffle which mask a cell exercises.
     stable: Vec<usize>,
     /// The mask parties the masked axis cycles through.
     masks: Vec<Party>,
@@ -401,8 +400,8 @@ struct Pool {
     adjacent: Vec<[usize; 4]>,
 }
 
-/// Interns a version into the pool under its roster-stable ordinal,
-/// returning its index; a duplicate keeps its first ordinal.
+/// Interns a version into the pool under its roster-stable ordinal, returning
+/// its index; a duplicate keeps its first ordinal.
 fn intern(
     versions: &mut Vec<Version>,
     stable: &mut Vec<usize>,
@@ -420,12 +419,12 @@ fn intern(
     i
 }
 
-/// Builds the pool from the roster: every family's committed answer, then
-/// the consecutive-pair closure under join and meet.
+/// Builds the pool from the roster: every family's committed answer, then the
+/// consecutive-pair closure under join and meet.
 ///
 /// The committed budget ceiling lives here: at most two seed versions per
-/// family and at most two closure versions per consecutive seed pair
-/// bounds the pool by six versions per roster entry.
+/// family and at most two closure versions per consecutive seed pair bounds the
+/// pool by six versions per roster entry.
 fn build_pool() -> Pool {
     let mut versions = Vec::new();
     let mut stable = Vec::new();
@@ -498,8 +497,8 @@ fn class(rel: Option<Ordering>) -> &'static str {
     }
 }
 
-/// The sweep verdict classes a version list witnesses under the
-/// production comparison, for the liveness floors.
+/// The sweep verdict classes a version list witnesses under the production
+/// comparison, for the liveness floors.
 fn verdict_classes(versions: &[Version]) -> BTreeSet<&'static str> {
     let mut classes = BTreeSet::new();
     for a in versions {
@@ -515,8 +514,8 @@ const ALL_CLASSES: [&str; 4] = ["concurrent", "equal", "greater", "less"];
 
 // ─── the checker ─────────────────────────────────────────────────────────────
 
-/// The verdict surfaces under cross-check, as violation labels: this
-/// enum names every axis.
+/// The verdict surfaces under cross-check, as violation labels: this enum names
+/// every axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Axis {
     /// The pair sweep's own coherence (antisymmetry, equality, concurrency).
@@ -549,15 +548,15 @@ struct Census {
     /// Sweep classes of the scheduled three-stream transcriptions: the
     /// projected operand against the plain one.
     projected_pair_classes: BTreeSet<&'static str>,
-    /// Sweep classes of the scheduled four-stream transcriptions: both
-    /// operands projected under the cell's mask.
+    /// Sweep classes of the scheduled four-stream transcriptions: both operands
+    /// projected under the cell's mask.
     projected_view_classes: BTreeSet<&'static str>,
     /// Distinct-version rank ties seen in the pool: the tiebreak witness.
     rank_ties: usize,
 }
 
-/// One checker run's result: per-leg violation counts, a bounded sample
-/// of violation details, and the liveness census.
+/// One checker run's result: per-leg violation counts, a bounded sample of
+/// violation details, and the liveness census.
 struct Outcome {
     /// Violations per (axis, leg) cell (absent means zero).
     counts: BTreeMap<(Axis, &'static str), usize>,
@@ -577,8 +576,8 @@ fn le(rel: Option<Ordering>) -> bool {
     matches!(rel, Some(Ordering::Less | Ordering::Equal))
 }
 
-/// The composed-relation transcription of the full-resolution placement
-/// verdict from the probe's relations to the span's endpoints.
+/// The composed-relation transcription of the full-resolution placement verdict
+/// from the probe's relations to the span's endpoints.
 fn expected_place(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Placement {
     match lo_rel {
         Some(Ordering::Less) => Placement::Before,
@@ -599,8 +598,8 @@ fn expected_place(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Placeme
     }
 }
 
-/// The transcription of the three-way dominance verdict: after on
-/// dominating both endpoints, between on dominating only the start.
+/// The transcription of the three-way dominance verdict: after on dominating
+/// both endpoints, between on dominating only the start.
 fn expected_dominance(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Dominance {
     if ge(lo_rel) && ge(hi_rel) {
         Dominance::After
@@ -611,8 +610,7 @@ fn expected_dominance(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Dom
     }
 }
 
-/// The transcription of the three-way precedence verdict, dominance
-/// mirrored.
+/// The transcription of the three-way precedence verdict, dominance mirrored.
 fn expected_precedence(lo_rel: Option<Ordering>, hi_rel: Option<Ordering>) -> Precedence {
     if le(lo_rel) && le(hi_rel) {
         Precedence::Before
@@ -1138,9 +1136,9 @@ fn check(pool: &Pool) -> Outcome {
 
 // ─── the tests ───────────────────────────────────────────────────────────────
 
-/// Every roster family answers the matrix-coverage question with at least
-/// one operand, and the assembled pool stays within its derived budget
-/// with a nonempty mask schedule.
+/// Every roster family answers the matrix-coverage question with at least one
+/// operand, and the assembled pool stays within its derived budget with a
+/// nonempty mask schedule.
 #[test]
 fn every_family_answers_the_matrix_coverage_question() {
     for family in FamilyId::ALL {
@@ -1167,9 +1165,8 @@ fn every_family_answers_the_matrix_coverage_question() {
     );
 }
 
-/// The pool witnesses every sweep verdict class (less, equal, greater,
-/// and concurrent), so no axis of the matrix can pass on a vacuous
-/// population.
+/// The pool witnesses every sweep verdict class (less, equal, greater, and
+/// concurrent), so no axis of the matrix can pass on a vacuous population.
 #[test]
 fn pool_witnesses_every_verdict_class() {
     let pool = build_pool();
@@ -1181,9 +1178,9 @@ fn pool_witnesses_every_verdict_class() {
     );
 }
 
-/// The verdict-class floor reads red on degenerate pools, and each
-/// degenerate census has exactly its expected shape: the witness is
-/// pinned, not merely the floor's firing.
+/// The verdict-class floor reads red on degenerate pools, and each degenerate
+/// census has exactly its expected shape: the witness is pinned, not merely the
+/// floor's firing.
 #[test]
 fn verdict_class_floors_read_red_on_degenerate_pools() {
     let v = Shape::Dense.build1(4).version();
@@ -1203,12 +1200,12 @@ fn verdict_class_floors_read_red_on_degenerate_pools() {
     );
 }
 
-/// The production verdict matrix: every surface on the axis roster
-/// agrees on every ordered pool pair, with every liveness floor holding.
+/// The production verdict matrix: every surface on the axis roster agrees on
+/// every ordered pool pair, with every liveness floor holding.
 ///
-/// The floors: every verdict class (plain and projected), placement,
-/// dominance, precedence, coverage, and membership witnessed, and at
-/// least one distinct-version rank tie exercising the byte tiebreak.
+/// The floors: every verdict class (plain and projected), placement, dominance,
+/// precedence, coverage, and membership witnessed, and at least one
+/// distinct-version rank tie exercising the byte tiebreak.
 #[test]
 fn production_verdicts_agree_across_the_surfaces() {
     let pool = build_pool();

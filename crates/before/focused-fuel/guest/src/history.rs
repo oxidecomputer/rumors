@@ -1,10 +1,10 @@
 //! The history fixture: snapshots of one clock's multi-party history, whose
 //! causal order is known by construction.
 //!
-//! [`Snapshot`]'s documentation states the construction and the order.
-//! Every round is a tick and a received send from one of the forked clocks
-//! in turn, so each snapshot's stream has multi-party structure, and the raise of
-//! `2^80` before the second phase gives the later snapshots wide codes.
+//! [`Snapshot`]'s documentation states the construction and the order. Every
+//! round is a tick and a received send from one of the forked clocks in turn,
+//! so each snapshot's stream has multi-party structure, and the raise of `2^80`
+//! before the second phase gives the later snapshots wide codes.
 
 use before::{Clock, Count, Version};
 use focused_fuel_protocol::{unpack, Snapshot};
@@ -13,16 +13,16 @@ use focused_fuel_protocol::{unpack, Snapshot};
 /// several times and each phase grows every sender's region.
 const ROUNDS_PER_SENDER: usize = 4;
 
-/// The width in bits of the raise before the second phase, beyond every
-/// machine word so the later streams exercise wide gamma codes.
+/// The width in bits of the raise before the second phase, beyond every machine
+/// word so the later streams exercise wide gamma codes.
 const WIDE_RAISE_BITS: usize = 80;
 
-/// The population records the snapshot after every round whose index within
-/// its phase is a multiple of this.
+/// The population records the snapshot after every round whose index within its
+/// phase is a multiple of this.
 const POPULATION_STRIDE: usize = 7;
 
-/// The fixture's snapshots, and a population of intermediate snapshots for
-/// the n-ary folds.
+/// The fixture's snapshots, and a population of intermediate snapshots for the
+/// n-ary folds.
 pub struct History {
     /// The snapshot after the first phase.
     start: Version,
@@ -42,9 +42,9 @@ impl History {
     /// Builds the history of `senders` forked clocks, with four rounds per
     /// sender in each phase.
     ///
-    /// The version tree holds one region per sender, so the snapshots'
-    /// streams grow in proportion to `senders`; more rounds alone would only
-    /// raise heights.
+    /// The version tree holds one region per sender, so the snapshots' streams
+    /// grow in proportion to `senders`; more rounds alone would only raise
+    /// heights.
     ///
     /// # Panics
     ///
@@ -118,9 +118,9 @@ impl History {
     }
 }
 
-/// Runs one phase of `rounds` rounds on `main`, each a tick and a received
-/// send from the next of `senders`, recording every seventh snapshot in
-/// `population` if one is given.
+/// Runs one phase of `rounds` rounds on `main`, each a tick and a received send
+/// from the next of `senders`, recording every seventh snapshot in `population`
+/// if one is given.
 fn phase(
     main: &mut Clock,
     senders: &mut [Clock],

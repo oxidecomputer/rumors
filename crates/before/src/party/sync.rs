@@ -45,10 +45,10 @@ impl Party {
 ///
 /// The walk emits the one-child prefix shared by both results. At the first
 /// joined branch, it sends one child to each result. A child present in only
-/// one input is copied; a child present in both is joined. If finding the branch
-/// boundary would rescan a shared subtree, the untouched suffix is joined and
-/// forked instead. This keeps input traversal linear; the fallback also makes
-/// one linear pass over the joined suffix.
+/// one input is copied; a child present in both is joined. If finding the
+/// branch boundary would rescan a shared subtree, the untouched suffix is
+/// joined and forked instead. This keeps input traversal linear; the fallback
+/// also makes one linear pass over the joined suffix.
 struct Sync<'a> {
     /// First party, positioned after the shared one-child prefix.
     a: PartyReader<'a>,

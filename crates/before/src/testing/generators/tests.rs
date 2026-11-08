@@ -1,17 +1,16 @@
 //! Liveness census for the arbitrary-input and deep strategies.
 //!
 //! The exhaustive corpus has a totality pin (`corpus_counts_are_exact`); this
-//! is its analog for the sampled tier. Every bound proved over generated
-//! inputs is a bound over the universe the generators actually reach, so a
-//! dead arm or depth regression shrinks that universe while every
-//! differential keeps passing, on less. Each census here holds a floor for
-//! each named input class the suites rely on. The arbitrary-input and dyadic
-//! censuses sample their strategies afresh, against floors derived from each
-//! class's designed mass as [`census`](super::census) explains; the deep
-//! strategies' census samples a committed corpus
-//! ([`census::seeded`](super::census::seeded)). The multi-scale pairs'
-//! census lives with the measure tests, beside the deferral counter it
-//! reads.
+//! is its analog for the sampled tier. Every bound proved over generated inputs
+//! is a bound over the universe the generators actually reach, so a dead arm or
+//! depth regression shrinks that universe while every differential keeps
+//! passing, on less. Each census here holds a floor for each named input class
+//! the suites rely on. The arbitrary-input and dyadic censuses sample their
+//! strategies afresh, against floors derived from each class's designed mass as
+//! [`census`](super::census) explains; the deep strategies' census samples a
+//! committed corpus ([`census::seeded`](super::census::seeded)). The
+//! multi-scale pairs' census lives with the measure tests, beside the deferral
+//! counter it reads.
 
 use proptest::prelude::*;
 
@@ -35,31 +34,31 @@ use super::{
 };
 use crate::testing::property::divided_proptest;
 
-/// Trees sampled from each arbitrary strategy: enough that the thinnest
-/// class, a leaf aligned at `2^64`, gets a positive floor from its designed
-/// mass of `14/1000`.
+/// Trees sampled from each arbitrary strategy: enough that the thinnest class,
+/// a leaf aligned at `2^64`, gets a positive floor from its designed mass of
+/// `14/1000`.
 const CENSUS_TREES: usize = 6000;
 
 /// Which named base classes a version tree touches, plus its depth.
 struct VersionCensus {
-    /// Some base exceeds `2^64`: the class every word-scale kernel guard
-    /// first activates in.
+    /// Some base exceeds `2^64`: the class every word-scale kernel guard first
+    /// activates in.
     wide: bool,
     /// Some base needs more than two 64-bit limbs (`bits > 128`).
     three_limb: bool,
-    /// Some base lies beyond every narrow arm's ceiling (`bits > 129`;
-    /// the narrow arms top out at `u128 + u64::MAX`): mass here is the
+    /// Some base lies beyond every narrow arm's ceiling (`bits > 129`; the
+    /// narrow arms top out at `u128 + u64::MAX`): mass here is the
     /// genuinely-wide shifted-odd arm's alone.
     beyond_narrow: bool,
-    /// Some leaf is a small nonzero multiple of `2^64` (at least 64
-    /// trailing zero bits, at most 67 bits wide): the `2^64`-aligned arm's
-    /// class, whose low limb is exactly zero.
+    /// Some leaf is a small nonzero multiple of `2^64` (at least 64 trailing
+    /// zero bits, at most 67 bits wide): the `2^64`-aligned arm's class, whose
+    /// low limb is exactly zero.
     ///
     /// Leaves alone count, because an interior base is a sum of drawn
-    /// magnitudes, and sums such as `u64::MAX + 1` land in the class
-    /// whatever the aligned arm does. A leaf holds one drawn magnitude less
-    /// its sibling's, so with the aligned arm dead the class nearly
-    /// vanishes, far below its floor.
+    /// magnitudes, and sums such as `u64::MAX + 1` land in the class whatever
+    /// the aligned arm does. A leaf holds one drawn magnitude less its
+    /// sibling's, so with the aligned arm dead the class nearly vanishes, far
+    /// below its floor.
     aligned_leaf: bool,
     /// Structural depth (0 for a leaf).
     depth: u32,
@@ -99,8 +98,8 @@ fn census_of(v: &tree::Version) -> VersionCensus {
 }
 
 /// Every named input class stays under generator mass: sampling the arbitrary
-/// strategies meets a positive floor per class, derived from its designed
-/// mass, so a dead arm or depth regression fails here instead of nowhere.
+/// strategies meets a positive floor per class, derived from its designed mass,
+/// so a dead arm or depth regression fails here instead of nowhere.
 ///
 /// The sampled analog of the exhaustive corpus's totality pin
 /// (`corpus_counts_are_exact`): the differential suites' guarantees are
@@ -109,47 +108,47 @@ fn census_of(v: &tree::Version) -> VersionCensus {
 ///
 /// # Designed masses
 ///
-/// A magnitude comes from [`arb_magnitude`](super::arb_magnitude)'s seven
-/// arms, of weights 6, 2, 1, 1, 1, 1, 1 in 13. Both strategies recurse
-/// through `prop_recursive(4, 16, 2)`, whose four layers, innermost first,
-/// take their branch arm with probability `1/16`, `1/4`, and twice `q`,
-/// where `q = 1932735283 / 2^31`, proptest's rounding of `0.9`. So the
-/// root branches with probability `q`, and a tree reaches structural depth
-/// four with probability `d₄ = q d₃ (2 − d₃) ≥ 0.0940`, where
-/// `d₃ = q (1 − (993/1024)²)`. A node's base is its drawn magnitude plus its
-/// children's common minimum, so the root's base is at least the root's
-/// drawn magnitude; a leaf keeps the value its parent's construction gives
-/// it, since every later step moves only that parent's base.
+/// A magnitude comes from [`arb_magnitude`](super::arb_magnitude)'s seven arms,
+/// of weights 6, 2, 1, 1, 1, 1, 1 in 13. Both strategies recurse through
+/// `prop_recursive(4, 16, 2)`, whose four layers, innermost first, take their
+/// branch arm with probability `1/16`, `1/4`, and twice `q`, where
+/// `q = 1932735283 / 2^31`, proptest's rounding of `0.9`. So the root branches
+/// with probability `q`, and a tree reaches structural depth four with
+/// probability `d₄ = q d₃ (2 − d₃) ≥ 0.0940`, where `d₃ = q (1 − (993/1024)²)`.
+/// A node's base is its drawn magnitude plus its children's common minimum, so
+/// the root's base is at least the root's drawn magnitude; a leaf keeps the
+/// value its parent's construction gives it, since every later step moves only
+/// that parent's base.
 ///
-/// - *A base beyond `2^64`*, `23/100`: the root's magnitude exceeds `2^64`
-///   on the `u128` arm whenever its draw is at least 2, on the `2^k + 1` arm
-///   for 32 of 96 exponents, on the `k · 2^64` arm for 6 of 7 multipliers,
-///   and on the shifted-odd arm for 1796 of 2048 draws: at least `0.2359`.
-/// - *A base needing three limbs*, `57/1000`: only the shifted-odd arm
-///   reaches `2^128` (the `u128` arm does so with probability `2^−64`), for
-///   1541 of its 2048 draws: `1541 / 26624 ≥ 0.0578`.
-/// - *A base beyond every narrow arm*, `57/1000`: the shifted-odd arm
-///   reaches `2^129` for 1537 of its 2048 draws: `1537 / 26624 ≥ 0.0577`.
+/// - *A base beyond `2^64`*, `23/100`: the root's magnitude exceeds `2^64` on
+///   the `u128` arm whenever its draw is at least 2, on the `2^k + 1` arm for
+///   32 of 96 exponents, on the `k · 2^64` arm for 6 of 7 multipliers, and on
+///   the shifted-odd arm for 1796 of 2048 draws: at least `0.2359`.
+/// - *A base needing three limbs*, `57/1000`: only the shifted-odd arm reaches
+///   `2^128` (the `u128` arm does so with probability `2^−64`), for 1541 of its
+///   2048 draws: `1541 / 26624 ≥ 0.0578`.
+/// - *A base beyond every narrow arm*, `57/1000`: the shifted-odd arm reaches
+///   `2^129` for 1537 of its 2048 draws: `1537 / 26624 ≥ 0.0577`.
 /// - *A leaf aligned at `2^64`*, `14/1000`: a node whose children are both
-///   leaves keeps leaves `a − min` and `b − min` for drawn magnitudes `a`
-///   and `b`. One is aligned when one draw is zero and the other comes from
-///   the aligned arm, `2/169`, or both come from the aligned arm with
-///   different multipliers, `6/1183`: `20/1183` per such node. A third-layer
-///   instance branches with both children leaves with probability
-///   `q (45/64)²`, and the root holds two independent instances when it
-///   branches and one otherwise, so `r = q (45/64)² · 20/1183 ≥ 0.007522`
-///   gives at least `r (1 + q − q r) ≥ 0.01424`.
+///   leaves keeps leaves `a − min` and `b − min` for drawn magnitudes `a` and
+///   `b`. One is aligned when one draw is zero and the other comes from the
+///   aligned arm, `2/169`, or both come from the aligned arm with different
+///   multipliers, `6/1183`: `20/1183` per such node. A third-layer instance
+///   branches with both children leaves with probability `q (45/64)²`, and the
+///   root holds two independent instances when it branches and one otherwise,
+///   so `r = q (45/64)² · 20/1183 ≥ 0.007522` gives at least
+///   `r (1 + q − q r) ≥ 0.01424`.
 /// - *A version tree at full depth*, `43/500`: depth four survives
 ///   normalization unless the two leaves under the deepest node are equal,
 ///   which happens with probability at most the largest single magnitude's:
-///   `1/13 + 1/1248 + 1/26624` for the value 2, 3, or 5, which three arms
-///   draw, plus the full-`u64` arm's `2/(13 · 2^64)`, below `0.0778`. So
-///   at least `0.0940 · 0.9222 ≥ 0.0866`.
+///   `1/13 + 1/1248 + 1/26624` for the value 2, 3, or 5, which three arms draw,
+///   plus the full-`u64` arm's `2/(13 · 2^64)`, below `0.0778`. So at least
+///   `0.0940 · 0.9222 ≥ 0.0866`.
 /// - *A full-depth tree with a wide base*, `1/50`: the root's magnitude is
 ///   drawn independently of the full-depth event: at least
 ///   `0.0866 · 0.2359 ≥ 0.0204`.
-/// - *A party tree at full depth*, `47/1000`: the deepest node's two leaf
-///   bits differ with probability one half: at least `0.0940 / 2 = 0.0470`.
+/// - *A party tree at full depth*, `47/1000`: the deepest node's two leaf bits
+///   differ with probability one half: at least `0.0940 / 2 = 0.0470`.
 #[test]
 fn generator_classes_stay_under_mass() {
     let mut runner = runner();
@@ -204,22 +203,20 @@ fn generator_classes_stay_under_mass() {
     );
 }
 
-/// Dyadic pairs sampled for the census: enough that the thinnest regime, a
-/// zero value, gets a positive floor from its designed mass of `1/13`.
+/// Dyadic pairs sampled for the census: enough that the thinnest regime, a zero
+/// value, gets a positive floor from its designed mass of `1/13`.
 const CENSUS_DYADICS: usize = 1000;
 
-/// [`arb_dyadic`] and [`arb_related_dyadic`] keep their claimed regimes
-/// alive: zero ranks, nonzero integral ranks, and pairs that spell one value
-/// two ways.
+/// [`arb_dyadic`] and [`arb_related_dyadic`] keep their claimed regimes alive:
+/// zero ranks, nonzero integral ranks, and pairs that spell one value two ways.
 ///
-/// Each designed mass is the least the strategies' weights imply. The zero
-/// arm has weight 1 in 13, so zero is at least 1 in 13 of draws. Two arms
-/// never draw zero: a power of two or its successor, at least 2 in 13, and a
-/// small value from 1 to 15, at least 15 in 104; with an exponent of zero,
-/// weight 3 in 11, nonzero integral values are at least 93 in 1144. The
-/// respelling mode has weight 1 in 7 and shifts by a nonzero amount in 69 of
-/// 70 draws, so a second spelling of the first value arrives in at least 69
-/// in 490 pairs.
+/// Each designed mass is the least the strategies' weights imply. The zero arm
+/// has weight 1 in 13, so zero is at least 1 in 13 of draws. Two arms never
+/// draw zero: a power of two or its successor, at least 2 in 13, and a small
+/// value from 1 to 15, at least 15 in 104; with an exponent of zero, weight 3
+/// in 11, nonzero integral values are at least 93 in 1144. The respelling mode
+/// has weight 1 in 7 and shifts by a nonzero amount in 69 of 70 draws, so a
+/// second spelling of the first value arrives in at least 69 in 490 pairs.
 #[test]
 fn dyadic_generators_reach_their_claimed_regimes() {
     let pairs = arb_dyadic().prop_flat_map(arb_related_dyadic);
@@ -245,22 +242,22 @@ fn dyadic_generators_reach_their_claimed_regimes() {
 }
 
 /// Clock families sampled for the census: enough that the thinner regime, a
-/// rejection after a partial join, gets a positive floor from its designed
-/// mass of `36/1000`.
+/// rejection after a partial join, gets a positive floor from its designed mass
+/// of `36/1000`.
 const CENSUS_CLOCK_FAMILIES: usize = 3000;
 
-/// [`arb_clock_family`] keeps both cases its dealt families carry under
-/// mass, enough for every run of a property drawing it at the configured
-/// case count, such as the clock law driver, to expect cases of each.
+/// [`arb_clock_family`] keeps both cases its dealt families carry under mass,
+/// enough for every run of a property drawing it at the configured case count,
+/// such as the clock law driver, to expect cases of each.
 ///
 /// The census lowers each family to clocks and calls `Clock::join_all`. The
 /// family is *accepted* when the call returns `Ok`. It is *rejected after a
 /// partial join* when the call returns `Err` and the receiver's party has
 /// grown. That happens exactly when the items fold cleanly into groups, the
-/// receiver joins the first group, and a later group overlaps the receiver
-/// as it then stands: the path where `join_all` returns a group and every
-/// later one after joining the earlier ones, and where `sync_all` must
-/// still leave every clock unchanged.
+/// receiver joins the first group, and a later group overlaps the receiver as
+/// it then stands: the path where `join_all` returns a group and every later
+/// one after joining the earlier ones, and where `sync_all` must still leave
+/// every clock unchanged.
 ///
 /// # Designed masses
 ///
@@ -270,18 +267,18 @@ const CENSUS_CLOCK_FAMILIES: usize = 3000;
 /// - *Accepted*, `12/100`: a dealt family without an overlap holds distinct
 ///   shares, which are pairwise disjoint: `1/2 · 1/4 = 1/8`.
 /// - *Rejected after a partial join*, `36/1000`: take a dealt family with `k`
-///   items whose item `j` takes another participant's party, and let `2^m`
-///   be the largest power of two at most `k`. `join_all` folds the items into
+///   items whose item `j` takes another participant's party, and let `2^m` be
+///   the largest power of two at most `k`. `join_all` folds the items into
 ///   groups of the sizes of `k`'s binary digits, largest first, so the first
-///   group is the first `2^m` items. Item `j` lies outside it with
-///   probability `(k − 2^m)/k`. Its party then comes from the receiver or the
-///   first group with probability `(2^m + 1)/(j + 1)`, more than `1/2`
-///   because `j < k < 2^(m+1)`. In that case every group folds, since only
-///   item `j` repeats a party and its source lies outside its group; the
-///   receiver joins the groups before item `j`'s; and item `j`'s group
-///   overlaps the receiver, which now holds the source. Over the eighteen
-///   equally likely arities, `Σ (k − 2^m)/k` is at least `3.551`, so the
-///   mass is at least `1/2 · 3/4 · 1/18 · 1/2 · 3.551 ≥ 0.0369`.
+///   group is the first `2^m` items. Item `j` lies outside it with probability
+///   `(k − 2^m)/k`. Its party then comes from the receiver or the first group
+///   with probability `(2^m + 1)/(j + 1)`, more than `1/2` because
+///   `j < k < 2^(m+1)`. In that case every group folds, since only item `j`
+///   repeats a party and its source lies outside its group; the receiver joins
+///   the groups before item `j`'s; and item `j`'s group overlaps the receiver,
+///   which now holds the source. Over the eighteen equally likely arities,
+///   `Σ (k − 2^m)/k` is at least `3.551`, so the mass is at least
+///   `1/2 · 3/4 · 1/18 · 1/2 · 3.551 ≥ 0.0369`.
 #[test]
 fn clock_family_reaches_acceptance_and_rejection_after_a_partial_join() {
     let lower = |(p, v): &(tree::Party, tree::Version)| {
@@ -315,19 +312,19 @@ fn clock_family_reaches_acceptance_and_rejection_after_a_partial_join() {
 /// The deep census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
 ///
-/// Fixed because the census measures its generators
-/// deterministically: a regime it counts has no mass derived from the
-/// generators' weights, so its floors hold for this corpus alone.
+/// Fixed because the census measures its generators deterministically: a regime
+/// it counts has no mass derived from the generators' weights, so its floors
+/// hold for this corpus alone.
 const DEEP_CENSUS_SEED: u64 = 13;
 
 /// The depth past which the deep strategies claim their reach.
 ///
-/// Past 32 levels a leaf's width, `2^-depth`, is finer than a 32-bit
-/// fraction can hold.
+/// Past 32 levels a leaf's width, `2^-depth`, is finer than a 32-bit fraction
+/// can hold.
 const DEEP_DEPTH: u32 = 32;
 
-/// Samples `strategy` [`CENSUS_CASES`](seeded::CENSUS_CASES) times under
-/// the deep census seed.
+/// Samples `strategy` [`CENSUS_CASES`](seeded::CENSUS_CASES) times under the
+/// deep census seed.
 ///
 /// Every regime over one strategy is judged on one corpus.
 fn deep_corpus<T>(strategy: impl Strategy<Value = T>) -> Vec<T> {
@@ -344,8 +341,8 @@ fn is_deep(version: &tree::Version) -> bool {
     ev_depth(version) > DEEP_DEPTH
 }
 
-/// Whether a family's parties are pairwise disjoint, by the recursive
-/// oracle's judgment.
+/// Whether a family's parties are pairwise disjoint, by the recursive oracle's
+/// judgment.
 fn pairwise_disjoint((receiver, items): &(tree::Party, Vec<tree::Party>)) -> bool {
     let family: Vec<&tree::Party> = core::iter::once(receiver).chain(items).collect();
     family
@@ -354,9 +351,9 @@ fn pairwise_disjoint((receiver, items): &(tree::Party, Vec<tree::Party>)) -> boo
         .all(|(i, a)| family[i + 1..].iter().all(|b| a.is_disjoint(b)))
 }
 
-/// The collapses that canonicalizing a pair's join and its meet takes, in
-/// the flat model: each is the pointwise extremum over the canonical
-/// operands' common refinement, collapsed bottom up.
+/// The collapses that canonicalizing a pair's join and its meet takes, in the
+/// flat model: each is the pointwise extremum over the canonical operands'
+/// common refinement, collapsed bottom up.
 fn join_and_meet_collapses((a, b): &(LeafList, LeafList)) -> [Collapses; 2] {
     let (a, b) = (
         flat::Version::from_rows(a.leaves()),
@@ -368,24 +365,23 @@ fn join_and_meet_collapses((a, b): &(LeafList, LeafList)) -> [Collapses; 2] {
     ]
 }
 
-/// Every deep strategy keeps enough generator mass on the regime its docs
-/// claim that each default run of the properties relying on it expects
+/// Every deep strategy keeps enough generator mass on the regime its docs claim
+/// that each default run of the properties relying on it expects
 /// [`REGIME_CASES_PER_RUN`](seeded::REGIME_CASES_PER_RUN) cases there.
 ///
-/// The regimes: canonical depth past [`DEEP_DEPTH`] for deep versions,
-/// pairs, triples, and parties; equal pairs, and distinct pairs of equal
-/// rank, which independent draws never produce; and, for party families,
-/// both pairwise disjoint families of two or more parties, which `join_all`
-/// must accept, and overlapping ones, which it must reject. The pairs the
-/// flat model's differentials draw must reach joins or meets whose
-/// canonicalization cascades, a collapsed pair collapsing again with its
-/// sibling, and cascades whose surviving leaf's code is wider than the
-/// version writer's one-word limit; the lattice differential, which claims
-/// them, takes the two-version drivers' case count. Each floor
-/// follows from that premise and the case count of the most demanding
-/// property that draws the strategy: the clock-family driver holds deep
-/// versions and deep parties beside a family, so a deep version, party, or
-/// family takes the two-version drivers' case count.
+/// The regimes: canonical depth past [`DEEP_DEPTH`] for deep versions, pairs,
+/// triples, and parties; equal pairs, and distinct pairs of equal rank, which
+/// independent draws never produce; and, for party families, both pairwise
+/// disjoint families of two or more parties, which `join_all` must accept, and
+/// overlapping ones, which it must reject. The pairs the flat model's
+/// differentials draw must reach joins or meets whose canonicalization
+/// cascades, a collapsed pair collapsing again with its sibling, and cascades
+/// whose surviving leaf's code is wider than the version writer's one-word
+/// limit; the lattice differential, which claims them, takes the two-version
+/// drivers' case count. Each floor follows from that premise and the case count
+/// of the most demanding property that draws the strategy: the clock-family
+/// driver holds deep versions and deep parties beside a family, so a deep
+/// version, party, or family takes the two-version drivers' case count.
 #[test]
 fn deep_strategies_keep_mass_on_their_regimes() {
     seeded::assert_default_case_count();
@@ -462,8 +458,8 @@ fn deep_strategies_keep_mass_on_their_regimes() {
 /// Both listings tile `[0, 1)` in stream order, so one pass traverses them in
 /// step. Widths count cells of the finest leaf depth, as `BigUint` because
 /// depths pass 128: a leaf at depth `d` spans `2^(finest − d)` cells. A leaf
-/// wider than what remains of the current plateau straddles a plateau
-/// boundary; a plateau deeper than the finest leaf splits a leaf.
+/// wider than what remains of the current plateau straddles a plateau boundary;
+/// a plateau deeper than the finest leaf splits a leaf.
 fn assert_leaves_lie_in_plateaus(leaves: &[Leaf], plateaus: &[Leaf]) -> Result<(), TestCaseError> {
     let finest = leaves
         .iter()

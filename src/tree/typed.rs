@@ -1,14 +1,13 @@
 //! The height-typed veneer over the untyped storage nodes.
 //!
-//! Storage wants exactly one node representation, so structural sharing,
-//! path compression, and the lazy memos work uniformly ([`untyped`]). The
-//! traversals want the height in the type, so each inductive step
-//! monomorphizes separately and the recursion provably bottoms out at
-//! [`Z`](height::Z) instead of trusting a runtime depth counter. This
-//! module is the adapter: [`Node<H>`](Node) pairs an untyped node with
-//! a phantom [`Height`](height::Height), and the typed surface
-//! ([`Path`], [`Children`]) keeps every descent and reassembly height-correct
-//! at compile time.
+//! Storage wants exactly one node representation, so structural sharing, path
+//! compression, and the lazy memos work uniformly ([`untyped`]). The traversals
+//! want the height in the type, so each inductive step monomorphizes separately
+//! and the recursion provably bottoms out at [`Z`](height::Z) instead of
+//! trusting a runtime depth counter. This module is the adapter:
+//! [`Node<H>`](Node) pairs an untyped node with a phantom
+//! [`Height`](height::Height), and the typed surface ([`Path`], [`Children`])
+//! keeps every descent and reassembly height-correct at compile time.
 
 pub mod hash;
 pub mod height;

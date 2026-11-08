@@ -33,14 +33,14 @@ impl TcpEnd {
     }
 }
 
-/// Dial and accept one loopback TCP connection, returning both ends split,
-/// with Nagle's algorithm disabled on both, as the crate's transport docs
-/// advise for sessions over TCP.
+/// Dial and accept one loopback TCP connection, returning both ends split, with
+/// Nagle's algorithm disabled on both, as the crate's transport docs advise for
+/// sessions over TCP.
 ///
-/// `buffers` requests each socket's kernel send and receive buffers, in
-/// bytes, so buffering-sensitive checks engage backpressure sooner. The OS
-/// rounds the request up to its own floor: the resulting capacity is
-/// smaller than the default, not exact. `None` keeps the platform defaults.
+/// `buffers` requests each socket's kernel send and receive buffers, in bytes,
+/// so buffering-sensitive checks engage backpressure sooner. The OS rounds the
+/// request up to its own floor: the resulting capacity is smaller than the
+/// default, not exact. `None` keeps the platform defaults.
 pub async fn pair(buffers: Option<u32>) -> io::Result<(TcpEnd, TcpEnd)> {
     let socket = || -> io::Result<TcpSocket> {
         let socket = TcpSocket::new_v4()?;

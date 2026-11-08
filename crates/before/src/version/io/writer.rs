@@ -2,12 +2,12 @@
 //!
 //! # Contract
 //!
-//! A caller supplies output leaves from left to right. It writes the first
-//! leaf with [`height`](VersionWriter::height), then each later leaf with its
-//! signed [`change`](VersionWriter::change) from the preceding height. Each
-//! call also gives the leaf's depth, which determines the tree topology. The
-//! values must describe natural leaf heights; the writer canonicalizes their
-//! topology but does not validate the cumulative height.
+//! A caller supplies output leaves from left to right. It writes the first leaf
+//! with [`height`](VersionWriter::height), then each later leaf with its signed
+//! [`change`](VersionWriter::change) from the preceding height. Each call also
+//! gives the leaf's depth, which determines the tree topology. The values must
+//! describe natural leaf heights; the writer canonicalizes their topology but
+//! does not validate the cumulative height.
 //!
 //! The writer also owns canonicalization. Callers compute leaves but never
 //! construct nodes or edit encoded ranges. They may copy the unchanged
@@ -18,20 +18,20 @@
 //!
 //! Two equal leaf siblings collapse into their parent. Equality appears as the
 //! right leaf's one-bit zero-delta code. A payload of at most 63 bits remains
-//! pending in a `u64` until the next
-//! leaf decides whether to emit or collapse it. A collapse keeps the left code,
-//! discards the right zero delta, and may repeat at the next level.
+//! pending in a `u64` until the next leaf decides whether to emit or collapse
+//! it. A collapse keeps the left code, discards the right zero delta, and may
+//! repeat at the next level.
 //!
 //! The left code remains correct because it expresses the merged leaf's height
-//! relative to the leaf before the collapsing region. Compact stacks record
-//! the pending leaf's path and the lengths of possible left-sibling codes. They
-//! use bits per open ancestor; the writer keeps neither tree nodes nor a
-//! per-leaf index.
+//! relative to the leaf before the collapsing region. Compact stacks record the
+//! pending leaf's path and the lengths of possible left-sibling codes. They use
+//! bits per open ancestor; the writer keeps neither tree nodes nor a per-leaf
+//! index.
 //!
 //! # Wide payloads
 //!
-//! Once a payload exceeds 63 bits, the writer emits it directly into
-//! the output. If that resident payload later collapses, moving it through an
+//! Once a payload exceeds 63 bits, the writer emits it directly into the
+//! output. If that resident payload later collapses, moving it through an
 //! interleaved stream at each level would take `Θ(depth × payload width)` time.
 //! The first such collapse therefore separates the prefix already written into
 //! topology and payload streams. Further collapses edit only topology while the
@@ -452,11 +452,12 @@ pub struct VersionWriter {
     /// Root-to-pending-leaf branch directions: `false` for left, `true` for
     /// right.
     path: BitStack,
-    /// Parallel to `path`: whether a right branch's completed left sibling is
-    /// a single leaf.
+    /// Parallel to `path`: whether a right branch's completed left sibling is a
+    /// single leaf.
     ///
-    /// A left branch and a level introduced by [`copy_subtree_remainder`](Self::copy_subtree_remainder)
-    /// both store `false` because neither can participate in a collapse.
+    /// A left branch and a level introduced by
+    /// [`copy_subtree_remainder`](Self::copy_subtree_remainder) both store
+    /// `false` because neither can participate in a collapse.
     left_leaf: BitStack,
     /// Payload lengths of possible left-sibling leaves, deepest last.
     lens: PackedU64Stack,

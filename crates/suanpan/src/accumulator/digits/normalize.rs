@@ -1,19 +1,19 @@
 //! Remove cancellation from the stored signed digits in one pass.
 //!
 //! Ordinary updates leave positive and negative digits mixed, which keeps a
-//! small update cheap. A magnitude read needs the magnitude's unsigned
-//! digits, and writing them back lets the next read pay only for the result's
-//! width. One pass does both: it carries from low to high inside the existing
-//! buffer, and the read collects the digits it writes.
+//! small update cheap. A magnitude read needs the magnitude's unsigned digits,
+//! and writing them back lets the next read pay only for the result's width.
+//! One pass does both: it carries from low to high inside the existing buffer,
+//! and the read collects the digits it writes.
 //!
 //! The pass works on the stored digits' sum, which is the value or, when the
 //! flag is set, its negation; it neither reads nor changes the flag. Once the
 //! sum's sign is known, multiplying every digit by that sign yields the
-//! positive magnitude. Euclidean division by the digit base leaves an
-//! unsigned remainder at each position and carries the quotient upward. The
-//! stored remainder receives the original sign again. All surviving digits
-//! therefore have the sum's sign and magnitude below the base; cancellation
-//! is gone and the highest position is the magnitude's exact digit width.
+//! positive magnitude. Euclidean division by the digit base leaves an unsigned
+//! remainder at each position and carries the quotient upward. The stored
+//! remainder receives the original sign again. All surviving digits therefore
+//! have the sum's sign and magnitude below the base; cancellation is gone and
+//! the highest position is the magnitude's exact digit width.
 //!
 //! The output can be much narrower, but it cannot be much wider. If the input
 //! occupies `h + 1` positions, the digit bound gives
@@ -27,40 +27,40 @@
 //! accumulator after reading it; no second value buffer is needed unless that
 //! one possible new position forces the vector to grow.
 //!
-//! The comparison with zero that supplies the sign first compacts any
-//! cancelled top, so the pass covers only the value's own width. The pass
-//! writes every position it covers, so afterwards the written set holds
-//! position zero and one run from the lowest written position to the top: a
-//! later descent through one of the run's zeros is paid for by the pass's
-//! write, as for any other write.
+//! The comparison with zero that supplies the sign first compacts any cancelled
+//! top, so the pass covers only the value's own width. The pass writes every
+//! position it covers, so afterwards the written set holds position zero and
+//! one run from the lowest written position to the top: a later descent through
+//! one of the run's zeros is paid for by the pass's write, as for any other
+//! write.
 
 use core::cmp::Ordering;
 
 use super::{Digits, DIGIT_BITS};
 use crate::accumulator::DIGIT_MASK;
 
-/// The Euclidean carry that turns stored signed digits of a nonzero sum,
-/// read from the lowest position up, into the digits of its magnitude.
+/// The Euclidean carry that turns stored signed digits of a nonzero sum, read
+/// from the lowest position up, into the digits of its magnitude.
 ///
-/// The sum is the stored digits' own, so a flagged value's digits fold with
-/// the sign of the sum and not of the value.
+/// The sum is the stored digits' own, so a flagged value's digits fold with the
+/// sign of the sum and not of the value.
 ///
-/// At each position, the stored digit times the sum's sign, plus the carry
-/// from below, is a piece of the magnitude. Its Euclidean remainder by the
-/// base `B = 2^32` is the magnitude's digit there, never negative and below
-/// the base, and its quotient carries upward. For a power-of-two base these
-/// are the piece's low 32 bits and its arithmetic right shift, and every
-/// piece fits an `i64`: a stored digit has magnitude below `2B`, so the
-/// carry stays at most 3 in magnitude. Once every stored digit is folded in,
-/// the carry is nonnegative, because the sum has that sign, and holds the
-/// magnitude's digits above the stored ones: at most one, since a sum stored
-/// in `h + 1` positions has magnitude below `B^(h + 2)`.
+/// At each position, the stored digit times the sum's sign, plus the carry from
+/// below, is a piece of the magnitude. Its Euclidean remainder by the base
+/// `B = 2^32` is the magnitude's digit there, never negative and below the
+/// base, and its quotient carries upward. For a power-of-two base these are the
+/// piece's low 32 bits and its arithmetic right shift, and every piece fits an
+/// `i64`: a stored digit has magnitude below `2B`, so the carry stays at most 3
+/// in magnitude. Once every stored digit is folded in, the carry is
+/// nonnegative, because the sum has that sign, and holds the magnitude's digits
+/// above the stored ones: at most one, since a sum stored in `h + 1` positions
+/// has magnitude below `B^(h + 2)`.
 ///
-/// [`normalize_nonzero_from`](Digits::normalize_nonzero_from) writes the
-/// digits back in place. [`add_magnitude`](Digits::add_magnitude) deposits
-/// them into another value and leaves the stored digits as they are; at the
-/// top stored position it takes the whole remaining magnitude as one piece,
-/// so that its deposits end where the stored digits do.
+/// [`normalize_nonzero_from`](Digits::normalize_nonzero_from) writes the digits
+/// back in place. [`add_magnitude`](Digits::add_magnitude) deposits them into
+/// another value and leaves the stored digits as they are; at the top stored
+/// position it takes the whole remaining magnitude as one piece, so that its
+/// deposits end where the stored digits do.
 pub(super) struct MagnitudeCarry {
     /// 1 for a positive sum, -1 for a negative one.
     polarity: i64,
@@ -77,21 +77,21 @@ impl MagnitudeCarry {
         Self { polarity, carry: 0 }
     }
 
-    /// Fold in the stored digit at the next position and return the
-    /// magnitude's digit there.
+    /// Fold in the stored digit at the next position and return the magnitude's
+    /// digit there.
     pub(super) fn fold(&mut self, digit: i64) -> u32 {
         let piece = self.polarity * digit + self.carry;
         self.carry = piece >> DIGIT_BITS;
         (piece & DIGIT_MASK as i64) as u32
     }
 
-    /// Fold in the top stored digit and return the magnitude's whole
-    /// remaining part, in units of the top position: its digit there and
-    /// every digit above, as one piece.
+    /// Fold in the top stored digit and return the magnitude's whole remaining
+    /// part, in units of the top position: its digit there and every digit
+    /// above, as one piece.
     ///
-    /// The piece is never negative, because the sum has the sign the carry
-    /// was started with, and below `2^34`, because the stored digit is below
-    /// `2B` in magnitude and the carry at most 3. Nothing remains above it.
+    /// The piece is never negative, because the sum has the sign the carry was
+    /// started with, and below `2^34`, because the stored digit is below `2B`
+    /// in magnitude and the carry at most 3. Nothing remains above it.
     pub(super) fn fold_top(&mut self, digit: i64) -> u64 {
         let piece = self.polarity * digit + self.carry;
         self.carry = 0;
@@ -134,11 +134,11 @@ impl Digits {
     /// base, passing each magnitude digit to `emit` from low to high.
     ///
     /// `sign` must be the stored digits' nonzero sign, the value's sign
-    /// reversed when the flag is set, and every digit below `start`
-    /// must be zero; any `start` at or below `lowest_written` qualifies. The
-    /// pass reads nothing below `start`, because skipping that prefix is what
-    /// keeps a scaled read proportional to the written span; a nonzero digit
-    /// there would be left out of the value. The tests in
+    /// reversed when the flag is set, and every digit below `start` must be
+    /// zero; any `start` at or below `lowest_written` qualifies. The pass reads
+    /// nothing below `start`, because skipping that prefix is what keeps a
+    /// scaled read proportional to the written span; a nonzero digit there
+    /// would be left out of the value. The tests in
     /// `accumulator::tests::representation` check the zero prefix below
     /// `lowest_written` after every step, and compare the scaled readout with
     /// an oracle. The emitted digits may end in zeros that the final trimming

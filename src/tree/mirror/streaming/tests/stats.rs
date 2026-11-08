@@ -1,19 +1,19 @@
-//! Session-stats pins at the walk tier: the counters against an
-//! independent in-memory oracle.
+//! Session-stats pins at the walk tier: the counters against an independent
+//! in-memory oracle.
 //!
-//! The walk's counters ([`Recorder`]) are pinned here against corpora
-//! whose dispute structure is computable by construction: for the
-//! `divergent_cells_pair` family, every difference is one-sided under a
-//! set of controlled prefix cells, so the session's disputed scopes are
-//! exactly the prefix closure of the cells (a scope is disputed iff both
-//! sides occupy it and its subtrees differ; differences propagate up the
-//! Merkle hashes, and nothing below a cell is jointly occupied where the
-//! sides diverge). Per side, the counts split by depth parity: the
-//! responder answers the root and every even depth, the initiator every
-//! odd depth (the descent alternates askers height by height). The same
-//! counters ride the wire unchanged, so what is pinned in memory here is
-//! trusted on the wire (the crate's join/mirror equivalence discipline);
-//! the public suite (`tests/session_stats.rs`) re-checks the surface.
+//! The walk's counters ([`Recorder`]) are pinned here against corpora whose
+//! dispute structure is computable by construction: for the
+//! `divergent_cells_pair` family, every difference is one-sided under a set of
+//! controlled prefix cells, so the session's disputed scopes are exactly the
+//! prefix closure of the cells (a scope is disputed iff both sides occupy it
+//! and its subtrees differ; differences propagate up the Merkle hashes, and
+//! nothing below a cell is jointly occupied where the sides diverge). Per side,
+//! the counts split by depth parity: the responder answers the root and every
+//! even depth, the initiator every odd depth (the descent alternates askers
+//! height by height). The same counters ride the wire unchanged, so what is
+//! pinned in memory here is trusted on the wire (the crate's join/mirror
+//! equivalence discipline); the public suite (`tests/session_stats.rs`)
+//! re-checks the surface.
 
 use std::collections::BTreeSet;
 
@@ -28,12 +28,12 @@ use crate::tree::arb::{
 use crate::tree::mirror::streaming::stats::SessionStats;
 use crate::tree::mirror::streaming::{Local, Root as StreamingRoot};
 
-/// Reconcile `a` and `b` through the streaming local backend with a
-/// recorder on each side, returning both reconciled roots and both
-/// sides' stats in argument order.
+/// Reconcile `a` and `b` through the streaming local backend with a recorder on
+/// each side, returning both reconciled roots and both sides' stats in argument
+/// order.
 ///
-/// No wire is involved, so the byte counters stay zero here; this
-/// harness pins the walk's counters (disputes, gains, sheds).
+/// No wire is involved, so the byte counters stay zero here; this harness pins
+/// the walk's counters (disputes, gains, sheds).
 fn mirror_with_stats(a: Root, b: Root) -> (Root, Root, SessionStats, SessionStats) {
     let outcome = LocalSession::new(a, b).stats().run();
     let (a_stats, b_stats) = *outcome.stats();
@@ -48,14 +48,14 @@ fn live(root: &Root) -> u64 {
 }
 
 /// The dispute oracle for `divergent_cells_pair` corpora: the number of
-/// disputed scopes at each depth is the prefix closure of the cells,
-/// grouped by prefix length.
+/// disputed scopes at each depth is the prefix closure of the cells, grouped by
+/// prefix length.
 ///
-/// Every strict-or-equal prefix of a cell is jointly occupied (both
-/// sides hold populations under the cell) with differing subtree hashes
-/// (the one-sided extras differ, and hash differences propagate to every
-/// ancestor), and nothing else is: below a cell, the extras sit in
-/// distinct radix columns, so no divergent slot is jointly occupied.
+/// Every strict-or-equal prefix of a cell is jointly occupied (both sides hold
+/// populations under the cell) with differing subtree hashes (the one-sided
+/// extras differ, and hash differences propagate to every ancestor), and
+/// nothing else is: below a cell, the extras sit in distinct radix columns, so
+/// no divergent slot is jointly occupied.
 fn expected_disputes_by_depth(cells: &[Vec<u8>]) -> Vec<usize> {
     let mut prefixes: BTreeSet<Vec<u8>> = BTreeSet::new();
     for cell in cells {
@@ -71,21 +71,20 @@ fn expected_disputes_by_depth(cells: &[Vec<u8>]) -> Vec<usize> {
     by_depth
 }
 
-/// Split a per-depth dispute census into the (initiator, responder)
-/// per-side expectation: the responder answers the root and every even
-/// depth, the initiator every odd depth.
+/// Split a per-depth dispute census into the (initiator, responder) per-side
+/// expectation: the responder answers the root and every even depth, the
+/// initiator every odd depth.
 fn split_by_parity(by_depth: &[usize]) -> (u64, u64) {
     let responder: usize = by_depth.iter().step_by(2).sum();
     let initiator: usize = by_depth.iter().skip(1).step_by(2).sum();
     (initiator as u64, responder as u64)
 }
 
-/// Generate an antichain of controlled prefix cells for
-/// `divergent_cells_pair`.
+/// Generate an antichain of controlled prefix cells for `divergent_cells_pair`.
 ///
 /// No cell is a prefix of another, and every cell byte sits outside the
-/// fixture's slot alphabet, so the closure oracle's occupancy reasoning
-/// holds exactly.
+/// fixture's slot alphabet, so the closure oracle's occupancy reasoning holds
+/// exactly.
 fn arb_cells() -> impl Strategy<Value = Vec<Vec<u8>>> {
     proptest::collection::vec(proptest::collection::vec(0x66u8..0x7f, 0..=3), 0..=5)
         .prop_map(BTreeSet::from_iter)
@@ -101,9 +100,8 @@ fn arb_cells() -> impl Strategy<Value = Vec<Vec<u8>>> {
         })
 }
 
-/// A converged pair reports zero in every field: equal greeting versions
-/// end the session before any descent, so nothing is disputed and nothing
-/// moves.
+/// A converged pair reports zero in every field: equal greeting versions end
+/// the session before any descent, so nothing is disputed and nothing moves.
 #[test]
 fn equal_trees_report_zero_stats() {
     let node = grown(None, 0, 1, &(), &[path_at(&[0x11]), path_at(&[0x22])]);
@@ -116,10 +114,10 @@ fn equal_trees_report_zero_stats() {
 
 /// The deterministic dispute pin over a two-by-two pyramid corpus.
 ///
-/// The session disputes exactly the cells' prefix closure (seven
-/// scopes), split five to the responder (depths zero and two) and two
-/// to the initiator (depth one), with each side gaining exactly the
-/// other's four extras, and shedding nothing.
+/// The session disputes exactly the cells' prefix closure (seven scopes), split
+/// five to the responder (depths zero and two) and two to the initiator (depth
+/// one), with each side gaining exactly the other's four extras, and shedding
+/// nothing.
 #[test]
 fn pyramid_disputes_match_the_prefix_closure() {
     let cells: Vec<Vec<u8>> = vec![vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1]];
@@ -160,9 +158,9 @@ fn pyramid_disputes_match_the_prefix_closure() {
     assert_eq!(live(&theirs), b_before + 4);
 }
 
-/// A deletion honored under a disputed leaf parent is one shed message:
-/// the holder gains the survivor and drops its own copy of the forgotten
-/// leaf, while the redactor moves nothing.
+/// A deletion honored under a disputed leaf parent is one shed message: the
+/// holder gains the survivor and drops its own copy of the forgotten leaf,
+/// while the redactor moves nothing.
 #[test]
 fn honored_redaction_counts_as_shed() {
     let (a, b, expected) = leaf_parent_redaction_pair();
@@ -185,13 +183,13 @@ fn honored_redaction_counts_as_shed() {
     assert_eq!(b_stats.disputed_scopes, 16);
 }
 
-/// A leaf-parent only the holder occupies is judged leaf by leaf: the
-/// forgotten sibling sheds, the concurrent one crosses, and both sides
-/// hold the join oracle's tree in either orientation.
+/// A leaf-parent only the holder occupies is judged leaf by leaf: the forgotten
+/// sibling sheds, the concurrent one crosses, and both sides hold the join
+/// oracle's tree in either orientation.
 ///
-/// The counterparty holds nothing under the parent, so no leaf-parent
-/// dispute answers for the leaves; the verdict is the streaming filter's
-/// own, at leaf height.
+/// The counterparty holds nothing under the parent, so no leaf-parent dispute
+/// answers for the leaves; the verdict is the streaming filter's own, at leaf
+/// height.
 #[test]
 fn forgotten_sibling_is_judged_at_leaf_height() {
     let (holder, forgetter, expected) = forgotten_sibling_pair();

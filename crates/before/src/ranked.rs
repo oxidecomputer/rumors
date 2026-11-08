@@ -11,12 +11,13 @@ use crate::{Rank, Version};
 /// A [`Version`] viewed through a deterministic total causal order.
 ///
 /// [`Version`]s are ordered first by [`Rank`]. Because rank strictly increases
-/// with causal order, causes always precede their effects. Distinct [`Version`]s
-/// can have equal [`Rank`]s; their canonical bytes provide the tiebreak.
+/// with causal order, causes always precede their effects. Distinct
+/// [`Version`]s can have equal [`Rank`]s; their canonical bytes provide the
+/// tiebreak.
 ///
-/// Construction borrows or takes the version in `O(1)`. Comparison computes
-/// the rank difference directly from both versions, without first allocating
-/// either [`Rank`]. For a large sort or persistent index, prefer
+/// Construction borrows or takes the version in `O(1)`. Comparison computes the
+/// rank difference directly from both versions, without first allocating either
+/// [`Rank`]. For a large sort or persistent index, prefer
 /// [`encode`](Self::encode): its byte-wise lexicographic order is exactly the
 /// same total order, and materializing each key once avoids repeating the rank
 /// traversal on every comparison.
@@ -84,8 +85,7 @@ impl<'a> Ranked<'a> {
         self.version.rank()
     }
 
-    /// Settles the view onto an owned [`Version`], erasing the borrow
-    /// lifetime.
+    /// Settles the view onto an owned [`Version`], erasing the borrow lifetime.
     ///
     /// # Complexity
     ///
@@ -282,8 +282,8 @@ impl<'a> Ranked<'a> {
         Self::decode_bytes(buf)
     }
 
-    /// Validates an owned canonical key, giving its version storage of its
-    /// own; the rank prefix is checked against the version and dropped.
+    /// Validates an owned canonical key, giving its version storage of its own;
+    /// the rank prefix is checked against the version and dropped.
     pub(crate) fn decode_bytes(mut buf: Vec<u8>) -> Result<Ranked<'static>, Decode> {
         // The version's decoder checks its own length, but only after the
         // rank prefix is read; checking the whole key first rejects an
@@ -329,8 +329,8 @@ impl From<Ranked<'_>> for Rank {
     }
 }
 
-/// Renders the viewed version, tagged with the type's name; the rank is
-/// derived state, so it is not (re)computed for a debug dump.
+/// Renders the viewed version, tagged with the type's name; the rank is derived
+/// state, so it is not (re)computed for a debug dump.
 impl core::fmt::Debug for Ranked<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Ranked")

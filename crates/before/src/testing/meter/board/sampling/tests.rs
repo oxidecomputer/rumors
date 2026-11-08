@@ -40,8 +40,8 @@ proptest! {
     }
 }
 
-/// A token or a pair of words of any other form is refused rather than read
-/// as some sampling.
+/// A token or a pair of words of any other form is refused rather than read as
+/// some sampling.
 #[test]
 fn malformed_encodings_are_refused() {
     assert_eq!(Sampling::from_words(1, 1), None);

@@ -1,5 +1,5 @@
-//! Canonical version and party trees, and the non-canonical spellings
-//! planted in them.
+//! Canonical version and party trees, and the non-canonical spellings planted
+//! in them.
 
 use std::fmt::Debug;
 use std::ops::Range;
@@ -14,17 +14,17 @@ use crate::testing::oracles::codec;
 /// The deepest level a bushy tree reaches.
 pub(super) const BUSHY_DEPTH: u64 = 8;
 
-/// The split decisions a bushy tree draws, which bound its leaves to one
-/// more than this.
+/// The split decisions a bushy tree draws, which bound its leaves to one more
+/// than this.
 const BUSHY_SPLITS: usize = 48;
 
 /// The level counts a spine draws, on both sides of
 /// [`DEEP_LEVELS`](super::DEEP_LEVELS).
 pub(crate) const SPINE_LEVELS: Range<usize> = 30..400;
 
-/// A nonnegative height: small values below 4 that make equal siblings
-/// common, any `u64`, values from `2^64 - 3` to `2^64 + 1`, and `2^k + d`
-/// for `k` from 30 to 299 and `d` from -2 to 2.
+/// A nonnegative height: small values below 4 that make equal siblings common,
+/// any `u64`, values from `2^64 - 3` to `2^64 + 1`, and `2^k + d` for `k` from
+/// 30 to 299 and `d` from -2 to 2.
 fn arb_height() -> impl Strategy<Value = BigInt> {
     prop_oneof![
         10 => (0u64..4).prop_map(BigInt::from),
@@ -38,9 +38,9 @@ fn arb_height() -> impl Strategy<Value = BigInt> {
 ///
 /// A preorder traversal starts from one open slot at the root. Each slot
 /// shallower than [`BUSHY_DEPTH`] takes the next decision: a split opens two
-/// child slots one level deeper, and anything else, including a decision
-/// past the end of `splits`, places a leaf. A slot at [`BUSHY_DEPTH`] takes
-/// no decision and places a leaf.
+/// child slots one level deeper, and anything else, including a decision past
+/// the end of `splits`, places a leaf. A slot at [`BUSHY_DEPTH`] takes no
+/// decision and places a leaf.
 fn bushy_depths(splits: &[bool]) -> Vec<u64> {
     let mut decisions = splits.iter().copied();
     let mut slots = vec![0u64];
@@ -56,8 +56,8 @@ fn bushy_depths(splits: &[bool]) -> Vec<u64> {
 }
 
 /// The leaves, left to right, of a spine whose level `k` holds a leaf with
-/// `levels[k].1` beside the rest of the spine, on the left when
-/// `levels[k].0`, and whose deepest leaf holds `bottom`.
+/// `levels[k].1` beside the rest of the spine, on the left when `levels[k].0`,
+/// and whose deepest leaf holds `bottom`.
 fn spine_leaves<T: Clone>(bottom: T, levels: &[(bool, T)]) -> Vec<(u64, T)> {
     let depth = |level: usize| level as u64 + 1;
     let left = levels
@@ -136,9 +136,9 @@ pub(super) enum Site {
     Deepest,
 }
 
-/// A site: any candidate leaf two times in three, otherwise the deepest,
-/// so plants deeper than [`DEEP_LEVELS`](super::DEEP_LEVELS) stay common in
-/// spines of every length.
+/// A site: any candidate leaf two times in three, otherwise the deepest, so
+/// plants deeper than [`DEEP_LEVELS`](super::DEEP_LEVELS) stay common in spines
+/// of every length.
 fn arb_site() -> impl Strategy<Value = Site> {
     prop_oneof![2 => any::<Index>().prop_map(Site::Any), 1 => Just(Site::Deepest)]
 }
@@ -165,14 +165,14 @@ impl Site {
 pub(super) enum VersionPlant {
     /// The site becomes a branch over two leaves of its height.
     CollapsiblePair(Site),
-    /// The site's height becomes this negative amount. The first leaf's
-    /// height is spelled unsigned, so a site at the first leaf instead
-    /// splits it into its own height beside the negative one.
+    /// The site's height becomes this negative amount. The first leaf's height
+    /// is spelled unsigned, so a site at the first leaf instead splits it into
+    /// its own height beside the negative one.
     NegativeHeight(Site, BigInt),
 }
 
-/// Plants either spelling, with negative heights from -1 to -3 or from
-/// `-2^30` to `-2^199`.
+/// Plants either spelling, with negative heights from -1 to -3 or from `-2^30`
+/// to `-2^199`.
 pub(super) fn arb_version_plant() -> impl Strategy<Value = VersionPlant> {
     let depth_below_zero = prop_oneof![
         (1u64..4).prop_map(BigInt::from),
@@ -214,9 +214,9 @@ pub(super) trait Plantable: Clone {
     fn plant_regime(plant: &Self::Plant) -> Regime;
 }
 
-/// Planting into a canonical version violates exactly the planted
-/// constraint: a pair of equal leaves under one branch, or one negative
-/// height, which no sibling of nonnegative height can equal.
+/// Planting into a canonical version violates exactly the planted constraint: a
+/// pair of equal leaves under one branch, or one negative height, which no
+/// sibling of nonnegative height can equal.
 impl Plantable for codec::Version {
     type Plant = VersionPlant;
 
@@ -263,8 +263,8 @@ impl Plantable for codec::Version {
     }
 }
 
-/// Planting into a canonical party violates exactly one constraint: two
-/// owned leaves under one branch.
+/// Planting into a canonical party violates exactly one constraint: two owned
+/// leaves under one branch.
 impl Plantable for codec::Party {
     type Plant = PartyPlant;
 

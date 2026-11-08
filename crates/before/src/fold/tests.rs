@@ -1,7 +1,7 @@
 use crate::{Party, Span, Version};
 
-/// Encode two concurrent versions of equal length: one shared history, plus
-/// one more tick on a different share in each.
+/// Encode two concurrent versions of equal length: one shared history, plus one
+/// more tick on a different share in each.
 ///
 /// Each share's count is a distinct large power of two, so one more tick
 /// changes no stored width. Both versions are far wider than the shared
@@ -31,8 +31,8 @@ fn concurrent_twins() -> (Vec<u8>, Vec<u8>) {
 /// alive. `f` is concurrent with `e` and encodes to the same length. Combining
 /// `e` with its equal twin keeps one buffer and frees the other, and the
 /// allocator typically places `f`'s buffer at that freed address. A duplicate
-/// filter that compared `f` against the address of an input it no longer
-/// holds would discard `f` as a clone of `e`; every fold must include `f`.
+/// filter that compared `f` against the address of an input it no longer holds
+/// would discard `f` as a clone of `e`; every fold must include `f`.
 ///
 /// The hazard needs the allocator to reuse the address, which this test cannot
 /// force; it reports a filter that compares against a dropped input wherever

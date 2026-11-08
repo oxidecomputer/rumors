@@ -70,8 +70,8 @@ fn zero_cv_is_fixed() {
     );
 }
 
-/// Far below the cap, the sample mean of 100,000 draws at CV 1 is within
-/// 2% of the requested mean, about seven standard errors.
+/// Far below the cap, the sample mean of 100,000 draws at CV 1 is within 2% of
+/// the requested mean, about seven standard errors.
 #[test]
 fn uncapped_sample_mean_matches() {
     let mut sampler = SizeDistribution {
@@ -87,9 +87,8 @@ fn uncapped_sample_mean_matches() {
     assert!((mean - 1000.0).abs() < 20.0, "sample mean {mean}");
 }
 
-/// A cap that cuts into the tail redraws rather than clamps: no draw
-/// equals the cap more often than its neighbours would, and the redraws are
-/// counted.
+/// A cap that cuts into the tail redraws rather than clamps: no draw equals the
+/// cap more often than its neighbours would, and the redraws are counted.
 #[test]
 fn cap_redraws_instead_of_clamping() {
     let distribution = SizeDistribution {
@@ -114,9 +113,9 @@ fn cap_redraws_instead_of_clamping() {
     assert!(redrawn > expected * 0.8 && redrawn < expected * 1.25 + 50.0);
 }
 
-/// Distributions the sampler cannot meet as asked are refused with advice:
-/// a mean above the cap, a mean below one byte, and a distribution so
-/// skewed that most draws round to no bytes at all.
+/// Distributions the sampler cannot meet as asked are refused with advice: a
+/// mean above the cap, a mean below one byte, and a distribution so skewed that
+/// most draws round to no bytes at all.
 #[test]
 fn unmeetable_distributions_are_refused() {
     assert!(

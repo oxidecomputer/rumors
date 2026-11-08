@@ -16,16 +16,15 @@ use crate::{
 pub(crate) enum MirrorError {
     /// The local tree rejected the protocol exchange during the phase.
     Local(Phase, materialized::Violation),
-    /// The local backend reported a count no node can have during the
-    /// phase.
+    /// The local backend reported a count no node can have during the phase.
     Count(Phase, CountError),
     /// The wire-bound participant failed.
     Remote(proxy::Error<Infallible>),
 }
 
 impl MirrorError {
-    /// Classify a raw production mirror failure, locating failures of the
-    /// local walk, which carry no location of their own, in `phase`.
+    /// Classify a raw production mirror failure, locating failures of the local
+    /// walk, which carry no location of their own, in `phase`.
     fn new(
         error: mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>,
         phase: Phase,
@@ -44,8 +43,8 @@ impl MirrorError {
 /// Translate raw production mirror failures at the peer boundary, during
 /// `phase`.
 ///
-/// The phase locates the local walk's failures; the wire-bound
-/// participant's carry their own location.
+/// The phase locates the local walk's failures; the wire-bound participant's
+/// carry their own location.
 pub(crate) fn streaming_error(
     phase: Phase,
 ) -> impl FnOnce(mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>) -> Error

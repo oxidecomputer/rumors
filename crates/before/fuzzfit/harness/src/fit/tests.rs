@@ -1,9 +1,9 @@
 //! Unit checks of the fitter.
 //!
-//! [`line_divergence`] must read zero against an agreeing pin and read
-//! the exact perturbation against a hand-perturbed one — proven before
-//! the cross-check's tolerance means anything. A fit's widths must print
-//! the same on every host, which a negative zero would break.
+//! [`line_divergence`] must read zero against an agreeing pin and read the
+//! exact perturbation against a hand-perturbed one — proven before the
+//! cross-check's tolerance means anything. A fit's widths must print the same
+//! on every host, which a negative zero would break.
 
 use super::{fit, fit_constant, line_divergence, Fit};
 use crate::bands::Band;
@@ -46,8 +46,8 @@ fn agreeing_pin_reads_zero() {
 /// A perturbed intercept reads back as exactly the perturbation, and a
 /// perturbed slope as its full effect at the range's far endpoint.
 ///
-/// The comparator is alive on both parameters, so a stale pin cannot
-/// slip under a tolerance smaller than its drift.
+/// The comparator is alive on both parameters, so a stale pin cannot slip under
+/// a tolerance smaller than its drift.
 #[test]
 fn perturbed_pin_reads_its_perturbation() {
     let f = linear_fit();
@@ -68,13 +68,13 @@ fn perturbed_pin_reads_its_perturbation() {
     );
 }
 
-/// A corpus with no spread fits widths of exactly `+0.0` on both sides,
-/// through both fitters.
+/// A corpus with no spread fits widths of exactly `+0.0` on both sides, through
+/// both fitters.
 ///
-/// Every sample lies on the line, so every residual is `+0.0` and the
-/// width below is taken over negated zeros. The calibrator prints the
-/// widths into `bands.rs`, where the width below would print as
-/// `-0.000000` when computed on x86-64 and `0.000000` on aarch64.
+/// Every sample lies on the line, so every residual is `+0.0` and the width
+/// below is taken over negated zeros. The calibrator prints the widths into
+/// `bands.rs`, where the width below would print as `-0.000000` when computed
+/// on x86-64 and `0.000000` on aarch64.
 #[test]
 fn spreadless_corpus_fits_positive_zero_widths() {
     // A fuel of 1 has log10 exactly +0.0 under every libm, so the mean

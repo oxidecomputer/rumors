@@ -133,8 +133,8 @@ proptest! {
     }
 }
 
-/// A single depth-0 leaf builds the two-bit stream `1 gamma(v)`: no
-/// topology derivation, no collapse.
+/// A single depth-0 leaf builds the two-bit stream `1 gamma(v)`: no topology
+/// derivation, no collapse.
 #[test]
 fn single_leaf_is_flag_plus_code() {
     assert_eq!(built(vec![(0, gamma(0))]), bits("1 1"));
@@ -252,9 +252,10 @@ fn partial_equality_collapses_only_the_equal_pair() {
     assert_eq!(kept, bits("0 1 011 0 1 1 1 0001111"));
 }
 
-/// One subtree's continuation range for [`VersionWriter::copy_subtree_remainder`]:
-/// the stream bits between the first leaf's payload code and the subtree's end,
-/// re-derived by the forced flip-and-descend.
+/// One subtree's continuation range for
+/// [`VersionWriter::copy_subtree_remainder`]: the stream bits between the first
+/// leaf's payload code and the subtree's end, re-derived by the forced
+/// flip-and-descend.
 ///
 /// `first_depth` is the already-fed first leaf's depth; `leaves` are the
 /// remaining leaves in preorder. Returns the range with the first and last
@@ -286,8 +287,8 @@ fn continuation(
     )
 }
 
-/// Splicing a subtree's continuation is stream-identical to feeding
-/// its leaves one by one.
+/// Splicing a subtree's continuation is stream-identical to feeding its leaves
+/// one by one.
 ///
 /// And it leaves the builder able to keep collapsing: a later zero delta
 /// against the spliced subtree's internal sibling survives, exactly as under
@@ -316,8 +317,8 @@ fn copy_subtree_remainder_matches_per_leaf_feeding() {
     );
 }
 
-/// After a multi-level continuation, the next leaf closes the same ancestors
-/// as leaf-by-leaf construction.
+/// After a multi-level continuation, the next leaf closes the same ancestors as
+/// leaf-by-leaf construction.
 #[test]
 fn copy_subtree_remainder_reanchors_across_levels() {
     // Tiling of `((2, ((4, 7), 6)), 9)`: the depth-2 subtree's last

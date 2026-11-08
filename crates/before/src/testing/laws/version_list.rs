@@ -275,8 +275,8 @@ laws! {
     }
 }
 
-/// The item spans the fold-entry point laws quantify over: a deterministic mix of
-/// coincident and wide spans over the items.
+/// The item spans the fold-entry point laws quantify over: a deterministic mix
+/// of coincident and wide spans over the items.
 ///
 /// The mix drives the entry points' point and wide combine arms alike, at every
 /// counter boundary the list sweep reaches.

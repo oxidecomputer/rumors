@@ -1,6 +1,6 @@
 //! The judgment's own tripwires: each finding category demonstrated on
-//! synthetic inputs, so the reconcile cannot rot into a scan that
-//! blesses everything.
+//! synthetic inputs, so the reconcile cannot rot into a scan that blesses
+//! everything.
 
 use std::collections::BTreeSet;
 
@@ -22,8 +22,8 @@ fn names(entries: &[&str]) -> BTreeSet<String> {
     entries.iter().map(|n| (*n).to_owned()).collect()
 }
 
-/// A surface whose functions are the given names, with no impls and no
-/// items, the form most function-coverage tests need.
+/// A surface whose functions are the given names, with no impls and no items,
+/// the form most function-coverage tests need.
 fn functions(entries: &[&str]) -> Surface {
     Surface {
         functions: names(entries),
@@ -140,8 +140,8 @@ fn item_census_reconciles_both_ways() {
 }
 
 /// A `usize` signature with no census pin and a pin naming no reachable
-/// signature both fail, and a module exception excuses a signature in its
-/// tree: the `usize` census reconciles in both directions.
+/// signature both fail, and a module exception excuses a signature in its tree:
+/// the `usize` census reconciles in both directions.
 #[test]
 fn usize_census_reconciles_both_ways() {
     let surface = Surface {
@@ -174,11 +174,11 @@ fn usize_census_reconciles_both_ways() {
     );
 }
 
-/// An item exception excuses exactly its named item, and a module
-/// exception excuses exactly its `::`-terminated prefix, in every category.
+/// An item exception excuses exactly its named item, and a module exception
+/// excuses exactly its `::`-terminated prefix, in every category.
 ///
-/// Functions, impls, items, and `usize` signatures under an excepted module
-/// all pass without pins.
+/// Functions, impls, items, and `usize` signatures under an excepted module all
+/// pass without pins.
 #[test]
 fn exceptions_excuse_their_scope() {
     let surface = Surface {
@@ -205,8 +205,8 @@ fn exceptions_excuse_their_scope() {
     assert!(findings.is_clean(), "{findings:?}");
 }
 
-/// A module exception prefix must not match a sibling module whose name
-/// merely extends it textually: `gated::` never covers `gatedmore::x`.
+/// A module exception prefix must not match a sibling module whose name merely
+/// extends it textually: `gated::` never covers `gatedmore::x`.
 #[test]
 fn module_exception_does_not_leak_to_siblings() {
     let surface = functions(&["Party::seed", "causally::all", "gated::a", "gatedmore::x"]);
@@ -225,9 +225,8 @@ fn module_exception_does_not_leak_to_siblings() {
     );
 }
 
-/// An exception matching nothing is a dead entry, and an exception
-/// shadowing a live board row is a conflict: both read red, so the
-/// lists self-prune.
+/// An exception matching nothing is a dead entry, and an exception shadowing a
+/// live board row is a conflict: both read red, so the lists self-prune.
 #[test]
 fn dead_and_shadowing_exceptions_read_red() {
     let surface = functions(&["Party::seed", "causally::all"]);
@@ -250,9 +249,9 @@ fn dead_and_shadowing_exceptions_read_red() {
     );
 }
 
-/// A module exception stays live when its only matches are impls or
-/// items: an exception covering an instrument tree of impls must not
-/// read as dead just because the tree declares no functions.
+/// A module exception stays live when its only matches are impls or items: an
+/// exception covering an instrument tree of impls must not read as dead just
+/// because the tree declares no functions.
 #[test]
 fn module_exception_live_through_impls_and_items() {
     let surface = Surface {
@@ -273,9 +272,9 @@ fn module_exception_live_through_impls_and_items() {
     assert!(findings.is_clean(), "{findings:?}");
 }
 
-/// A traversal that returns nothing cannot read green: the liveness anchors
-/// are missing-anchor findings even when coverage and extraction agree on
-/// the empty surface.
+/// A traversal that returns nothing cannot read green: the liveness anchors are
+/// missing-anchor findings even when coverage and extraction agree on the empty
+/// surface.
 #[test]
 fn empty_extraction_trips_the_anchors() {
     let findings = reconcile_with(
@@ -290,8 +289,8 @@ fn empty_extraction_trips_the_anchors() {
     assert!(!findings.is_clean());
 }
 
-/// The render names every non-empty category, so a red run always says
-/// what to do next.
+/// The render names every non-empty category, so a red run always says what to
+/// do next.
 #[test]
 fn render_names_the_findings() {
     let findings = Findings {
@@ -308,8 +307,8 @@ fn render_names_the_findings() {
     assert!(report.contains("TRAIT_IMPLS"));
 }
 
-/// The exemption discipline is enforced by the judgment itself: a
-/// malformed exception is a finding.
+/// The exemption discipline is enforced by the judgment itself: a malformed
+/// exception is a finding.
 ///
 /// Malformed means a too-thin reason or a module prefix not ending in `::`.
 #[test]
@@ -338,8 +337,8 @@ fn malformed_exceptions_read_red() {
     );
 }
 
-/// The committed exception lists themselves pass the exemption
-/// discipline: the shipping tables carry no malformed entry.
+/// The committed exception lists themselves pass the exemption discipline: the
+/// shipping tables carry no malformed entry.
 #[test]
 fn committed_exceptions_are_well_formed() {
     let surface = functions(&["Party::seed", "causally::all"]);

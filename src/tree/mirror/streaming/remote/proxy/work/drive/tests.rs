@@ -1,22 +1,22 @@
 //! The task set's failure routing, checked against a model of its rules.
 //!
-//! Each scripted member completes at a scripted *step*, with a scripted
-//! exit. Members completing at one step complete in an order the model
-//! leaves open. Each step is reached in one of two ways, also scripted:
+//! Each scripted member completes at a scripted *step*, with a scripted exit.
+//! Members completing at one step complete in an order the model leaves open.
+//! Each step is reached in one of two ways, also scripted:
 //!
 //! - *within* the session: the last member to complete at the step before
-//!   advances the clock while the set polls it, so the set notices the
-//!   wakes, as it notices a member handing work to another;
-//! - from *outside*: the harness advances the clock only once the session
-//!   is at rest, polled without being woken, as an event arriving from the
-//!   peer would.
+//!   advances the clock while the set polls it, so the set notices the wakes,
+//!   as it notices a member handing work to another;
+//! - from *outside*: the harness advances the clock only once the session is at
+//!   rest, polled without being woken, as an event arriving from the peer
+//!   would.
 //!
-//! In a session, the local participant's walk runs beside the set, so work
-//! that follows within the session can look to the set like work that waits
-//! for an outside event. The rules let that difference change which failure
-//! a failed session reports, never whether a session succeeds once a pipe
-//! failure has been reported, and the harness checks both by scripting each
-//! step either way.
+//! In a session, the local participant's walk runs beside the set, so work that
+//! follows within the session can look to the set like work that waits for an
+//! outside event. The rules let that difference change which failure a failed
+//! session reports, never whether a session succeeds once a pipe failure has
+//! been reported, and the harness checks both by scripting each step either
+//! way.
 
 use std::{
     collections::BTreeMap,
@@ -89,15 +89,15 @@ struct Scripted<X> {
 /// A scripted session: its walk tasks, terminal future, multiplexer and
 /// demultiplexer, and how each step is reached.
 ///
-/// A walk member's errors name the member: walk task `i` is member `i`,
-/// the terminal future follows the tasks, and the multiplexer follows it.
+/// A walk member's errors name the member: walk task `i` is member `i`, the
+/// terminal future follows the tasks, and the multiplexer follows it.
 #[derive(Clone, Debug)]
 struct Script {
     /// Whether each step, by number, follows within the session from the
     /// scripted step before it, rather than from outside.
     ///
-    /// The first scripted step follows no other, so the session starts at
-    /// step 0 and the harness reaches a later first step from outside.
+    /// The first scripted step follows no other, so the session starts at step
+    /// 0 and the harness reaches a later first step from outside.
     within: [bool; LAST_STEP + 1],
     /// The walk tasks.
     tasks: Vec<Scripted<Exit>>,
@@ -110,8 +110,8 @@ struct Script {
 }
 
 impl Script {
-    /// The walk tasks, the terminal future and the multiplexer, each with
-    /// the member number its errors carry.
+    /// The walk tasks, the terminal future and the multiplexer, each with the
+    /// member number its errors carry.
     fn walk(&self) -> impl Iterator<Item = (u8, Scripted<Exit>)> + '_ {
         self.tasks
             .iter()
@@ -174,12 +174,11 @@ enum Seen {
 /// Steps run in order. At each, a walk error fails the session (rule 1).
 /// Otherwise a completed walk decides it (rule 3): it succeeds unless the
 /// demultiplexer has failed, at this step or at the next, if the step's last
-/// completion reaches the next from within. Otherwise, once a pipe failure
-/// is known, the session continues into a next step that follows within
-/// the session, and comes to rest before one that follows from outside, or
-/// after the last; at rest it fails with the highest-ranked pipe failure
-/// (rule 2). Where several members could decide within one step, each is
-/// allowed.
+/// completion reaches the next from within. Otherwise, once a pipe failure is
+/// known, the session continues into a next step that follows within the
+/// session, and comes to rest before one that follows from outside, or after
+/// the last; at rest it fails with the highest-ranked pipe failure (rule 2).
+/// Where several members could decide within one step, each is allowed.
 fn model(script: &Script) -> Vec<Seen> {
     let steps = script.steps();
     let mut walking = script.tasks.len() + 2;
@@ -231,8 +230,8 @@ fn model(script: &Script) -> Vec<Seen> {
     vec![Seen::Pending]
 }
 
-/// The scripted session's current step, the members waiting for later
-/// ones, and how each step is reached.
+/// The scripted session's current step, the members waiting for later ones, and
+/// how each step is reached.
 struct Clock {
     /// The current step.
     step: usize,
@@ -263,10 +262,9 @@ impl Clock {
         }
     }
 
-    /// Note that a member scripted for `step` completed. If it was the
-    /// step's last and the next scripted step follows within the session,
-    /// advance to that step, returning the wakers of the members it makes
-    /// ready.
+    /// Note that a member scripted for `step` completed. If it was the step's
+    /// last and the next scripted step follows within the session, advance to
+    /// that step, returning the wakers of the members it makes ready.
     fn complete(&mut self, step: usize) -> Vec<Waker> {
         let left = self
             .remaining
@@ -283,8 +281,7 @@ impl Clock {
         }
     }
 
-    /// Advance to step `next`, returning the wakers of the members due by
-    /// then.
+    /// Advance to step `next`, returning the wakers of the members due by then.
     fn advance(&mut self, next: usize) -> Vec<Waker> {
         self.step = next;
         let (due, waiting) = mem::take(&mut self.waiting)
@@ -295,8 +292,7 @@ impl Clock {
     }
 }
 
-/// A future that completes with its output once the clock reaches its
-/// step.
+/// A future that completes with its output once the clock reaches its step.
 struct At<T> {
     /// The step at which it completes.
     step: usize,
@@ -431,9 +427,9 @@ fn seen(outcome: Result<u32, Error<Injected>>) -> Seen {
     }
 }
 
-/// Run `script` through the driver: members advance the clock to steps
-/// that follow within the session, and the harness advances it to the next
-/// step each time the session comes to rest.
+/// Run `script` through the driver: members advance the clock to steps that
+/// follow within the session, and the harness advances it to the next step each
+/// time the session comes to rest.
 fn run(script: &Script) -> Seen {
     let clock = Arc::new(Mutex::new(Clock::new(script)));
     let members: Vec<(u8, Scripted<Exit>)> = script.walk().collect();

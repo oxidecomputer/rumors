@@ -1,49 +1,46 @@
 //! Checking a run's results against facts every clean run satisfies.
 //!
-//! A run's timings vary with its host, so no threshold on them can say
-//! whether the run worked. What a clean run guarantees instead are facts
-//! that hold on any host, and `rumors-netperf check` verifies them for one
-//! run's results directory, or for the directories of every shard of one
-//! run taken together:
+//! A run's timings vary with its host, so no threshold on them can say whether
+//! the run worked. What a clean run guarantees instead are facts that hold on
+//! any host, and `rumors-netperf check` verifies them for one run's results
+//! directory, or for the directories of every shard of one run taken together:
 //!
 //! - **The results are whole.** Every directory holds its `plan.json`,
 //!   `environment.json`, and a `run.json` that records the run's end; the
-//!   directories' plans are one grid's, and their shards make up the whole
-//!   run exactly once.
-//! - **The shards measured one thing.** Every directory's environment
-//!   matches the first's in all but the host's name
-//!   ([`Environment::differences_beyond_host`]): the same build of the
-//!   tool, by its executable's digest, and the same operating system and
-//!   kernel, processors, memory, TCP settings, and congestion control.
-//!   Shards may run on different hosts, but a point's repetitions fall to
-//!   different shards, so its median mixes them, and only hosts that agree
-//!   in all of these measure alike.
-//! - **Every planned session has exactly one row, and every row a plan:**
-//!   each point the plan lists at every repetition, and each raised-limit
-//!   rerun a shard planned, has one row, and no row but a sentinel's
-//!   records a session no plan lists. A run cut short and resumed is one
-//!   run, its parts' rows in one `sessions.csv`, so this holds across
-//!   every part. Every point the grid skips is recorded with its reason.
+//!   directories' plans are one grid's, and their shards make up the whole run
+//!   exactly once.
+//! - **The shards measured one thing.** Every directory's environment matches
+//!   the first's in all but the host's name
+//!   ([`Environment::differences_beyond_host`]): the same build of the tool, by
+//!   its executable's digest, and the same operating system and kernel,
+//!   processors, memory, TCP settings, and congestion control. Shards may run
+//!   on different hosts, but a point's repetitions fall to different shards, so
+//!   its median mixes them, and only hosts that agree in all of these measure
+//!   alike.
+//! - **Every planned session has exactly one row, and every row a plan:** each
+//!   point the plan lists at every repetition, and each raised-limit rerun a
+//!   shard planned, has one row, and no row but a sentinel's records a session
+//!   no plan lists. A run cut short and resumed is one run, its parts' rows in
+//!   one `sessions.csv`, so this holds across every part. Every point the grid
+//!   skips is recorded with its reason.
 //! - **No session failed.**
-//! - **Every side runs at the budget it requested, raised to the
-//!   minimum:** every side at the default message-size target reports,
-//!   from the library, that it ran at exactly the larger of the budget it
-//!   requested (the library's default when it requested none) and
-//!   [`MIN_SYNC_MEMORY_BUDGET`].
-//! - **The raised-limit path ran where the grid needs it:** when the
-//!   host's usable TCP window is smaller than what some planned point
-//!   keeps in flight ([`raised_buffer`]), at least one rerun with raised
-//!   limits finished.
+//! - **Every side runs at the budget it requested, raised to the minimum:**
+//!   every side at the default message-size target reports, from the library,
+//!   that it ran at exactly the larger of the budget it requested (the
+//!   library's default when it requested none) and [`MIN_SYNC_MEMORY_BUDGET`].
+//! - **The raised-limit path ran where the grid needs it:** when the host's
+//!   usable TCP window is smaller than what some planned point keeps in flight
+//!   ([`raised_buffer`]), at least one rerun with raised limits finished.
 //! - **Timed sessions ran under calibration's conditions:** in a run that
-//!   records how it prepares sessions, every row records when its
-//!   preparation ran and, if it was timed, when its timed session ran;
-//!   no timed session overlaps any preparation; and no more timed sessions
-//!   overlap at any moment than the run's job count ([`phases`]).
+//!   records how it prepares sessions, every row records when its preparation
+//!   ran and, if it was timed, when its timed session ran; no timed session
+//!   overlaps any preparation; and no more timed sessions overlap at any moment
+//!   than the run's job count ([`phases`]).
 //! - **The report renders.**
 //!
 //! [`verify`] judges results already read, which is how the tests feed it
-//! synthetic runs; [`check`] reads the directories, verifies them, and
-//! renders the report.
+//! synthetic runs; [`check`] reads the directories, verifies them, and renders
+//! the report.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -95,8 +92,8 @@ pub enum Failure {
         /// The file.
         file: &'static str,
     },
-    /// A directory has no `run.json`, or one that records no end: its run
-    /// was cut short, or still runs.
+    /// A directory has no `run.json`, or one that records no end: its run was
+    /// cut short, or still runs.
     Unfinished {
         /// The directory.
         dir: PathBuf,
@@ -116,8 +113,7 @@ pub enum Failure {
         dir: PathBuf,
         /// The first directory, whose environment it was compared against.
         first: PathBuf,
-        /// Each part that differs, with the first directory's value as
-        /// `ours`.
+        /// Each part that differs, with the first directory's value as `ours`.
         differences: Vec<Difference>,
     },
     /// The directories' shards do not make up one whole run exactly once.
@@ -150,8 +146,8 @@ pub enum Failure {
         /// Why, as its row records it.
         error: String,
     },
-    /// A side reported running at another budget than the one it
-    /// requested, raised to the minimum.
+    /// A side reported running at another budget than the one it requested,
+    /// raised to the minimum.
     Budget {
         /// The session.
         session: Planned,
@@ -164,22 +160,21 @@ pub enum Failure {
         /// The budget the side reported, if it reported one.
         effective: Option<u64>,
     },
-    /// The host's window binds a planned point, yet no rerun with raised
-    /// limits finished.
+    /// The host's window binds a planned point, yet no rerun with raised limits
+    /// finished.
     NotRaised {
         /// A point the window binds.
         point: String,
     },
-    /// A directory's host recorded no usable TCP window, so the run could
-    /// not tell which emulated points to rerun with raised limits.
+    /// A directory's host recorded no usable TCP window, so the run could not
+    /// tell which emulated points to rerun with raised limits.
     UnknownWindow {
         /// The directory.
         dir: PathBuf,
     },
-    /// A row of a run that records how it prepares sessions lacks an
-    /// interval it must record, or records one that ends before it begins:
-    /// its preparation's, or, for a session that measured, its timed
-    /// session's.
+    /// A row of a run that records how it prepares sessions lacks an interval
+    /// it must record, or records one that ends before it begins: its
+    /// preparation's, or, for a session that measured, its timed session's.
     Unrecorded {
         /// The directory.
         dir: PathBuf,
@@ -197,8 +192,7 @@ pub enum Failure {
         /// The session whose preparation overlapped it.
         preparing: Planned,
     },
-    /// More timed sessions overlapped at one moment than the run's job
-    /// count.
+    /// More timed sessions overlapped at one moment than the run's job count.
     Crowded {
         /// The directory.
         dir: PathBuf,
@@ -376,8 +370,8 @@ fn read_json<T: for<'de> Deserialize<'de>>(
     }
 }
 
-/// Reads one results directory, adding a failure for each file that exists
-/// but cannot be read.
+/// Reads one results directory, adding a failure for each file that exists but
+/// cannot be read.
 pub fn load(dir: &Path, failures: &mut Vec<Failure>) -> Results {
     let rows = record::read(&dir.join("sessions.csv")).unwrap_or_else(|error| {
         failures.push(Failure::Unreadable {
@@ -396,8 +390,8 @@ pub fn load(dir: &Path, failures: &mut Vec<Failure>) -> Results {
     }
 }
 
-/// Every failure among `results`, one run's directory or every shard's,
-/// apart from the report's.
+/// Every failure among `results`, one run's directory or every shard's, apart
+/// from the report's.
 pub fn verify(results: &[Results]) -> Vec<Failure> {
     let mut failures = Vec::new();
     for result in results {
@@ -444,23 +438,22 @@ pub fn verify(results: &[Results]) -> Vec<Failure> {
     failures
 }
 
-/// Whether, in a directory whose run records how it prepares sessions,
-/// every row records its intervals, no timed session overlaps any
-/// preparation, and no more timed sessions overlap than the job count.
+/// Whether, in a directory whose run records how it prepares sessions, every
+/// row records its intervals, no timed session overlaps any preparation, and no
+/// more timed sessions overlap than the job count.
 ///
-/// The intervals of one part share its monotonic clock, and the parts of
-/// a run follow one another, so every row of the directory compares
-/// against every other. Each interval is half-open, holding its start but
-/// not its end, so intervals that only touch do not overlap, and an
-/// interval the clock's resolution shrank to nothing holds no moment at
-/// all. A directory from a tool that ran each session whole records no
-/// preparation limits and is left out: it never scheduled preparation.
+/// The intervals of one part share its monotonic clock, and the parts of a run
+/// follow one another, so every row of the directory compares against every
+/// other. Each interval is half-open, holding its start but not its end, so
+/// intervals that only touch do not overlap, and an interval the clock's
+/// resolution shrank to nothing holds no moment at all. A directory from a tool
+/// that ran each session whole records no preparation limits and is left out:
+/// it never scheduled preparation.
 ///
-/// A sweep over the intervals' ends, in time order with every end before
-/// any start at the same moment, sees each start with the set of
-/// intervals open at that moment, which is every interval it overlaps
-/// that started no later; an overlap is therefore found when its later
-/// interval starts.
+/// A sweep over the intervals' ends, in time order with every end before any
+/// start at the same moment, sees each start with the set of intervals open at
+/// that moment, which is every interval it overlaps that started no later; an
+/// overlap is therefore found when its later interval starts.
 pub fn phases(result: &Results, failures: &mut Vec<Failure>) {
     let Some(jobs) = result
         .run
@@ -538,8 +531,8 @@ pub fn phases(result: &Results, failures: &mut Vec<Failure>) {
     }
 }
 
-/// Whether `plans` are one run's: the same points, skips, and repetitions,
-/// and either one unsharded plan or shards 1 to n of n, each once.
+/// Whether `plans` are one run's: the same points, skips, and repetitions, and
+/// either one unsharded plan or shards 1 to n of n, each once.
 fn wholeness(plans: &[(&Path, &Plan)], failures: &mut Vec<Failure>) {
     let Some((first_dir, first)) = plans.first() else {
         return;
@@ -587,11 +580,11 @@ fn wholeness(plans: &[(&Path, &Plan)], failures: &mut Vec<Failure>) {
     }
 }
 
-/// Whether every directory's environment matches the first's but for the
-/// host's name ([`Environment::differences_beyond_host`]).
+/// Whether every directory's environment matches the first's but for the host's
+/// name ([`Environment::differences_beyond_host`]).
 ///
-/// Directories without an environment are left to the check that names
-/// the file absent.
+/// Directories without an environment are left to the check that names the file
+/// absent.
 fn environments(results: &[Results], failures: &mut Vec<Failure>) {
     let mut recorded = results
         .iter()
@@ -611,14 +604,13 @@ fn environments(results: &[Results], failures: &mut Vec<Failure>) {
     }
 }
 
-/// Whether every planned session has a row, every row a planned session,
-/// and every skip a reason.
+/// Whether every planned session has a row, every row a planned session, and
+/// every skip a reason.
 ///
-/// A session is planned when a plan lists it, or when it is a grid session
-/// of a planned point at a repetition the plan runs: the second covers
-/// every shard's share of the grid together, so a lost shard shows here
-/// as well as in [`wholeness`]. Plans leave sentinels out, so their rows
-/// are never unplanned.
+/// A session is planned when a plan lists it, or when it is a grid session of a
+/// planned point at a repetition the plan runs: the second covers every shard's
+/// share of the grid together, so a lost shard shows here as well as in
+/// [`wholeness`]. Plans leave sentinels out, so their rows are never unplanned.
 fn coverage(plans: &[(&Path, &Plan)], rows: &[&Row], failures: &mut Vec<Failure>) {
     let recorded: BTreeSet<Planned> = rows.iter().map(|row| Planned::recorded(row)).collect();
     let mut expected: BTreeSet<Planned> = BTreeSet::new();
@@ -662,9 +654,9 @@ fn coverage(plans: &[(&Path, &Plan)], rows: &[&Row], failures: &mut Vec<Failure>
 
 /// Whether any session has more than one row.
 ///
-/// Every shard runs sentinels numbered from zero, so a sentinel's identity
-/// is scoped to its directory; every other session belongs to one shard,
-/// so its identity spans them all.
+/// Every shard runs sentinels numbered from zero, so a sentinel's identity is
+/// scoped to its directory; every other session belongs to one shard, so its
+/// identity spans them all.
 fn duplicates(results: &[Results], failures: &mut Vec<Failure>) {
     let mut counts: BTreeMap<(Option<usize>, Planned), usize> = BTreeMap::new();
     for (index, result) in results.iter().enumerate() {
@@ -681,12 +673,12 @@ fn duplicates(results: &[Results], failures: &mut Vec<Failure>) {
     );
 }
 
-/// The budget the library runs a side at the default message-size target
-/// at, for its `requested` budget, `None` for the library's default.
+/// The budget the library runs a side at the default message-size target at,
+/// for its `requested` budget, `None` for the library's default.
 ///
 /// The run hands the library the request as a `usize`, saturating, and the
-/// library raises it to [`MIN_SYNC_MEMORY_BUDGET`], the minimum at the
-/// default target.
+/// library raises it to [`MIN_SYNC_MEMORY_BUDGET`], the minimum at the default
+/// target.
 pub(crate) fn expected_budget(requested: Option<u64>) -> u64 {
     let requested = requested.map_or(default::SYNC_MEMORY_BUDGET, |bytes| {
         usize::try_from(bytes).unwrap_or(usize::MAX)
@@ -698,10 +690,10 @@ pub(crate) fn expected_budget(requested: Option<u64>) -> u64 {
 /// running at exactly the budget it requested, raised to the minimum
 /// ([`expected_budget`]).
 ///
-/// The library computes the minimum for each side's own target and
-/// publishes it only at the default, so sides at other targets are left
-/// out. Failed sessions are left to the error check: a session that never
-/// reached its peers has no effective budget to report.
+/// The library computes the minimum for each side's own target and publishes it
+/// only at the default, so sides at other targets are left out. Failed sessions
+/// are left to the error check: a session that never reached its peers has no
+/// effective budget to report.
 fn budgets(rows: &[&Row], failures: &mut Vec<Failure>) {
     let default_target = |target: Option<u64>| {
         target.is_none_or(|bytes| bytes == default::TARGET_MESSAGE_SIZE as u64)
@@ -735,8 +727,8 @@ fn budgets(rows: &[&Row], failures: &mut Vec<Failure>) {
     }
 }
 
-/// Whether a rerun with raised limits finished, if any directory's host
-/// window binds one of its planned points.
+/// Whether a rerun with raised limits finished, if any directory's host window
+/// binds one of its planned points.
 fn raised(results: &[Results], rows: &[&Row], failures: &mut Vec<Failure>) {
     let mut bound = None;
     for result in results {

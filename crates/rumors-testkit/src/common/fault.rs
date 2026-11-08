@@ -4,26 +4,25 @@
 //! A "dropped connection" in the simulation is one or both directions of a
 //! session's connection tripping at an arbitrary byte offset mid-session:
 //!
-//! - [`Fuse`] forwards writes until its budget is exhausted, then fails
-//!   every write with [`BrokenPipe`] — the connection died under our pen.
+//! - [`Fuse`] forwards writes until its budget is exhausted, then fails every
+//!   write with [`BrokenPipe`] — the connection died under our pen.
 //! - [`Cut`] forwards reads until its budget is exhausted, then fails every
 //!   read with [`ConnectionReset`] — the connection died under our eyes.
 //!
-//! Each budget counts its direction's bytes from the session's first, so
-//! the cut lands at a chosen offset in the endpoint's traffic, whatever
-//! item that byte belongs to. The wrapped side observes the cut as an
-//! error; its counterparty observes it as end-of-stream (and a truncated
-//! item) once the failing side's connection drops, or as its own write
-//! error against the closed transport. Either way the session dies
-//! somewhere the protocol did not choose, which is exactly the disruption
-//! the simulation is after.
+//! Each budget counts its direction's bytes from the session's first, so the
+//! cut lands at a chosen offset in the endpoint's traffic, whatever item that
+//! byte belongs to. The wrapped side observes the cut as an error; its
+//! counterparty observes it as end-of-stream (and a truncated item) once the
+//! failing side's connection drops, or as its own write error against the
+//! closed transport. Either way the session dies somewhere the protocol did not
+//! choose, which is exactly the disruption the simulation is after.
 //!
-//! A *vanish* is the other way a peer dies: not a wire error it can
-//! observe, but the peer itself gone mid-protocol, as a crashed process
-//! is. At its [`Vanish`] point the endpoint's session is dropped where it
-//! stands, its connection halves with it and without any shutdown. Its
-//! counterparty sees exactly what a vanished socket gives: end-of-stream.
-//! [`drive`] runs a session under such a plan.
+//! A *vanish* is the other way a peer dies: not a wire error it can observe,
+//! but the peer itself gone mid-protocol, as a crashed process is. At its
+//! [`Vanish`] point the endpoint's session is dropped where it stands, its
+//! connection halves with it and without any shutdown. Its counterparty sees
+//! exactly what a vanished socket gives: end-of-stream. [`drive`] runs a
+//! session under such a plan.
 //!
 //! [`BrokenPipe`]: std::io::ErrorKind::BrokenPipe
 //! [`ConnectionReset`]: std::io::ErrorKind::ConnectionReset
@@ -37,9 +36,9 @@ use rumors::testing::MemoryEnd;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
 use tokio::sync::SetOnce;
 
-/// One endpoint's fault plan: byte budgets after which its write
-/// (respectively read) direction fails, and the point at which the
-/// endpoint vanishes. `None` means never.
+/// One endpoint's fault plan: byte budgets after which its write (respectively
+/// read) direction fails, and the point at which the endpoint vanishes. `None`
+/// means never.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FaultPlan {
     /// Bytes this endpoint may write before its writers fail.
@@ -56,8 +55,8 @@ pub struct FaultPlan {
 /// The endpoint vanishes at its first write after it has written `offset`
 /// bytes, so a vanish can land anywhere in its outgoing traffic: inside the
 /// preamble or greeting, inside a frame, between frames, or in the closing
-/// items. An endpoint that writes no more than `offset` bytes never reaches
-/// the point.
+/// items. An endpoint that writes no more than `offset` bytes never reaches the
+/// point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Vanish {
     /// Bytes successfully written before the endpoint vanishes.
@@ -65,8 +64,7 @@ pub struct Vanish {
 }
 
 impl FaultPlan {
-    /// A clean endpoint: neither direction ever fails, and it never
-    /// vanishes.
+    /// A clean endpoint: neither direction ever fails, and it never vanishes.
     pub const NONE: Self = Self {
         write_cut: None,
         read_cut: None,
@@ -74,8 +72,8 @@ impl FaultPlan {
     };
 }
 
-/// One in-memory connection end under a fault plan: the two halves a
-/// session takes, each drawing on its direction's budget.
+/// One in-memory connection end under a fault plan: the two halves a session
+/// takes, each drawing on its direction's budget.
 pub struct FaultyEnd {
     /// The read half, failing once the read budget is spent.
     pub read: Cut<BufReader<DuplexStream>>,
@@ -85,8 +83,8 @@ pub struct FaultyEnd {
 
 /// Wrap one in-memory connection end in `plan`'s budgets.
 ///
-/// A clean plan still wraps (with effectively-infinite budgets), so every
-/// call site handles one pair of types regardless of whether it faults.
+/// A clean plan still wraps (with effectively-infinite budgets), so every call
+/// site handles one pair of types regardless of whether it faults.
 ///
 /// # Panics
 ///
@@ -100,9 +98,9 @@ pub fn faulty(end: MemoryEnd, plan: FaultPlan) -> FaultyEnd {
     wrap(end, plan).0
 }
 
-/// Stop I/O at a byte boundary and signal that the session has stalled.
-/// Using the signal as a deadline tests real timeout recovery without injecting
-/// a transport error or dropping the session from outside.
+/// Stop I/O at a byte boundary and signal that the session has stalled. Using
+/// the signal as a deadline tests real timeout recovery without injecting a
+/// transport error or dropping the session from outside.
 pub fn stall_at(end: MemoryEnd, point: Vanish) -> (FaultyEnd, impl Future<Output = ()> + Send) {
     let (end, stalled) = wrap(
         end,
@@ -131,10 +129,10 @@ impl<Out> Driven<Out> {
 /// Run `session` over `end` under `plan`, vanishing at the plan's point.
 ///
 /// The session owns the faulted end's halves. Without a vanish this is
-/// `session` over [`faulty`]'s end. With one, the session is polled until
-/// the endpoint reaches its point, where the session future, and the
-/// connection halves it owns, are dropped with no shutdown: the
-/// counterparty then reads end-of-stream.
+/// `session` over [`faulty`]'s end. With one, the session is polled until the
+/// endpoint reaches its point, where the session future, and the connection
+/// halves it owns, are dropped with no shutdown: the counterparty then reads
+/// end-of-stream.
 pub async fn drive<Out>(
     end: MemoryEnd,
     plan: FaultPlan,
@@ -154,22 +152,20 @@ pub async fn drive<Out>(
     Driven { outcome }
 }
 
-/// Observer for the bytes one endpoint has moved through its fault
-/// wrappers: the same counters a [`FaultPlan`]'s cuts spend, read out as
-/// totals.
+/// Observer for the bytes one endpoint has moved through its fault wrappers:
+/// the same counters a [`FaultPlan`]'s cuts spend, read out as totals.
 ///
-/// This is how a measurement establishes where in an endpoint's
-/// byte stream a cut offset can land — the meter and the cut draw on
-/// identical accounting, so a measured extent is directly a bound on
-/// meaningful cut offsets.
+/// This is how a measurement establishes where in an endpoint's byte stream a
+/// cut offset can land — the meter and the cut draw on identical accounting, so
+/// a measured extent is directly a bound on meaningful cut offsets.
 pub struct ByteMeter {
     write: Budget,
     read: Budget,
 }
 
 impl ByteMeter {
-    /// Total bytes the endpoint has written: the counter a `write_cut` and
-    /// a [`Vanish`] offset spend.
+    /// Total bytes the endpoint has written: the counter a `write_cut` and a
+    /// [`Vanish`] offset spend.
     pub fn written(&self) -> usize {
         usize::MAX - *self.write.lock().expect("write budget lock")
     }
@@ -180,9 +176,9 @@ impl ByteMeter {
     }
 }
 
-/// Wrap one clean in-memory connection end with byte metering: no fault
-/// ever fires (the budgets are effectively infinite), and the returned
-/// [`ByteMeter`] reads out the endpoint's cumulative traffic.
+/// Wrap one clean in-memory connection end with byte metering: no fault ever
+/// fires (the budgets are effectively infinite), and the returned [`ByteMeter`]
+/// reads out the endpoint's cumulative traffic.
 pub fn metered(end: MemoryEnd) -> (FaultyEnd, ByteMeter) {
     let write = budget(None);
     let read = budget(None);
@@ -190,8 +186,8 @@ pub fn metered(end: MemoryEnd) -> (FaultyEnd, ByteMeter) {
     (end, ByteMeter { write, read })
 }
 
-/// Wrap `end` under `plan`: the wrapped end, and its vanish state if the
-/// plan vanishes.
+/// Wrap `end` under `plan`: the wrapped end, and its vanish state if the plan
+/// vanishes.
 fn wrap(end: MemoryEnd, plan: FaultPlan) -> (FaultyEnd, Option<Arc<VanishState>>) {
     let vanish = plan.vanish.map(VanishState::new);
     let end = wrap_with(
@@ -224,13 +220,13 @@ fn budget(cut: Option<usize>) -> Budget {
     Arc::new(Mutex::new(cut.unwrap_or(usize::MAX)))
 }
 
-/// One endpoint's progress toward its [`Vanish`] point, shared by both
-/// halves of its connection.
+/// One endpoint's progress toward its [`Vanish`] point, shared by both halves
+/// of its connection.
 ///
 /// Reaching the point *trips* the state: the tripping operation returns
-/// `Pending` without arranging a wake, every later operation does the
-/// same, and [`vanished`](Self::vanished) resolves so the driver can drop
-/// the session. Nothing this endpoint owns makes progress again.
+/// `Pending` without arranging a wake, every later operation does the same, and
+/// [`vanished`](Self::vanished) resolves so the driver can drop the session.
+/// Nothing this endpoint owns makes progress again.
 struct VanishState {
     /// Bytes the endpoint can still write before vanishing.
     remaining: Mutex<usize>,
@@ -264,8 +260,8 @@ impl VanishState {
         self.tripped.wait().await;
     }
 
-    /// How many of `len` bytes a write may admit, or `None` once the
-    /// endpoint has vanished (tripping it if this write is the point).
+    /// How many of `len` bytes a write may admit, or `None` once the endpoint
+    /// has vanished (tripping it if this write is the point).
     fn admit(&self, len: usize) -> Option<usize> {
         if self.tripped() {
             return None;
@@ -383,12 +379,12 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
 /// A buffered read half that forwards reads until a shared byte budget is
 /// exhausted, then fails every read with [`ConnectionReset`].
 ///
-/// It is the read-side twin of [`Fuse`], for sessions that die while a
-/// frame is in flight toward us.
+/// It is the read-side twin of [`Fuse`], for sessions that die while a frame is
+/// in flight toward us.
 ///
-/// The budget counts the bytes the session consumes, whether it reads them
-/// or takes them from the buffer: a look into the buffer shows at most the
-/// bytes the budget has left, and consuming them spends it.
+/// The budget counts the bytes the session consumes, whether it reads them or
+/// takes them from the buffer: a look into the buffer shows at most the bytes
+/// the budget has left, and consuming them spends it.
 ///
 /// [`ConnectionReset`]: std::io::ErrorKind::ConnectionReset
 pub struct Cut<R> {
@@ -440,8 +436,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for Cut<R> {
 
 /// Show and consume buffered bytes within the budget.
 impl<R: AsyncBufRead + Unpin> AsyncBufRead for Cut<R> {
-    /// Fills through, showing at most the bytes the budget has left; fails
-    /// once it is spent.
+    /// Fills through, showing at most the bytes the budget has left; fails once
+    /// it is spent.
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         let this = self.get_mut();
         if vanished(&this.vanish) {
@@ -460,8 +456,8 @@ impl<R: AsyncBufRead + Unpin> AsyncBufRead for Cut<R> {
     ///
     /// # Panics
     ///
-    /// If `amount` exceeds the budget left, which only a reader consuming
-    /// more than `poll_fill_buf` showed it can do: the trait forbids that.
+    /// If `amount` exceeds the budget left, which only a reader consuming more
+    /// than `poll_fill_buf` showed it can do: the trait forbids that.
     fn consume(self: Pin<&mut Self>, amount: usize) {
         let this = self.get_mut();
         let mut remaining = this.remaining.lock().expect("read budget lock");

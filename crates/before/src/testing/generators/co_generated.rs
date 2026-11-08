@@ -21,17 +21,17 @@
 //! make equal minima common; palette entries just past `2^64` and `2^130` make
 //! near-ties common at wide scale.
 //!
-//! | Strategy | What it reaches |
-//! |---|---|
-//! | [`arb_spine_case`] | long chains of nested sites, and ranges holding several sites |
-//! | [`arb_deep_spine_case`] | chains of nested sites longer than one memo block holds |
-//! | [`arb_wide_case`] | one pre-scan that reserves more than one memo block |
-//! | [`arb_multi_scan_case`] | several such pre-scans in one walk, reusing memo blocks |
+//! | Strategy                | What it reaches                                               |
+//! |-------------------------|---------------------------------------------------------------|
+//! | [`arb_spine_case`]      | long chains of nested sites, and ranges holding several sites |
+//! | [`arb_deep_spine_case`] | chains of nested sites longer than one memo block holds       |
+//! | [`arb_wide_case`]       | one pre-scan that reserves more than one memo block           |
+//! | [`arb_multi_scan_case`] | several such pre-scans in one walk, reusing memo blocks       |
 //!
 //! Nothing is rejected: every region resolves through the recursive oracle's
 //! normalizing constructors, so each case is a normal-form pair by
-//! construction. The census in this module's tests holds a liveness floor
-//! under each strategy's regime.
+//! construction. The census in this module's tests holds a liveness floor under
+//! each strategy's regime.
 //!
 //! A wide, multi-scan, or deep spine case costs many spine cases, so their
 //! properties run a fraction of the configured case count, set by
@@ -73,18 +73,18 @@ const SPINE_LEVELS: Range<usize> = 1..48;
 ///
 /// A level nests a site inside the one above when it continues right
 /// ([`SPINE_CONTINUES_RIGHT`]) and its side resolves to a wholly owned party.
-/// An owned side always does, and so do bushy sides whose regions are all
-/// owned and over-leaf sides whose two parties are both owned. The owned arm's
-/// share alone makes at least three levels in ten nest a site, so most spines
-/// in this range nest more sites than one memo block
+/// An owned side always does, and so do bushy sides whose regions are all owned
+/// and over-leaf sides whose two parties are both owned. The owned arm's share
+/// alone makes at least three levels in ten nest a site, so most spines in this
+/// range nest more sites than one memo block
 /// ([`BLOCK_SLOTS`](crate::version::tick::BLOCK_SLOTS)) holds.
 ///
 /// The recursive oracle's tick, which computes each case's fill-fixed
-/// successor, recurses once per tree level, and a deep case is about as deep
-/// as its spine: a side region or the tip adds only a few levels. So the
-/// deepest case keeps the oracle within a few hundred native frames, the
-/// envelope in which the oracle differentials already run
-/// [`leaf_list`](super::leaf_list)'s deep versions.
+/// successor, recurses once per tree level, and a deep case is about as deep as
+/// its spine: a side region or the tip adds only a few levels. So the deepest
+/// case keeps the oracle within a few hundred native frames, the envelope in
+/// which the oracle differentials already run [`leaf_list`](super::leaf_list)'s
+/// deep versions.
 const DEEP_SPINE_LEVELS: Range<usize> = 160..320;
 
 /// Probability that a spine level continues into its right child.
@@ -130,9 +130,8 @@ pub(crate) struct TickCase {
 }
 
 impl TickCase {
-    /// Returns the three versions this case ticks, in order: the drawn
-    /// version, its fill-fixed successor, and a late perturbation of that
-    /// successor.
+    /// Returns the three versions this case ticks, in order: the drawn version,
+    /// its fill-fixed successor, and a late perturbation of that successor.
     ///
     /// The fill-fixed successor is the recursive oracle's one-tick successor.
     /// Whichever branch that tick took, its result is a fixed point of
@@ -240,10 +239,10 @@ fn arb_case(regions: impl Strategy<Value = Region>) -> impl Strategy<Value = Tic
 
 /// A per-case palette of absolute heights.
 ///
-/// The arms mix small heights, which force ties and zero memo differences,
-/// with word-range heights, heights at the top of `u64`, heights just past
-/// `2^64` and `2^130`, which force near-ties at wide scale, and sparse wide
-/// multiples of a power of two.
+/// The arms mix small heights, which force ties and zero memo differences, with
+/// word-range heights, heights at the top of `u64`, heights just past `2^64`
+/// and `2^130`, which force near-ties at wide scale, and sparse wide multiples
+/// of a power of two.
 fn arb_palette() -> impl Strategy<Value = Vec<BigUint>> {
     let height = prop_oneof![
         4 => (0u64..6).prop_map(BigUint::from),
@@ -281,8 +280,8 @@ fn arb_small_party(depth: u32) -> impl Strategy<Value = tree::Party> {
 ///
 /// The recursive case chooses among an ordinary branch, a lookahead site (an
 /// owned left child beside a recursive right child), and an owned right child
-/// beside a recursive left child, whose raise reads the left child's
-/// simplified minimum.
+/// beside a recursive left child, whose raise reads the left child's simplified
+/// minimum.
 fn arb_bushy_region(depth: u32, regions: u32) -> impl Strategy<Value = Region> {
     let leaf = prop_oneof![
         3 => arb_skeleton(2).prop_map(Region::Owned),
@@ -305,10 +304,10 @@ fn arb_bushy_region(depth: u32, regions: u32) -> impl Strategy<Value = Region> {
 /// A spine of `levels` co-generated levels folded around a small bushy tip.
 ///
 /// Each level continues into its right child with probability
-/// [`SPINE_CONTINUES_RIGHT`] and places a side region on the other side:
-/// owned, unowned, a party branch over a leaf, or a small bushy region.
-/// Consecutive owned left sides nest lookahead sites along the spine, and a
-/// small bushy side beside a site's range puts a second site into that range.
+/// [`SPINE_CONTINUES_RIGHT`] and places a side region on the other side: owned,
+/// unowned, a party branch over a leaf, or a small bushy region. Consecutive
+/// owned left sides nest lookahead sites along the spine, and a small bushy
+/// side beside a site's range puts a second site into that range.
 fn arb_spine_region(levels: Range<usize>) -> impl Strategy<Value = Region> {
     let side = prop_oneof![
         4 => arb_skeleton(2).prop_map(Region::Owned),
@@ -451,9 +450,9 @@ fn leaf_count(version: &tree::Version) -> usize {
 /// preorder index is `target` to `height`; `next` is the preorder index of the
 /// subtree's first leaf, and advances past its last.
 ///
-/// Recurses once per level of `version`, a fill-fixed successor. A tick
-/// expands version leaves only along the party's branches, so the successor
-/// is no deeper than the deeper of the case's party and version, whose depth
+/// Recurses once per level of `version`, a fill-fixed successor. A tick expands
+/// version leaves only along the party's branches, so the successor is no
+/// deeper than the deeper of the case's party and version, whose depth
 /// [`resolve`] bounds.
 fn with_leaf(
     version: &tree::Version,

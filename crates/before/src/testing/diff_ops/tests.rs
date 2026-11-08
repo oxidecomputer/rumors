@@ -190,8 +190,8 @@ struct Organic<'a> {
     /// Three versions from the trace, causally related.
     v: [&'a tree::Version; 3],
     /// Two live parties from the same trace: distinct picks are disjoint by
-    /// single-seed linearity, but the pairing indices are independent, so
-    /// the two may be the same clock's party (overlapping with itself).
+    /// single-seed linearity, but the pairing indices are independent, so the
+    /// two may be the same clock's party (overlapping with itself).
     p: [&'a tree::Party; 2],
     /// A reachable clock from the same trace.
     c: &'a tree::Clock,
@@ -404,8 +404,8 @@ fn descriptor_checks_reject_a_mistranscribed_operation() {
 /// equivalent result.
 ///
 /// The descriptor's walk operations both compute the meet, so the differing
-/// input isolates [`FunctionMatches`](super::FunctionMatches). An agreeing input confirms
-/// that the comparison does not reject indiscriminately.
+/// input isolates [`FunctionMatches`](super::FunctionMatches). An agreeing
+/// input confirms that the comparison does not reject indiscriminately.
 #[test]
 fn function_space_checks_reject_a_mistranscribed_operation() {
     use crate::testing::oracles::tree::Version as V;

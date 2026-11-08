@@ -1,12 +1,12 @@
 //! Differential streams against the exact `IBig` oracle.
 //!
-//! Randomized streams of mixed word and limb operations compare the sign
-//! after every operation, the read a caller's interleaved sweeps depend on,
-//! and the full value at periodic snapshots. Deterministic streams cover the
-//! inputs the representation exists for: the *boundary comb*, a ±1
-//! oscillation across a carry boundary `2^k` (the *cliff*); wide *teeth*,
-//! limb-stream deltas oscillating across the cliff; and cancelling-prefix
-//! chains, which force the sign fold below the top digit.
+//! Randomized streams of mixed word and limb operations compare the sign after
+//! every operation, the read a caller's interleaved sweeps depend on, and the
+//! full value at periodic snapshots. Deterministic streams cover the inputs the
+//! representation exists for: the *boundary comb*, a ±1 oscillation across a
+//! carry boundary `2^k` (the *cliff*); wide *teeth*, limb-stream deltas
+//! oscillating across the cliff; and cancelling-prefix chains, which force the
+//! sign fold below the top digit.
 
 use core::cmp::Ordering;
 
@@ -44,8 +44,8 @@ enum Op {
     },
     /// An allocation-shaping reservation: value-neutral by contract.
     Reserve(u64),
-    /// Unary negation of the owned accumulator, which flips the digits'
-    /// flag when the value is held in digits.
+    /// Unary negation of the owned accumulator, which flips the digits' flag
+    /// when the value is held in digits.
     Negate,
 }
 
@@ -103,9 +103,9 @@ fn apply(acc: &mut Accumulator, oracle: &mut IBig, op: &Op) {
     }
 }
 
-/// A mixed operation stream: mostly small deltas of varying width, some
-/// dense random wide deltas, some all-ones/all-zeros "cliffy" wide deltas
-/// whose application sits exactly on carry boundaries, and some negations.
+/// A mixed operation stream: mostly small deltas of varying width, some dense
+/// random wide deltas, some all-ones/all-zeros "cliffy" wide deltas whose
+/// application sits exactly on carry boundaries, and some negations.
 ///
 /// A negation leaves later deltas depositing into flagged digits.
 fn arb_op() -> impl Strategy<Value = Op> {
@@ -183,12 +183,12 @@ enum StabilityValue {
 
 /// A larger value paired with the digit position through which adjustments fit.
 ///
-/// Stream-built values draw any floor; small values
-/// concentrate `m` (the multiplier in units of `2^31`) around the
-/// small-value path's decision boundary `3 · 2^(32·(floor + 1))` and
-/// the redundant-operand bound just above `2 · 2^(32·(floor + 1))`,
-/// spanning multipliers 1.5..4 in between. Small-value floors stop at 1
-/// because a wider floor puts the boundary beyond `2^96`.
+/// Stream-built values draw any floor; small values concentrate `m` (the
+/// multiplier in units of `2^31`) around the small-value path's decision
+/// boundary `3 · 2^(32·(floor + 1))` and the redundant-operand bound just above
+/// `2 · 2^(32·(floor + 1))`, spanning multipliers 1.5..4 in between.
+/// Small-value floors stop at 1 because a wider floor puts the boundary beyond
+/// `2^96`.
 fn arb_stability_value() -> impl Strategy<Value = (StabilityValue, usize)> {
     prop_oneof![
         1 => (proptest::collection::vec(arb_op(), 1..60), any::<bool>(), 0usize..8).prop_map(
@@ -289,8 +289,8 @@ enum ProbeDigit {
     Absent,
 }
 
-/// A probe digit, biased toward the digit limit, where an operand stored in
-/// the same positions exceeds the magnitude of any normalized probe.
+/// A probe digit, biased toward the digit limit, where an operand stored in the
+/// same positions exceeds the magnitude of any normalized probe.
 fn arb_probe_digit() -> impl Strategy<Value = ProbeDigit> {
     prop_oneof![
         3 => Just(ProbeDigit::Extreme),
@@ -299,12 +299,12 @@ fn arb_probe_digit() -> impl Strategy<Value = ProbeDigit> {
     ]
 }
 
-/// Materialize an accumulator operand stored in digits
-/// `0..=floor`, as the accumulator and its exact oracle.
+/// Materialize an accumulator operand stored in digits `0..=floor`, as the
+/// accumulator and its exact oracle.
 ///
 /// `all_extreme` sets every digit to the digit limit, magnitude up to
-/// `2^33 − 1`, which gives the largest operand stored in digits `0..=floor`,
-/// so the strategy draws that strongest probe with positive probability.
+/// `2^33 − 1`, which gives the largest operand stored in digits `0..=floor`, so
+/// the strategy draws that strongest probe with positive probability.
 fn build_probe(
     digits: &[ProbeDigit],
     all_extreme: bool,
@@ -613,8 +613,8 @@ proptest! {
 /// The boundary-comb stream: a ±1 oscillation across the `2^k` carry cliff
 /// stays sign-correct at every step and value-correct at the end.
 ///
-/// This is the stream on which a normalized representation pays a full
-/// k-bit carry/borrow per delta.
+/// This is the stream on which a normalized representation pays a full k-bit
+/// carry/borrow per delta.
 #[test]
 fn boundary_comb_oscillation_matches_the_oracle() {
     let cliff_bits = 512u32;
@@ -634,8 +634,8 @@ fn boundary_comb_oscillation_matches_the_oracle() {
     assert_value(&acc, &oracle);
 }
 
-/// The wide-tooth stream: ±2^w teeth oscillating across a `2^k` cliff, with
-/// `w` far wider than a machine word, stay sign-correct at every step and
+/// The wide-tooth stream: ±2^w teeth oscillating across a `2^k` cliff, with `w`
+/// far wider than a machine word, stay sign-correct at every step and
 /// value-correct at the end.
 #[test]
 fn wide_teeth_across_the_cliff_match_the_oracle() {
@@ -657,11 +657,11 @@ fn wide_teeth_across_the_cliff_match_the_oracle() {
     assert_value(&acc, &oracle);
 }
 
-/// The cancelling-prefix chain: repeatedly dropping from `2^k` to 1 and
-/// back stays sign-correct at every step and value-correct at snapshots.
+/// The cancelling-prefix chain: repeatedly dropping from `2^k` to 1 and back
+/// stays sign-correct at every step and value-correct at snapshots.
 ///
-/// Each drop builds a wide cancelling prefix that the next sign fold must
-/// scan below the top digit and collapse.
+/// Each drop builds a wide cancelling prefix that the next sign fold must scan
+/// below the top digit and collapse.
 #[test]
 fn cancelling_prefix_chain_matches_the_oracle() {
     let peak_bits = 512u32;
@@ -686,9 +686,9 @@ fn cancelling_prefix_chain_matches_the_oracle() {
     assert_value(&acc, &oracle);
 }
 
-/// Exact wide cancellation lands on sign `Equal`, and unit nudges off zero
-/// read `Less` and `Greater`: the fold's `|s| ≥ 3` threshold must still tell
-/// the values next to zero apart.
+/// Exact wide cancellation lands on sign `Equal`, and unit nudges off zero read
+/// `Less` and `Greater`: the fold's `|s| ≥ 3` threshold must still tell the
+/// values next to zero apart.
 #[test]
 fn exact_cancellation_and_unit_nudges_read_correctly() {
     let wide = UBig::from(1u8) << 512usize;
@@ -732,8 +732,8 @@ fn negative_limb_values_read_back_exactly() {
     assert_value(&acc, &oracle);
 }
 
-/// The unsigned machine-word entry points cover the full `u64` range,
-/// including values past `i64::MAX`, in both directions.
+/// The unsigned machine-word entry points cover the full `u64` range, including
+/// values past `i64::MAX`, in both directions.
 #[test]
 fn u64_entry_points_cover_the_full_range() {
     for digits in [false, true] {

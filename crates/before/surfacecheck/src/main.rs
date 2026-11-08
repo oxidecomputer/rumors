@@ -10,21 +10,20 @@
 //! - trait implementations: a pin in [`census::TRAIT_IMPLS`], reconciled in
 //!   both directions. The board records their reviewed resource decisions by
 //!   trait family;
-//! - associated consts and types, module consts, statics, and macros: a
-//!   pinned row in [`census::ITEMS`], reconciled the same way;
-//! - every place a public `usize` appears, in a function-like item's
-//!   signature (trait-impl methods included), an impl header, a const's,
-//!   static's, or associated item's type, a public field of a struct, union,
-//!   or enum variant, or a type definition's generics: a pinned row in
-//!   [`census::USIZE_SIGNATURES`], reconciled the same way, so every `usize`
-//!   in a public signature or stored quantity is reviewed for its meaning on
+//! - associated consts and types, module consts, statics, and macros: a pinned
+//!   row in [`census::ITEMS`], reconciled the same way;
+//! - every place a public `usize` appears, in a function-like item's signature
+//!   (trait-impl methods included), an impl header, a const's, static's, or
+//!   associated item's type, a public field of a struct, union, or enum
+//!   variant, or a type definition's generics: a pinned row in
+//!   [`census::USIZE_SIGNATURES`], reconciled the same way, so every `usize` in
+//!   a public signature or stored quantity is reviewed for its meaning on
 //!   32-bit targets.
 //!
-//! Exit status is the verdict: zero with a one-line census on a clean
-//! sweep, nonzero with every finding named otherwise. The check runs
-//! before parsing anything else: a `format_version` mismatch between the
-//! JSON and the pinned schema crate is a loud, named error, never a
-//! silently wrong parse.
+//! Exit status is the verdict: zero with a one-line census on a clean sweep,
+//! nonzero with every finding named otherwise. The check runs before parsing
+//! anything else: a `format_version` mismatch between the JSON and the pinned
+//! schema crate is a loud, named error, never a silently wrong parse.
 
 use std::collections::BTreeSet;
 use std::process::ExitCode;
@@ -36,9 +35,9 @@ mod extract;
 /// The board entries that name public free functions or inherent methods.
 ///
 /// Grouped trait families use explanatory phrases containing spaces or
-/// punctuation. Rust paths contain only identifier characters and `::`, so
-/// this split follows the labels' syntax rather than another hand-maintained
-/// list. A root free function is a one-segment path.
+/// punctuation. Rust paths contain only identifier characters and `::`, so this
+/// split follows the labels' syntax rather than another hand-maintained list. A
+/// root free function is a one-segment path.
 fn board_function_inventory() -> BTreeSet<&'static str> {
     before::testing::meter::board::BOARD_PRICED
         .iter()
@@ -60,8 +59,8 @@ fn is_rust_path(operation: &str) -> bool {
         .all(|part| !part.is_empty() && part.chars().all(|c| c == '_' || c.is_alphanumeric()))
 }
 
-/// Read the rustdoc JSON at the path given as the sole CLI argument,
-/// refuse a format-version mismatch, and reconcile the extracted surface.
+/// Read the rustdoc JSON at the path given as the sole CLI argument, refuse a
+/// format-version mismatch, and reconcile the extracted surface.
 ///
 /// The check covers resource decisions, pinned censuses, and named exceptions.
 fn main() -> ExitCode {
@@ -166,8 +165,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Render every extracted row with its disposition, category by
-/// category, for triage and review.
+/// Render every extracted row with its disposition, category by category, for
+/// triage and review.
 fn render_list(surface: &extract::Surface, board: &BTreeSet<&str>) {
     let module_exception = |name: &str| {
         check::MODULE_EXCEPTIONS

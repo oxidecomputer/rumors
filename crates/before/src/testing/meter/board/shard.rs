@@ -19,44 +19,42 @@
 //! capture judge or record the same samples (the `ladder` module holds one
 //! merged list per sampling for all of them).
 //!
-//! A cell's heap reading is a function of the cell alone: it is a
-//! deterministic counter read from state a child owns privately (its own
-//! global allocator), so neither the shard count
-//! nor which cells share a process with it can move a reading. A fuel reading
-//! need not be: the guest gives each measured body a fresh heap, but state
-//! outside the heap, such as a lazily initialized static, carries from one
-//! cell to the next within an instance and would move whichever cell first
-//! touched it. A fuel run therefore deals one cell to each shard
-//! ([`max_useful_shards`] shards, each a fresh guest instance), and the merge
-//! refuses fuel readings from any other deal. The smoke suite exercises the
-//! round trip (emit, parse, reorder, re-judge) across two shard counts, so a
-//! break in the protocol or in the merge's board-order reconstruction is
+//! A cell's heap reading is a function of the cell alone: it is a deterministic
+//! counter read from state a child owns privately (its own global allocator),
+//! so neither the shard count nor which cells share a process with it can move
+//! a reading. A fuel reading need not be: the guest gives each measured body a
+//! fresh heap, but state outside the heap, such as a lazily initialized static,
+//! carries from one cell to the next within an instance and would move
+//! whichever cell first touched it. A fuel run therefore deals one cell to each
+//! shard ([`max_useful_shards`] shards, each a fresh guest instance), and the
+//! merge refuses fuel readings from any other deal. The smoke suite exercises
+//! the round trip (emit, parse, reorder, re-judge) across two shard counts, so
+//! a break in the protocol or in the merge's board-order reconstruction is
 //! caught before any acceptance board is rendered.
 //!
 //! # The wire form
 //!
 //! One stamped header line (protocol version, shard index and count, the
-//! sampling's token, which carries a scale as its IEEE-754 bit pattern, and
-//! the child's build stamp: its target and
-//! whether debug assertions were compiled in), one tab-separated `cell` line
-//! per measured cell carrying both samples' counters, denominators, and
-//! declarations (floats as bit patterns, so nothing rounds), and one trailing
-//! `end` count line guarding truncation. The parent refuses any mismatch: a
-//! header that is not byte-for-byte the one it requested followed by a build
-//! stamp every child shares, an unknown operation or family name, a cell
-//! outside the child's slice, a duplicate cell, a count that disagrees with the
-//! lines received, or a merged grid whose per-family cell counts differ from
-//! the reach each registered family declares (the one check on the *union*, so
-//! a child that silently under-measures is refused even when every capture is
-//! self-consistent). The protocol is internal to the runner (parent and
-//! children are the same binary), not a stable format.
+//! sampling's token, which carries a scale as its IEEE-754 bit pattern, and the
+//! child's build stamp: its target and whether debug assertions were compiled
+//! in), one tab-separated `cell` line per measured cell carrying both samples'
+//! counters, denominators, and declarations (floats as bit patterns, so nothing
+//! rounds), and one trailing `end` count line guarding truncation. The parent
+//! refuses any mismatch: a header that is not byte-for-byte the one it
+//! requested followed by a build stamp every child shares, an unknown operation
+//! or family name, a cell outside the child's slice, a duplicate cell, a count
+//! that disagrees with the lines received, or a merged grid whose per-family
+//! cell counts differ from the reach each registered family declares (the one
+//! check on the *union*, so a child that silently under-measures is refused
+//! even when every capture is self-consistent). The protocol is internal to the
+//! runner (parent and children are the same binary), not a stable format.
 //!
 //! # Slicing
 //!
 //! The shard unit is one cell of the operation × family grid: the grid's
 //! family-outer linearization (the registry's board roster
-//! ([`FamilyId::board`]) against the operation table) is dealt round-robin
-//! over the shards ([`owns`]), so the shards partition the grid by construction
+//! ([`FamilyId::board`]) against the operation table) is dealt round-robin over
+//! the shards ([`owns`]), so the shards partition the grid by construction
 //! (coverage cannot drift with the shard count) and, family cost being
 //! operand-size cost, the axis that dominates a cell's price can never
 //! concentrate: one family's cells sit at consecutive deal positions, so they
@@ -104,17 +102,17 @@ pub(super) type Measured = (&'static str, &'static str, Sample, Sample);
 /// in shard-index order.
 ///
 /// Supplied by the runner binary (spawning `current_exe` is per-binary state
-/// the library cannot own, exactly like the [`Meters`]); the captures feed
-/// the merge, which validates each child's stamps.
+/// the library cannot own, exactly like the [`Meters`]); the captures feed the
+/// merge, which validates each child's stamps.
 pub type ShardSpawner<'a> = &'a dyn Fn(Sampling) -> io::Result<Vec<Vec<u8>>>;
 
-/// Runs every shard child at each of the given samplings and returns, for
-/// each sampling in the order given, the children's raw stdout captures in
+/// Runs every shard child at each of the given samplings and returns, for each
+/// sampling in the order given, the children's raw stdout captures in
 /// shard-index order.
 ///
 /// The counterpart of [`ShardSpawner`] for a runner that measures several
-/// samplings' shards from one work queue, so that no sampling's shards wait
-/// for the previous sampling's slowest one; the fuel board supplies one.
+/// samplings' shards from one work queue, so that no sampling's shards wait for
+/// the previous sampling's slowest one; the fuel board supplies one.
 pub type LadderSpawner<'a> = &'a dyn Fn(&[Sampling]) -> io::Result<Vec<Vec<Vec<u8>>>>;
 
 /// Whether shard `index` of `count` owns the grid cell at (`op_position`,
@@ -154,8 +152,8 @@ fn deal_position(op_position: usize, family_position: usize, op_count: usize) ->
 /// `None` if the board has no operation or family of that name.
 ///
 /// In that deal every grid position is its own shard, so the index is the
-/// cell's deal position. The shard measures nothing when the family supplies
-/// no operand for the operation.
+/// cell's deal position. The shard measures nothing when the family supplies no
+/// operand for the operation.
 pub fn cell_shard(op: &str, family: &str) -> Option<usize> {
     let table = ops();
     let op_position = table.iter().position(|candidate| candidate.name == op)?;
@@ -414,8 +412,8 @@ fn parse_liveness(text: &str, line: &str) -> Liveness {
     }
 }
 
-/// One sample's fields back into a [`Sample`], mirroring
-/// [`emit_sample`]'s order.
+/// One sample's fields back into a [`Sample`], mirroring [`emit_sample`]'s
+/// order.
 fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> Sample {
     let denom_bytes = number(field(fields, line), line);
     let exp_denom_bytes = number(field(fields, line), line);
@@ -437,10 +435,10 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
 /// board row order.
 ///
 /// Validates every stamp, parses the samples, reorders by the parent's own
-/// operation table and family roster, and judges each cell ([`evaluate`]),
-/// the single-scale judgment, whose exponent trend is the window's own two
-/// points. The acceptance judgment fits across scales instead, over the
-/// unjudged cells [`merge_samples`] returns.
+/// operation table and family roster, and judges each cell ([`evaluate`]), the
+/// single-scale judgment, whose exponent trend is the window's own two points.
+/// The acceptance judgment fits across scales instead, over the unjudged cells
+/// [`merge_samples`] returns.
 ///
 /// # Panics
 ///
@@ -458,16 +456,16 @@ fn merge(sampling: Sampling, count: usize, captures: &[Vec<u8>]) -> (Calibration
 /// Merge `count` children's captures into one whole board's measured cells in
 /// board row order, unjudged, with the build stamp every child reported.
 ///
-/// Validates every stamp, parses the samples, and reorders by the parent's
-/// own operation table and family roster.
+/// Validates every stamp, parses the samples, and reorders by the parent's own
+/// operation table and family roster.
 ///
 /// # Panics
 ///
-/// Panics on any protocol violation (the module doc's refusal list), and
-/// unless a scaled `sampling`'s scale is strictly positive and `count`
-/// nonzero, checked before any child capture is trusted. Panics, too, if a sample carries a fuel reading
-/// and `count` is not [`max_useful_shards`]: such a reading would depend on the
-/// deal.
+/// Panics on any protocol violation (the module doc's refusal list), and unless
+/// a scaled `sampling`'s scale is strictly positive and `count` nonzero,
+/// checked before any child capture is trusted. Panics, too, if a sample
+/// carries a fuel reading and `count` is not [`max_useful_shards`]: such a
+/// reading would depend on the deal.
 pub(super) fn merge_samples(
     sampling: Sampling,
     count: usize,
@@ -613,8 +611,8 @@ pub(super) fn merge_samples(
 ///
 /// `scale` multiplies every family's base size
 /// ([`DEFAULT_SCALE`](super::DEFAULT_SCALE) is the default; the smoke suite
-/// passes a small fraction). Cells run at the scaled size and its double. Red rows print first. `spawn` is invoked once, at
-/// `scale`.
+/// passes a small fraction). Cells run at the scaled size and its double. Red
+/// rows print first. `spawn` is invoked once, at `scale`.
 ///
 /// # Panics
 ///

@@ -1,25 +1,25 @@
-//! Runs the fuel board: the amplification board's cells in wasm guests,
-//! judged in Wasmtime fuel.
+//! Runs the fuel board: the amplification board's cells in wasm guests, judged
+//! in Wasmtime fuel.
 //!
 //! Usage (the `just amp-board-fuel*` recipes pass the guest's path in
 //! `BOARD_FUEL_GUEST_WASM`, and name the source tree in
 //! `AMP_BOARD_SOURCE_TREE`):
 //!
-//! - `acceptance [--capture <file>]` sweeps the board's measurement ladder,
-//!   one fresh guest per cell, and renders the board's acceptance judgment of
-//!   the fuel readings. It exits nonzero if any cell is red, and refuses to
-//!   judge at all if the guest was built under a compiler, Wasmtime, or cost
-//!   table other than the fuel ceilings' calibration, or embeds a path under
-//!   the home directory. With `--capture`, it also writes the sweep's exact
-//!   readings, which `just amp-board compare` compares like any board capture.
+//! - `acceptance [--capture <file>]` sweeps the board's measurement ladder, one
+//!   fresh guest per cell, and renders the board's acceptance judgment of the
+//!   fuel readings. It exits nonzero if any cell is red, and refuses to judge
+//!   at all if the guest was built under a compiler, Wasmtime, or cost table
+//!   other than the fuel ceilings' calibration, or embeds a path under the home
+//!   directory. With `--capture`, it also writes the sweep's exact readings,
+//!   which `just amp-board compare` compares like any board capture.
 //! - `calibrate [<capture>]` judges nothing and rewrites the fuel ceiling
 //!   table, recording the guest's provenance and printing every cell whose
 //!   ceiling moved. Without a capture it sweeps the same ladder for the
 //!   readings. With the capture an `acceptance --capture` run of this source
 //!   tree wrote, it derives the table from that capture's readings instead,
 //!   refusing a capture of another tree or build, and requires the guest to
-//!   match the table's recorded provenance, as acceptance required of the
-//!   guest that took the capture.
+//!   match the table's recorded provenance, as acceptance required of the guest
+//!   that took the capture.
 //!
 //! `AMP_BOARD_FUEL_THREADS` sets the number of worker threads (default: the
 //! available parallelism). It moves no reading: every cell runs in its own
@@ -131,10 +131,10 @@ fn acceptance(capture: Option<&Path>) {
 /// from `capture`, a capture of this tree's fuel board.
 ///
 /// The guest's paths are checked as for acceptance. After a sweep, its
-/// provenance is recorded, not compared. A capture does not name the guest
-/// that took it, but acceptance writes one only under the table's
-/// provenance, so a calibration from a capture requires this guest to match
-/// that provenance as well, and the table keeps it.
+/// provenance is recorded, not compared. A capture does not name the guest that
+/// took it, but acceptance writes one only under the table's provenance, so a
+/// calibration from a capture requires this guest to match that provenance as
+/// well, and the table keeps it.
 fn calibrate(capture: Option<&Path>) {
     let source_tree = exit_on_error(board::source_tree(), "naming the tree");
     let wasm = guest();

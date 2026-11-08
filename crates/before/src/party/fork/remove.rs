@@ -2,9 +2,9 @@
 //!
 //! A path crosses one tree level per direction. It may stop at a branch, in
 //! which case all ownership below that branch is removed, or continue below a
-//! wholly owned region, whose interval is then divided as needed. Every direction
-//! within the stored tree must select a present child, and the removal must
-//! leave some ownership behind.
+//! wholly owned region, whose interval is then divided as needed. Every
+//! direction within the stored tree must select a present child, and the
+//! removal must leave some ownership behind.
 //!
 //! A party tree is stored in preorder, so the two sides of the selected path
 //! require different treatment. A retained left sibling precedes the selected

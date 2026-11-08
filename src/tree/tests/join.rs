@@ -1,4 +1,5 @@
-//! Joins preserve the live set, causal ceiling, and shared storage at any depth.
+//! Joins preserve the live set, causal ceiling, and shared storage at any
+//! depth.
 
 use super::*;
 

@@ -13,13 +13,15 @@ struct Attempt {
     joining: LocalBoxFuture<'static, rumors::Joined<Msg, BufReader<DuplexStream>, DuplexStream>>,
     /// The provider owns its connection end and the pending donation guard.
     serving: LocalBoxFuture<'static, Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>>,
-    /// The reserved region, used only to check that live peers cannot reclaim it.
+    /// The reserved region, used only to check that live peers cannot reclaim
+    /// it.
     reserved: Party,
 }
 
 /// Drive only the boundaries needed to interleave ordinary fleet operations.
 impl Attempt {
-    /// Exchange the preamble and stop before the newcomer continues reconciliation.
+    /// Exchange the preamble and stop before the newcomer continues
+    /// reconciliation.
     fn reserve(server: &Rumors<Msg, FlakyInMemoryBookmark>) -> Self {
         let before = server.dangerously_alias_party();
         let serving = server.clone();
@@ -90,7 +92,8 @@ impl Attempt {
     }
 }
 
-/// Apply a generated operation, ending drivers before an exclusive lifecycle change.
+/// Apply a generated operation, ending drivers before an exclusive lifecycle
+/// change.
 fn apply(world: &mut World, pending: &mut Vec<Attempt>, step: Step) {
     match step {
         Step::Send(i) => world.send(i),

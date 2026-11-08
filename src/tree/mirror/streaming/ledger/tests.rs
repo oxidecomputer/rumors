@@ -8,17 +8,16 @@ use crate::tree::mirror::streaming::holding::Holding;
 /// One operation on a ledger and the charges it has issued.
 #[derive(Clone, Debug)]
 enum Op {
-    /// Charge this many bytes for the place at this index of
-    /// [`Holding::ALL`].
+    /// Charge this many bytes for the place at this index of [`Holding::ALL`].
     Charge(usize, usize),
     /// Drop the live charge at this index, modulo the live count.
     Drop(usize),
-    /// Split this many bytes of the live charge at this index into a new
-    /// charge for the place at that index.
+    /// Split this many bytes of the live charge at this index into a new charge
+    /// for the place at that index.
     Split(usize, usize, usize),
-    /// Build an item of this many bytes for the place at that index out of
-    /// the live charge at this index, charged in full however much the
-    /// charge holds.
+    /// Build an item of this many bytes for the place at that index out of the
+    /// live charge at this index, charged in full however much the charge
+    /// holds.
     Take(usize, usize, usize),
 }
 

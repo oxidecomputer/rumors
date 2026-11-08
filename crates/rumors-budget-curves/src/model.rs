@@ -1,13 +1,12 @@
-//! The model's quantities: each shape's unlimited sessions, read for what
-//! the budget model speaks of rather than for a curve.
+//! The model's quantities: each shape's unlimited sessions, read for what the
+//! budget model speaks of rather than for a curve.
 //!
-//! For every shape the mode runs the unlimited session once on a
-//! latency-only link, whose duration in one-way delays is the session's
-//! hop count `h`, and once on each link with bandwidth, which reads the
-//! busier direction's bytes `W`, the unlimited duration `T∞`, and each
-//! side's `Λ` and share peak, each with where and when it occurred. One
-//! JSON document per session is appended to the output file, and a rerun
-//! skips every session the file already holds.
+//! For every shape the mode runs the unlimited session once on a latency-only
+//! link, whose duration in one-way delays is the session's hop count `h`, and
+//! once on each link with bandwidth, which reads the busier direction's bytes
+//! `W`, the unlimited duration `T∞`, and each side's `Λ` and share peak, each
+//! with where and when it occurred. One JSON document per session is appended
+//! to the output file, and a rerun skips every session the file already holds.
 
 use std::collections::BTreeSet;
 use std::fs::OpenOptions;
@@ -33,11 +32,11 @@ pub struct ShapeSpec {
     /// Messages each side inserted that the other has never seen, in
     /// [`Side::BOTH`] order.
     pub inserted: [u64; 2],
-    /// Messages both received that each side has redacted and the other
-    /// still holds, in [`Side::BOTH`] order.
+    /// Messages both received that each side has redacted and the other still
+    /// holds, in [`Side::BOTH`] order.
     pub redacted: [u64; 2],
-    /// The draw of the pair's tree ([`Shape::draw`]); records that lack
-    /// it are draw zero.
+    /// The draw of the pair's tree ([`Shape::draw`]); records that lack it are
+    /// draw zero.
     #[serde(default)]
     pub draw: u64,
 }
@@ -124,14 +123,12 @@ pub struct ModelRecord {
     pub message_bytes: u64,
     /// The link.
     pub link: LinkSpec,
-    /// The session's duration, in byte-times: `T∞` on a link with
-    /// bandwidth.
+    /// The session's duration, in byte-times: `T∞` on a link with bandwidth.
     pub duration: u64,
-    /// The duration in one-way delays, on a latency-only link: the hop
-    /// count `h`.
+    /// The duration in one-way delays, on a latency-only link: the hop count
+    /// `h`.
     pub hops: Option<u64>,
-    /// The bytes each side sent, in [`Side::BOTH`] order; the larger is
-    /// `W`.
+    /// The bytes each side sent, in [`Side::BOTH`] order; the larger is `W`.
     pub sent: [u64; 2],
     /// Each side's ledger, in [`Side::BOTH`] order.
     pub ledgers: Vec<ModelLedger>,
@@ -144,8 +141,8 @@ pub struct ModelLedger {
     pub side: Option<String>,
     /// Whether the side initiated: it asks the question about the root.
     pub initiator: bool,
-    /// Its largest excess, what its kinds and depths of unit held beyond
-    /// their bounds at once: `Λ` for this side.
+    /// Its largest excess, what its kinds and depths of unit held beyond their
+    /// bounds at once: `Λ` for this side.
     pub budget_peak: u64,
     /// The link time its excess first reached that much, in byte-times.
     pub budget_peak_at: u64,
@@ -170,8 +167,7 @@ pub struct HolderBytes {
     pub place: String,
     /// Whether the units are questions, if admission granted the charges.
     pub question: Option<bool>,
-    /// The depth of the scope the units concern, if admission granted
-    /// them.
+    /// The depth of the scope the units concern, if admission granted them.
     pub depth: Option<usize>,
     /// The bytes it held.
     pub bytes: u64,
@@ -204,8 +200,8 @@ impl ModelLedger {
     }
 }
 
-/// Runs `shape`'s unlimited session over `link`, every message encoding
-/// in `message_bytes`, and returns its record's JSON document.
+/// Runs `shape`'s unlimited session over `link`, every message encoding in
+/// `message_bytes`, and returns its record's JSON document.
 pub fn session(shape: ShapeSpec, link: LinkSpec, message_bytes: usize) -> String {
     let started = Instant::now();
     let case = Case {
@@ -241,16 +237,16 @@ pub fn session(shape: ShapeSpec, link: LinkSpec, message_bytes: usize) -> String
     serde_json::to_string(&record).expect("a record serializes")
 }
 
-/// Runs every shape's unlimited session over a latency-only link of
-/// product `latency_bdp` and over each link in `links`, appending each to
-/// `out` and skipping those it already holds.
+/// Runs every shape's unlimited session over a latency-only link of product
+/// `latency_bdp` and over each link in `links`, appending each to `out` and
+/// skipping those it already holds.
 ///
 /// Every message encodes in `message_bytes`.
 ///
 /// # Errors
 ///
-/// If `out` cannot be read or opened, or holds sessions of another
-/// message size.
+/// If `out` cannot be read or opened, or holds sessions of another message
+/// size.
 pub fn run(
     out: &Path,
     shapes: &[ShapeSpec],

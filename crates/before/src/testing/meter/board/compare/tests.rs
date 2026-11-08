@@ -58,16 +58,16 @@ fn capture_of(rows: &[([u64; LADDER_SIZES], [u64; LADDER_SIZES])]) -> Capture {
 /// axis unit; base readings leave room for a saving this large.
 const MAX_RATE: i64 = 8;
 
-/// The largest fixed shift the property applies; base readings leave room for
-/// a saving this large.
+/// The largest fixed shift the property applies; base readings leave room for a
+/// saving this large.
 const MAX_SHIFT: i64 = 1_000;
 
 /// One row's axes, shaped like the board's ladder, and base readings large
 /// enough to absorb any applied saving.
 ///
-/// The axes are a small-input pair at or below the base size, a past-power
-/// size between the base size and its double and that size's double, then a
-/// size, its double, four times it, and eight times it.
+/// The axes are a small-input pair at or below the base size, a past-power size
+/// between the base size and its double and that size's double, then a size,
+/// its double, four times it, and eight times it.
 fn ladder_row() -> impl Strategy<Value = ([u64; LADDER_SIZES], [u64; LADDER_SIZES])> {
     (1u64..1_000_000)
         .prop_flat_map(|base| (Just(base), 1..=base, 1..=base, base..=2 * base))
@@ -149,9 +149,9 @@ proptest! {
     }
 }
 
-/// A fixed 112-byte block that appears only at the largest size reads
-/// uneven, never constant or growing: four sizes cannot tell such a step from
-/// growth that registers only there, so the comparison names neither.
+/// A fixed 112-byte block that appears only at the largest size reads uneven,
+/// never constant or growing: four sizes cannot tell such a step from growth
+/// that registers only there, so the comparison names neither.
 #[test]
 fn a_step_at_the_largest_size_reads_uneven() {
     let axes = [10, 19, 600, 1_200, 546, 1_090, 2_178, 4_354];
@@ -188,9 +188,9 @@ fn a_small_growing_slope_prints_without_rounding_to_zero() {
     assert!(printed.contains("slope +4.286e-5"), "{printed}");
 }
 
-/// A row measured at different sizes in the two captures is resized, and a
-/// row in one capture only is only-before or only-after; none is classified,
-/// since no difference at equal size exists.
+/// A row measured at different sizes in the two captures is resized, and a row
+/// in one capture only is only-before or only-after; none is classified, since
+/// no difference at equal size exists.
 #[test]
 fn rows_without_a_counterpart_at_equal_size_are_not_classified() {
     let axes = [1, 2, 12, 24, 10, 20, 40, 80];
@@ -209,10 +209,9 @@ fn rows_without_a_counterpart_at_equal_size_are_not_classified() {
 /// Captures from different builds are refused rather than compared, while
 /// captures from different source trees of one build are compared.
 ///
-/// Debug assertions add metered work, and some operations allocate
-/// differently by target, so a difference between builds would not be the
-/// change's; a difference between trees is the change, which is what a
-/// comparison is for.
+/// Debug assertions add metered work, and some operations allocate differently
+/// by target, so a difference between builds would not be the change's; a
+/// difference between trees is the change, which is what a comparison is for.
 #[test]
 fn captures_from_different_builds_are_refused_and_different_trees_compared() {
     let before = capture_of(&[([1, 2, 12, 24, 10, 20, 40, 80], [100; LADDER_SIZES])]);
@@ -233,14 +232,14 @@ fn captures_from_different_builds_are_refused_and_different_trees_compared() {
         .expect("captures of different trees from one build are compared");
 }
 
-/// A build stamp renders as `debug_assertions=<bool>` and
-/// `target=<arch>-<os>`, tab-separated, and parses back to itself, including
-/// a wasm32 guest's, whose operating system is empty.
+/// A build stamp renders as `debug_assertions=<bool>` and `target=<arch>-<os>`,
+/// tab-separated, and parses back to itself, including a wasm32 guest's, whose
+/// operating system is empty.
 ///
-/// A shard child's header and a capture's header both carry the stamp as
-/// text, and the merge and the calibration compare parsed stamps, so a stamp
-/// that did not survive the round trip would make two identical builds read
-/// as different, or two different ones as the same.
+/// A shard child's header and a capture's header both carry the stamp as text,
+/// and the merge and the calibration compare parsed stamps, so a stamp that did
+/// not survive the round trip would make two identical builds read as
+/// different, or two different ones as the same.
 #[test]
 fn build_stamps_render_and_parse_back() {
     let guest = BuildStamp {

@@ -31,14 +31,14 @@ pub use storage::Bits;
 pub(crate) use writer::bits_writer;
 pub use writer::BitsWriter;
 
-/// The number of bits in `bytes` bytes, or `None` when that count reaches
-/// 2^64, which happens exactly from 2^61 bytes.
+/// The number of bits in `bytes` bytes, or `None` when that count reaches 2^64,
+/// which happens exactly from 2^61 bytes.
 ///
 /// Bit lengths and positions are `u64`, so every stream holds fewer than 2^61
 /// bytes. Decoders reject a longer input with
-/// [`Decode::TooLarge`](crate::error::Decode::TooLarge). A writer could build
-/// a longer stream only by allocating 2^61 bytes, which no machine can do, so
-/// it carries no check of its own.
+/// [`Decode::TooLarge`](crate::error::Decode::TooLarge). A writer could build a
+/// longer stream only by allocating 2^61 bytes, which no machine can do, so it
+/// carries no check of its own.
 pub(crate) fn bits_in(bytes: u64) -> Option<u64> {
     bytes.checked_mul(8)
 }

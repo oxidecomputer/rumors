@@ -97,8 +97,8 @@ fn push_leaf(bits: &mut BitsWriter, payload: u64) {
     bits.write_gamma(&BigUint::from(payload));
 }
 
-/// An internal node whose two leaf children carry a zero right delta is
-/// the collapsible pair: rejected as [`Decode::NotCanonical`].
+/// An internal node whose two leaf children carry a zero right delta is the
+/// collapsible pair: rejected as [`Decode::NotCanonical`].
 #[test]
 fn rejects_zero_right_sibling_delta() {
     // (5, 5): internal root, leaf height 5, then delta 0.
@@ -109,9 +109,9 @@ fn rejects_zero_right_sibling_delta() {
     assert!(matches!(whole(bits.reader()), Err(Decode::NotCanonical)));
 }
 
-/// A collapsible sibling pair whose closing ancestor is NOT the root,
-/// root(leaf 5, node(leaf 5, leaf 5)), the pair closing one level down, is
-/// rejected as [`Decode::NotCanonical`].
+/// A collapsible sibling pair whose closing ancestor is NOT the root, root(leaf
+/// 5, node(leaf 5, leaf 5)), the pair closing one level down, is rejected as
+/// [`Decode::NotCanonical`].
 ///
 /// This ensures validation checks every completed sibling pair, not only the
 /// root's children. Accepting the stream would give the constant value 5 a
@@ -433,8 +433,8 @@ fn assert_flag_bijection(t: &tree::Version) {
     );
 }
 
-/// The flag bijection holds across the registered input families, wide (the gamma
-/// wide arm) and deep (long unary runs) members included.
+/// The flag bijection holds across the registered input families, wide (the
+/// gamma wide arm) and deep (long unary runs) members included.
 #[test]
 fn topology_flag_bijection_on_generator_families() {
     for p in [
@@ -496,8 +496,8 @@ fn assert_mutation_never_aliases(v: &Version, bits: &BitsWriter, flip: u64) {
 }
 
 /// Exhaustive small scope: flipping any single bit of any depth-2 normal form's
-/// encoding either rejects or round-trips to a different canonical value, with no
-/// silent acceptance of non-canonical spellings.
+/// encoding either rejects or round-trips to a different canonical value, with
+/// no silent acceptance of non-canonical spellings.
 #[test]
 fn exhaustive_single_bit_mutations_never_alias() {
     for t in all_normal_events(EV_SMALL_DEPTH) {
@@ -526,7 +526,8 @@ proptest! {
 
 // ─── round trips over the generator families ────────────────────────────────
 
-/// Assert that a version's stored stream validates and decodes to the same value.
+/// Assert that a version's stored stream validates and decodes to the same
+/// value.
 fn assert_round_trip(v: &Version) {
     let bits = stream_of(v);
     assert!(
@@ -575,8 +576,8 @@ fn generator_families_round_trip() {
     }
 }
 
-/// Exhaustive small scope: every normal-form tree to depth 2 round-trips,
-/// and no two distinct versions share a stored stream.
+/// Exhaustive small scope: every normal-form tree to depth 2 round-trips, and
+/// no two distinct versions share a stored stream.
 #[test]
 fn exhaustive_small_scope_round_trips_and_is_injective() {
     let pool = all_normal_events(EV_SMALL_DEPTH);

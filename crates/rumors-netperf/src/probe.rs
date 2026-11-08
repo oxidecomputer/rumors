@@ -1,18 +1,18 @@
-//! The link probe: a raw TCP bulk transfer and a ping-pong, which measure
-//! a link's goodput and round trip without Rumors.
+//! The link probe: a raw TCP bulk transfer and a ping-pong, which measure a
+//! link's goodput and round trip without Rumors.
 //!
 //! Calibration uses it to judge the emulator itself: whether a shaped link
 //! delivers its configured rate and round trip, alone and beside other
-//! sessions, independently of the library and of this tool's fixtures. In
-//! pair mode it characterizes the network between the hosts before the run.
+//! sessions, independently of the library and of this tool's fixtures. In pair
+//! mode it characterizes the network between the hosts before the run.
 //!
-//! The conversation with a probe process follows [`crate::peer`]'s form:
-//! side A receives [`ProbeCommand::Listen`], answers
-//! [`ProbeReply::Listening`], and serves one probe connection; side B
-//! receives [`ProbeCommand::Run`], runs the probe against it, and answers
-//! [`ProbeReply::Probed`]. On the connection, B sends an eight-byte length
-//! and that many bytes; A answers one byte once it has read them all; then
-//! B sends one byte at a time, each echoed by A, for the ping-pong.
+//! The conversation with a probe process follows [`crate::peer`]'s form: side A
+//! receives [`ProbeCommand::Listen`], answers [`ProbeReply::Listening`], and
+//! serves one probe connection; side B receives [`ProbeCommand::Run`], runs the
+//! probe against it, and answers [`ProbeReply::Probed`]. On the connection, B
+//! sends an eight-byte length and that many bytes; A answers one byte once it
+//! has read them all; then B sends one byte at a time, each echoed by A, for
+//! the ping-pong.
 
 use std::io::{BufRead, Write};
 use std::net::SocketAddr;
@@ -70,14 +70,13 @@ pub struct ProbeResult {
     pub rtt_seconds: f64,
     /// Seconds from the first bulk byte written to the acknowledgement read.
     pub transfer_seconds: f64,
-    /// Bulk bytes over the transfer time less one round trip (the first
-    /// byte's way there and the acknowledgement's way back): the rate the
-    /// link delivered, slow start included.
+    /// Bulk bytes over the transfer time less one round trip (the first byte's
+    /// way there and the acknowledgement's way back): the rate the link
+    /// delivered, slow start included.
     pub goodput_bytes_per_second: f64,
 }
 
-/// Runs one probe process to completion over a line-oriented control
-/// channel.
+/// Runs one probe process to completion over a line-oriented control channel.
 ///
 /// # Errors
 ///

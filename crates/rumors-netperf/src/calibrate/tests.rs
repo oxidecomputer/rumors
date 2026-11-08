@@ -2,8 +2,8 @@ use proptest::prelude::*;
 
 use super::*;
 
-/// Solo readings as calibration takes them, or any count from three up,
-/// each between 1 and 2.
+/// Solo readings as calibration takes them, or any count from three up, each
+/// between 1 and 2.
 fn solo_readings() -> impl Strategy<Value = Vec<f64>> {
     prop_oneof![
         proptest::collection::vec(1.0f64..2.0, SOLO_RUNS),
@@ -89,8 +89,8 @@ proptest! {
     }
 }
 
-/// Each job count from 1 to 256 runs the fewest rounds that give its level
-/// at least [`LEVEL_READINGS`] readings.
+/// Each job count from 1 to 256 runs the fewest rounds that give its level at
+/// least [`LEVEL_READINGS`] readings.
 #[test]
 fn rounds_reach_the_level_readings_and_no_more() {
     for jobs in 1..=256 {

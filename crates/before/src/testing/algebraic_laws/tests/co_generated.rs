@@ -14,27 +14,27 @@
 //! late perturbation of that successor. So the groups' tick laws meet ticks
 //! that fill and ticks that grow, where the walk's state is richest.
 //!
-//! Each law's property runs the configured case count divided by its
-//! strategy's divisor, which reflects what one case costs; the co-generator's
-//! census floors each strategy's regime at that count.
+//! Each law's property runs the configured case count divided by its strategy's
+//! divisor, which reflects what one case costs; the co-generator's census
+//! floors each strategy's regime at that count.
 //!
-//! The expansion is partial by design: a group over any other signature
-//! expands to nothing here, and [`super::deep`] drives every group.
+//! The expansion is partial by design: a group over any other signature expands
+//! to nothing here, and [`super::deep`] drives every group.
 
 use super::{party, ver};
 use crate::testing::generators::co_generated::TickCase;
 use crate::{Party, Version};
 
-/// Whether `law` holds on each of `case`'s three versions, ticked by the
-/// case's party.
+/// Whether `law` holds on each of `case`'s three versions, ticked by the case's
+/// party.
 fn holds_on_case(law: fn(&Version, &Party) -> bool, case: &TickCase) -> bool {
     let p = party(&case.party);
     case.versions().iter().all(|version| law(&ver(version), &p))
 }
 
-/// Expands the law-group roster into one module per group over one version
-/// and one party, named by the roster's driver column inside this module,
-/// holding one module of per-law proptests for each co-generated regime.
+/// Expands the law-group roster into one module per group over one version and
+/// one party, named by the roster's driver column inside this module, holding
+/// one module of per-law proptests for each co-generated regime.
 macro_rules! co_generated_group_drivers {
     (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         $( co_generated_group_drivers!(@one $group, $driver, $shape); )*

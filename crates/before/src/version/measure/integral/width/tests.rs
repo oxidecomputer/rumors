@@ -1,4 +1,5 @@
-//! Sparse width arithmetic checked against ordinary arbitrary-precision integers.
+//! Sparse width arithmetic checked against ordinary arbitrary-precision
+//! integers.
 
 use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
@@ -6,10 +7,12 @@ use suanpan::Accumulator;
 
 use super::{ScaledWidth, SparseWidth};
 
-/// These five digit positions split only where their zero gaps exceed the limit.
+/// These five digit positions split only where their zero gaps exceed the
+/// limit.
 ///
-/// Testing positions independently of products protects the allocation bound:
-/// a mathematically correct product could still densify an unnecessarily wide gap.
+/// Testing positions independently of products protects the allocation bound: a
+/// mathematically correct product could still densify an unnecessarily wide
+/// gap.
 #[test]
 fn five_positions_split_at_the_selected_gap_limits() {
     let width = SparseWidth {
@@ -35,7 +38,8 @@ fn width(bytes: &[u8], digits: u64) -> Accumulator {
     width
 }
 
-/// Evaluate sparse digits directly, without the production clustering or carry merge.
+/// Evaluate sparse digits directly, without the production clustering or carry
+/// merge.
 fn dense_value(width: &SparseWidth) -> BigInt {
     width
         .digits

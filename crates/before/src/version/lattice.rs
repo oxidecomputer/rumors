@@ -29,19 +29,17 @@
 //! requests both, decoding each operand once. The output's delta across a
 //! boundary needs no absolute heights:
 //!
-//! - **Same side**: the output moves with its side, so the delta is
-//!   that side's own step delta, zero when the boundary belonged to
-//!   the other stream alone.
-//! - **Switch**: the output jumps from the old side's plateau to the
-//!   new side's. With `D′` the difference *after* the boundary's folds
-//!   and `δ` the old side's step delta at this boundary (zero if it
-//!   did not step), the jump is `+D′ + δ` switching to `a`, `−D′ + δ`
-//!   switching to `b`, both from one sign-and-magnitude read of the
-//!   accumulator plus one signed sum. A switch means `D` crossed or
-//!   left zero at this boundary, so `|D′|` is bounded by the deltas
-//!   just folded, and the read is priced by the codes that carried
-//!   them (the accumulator's sign fold has already collapsed any
-//!   cancelling prefix by the time the side is picked).
+//! - **Same side**: the output moves with its side, so the delta is that side's
+//!   own step delta, zero when the boundary belonged to the other stream alone.
+//! - **Switch**: the output jumps from the old side's plateau to the new
+//!   side's. With `D′` the difference *after* the boundary's folds and `δ` the
+//!   old side's step delta at this boundary (zero if it did not step), the jump
+//!   is `+D′ + δ` switching to `a`, `−D′ + δ` switching to `b`, both from one
+//!   sign-and-magnitude read of the accumulator plus one signed sum. A switch
+//!   means `D` crossed or left zero at this boundary, so `|D′|` is bounded by
+//!   the deltas just folded, and the read is priced by the codes that carried
+//!   them (the accumulator's sign fold has already collapsed any cancelling
+//!   prefix by the time the side is picked).
 //!
 //! Each input boundary is visited once. Arithmetic work is charged to the
 //! payload codes that changed `D`, and writer collapse is amortized over the
@@ -151,8 +149,8 @@ impl Version {
     ///
     /// Meet and join visit the same input boundaries and differ only in which
     /// input height they select. Producing both together decodes each input
-    /// once. The sign already used for selection also determines whether
-    /// either operand dominates the other.
+    /// once. The sign already used for selection also determines whether either
+    /// operand dominates the other.
     ///
     /// # Panics
     ///

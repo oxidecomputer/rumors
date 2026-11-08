@@ -31,8 +31,8 @@ proptest! {
     }
 }
 
-/// The `tc` arguments name the delay in microseconds, the limit, and the
-/// rate in bits, and leave the rate out on an uncapped direction.
+/// The `tc` arguments name the delay in microseconds, the limit, and the rate
+/// in bits, and leave the rate out on an uncapped direction.
 #[test]
 fn tc_arguments_name_every_parameter() {
     let shaped = Netem {

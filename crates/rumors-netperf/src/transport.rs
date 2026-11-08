@@ -1,50 +1,47 @@
-//! The stack a measured session runs over, and the socket operations each
-//! side makes beneath it.
+//! The stack a measured session runs over, and the socket operations each side
+//! makes beneath it.
 //!
 //! Each side turns its TCP connection into the two halves the library takes
-//! ([`establish`]), plain TCP or TLS 1.3 as the [`Transport`] point says,
-//! set up as the library advises: Nagle's algorithm off, and the read half
-//! wrapped in a `BufReader`.
+//! ([`establish`]), plain TCP or TLS 1.3 as the [`Transport`] point says, set
+//! up as the library advises: Nagle's algorithm off, and the read half wrapped
+//! in a `BufReader`.
 //!
-//! A [`Counting`] wrapper sits directly on the socket, beneath TLS and the
-//! read buffer, so its counts are the operations the socket itself sees: on a
-//! plain TCP socket each counted write is one `write` or `writev` system
-//! call that moved bytes, and each counted read one `read` that delivered
-//! bytes or end of stream. A system call that finds the socket not ready
-//! (`EAGAIN`) moves nothing and is not counted. The wrapper forwards
-//! vectored writes, so a message the library writes as one vectored write,
-//! as it writes any message at least its write buffer's size, stays one
-//! system call.
+//! A [`Counting`] wrapper sits directly on the socket, beneath TLS and the read
+//! buffer, so its counts are the operations the socket itself sees: on a plain
+//! TCP socket each counted write is one `write` or `writev` system call that
+//! moved bytes, and each counted read one `read` that delivered bytes or end of
+//! stream. A system call that finds the socket not ready (`EAGAIN`) moves
+//! nothing and is not counted. The wrapper forwards vectored writes, so a
+//! message the library writes as one vectored write, as it writes any message
+//! at least its write buffer's size, stays one system call.
 //!
-//! The tally starts once the connection is set up, so it counts the
-//! session alone, provided no setup read takes a byte of the peer's
-//! session. A read through a buffering layer takes whatever has arrived,
-//! up to the layer's buffer, so the setup is ordered to leave nothing of a
-//! session to take:
+//! The tally starts once the connection is set up, so it counts the session
+//! alone, provided no setup read takes a byte of the peer's session. A read
+//! through a buffering layer takes whatever has arrived, up to the layer's
+//! buffer, so the setup is ordered to leave nothing of a session to take:
 //!
 //! - On a warm connection, [`establish`] carries the warm-up bytes each way
-//!   beneath the read buffer, side B first. Over plain TCP it reads the
-//!   socket itself, whose reads take only the bytes asked for. TLS reads
-//!   records ahead of what is asked, so once side B has read all of side
-//!   A's warm-up bytes, it writes one more byte beneath TLS, and side A
-//!   reads that byte from the socket itself before it starts its session.
-//!   Side B's last warm-up read ends with side A's warm-up bytes, since side
-//!   A sends nothing more until that byte arrives; side A's last read
-//!   through TLS ends with side B's warm-up bytes, since side B writes
-//!   nothing more until it has read them.
-//! - On a fresh TLS connection, side B may send its first session records
-//!   right behind its last handshake message, and side A's last handshake
-//!   read can take them, so they count before the tally starts. Over plain
-//!   TCP, nothing is read before the session.
+//!   beneath the read buffer, side B first. Over plain TCP it reads the socket
+//!   itself, whose reads take only the bytes asked for. TLS reads records ahead
+//!   of what is asked, so once side B has read all of side A's warm-up bytes,
+//!   it writes one more byte beneath TLS, and side A reads that byte from the
+//!   socket itself before it starts its session. Side B's last warm-up read
+//!   ends with side A's warm-up bytes, since side A sends nothing more until
+//!   that byte arrives; side A's last read through TLS ends with side B's
+//!   warm-up bytes, since side B writes nothing more until it has read them.
+//! - On a fresh TLS connection, side B may send its first session records right
+//!   behind its last handshake message, and side A's last handshake read can
+//!   take them, so they count before the tally starts. Over plain TCP, nothing
+//!   is read before the session.
 //!
 //! # TLS
 //!
 //! Side A serves TLS with a self-signed certificate it generates for the
-//! process; side B accepts any certificate, but still verifies the
-//! handshake's signatures with the provider's algorithms, so the handshake
-//! does the cryptographic work a verifying client does. Only TLS 1.3 is
-//! offered. The handshake runs before the session's clock starts on side
-//! A, and within side B's connect time.
+//! process; side B accepts any certificate, but still verifies the handshake's
+//! signatures with the provider's algorithms, so the handshake does the
+//! cryptographic work a verifying client does. Only TLS 1.3 is offered. The
+//! handshake runs before the session's clock starts on side A, and within side
+//! B's connect time.
 
 use std::io::{self, IoSlice};
 use std::pin::Pin;
@@ -89,9 +86,8 @@ pub struct SocketCounts {
     /// `writev` system call each. A call that finds the socket full is not
     /// counted.
     pub writes: u64,
-    /// Reads that delivered bytes or end of stream: on plain TCP, one
-    /// `read` system call each. A call that finds nothing to read is not
-    /// counted.
+    /// Reads that delivered bytes or end of stream: on plain TCP, one `read`
+    /// system call each. A call that finds nothing to read is not counted.
     pub reads: u64,
 }
 
@@ -223,17 +219,17 @@ pub type ReadHalf = Box<dyn AsyncBufRead + Unpin + Send>;
 /// A write half as the library takes it.
 pub type WriteHalf = Box<dyn AsyncWrite + Unpin + Send>;
 
-/// Turns `stream` into the halves of `transport`'s stack, and the tally of
-/// what its socket sees from here on.
+/// Turns `stream` into the halves of `transport`'s stack, and the tally of what
+/// its socket sees from here on.
 ///
-/// With `warm_bytes`, the connection first carries that many bytes each
-/// way, side B first, ordered as the module docs describe, so the tally
-/// counts nothing of the warm-up and the session alone after it.
+/// With `warm_bytes`, the connection first carries that many bytes each way,
+/// side B first, ordered as the module docs describe, so the tally counts
+/// nothing of the warm-up and the session alone after it.
 ///
 /// # Errors
 ///
-/// If disabling Nagle's algorithm fails, the TLS handshake does, or the
-/// warm-up does.
+/// If disabling Nagle's algorithm fails, the TLS handshake does, or the warm-up
+/// does.
 pub async fn establish(
     mut stream: TcpStream,
     transport: Transport,
@@ -291,16 +287,16 @@ pub async fn establish(
 /// The buffer the warm-up writes from and reads into.
 const WARM_CHUNK: usize = 1 << 16;
 
-/// The byte side B writes beneath TLS once it has read all of side A's
-/// warm-up bytes.
+/// The byte side B writes beneath TLS once it has read all of side A's warm-up
+/// bytes.
 const WARMED: u8 = b'W';
 
-/// Sends `bytes` each way through `stack`, side B first, so the
-/// connection's congestion window is open when the session starts.
+/// Sends `bytes` each way through `stack`, side B first, so the connection's
+/// congestion window is open when the session starts.
 ///
-/// Each side reads exactly the peer's warm-up bytes: the side that reads
-/// first writes only after it has read them, and the side that reads last
-/// receives nothing after them until the setup ends.
+/// Each side reads exactly the peer's warm-up bytes: the side that reads first
+/// writes only after it has read them, and the side that reads last receives
+/// nothing after them until the setup ends.
 async fn warm_up(
     stack: &mut (impl AsyncRead + AsyncWrite + Unpin),
     role: Role,
@@ -321,14 +317,14 @@ async fn warm_up(
     exchange.await.context("warming the connection")
 }
 
-/// Ends a TLS warm-up beneath TLS: side B writes [`WARMED`] to `socket`,
-/// and side A reads it there, exactly, before either starts its session.
+/// Ends a TLS warm-up beneath TLS: side B writes [`WARMED`] to `socket`, and
+/// side A reads it there, exactly, before either starts its session.
 ///
-/// Side B writes it only after its last read through TLS, and side A
-/// starts its session only once it has read it, so neither TLS layer can
-/// read ahead into the peer's session. Neither TLS layer sees the byte:
-/// side B's has nothing queued to send after its flushed warm-up bytes,
-/// and side A's reads nothing more until its session starts.
+/// Side B writes it only after its last read through TLS, and side A starts its
+/// session only once it has read it, so neither TLS layer can read ahead into
+/// the peer's session. Neither TLS layer sees the byte: side B's has nothing
+/// queued to send after its flushed warm-up bytes, and side A's reads nothing
+/// more until its session starts.
 async fn beneath_tls_warmed(
     socket: &mut (impl AsyncRead + AsyncWrite + Unpin),
     role: Role,
@@ -416,8 +412,8 @@ pub fn client_config() -> Arc<ClientConfig> {
 }
 
 /// A certificate verifier that trusts any certificate but checks the
-/// handshake's signatures, so a measured handshake does a verifying
-/// client's signature work without a certificate authority.
+/// handshake's signatures, so a measured handshake does a verifying client's
+/// signature work without a certificate authority.
 #[derive(Debug)]
 struct AnyCertificate(Arc<CryptoProvider>);
 

@@ -1,45 +1,43 @@
 //! Conformance checks for storage backends used by streaming reconciliation.
 //!
-//! This suite wraps a backend so that every node value it builds is counted
-//! at the size an independent [`Measure`] oracle reports, checks the
-//! backend's operations as they run, then reconciles concrete fixtures at a
-//! budget of zero and a larger budget. It checks:
+//! This suite wraps a backend so that every node value it builds is counted at
+//! the size an independent [`Measure`] oracle reports, checks the backend's
+//! operations as they run, then reconciles concrete fixtures at a budget of
+//! zero and a larger budget. It checks:
 //!
-//! - **Residency:** height erasure and restoration preserve a node's
-//!   measured residency.
-//! - **Digests:** the converged root's digest is the one the in-memory
-//!   backend computes for the same messages, so the backend's replicas
-//!   reconcile with in-memory ones, not only with each other.
+//! - **Residency:** height erasure and restoration preserve a node's measured
+//!   residency.
+//! - **Digests:** the converged root's digest is the one the in-memory backend
+//!   computes for the same messages, so the backend's replicas reconcile with
+//!   in-memory ones, not only with each other.
 //! - **Operations:** parent presence, node aggregates, ordered leaf walks
 //!   confined to their prefix, one assembled node per supplied prefix run,
 //!   child counts and child radices equal to the children listing a node
-//!   yields, children listed at strictly ascending radices, and listings
-//!   that allocate nothing beyond the rows they yield, by the allocation
-//!   meter.
+//!   yields, children listed at strictly ascending radices, and listings that
+//!   allocate nothing beyond the rows they yield, by the allocation meter.
 //! - **Reconciliation:** both replicas converge to a set of the expected size:
 //!   the union of the corpora less the messages one side holds and the other
-//!   has seen and redacted, which the deletion filter must drop by the
-//!   version bounds the backend reports. Any measured peak increase over the
+//!   has seen and redacted, which the deletion filter must drop by the version
+//!   bounds the backend reports. Any measured peak increase over the
 //!   zero-budget run must fit within the larger budget.
 //!
 //! # What the census measures
 //!
-//! The ledger counts each live node value at its measured size: what it
-//! keeps resident beyond its own inline bytes and the replica's storage at
-//! rest. For a leaf, this is what remains resident after [`Leaf::leaf`] has
-//! had the opportunity to persist its payload. Corpus nodes still alive
-//! during reconciliation are included; the inline handles themselves, which
-//! the ledger charges with the queue items that hold them, shared tree
-//! storage, and wire buffers are not.
+//! The ledger counts each live node value at its measured size: what it keeps
+//! resident beyond its own inline bytes and the replica's storage at rest. For
+//! a leaf, this is what remains resident after [`Leaf::leaf`] has had the
+//! opportunity to persist its payload. Corpus nodes still alive during
+//! reconciliation are included; the inline handles themselves, which the ledger
+//! charges with the queue items that hold them, shared tree storage, and wire
+//! buffers are not.
 //!
-//! The peak comparison is fixture-specific. Changing the budget can change
-//! when nodes are created and released, so subtracting the zero-budget run's
-//! peak does not isolate the budgeted work, and a larger budget need not
-//! produce a higher peak. The comparison does not prove a hard memory
-//! bound.
+//! The peak comparison is fixture-specific. Changing the budget can change when
+//! nodes are created and released, so subtracting the zero-budget run's peak
+//! does not isolate the budgeted work, and a larger budget need not produce a
+//! higher peak. The comparison does not prove a hard memory bound.
 //!
-//! The ledger is process-global. Tests must hold the suite's serialization
-//! lock so their charges and violation reports cannot interfere.
+//! The ledger is process-global. Tests must hold the suite's serialization lock
+//! so their charges and violation reports cannot interfere.
 //!
 //! # Scope
 //!
@@ -75,17 +73,16 @@ use crate::{
 
 /// The measurement oracle a backend brings to its conformance run.
 ///
-/// `measure` reports the actual bytes one node value keeps resident beyond
-/// its own inline bytes and the replica's storage at rest: everything the
-/// handle owns or keeps alive while the session holds it. The census counts
-/// every node at it, and the re-tag clause is checked against it.
+/// `measure` reports the actual bytes one node value keeps resident beyond its
+/// own inline bytes and the replica's storage at rest: everything the handle
+/// owns or keeps alive while the session holds it. The census counts every node
+/// at it, and the re-tag clause is checked against it.
 pub(crate) trait Measure: Backend<Node<Z>: Leaf> {
     /// The actual resident bytes of one node value, measured.
     fn measure<H: Height>(node: &Self::Node<H>) -> usize;
 
-    /// The actual resident bytes of one height-erased node value,
-    /// measured: the oracle for the re-tag clause in the
-    /// [`erase`](Backend::erase) direction.
+    /// The actual resident bytes of one height-erased node value, measured: the
+    /// oracle for the re-tag clause in the [`erase`](Backend::erase) direction.
     fn measure_erased(node: &Self::Erased) -> usize;
 }
 
@@ -143,9 +140,8 @@ mod ledger {
 /// output.
 ///
 /// The census charges node values by the [`Measure`] oracle, which sees
-/// residency, not allocation; this meter sees what a backend allocates to
-/// list a node's children, whether or not anything it builds stays
-/// resident.
+/// residency, not allocation; this meter sees what a backend allocates to list
+/// a node's children, whether or not anything it builds stays resident.
 fn allocated_by<T>(work: impl FnOnce() -> T) -> (u64, T) {
     let (stats, output) = alloc_meter::measure(work);
     (widen(stats.bytes_allocated), output)
@@ -183,9 +179,9 @@ impl<B> Charged<B> {
 
 /// A node value counted in the live-byte census until dropped or unwrapped.
 ///
-/// The inner slot is an `Option` only so consuming the wrapper can settle
-/// the ledger exactly once: `into_inner` discharges and empties it, and
-/// `Drop` discharges only when it is still full.
+/// The inner slot is an `Option` only so consuming the wrapper can settle the
+/// ledger exactly once: `into_inner` discharges and empties it, and `Drop`
+/// discharges only when it is still full.
 #[derive(Debug)]
 pub(crate) struct ChargedNode<N> {
     /// Present until the node is consumed by `into_inner`.
@@ -212,7 +208,8 @@ impl<N> ChargedNode<N> {
             .expect("a live charged node always holds its inner handle")
     }
 
-    /// Release the charge and return the node, preventing a second discharge on drop.
+    /// Release the charge and return the node, preventing a second discharge on
+    /// drop.
     fn into_inner(mut self) -> N {
         ledger::discharge(self.bytes);
         self.inner
@@ -671,8 +668,8 @@ where
 struct Run {
     /// Leaves supplied to the run: the assembled node's exact `len`.
     leaves: u64,
-    /// The largest supplied version encoding: a floor on the assembled
-    /// node's `version_bytes` aggregate.
+    /// The largest supplied version encoding: a floor on the assembled node's
+    /// `version_bytes` aggregate.
     version_bytes: usize,
 }
 
@@ -716,42 +713,39 @@ const DIVERGENT: usize = 1_024;
 
 /// Messages the left side holds and the right side has seen and redacted.
 ///
-/// They interleave with the left's own divergence along the paths, so a
-/// subtree only the left holds can mix leaves the right has redacted with
-/// leaves it has never seen. Such a subtree's version bounds straddle the
-/// right's version, and the deletion filter must descend into it rather
-/// than ship or drop it whole: a backend whose bounds misplace either
-/// endpoint resurrects a redacted message or drops an unredacted one.
+/// They interleave with the left's own divergence along the paths, so a subtree
+/// only the left holds can mix leaves the right has redacted with leaves it has
+/// never seen. Such a subtree's version bounds straddle the right's version,
+/// and the deletion filter must descend into it rather than ship or drop it
+/// whole: a backend whose bounds misplace either endpoint resurrects a redacted
+/// message or drops an unredacted one.
 const REDACTED: usize = 1_024;
 
-/// Check node residency, bulk operations, and reconciliation under two
-/// budgets.
+/// Check node residency, bulk operations, and reconciliation under two budgets.
 ///
 /// Reconciles the same divergent corpora at a budget of zero and at
-/// `budget_bytes`. Any increase in the measured peak must fit the budget,
-/// but the budgeted run may also peak lower: the budget changes the
-/// schedule as well as available space.
-/// Callers must serialize checks because the ledger is process-global.
+/// `budget_bytes`. Any increase in the measured peak must fit the budget, but
+/// the budgeted run may also peak lower: the budget changes the schedule as
+/// well as available space. Callers must serialize checks because the ledger is
+/// process-global.
 ///
 /// # Panics
 ///
 /// Panics with the violated clause if:
 ///
 /// - a re-tag changed a node's measured residency;
-/// - a bulk seam mis-answered an aggregate, yielded out of order or
-///   outside its prefix, merged, split, or swallowed a run, or
-///   `parent` answered a real child with no parent or an empty group
-///   with one;
-/// - a node listed a different number of children than its child count
-///   reports, or children at other radices than its child radices report;
+/// - a bulk seam mis-answered an aggregate, yielded out of order or outside its
+///   prefix, merged, split, or swallowed a run, or `parent` answered a real
+///   child with no parent or an empty group with one;
+/// - a node listed a different number of children than its child count reports,
+///   or children at other radices than its child radices report;
 /// - a node listed a child at a radix no greater than the one before it;
-/// - listing a node's children allocated beyond the rows they keep
-///   resident;
-/// - the converged root's digest differs from the in-memory backend's for
-///   the same messages;
+/// - listing a node's children allocated beyond the rows they keep resident;
+/// - the converged root's digest differs from the in-memory backend's for the
+///   same messages;
 /// - the measured peak increase exceeds the budget; or
-/// - the session failed to converge the corpora, or converged them to
-///   other than their union less the redacted messages.
+/// - the session failed to converge the corpora, or converged them to other
+///   than their union less the redacted messages.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
 where
     B: Measure,
@@ -778,8 +772,8 @@ where
     );
 }
 
-/// Versions and payloads for the shared history, the left's messages the
-/// right has redacted, and each replica's own additions, in that order.
+/// Versions and payloads for the shared history, the left's messages the right
+/// has redacted, and each replica's own additions, in that order.
 ///
 /// The deterministic tick order also lets path fixtures preassign these
 /// versions without creating trees outside their scoped path mapping.
@@ -809,9 +803,9 @@ fn histories() -> [Vec<(Version, u64)>; 4] {
 /// Reconcile divergent corpora and return the absolute node census peak.
 ///
 /// `omitted` shared messages are left out of *both* corpora to test that
-/// agreement alone cannot satisfy the completeness check. Pass zero for
-/// a complete fixture. Corpus construction is excluded from the peak, but
-/// corpus handles still alive during reconciliation are included.
+/// agreement alone cannot satisfy the completeness check. Pass zero for a
+/// complete fixture. Corpus construction is excluded from the peak, but corpus
+/// handles still alive during reconciliation are included.
 pub(super) async fn run<B>(backend: B, budget: usize, omitted: usize) -> usize
 where
     B: Measure,
@@ -940,8 +934,8 @@ where
     peak
 }
 
-/// The root digest the in-memory backend computes for `messages` under
-/// `keys`, each message at its fixture path.
+/// The root digest the in-memory backend computes for `messages` under `keys`,
+/// each message at its fixture path.
 ///
 /// Replicas on different backends reconcile by comparing digests, so a
 /// conforming backend reaches this digest for the same messages.
@@ -969,8 +963,7 @@ async fn reference_digest<'a>(
     Local::erase(root).hash(&Prefix::<height::Root>::new().erase(), keys.hash())
 }
 
-/// Drain one corpus's bulk leaf walk from the root so the walk's checks
-/// run.
+/// Drain one corpus's bulk leaf walk from the root so the walk's checks run.
 async fn walk<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
 where
     B: Measure,
@@ -985,11 +978,11 @@ where
     }
 }
 
-/// Explode one corpus's root into its children and drain each child's
-/// bulk leaf walk at the child's own prefix.
+/// Explode one corpus's root into its children and drain each child's bulk leaf
+/// walk at the child's own prefix.
 ///
-/// The explosion counts every child; the walk's containment clause has
-/// content only when the walked prefix is not the root's empty one.
+/// The explosion counts every child; the walk's containment clause has content
+/// only when the walked prefix is not the root's empty one.
 async fn walk_children<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
 where
     B: Measure,
@@ -1015,8 +1008,8 @@ where
     }
 }
 
-/// One corpus's leaves, constructed through the charged backend and
-/// sorted into path order.
+/// One corpus's leaves, constructed through the charged backend and sorted into
+/// path order.
 // The inline pair type is clearer than a name coined only to satisfy the
 // lint.
 #[allow(clippy::type_complexity)]
@@ -1040,9 +1033,9 @@ where
     leaves
 }
 
-/// Fold sorted leaves up to the height just under the root through the
-/// default level-by-level assembly over the charged backend, and drain
-/// it: every interior group passes through [`Charged::parent`].
+/// Fold sorted leaves up to the height just under the root through the default
+/// level-by-level assembly over the charged backend, and drain it: every
+/// interior group passes through [`Charged::parent`].
 #[allow(clippy::type_complexity)]
 async fn fold_default<B>(charged: &Charged<B>, leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>)
 where
@@ -1058,13 +1051,13 @@ where
     }
 }
 
-/// Present `parent` with an empty group, the trait's stated case of a
-/// scope that resolved to nothing at all, which must answer `None`.
+/// Present `parent` with an empty group, the trait's stated case of a scope
+/// that resolved to nothing at all, which must answer `None`.
 ///
-/// Driven at rest because the session over this suite's corpora never
-/// produces one: a mixed scope keeps at least one unpruned child, and
-/// no resolution here comes back empty. Without this drive the
-/// presence check's second direction has no reachable input.
+/// Driven at rest because the session over this suite's corpora never produces
+/// one: a mixed scope keeps at least one unpruned child, and no resolution here
+/// comes back empty. Without this drive the presence check's second direction
+/// has no reachable input.
 async fn empty_group<B>(charged: &Charged<B>)
 where
     B: Measure,
@@ -1078,10 +1071,9 @@ where
     drop(answered);
 }
 
-/// Drive sorted leaves through the charged backend's bulk assembly at
-/// the height just under the root, one node per one-byte prefix, and
-/// drain it: the multi-run regime, held to account by the assembly's
-/// own checks.
+/// Drive sorted leaves through the charged backend's bulk assembly at the
+/// height just under the root, one node per one-byte prefix, and drain it: the
+/// multi-run regime, held to account by the assembly's own checks.
 #[allow(clippy::type_complexity)]
 async fn assemble_runs<B>(charged: &Charged<B>, leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>)
 where
@@ -1100,9 +1092,9 @@ where
     }
 }
 
-/// Assemble one corpus's sorted leaves through the charged backend into
-/// its root, whose history covers its leaves and the `seen` messages it
-/// has redacted.
+/// Assemble one corpus's sorted leaves through the charged backend into its
+/// root, whose history covers its leaves and the `seen` messages it has
+/// redacted.
 #[allow(clippy::type_complexity)]
 async fn corpus<B>(
     charged: &Charged<B>,

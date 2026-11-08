@@ -17,29 +17,29 @@ mod reassembly;
 /// Upper bound on the depth of trees generated in property tests.
 ///
 /// Each test samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks
-/// tree height as well as structure when a counterexample is found. Kept
-/// modest to keep generated structures small and shrinking fast.
+/// tree height as well as structure when a counterexample is found. Kept modest
+/// to keep generated structures small and shrinking fast.
 pub(super) const MAX_TEST_DEPTH: usize = 4;
 
-/// Maximum children per branch in generated trees. Capped at the alphabet
-/// size so that every legal branching factor is reachable (subject to the
-/// leaf budget).
+/// Maximum children per branch in generated trees. Capped at the alphabet size
+/// so that every legal branching factor is reachable (subject to the leaf
+/// budget).
 const MAX_BRANCHING: usize = 256;
 
 /// Upper bound on the number of leaves in any generated tree, used as a
 /// branching budget.
 ///
-/// Each branch divides its budget randomly across its
-/// children — every child gets at least 1, and the parts sum to the parent's
-/// budget — so a branch that fans out as wide as its budget forces every
-/// child down to a single leaf, and any deeper branch beneath such a child is
-/// forced to be single-child and path-compress into a chain. The actual
-/// branching factor at any node is capped at `min(MAX_BRANCHING, budget)`,
-/// so to exercise very wide branches the budget must be at least that wide.
+/// Each branch divides its budget randomly across its children — every child
+/// gets at least 1, and the parts sum to the parent's budget — so a branch that
+/// fans out as wide as its budget forces every child down to a single leaf, and
+/// any deeper branch beneath such a child is forced to be single-child and
+/// path-compress into a chain. The actual branching factor at any node is
+/// capped at `min(MAX_BRANCHING, budget)`, so to exercise very wide branches
+/// the budget must be at least that wide.
 pub(super) const TREE_LEAF_BUDGET: usize = 16;
 
-/// The hash key these tests digest nodes under: the fixture network's, the
-/// one key every node built here caches its digest under.
+/// The hash key these tests digest nodes under: the fixture network's, the one
+/// key every node built here caches its digest under.
 pub(super) fn key() -> HashKey {
     HashKey::fixture()
 }
@@ -48,12 +48,12 @@ pub(super) fn key() -> HashKey {
 /// leaves, constructed only via the public smart constructors `Node::leaf` and
 /// `Node::branch`.
 ///
-/// At depth 0 the strategy produces a bare leaf; at depth N > 0
-/// it produces a branch with 1..=min(MAX_BRANCHING, budget) children at
-/// distinct indices, the parent's budget divided randomly among them (each
-/// child gets at least 1 and the shares sum to the parent's budget). This
-/// guarantees all leaves sit at a common depth, and no more than `budget`
-/// leaves are generated. `budget` must be at least 1.
+/// At depth 0 the strategy produces a bare leaf; at depth N > 0 it produces a
+/// branch with 1..=min(MAX_BRANCHING, budget) children at distinct indices, the
+/// parent's budget divided randomly among them (each child gets at least 1 and
+/// the shares sum to the parent's budget). This guarantees all leaves sit at a
+/// common depth, and no more than `budget` leaves are generated. `budget` must
+/// be at least 1.
 pub(super) fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
     if depth == 0 {
         // The leaf payload is not examined at this abstraction layer, so we
@@ -121,9 +121,9 @@ fn enumerate_leaves(node: Node, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message
     }
 }
 
-/// Rebuild a tree through its constructors, applying `f` to each payload.
-/// Leaf versions and paths stay the same; branch bounds are memoized lazily
-/// from the rebuilt children. Cloning each payload reconstructs the tree.
+/// Rebuild a tree through its constructors, applying `f` to each payload. Leaf
+/// versions and paths stay the same; branch bounds are memoized lazily from the
+/// rebuilt children. Cloning each payload reconstructs the tree.
 fn rebuild_with<F>(node: Node, f: &F) -> Node
 where
     F: Fn(&Message) -> Message,
@@ -663,21 +663,21 @@ fn reference_hash(node: Node) -> super::Hash {
     reference_hash_and_height(node).0
 }
 
-/// The reference digest of `node` under the fixture key, with the height of
-/// its top, derived from the decomposition alone.
+/// The reference digest of `node` under the fixture key, with the height of its
+/// top, derived from the decomposition alone.
 ///
 /// The node is unwound one virtual level at a time via `into_children`: a
 /// singleton child map is a compressed-prefix byte (a materialized branch
-/// always has >= 2 children, by the path-compression invariant), so its
-/// index accumulates onto the reference prefix in path order until the
-/// underlying leaf or true branch point is reached. The height is counted
-/// rather than read from the node: a leaf's top lies one level above it per
-/// prefix byte, and a branch's one level above its children's plus one per
-/// prefix byte. The preimage is then assembled by hand —
-/// `LEAF_TAG ‖ height ‖ len ‖ prefix` for a leaf,
-/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`
-/// for a branch — with every child hash computed by the same reference
-/// recursively, never by [`Node::hash`], and keyed by [`HashKey::of`].
+/// always has >= 2 children, by the path-compression invariant), so its index
+/// accumulates onto the reference prefix in path order until the underlying
+/// leaf or true branch point is reached. The height is counted rather than read
+/// from the node: a leaf's top lies one level above it per prefix byte, and a
+/// branch's one level above its children's plus one per prefix byte. The
+/// preimage is then assembled by hand — `LEAF_TAG ‖ height ‖ len ‖ prefix` for
+/// a leaf,
+/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*` for a
+/// branch — with every child hash computed by the same reference recursively,
+/// never by [`Node::hash`], and keyed by [`HashKey::of`].
 fn reference_hash_and_height(mut node: Node) -> (super::Hash, usize) {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
@@ -720,12 +720,12 @@ fn reference_hash_and_height(mut node: Node) -> (super::Hash, usize) {
     }
 }
 
-/// The canonical tree over `paths` observed from `depth`, built from
-/// scratch by the maximally-compressing bulk constructor.
+/// The canonical tree over `paths` observed from `depth`, built from scratch by
+/// the maximally-compressing bulk constructor.
 ///
-/// Leaf versions are all genesis: the hash convention never commits a
-/// version, so varying them adds nothing to the hash properties checked
-/// against this reference.
+/// Leaf versions are all genesis: the hash convention never commits a version,
+/// so varying them adds nothing to the hash properties checked against this
+/// reference.
 fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node {
     let mut entries: Vec<([u8; 32], Option<Node>)> = paths
         .iter()
@@ -734,8 +734,8 @@ fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node {
     Node::from_sorted_leaves(depth, &mut entries)
 }
 
-/// Check that every fan stored in `node`'s subtree meets [`heap_slots`] of
-/// its length. The recursion is bounded by the key depth.
+/// Check that every fan stored in `node`'s subtree meets [`heap_slots`] of its
+/// length. The recursion is bounded by the key depth.
 fn fans_fit(node: &Node) -> Result<(), TestCaseError> {
     if let Some(fan) = node.stored_fan() {
         prop_assert!(
@@ -757,11 +757,11 @@ const GROWN: u8 = 200;
 /// Children the shortened fan keeps after its removals.
 const KEPT: u8 = 3;
 
-/// A fan grown to [`GROWN`] children and cut back to [`KEPT`] still holds
-/// the allocation it grew, and [`Node::branch`] releases that excess.
+/// A fan grown to [`GROWN`] children and cut back to [`KEPT`] still holds the
+/// allocation it grew, and [`Node::branch`] releases that excess.
 ///
-/// Before the branch stores it, the fan holds far more than [`heap_slots`]
-/// of its length; the stored fan holds at most that.
+/// Before the branch stores it, the fan holds far more than [`heap_slots`] of
+/// its length; the stored fan holds at most that.
 #[test]
 fn branch_releases_the_allocation_a_shortened_fan_kept() {
     let mut fan = Fan::new();
@@ -783,8 +783,8 @@ fn branch_releases_the_allocation_a_shortened_fan_kept() {
 }
 
 /// Recursively explode `node` (observed from `depth`, holding exactly the
-/// leaves at `paths`) one virtual level at a time, checking at every
-/// position that its hash matches the canonical from-scratch construction.
+/// leaves at `paths`) one virtual level at a time, checking at every position
+/// that its hash matches the canonical from-scratch construction.
 fn check_virtual_levels(node: Node, depth: usize, paths: &[[u8; 32]]) -> Result<(), TestCaseError> {
     prop_assert_eq!(node.hash(&key()), canonical_at(depth, paths).hash(&key()));
     match node.into_children() {
@@ -808,9 +808,9 @@ fn check_virtual_levels(node: Node, depth: usize, paths: &[[u8; 32]]) -> Result<
 /// shallowest byte first, the *reverse* of the shallowest-last in-memory
 /// storage — pinned against a hand-built byte-literal preimage.
 ///
-/// `beneath(0xAA)` then `beneath(0xBB)` stores `[0xAA, 0xBB]` (deepest
-/// first), but the path from the root reads `0xBB` then `0xAA`; a
-/// storage-order preimage would commit the reversed spine and fail here.
+/// `beneath(0xAA)` then `beneath(0xBB)` stores `[0xAA, 0xBB]` (deepest first),
+/// but the path from the root reads `0xBB` then `0xAA`; a storage-order
+/// preimage would commit the reversed spine and fail here.
 #[test]
 fn node_hash_preimage_is_in_path_order() {
     const LEAF_TAG: u8 = 0;
@@ -825,10 +825,10 @@ fn node_hash_preimage_is_in_path_order() {
 
 /// A hand-built two-leaf tree pins the preimages end to end.
 ///
-/// Each leaf commits its height and its length-tagged 29-byte suffix, both
-/// 29, and the root branch commits the root's height, 32, its 2-byte shared
-/// prefix in path order, the big-endian `u16` child count, and both
-/// ascending `radix ‖ hash` records.
+/// Each leaf commits its height and its length-tagged 29-byte suffix, both 29,
+/// and the root branch commits the root's height, 32, its 2-byte shared prefix
+/// in path order, the big-endian `u16` child count, and both ascending
+/// `radix ‖ hash` records.
 #[test]
 fn small_tree_hash_matches_byte_literal_preimage() {
     const LEAF_TAG: u8 = 0;
@@ -857,8 +857,8 @@ fn small_tree_hash_matches_byte_literal_preimage() {
     assert_eq!(tree.hash(&key()), key().of(&preimage));
 }
 
-/// Keep node layout growth explicit: every leaf pays for the largest
-/// `Body` variant as well as the inline prefix and cached hash.
+/// Keep node layout growth explicit: every leaf pays for the largest `Body`
+/// variant as well as the inline prefix and cached hash.
 ///
 /// The inline prefix enlarges the node body but avoids a separate allocation
 /// for compressed paths.
@@ -871,8 +871,8 @@ fn node_inner_stays_within_budget() {
 }
 
 /// Leaves at `paths`, sorted and deduplicated, observed from `depth`: every
-/// path takes `base`'s first `depth` bytes. Each leaf carries its own
-/// version, so the trees compared below cannot swap two leaves unseen.
+/// path takes `base`'s first `depth` bytes. Each leaf carries its own version,
+/// so the trees compared below cannot swap two leaves unseen.
 pub(super) fn leaves_below(
     base: [u8; PATH_LEN],
     depth: usize,
@@ -898,9 +898,9 @@ pub(super) fn leaves_below(
 
 /// Require `actual` and `expected` to be one tree.
 ///
-/// That is equal compressed prefixes, hashes, and leaf counts everywhere,
-/// the same leaf at every leaf position, and the same radices at every
-/// branch. The recursion is bounded by the key depth.
+/// That is equal compressed prefixes, hashes, and leaf counts everywhere, the
+/// same leaf at every leaf position, and the same radices at every branch. The
+/// recursion is bounded by the key depth.
 fn same_tree(actual: &Node, expected: &Node) -> Result<(), TestCaseError> {
     prop_assert_eq!(
         actual.inner.prefix.as_slice(),
@@ -973,8 +973,8 @@ fn spine_build_of_nothing_is_none() {
     assert!(SortedLeaves::new(0).finish().is_none());
 }
 
-/// A spine build rejects a leaf that does not ascend from the previous
-/// one: a duplicate path here.
+/// A spine build rejects a leaf that does not ascend from the previous one: a
+/// duplicate path here.
 #[test]
 #[should_panic(expected = "a leaf run is strictly ascending by path")]
 fn spine_build_rejects_a_repeated_path() {
@@ -1046,9 +1046,9 @@ proptest! {
     }
 }
 
-/// A full fan of branches, each over a full fan of leaves, stores the
-/// largest grandchild count a branch can have, 65,536, which its `u16`
-/// holds exactly as 65,535.
+/// A full fan of branches, each over a full fan of leaves, stores the largest
+/// grandchild count a branch can have, 65,536, which its `u16` holds exactly as
+/// 65,535.
 #[test]
 fn a_full_fan_of_full_fans_counts_every_grandchild() {
     let paths: Vec<[u8; PATH_LEN]> = (0..=u8::MAX)

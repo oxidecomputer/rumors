@@ -65,8 +65,8 @@ fn rank_allocation_run(v: &before::Version) -> AllocationRun {
     run
 }
 
-/// Assert two allocation readings against their pinned ceilings, printing
-/// the measured lines re-pins read from.
+/// Assert two allocation readings against their pinned ceilings, printing the
+/// measured lines re-pins read from.
 fn assert_allocation_ceilings(
     name: &str,
     small: &AllocationRun,
@@ -86,26 +86,25 @@ fn assert_allocation_ceilings(
     }
 }
 
-/// Absolute allocation ceilings in bytes at two scales for rank on the
-/// freeze parade, measured ×1.25 (the record and every re-pin's movement
-/// live in the pin commits).
+/// Absolute allocation ceilings in bytes at two scales for rank on the freeze
+/// parade, measured ×1.25 (the record and every re-pin's movement live in the
+/// pin commits).
 ///
-/// The integrator keeps one segment-width buffer across the sweep and grows
-/// it to the segment scale once, so the reading stays near four bytes per
-/// encoded byte at both scales.
+/// The integrator keeps one segment-width buffer across the sweep and grows it
+/// to the segment scale once, so the reading stays near four bytes per encoded
+/// byte at both scales.
 const RANK_FREEZE_PARADE_ALLOCATION_CEILINGS: [u64; 2] = [261_310, 522_430];
 
-/// rank's allocation on the freeze parade is linear: the bytes it requests
-/// per encoded byte stay flat (×1.25) across a block doubling, under
-/// absolute two-scale ceilings.
+/// rank's allocation on the freeze parade is linear: the bytes it requests per
+/// encoded byte stay flat (×1.25) across a block doubling, under absolute
+/// two-scale ceilings.
 ///
-/// `FZ(k)` fires `k − 1` freezes in its shallow block. The deep spine sets
-/// the common scale at about `64k` levels, so each new segment's width lands
-/// at a weight shift of nearly `64k` bits, `Θ(k)` digits above digit 0.
-/// Allocation stays linear only if growing the segment-width buffer to that
-/// shift is paid once per sweep: paid once per freeze, it totals `Θ(k²)`
-/// bytes on `Θ(k)` input. The family's closed form is checked in the
-/// `family_answers` suite.
+/// `FZ(k)` fires `k − 1` freezes in its shallow block. The deep spine sets the
+/// common scale at about `64k` levels, so each new segment's width lands at a
+/// weight shift of nearly `64k` bits, `Θ(k)` digits above digit 0. Allocation
+/// stays linear only if growing the segment-width buffer to that shift is paid
+/// once per sweep: paid once per freeze, it totals `Θ(k²)` bytes on `Θ(k)`
+/// input. The family's closed form is checked in the `family_answers` suite.
 #[test]
 fn skyline_rank_freeze_parade_allocation_is_flat_per_unit() {
     let small = rank_allocation_run(
@@ -135,18 +134,18 @@ fn skyline_rank_freeze_parade_allocation_is_flat_per_unit() {
 /// Blocks (and suffix digits) of the dense-suffix allocation band's small run
 /// (the large run doubles both).
 ///
-/// Large enough that the width buffers are a large share of the reading, so
-/// a doubling resolves how the bytes each freeze and deferral allocates
-/// scale with the block count.
+/// Large enough that the width buffers are a large share of the reading, so a
+/// doubling resolves how the bytes each freeze and deferral allocates scale
+/// with the block count.
 const RANK_DENSE_SUFFIX_ALLOCATION_SMALL: usize = 1_024;
 
 /// Absolute allocation ceilings in bytes at two scales for rank on the
-/// dense-suffix family, measured ×1.25 (the record and every re-pin's
-/// movement live in the pin commits).
+/// dense-suffix family, measured ×1.25 (the record and every re-pin's movement
+/// live in the pin commits).
 ///
-/// The integrator keeps its segment-width and deferred-width buffers across
-/// the sweep, so each grows to its highest position once and the reading
-/// stays near ten bytes per encoded byte at both scales.
+/// The integrator keeps its segment-width and deferred-width buffers across the
+/// sweep, so each grows to its highest position once and the reading stays near
+/// ten bytes per encoded byte at both scales.
 const RANK_DENSE_SUFFIX_ALLOCATION_CEILINGS: [u64; 2] = [2_955_600, 5_905_660];
 
 /// rank's allocation on the dense-suffix family is linear: the bytes it
@@ -155,12 +154,12 @@ const RANK_DENSE_SUFFIX_ALLOCATION_CEILINGS: [u64; 2] = [2_955_600, 5_905_660];
 ///
 /// `DS(p, p)` chains its `p` re-arm blocks one level per node below the gap
 /// spine, so the sweep meets block `i` about `4(p − i)` levels above the
-/// deepest leaf. Each block fires two freezes and one deferral there, and
-/// each opens a width at a weight shift of about `4(p − i)` bits, about
-/// `p − i` bytes of eight-byte digits above digit 0. Allocation stays linear
-/// only if growing the segment-width and deferred-width buffers to those
-/// shifts is paid once per sweep: paid once per freeze or deferral, it totals
-/// `Θ(p²)` bytes on `Θ(p)` input.
+/// deepest leaf. Each block fires two freezes and one deferral there, and each
+/// opens a width at a weight shift of about `4(p − i)` bits, about `p − i`
+/// bytes of eight-byte digits above digit 0. Allocation stays linear only if
+/// growing the segment-width and deferred-width buffers to those shifts is paid
+/// once per sweep: paid once per freeze or deferral, it totals `Θ(p²)` bytes on
+/// `Θ(p)` input.
 #[test]
 fn skyline_rank_dense_suffix_allocation_is_flat_per_unit() {
     let p = RANK_DENSE_SUFFIX_ALLOCATION_SMALL;

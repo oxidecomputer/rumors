@@ -69,8 +69,8 @@ const SCATTER_BASE_CLOCKS: usize = 1_024;
 
 /// Nested-full-sibling depth at the default scale.
 ///
-/// Deep enough that a per-level re-scan exposes its exponent across the
-/// level doubling, small enough that the quadratic pin stays inside the board's
+/// Deep enough that a per-level re-scan exposes its exponent across the level
+/// doubling, small enough that the quadratic pin stays inside the board's
 /// runtime budget at the acceptance scale.
 const NESTED_BASE_DEPTH: usize = 1_500;
 
@@ -139,20 +139,20 @@ const PURE_COMB_BASE: usize = 1_000;
 /// (equal, so the doubling scales the hop count and the residue width together
 /// — the cascade's cost is their product).
 ///
-/// On the cured fold direction the cascade costs a constant per input byte,
-/// as its leveled control does, so the base sits at the pure-comb level for
-/// comparable work. The base is a multiple of 32 deliberately (992 = 31 ×
-/// 32): the family's rank exponent is `s − 1`, and `rank_sum` lands its small
-/// summands at bit remainder `exp mod 32` (an amortized-O(1) constant
-/// that flips with the remainder — the freeze-position base's derivation
-/// carries the mechanism); `32 | s` pins the remainder at 31 at every ladder
-/// point, so the exponent trend compares like against like across the whole
-/// ladder. Among the multiples of 32 the base sits just below the 1024-bit
-/// magnitude boundary: the tick walk's retained-value buffers round their
-/// capacity at powers of two, the ×2 ladder preserves the base's position
-/// inside that period at every point, and the position just below a boundary
-/// samples the rounding at its efficient edge — a base just above one
-/// samples the same work at nearly double the held capacity.
+/// On the cured fold direction the cascade costs a constant per input byte, as
+/// its leveled control does, so the base sits at the pure-comb level for
+/// comparable work. The base is a multiple of 32 deliberately (992 = 31 × 32):
+/// the family's rank exponent is `s − 1`, and `rank_sum` lands its small
+/// summands at bit remainder `exp mod 32` (an amortized-O(1) constant that
+/// flips with the remainder — the freeze-position base's derivation carries the
+/// mechanism); `32 | s` pins the remainder at 31 at every ladder point, so the
+/// exponent trend compares like against like across the whole ladder. Among the
+/// multiples of 32 the base sits just below the 1024-bit magnitude boundary:
+/// the tick walk's retained-value buffers round their capacity at powers of
+/// two, the ×2 ladder preserves the base's position inside that period at every
+/// point, and the position just below a boundary samples the rounding at its
+/// efficient edge — a base just above one samples the same work at nearly
+/// double the held capacity.
 const ASCEND_CLIFF_BASE: usize = 992;
 
 /// Dominated-undercut site count and wide-width bits at the default scale
@@ -164,13 +164,12 @@ const ASCEND_CLIFF_BASE: usize = 992;
 ///
 /// The base is a multiple of 32 deliberately: the family's dominant rank
 /// summand rides the `5 · 2^s` climb, and `rank_sum` lands its small summands
-/// at bit remainder `exp mod 32` (an amortized-O(1) constant that
-/// flips with the remainder — the freeze-position base's derivation carries
-/// the mechanism); `32 | s` keeps the remainder fixed across the level
-/// doubling, so the exponent leg compares like against like. The build arm
-/// floors the knob at the generator's minimum width (the domination read must
-/// decide the word bound from the wide side), which binds only under extreme
-/// scale-down.
+/// at bit remainder `exp mod 32` (an amortized-O(1) constant that flips with
+/// the remainder — the freeze-position base's derivation carries the
+/// mechanism); `32 | s` keeps the remainder fixed across the level doubling, so
+/// the exponent leg compares like against like. The build arm floors the knob
+/// at the generator's minimum width (the domination read must decide the word
+/// bound from the wide side), which binds only under extreme scale-down.
 const DOMINATED_UNDERCUT_BASE: usize = 160;
 
 /// Event count behind the integer rank paired with each family-derived rank.
@@ -252,8 +251,8 @@ const JUMP_RISING_SPINE_BASE_DEPTH: usize = 8_000;
 ///
 /// `2^40` lies above `i32::MAX`, so every leaf after the first sits beyond a
 /// 32-bit offset from the root's height while each level still steps by one
-/// tick. Past that threshold the width is arbitrary; keeping it small keeps
-/// the one entry code a negligible share of the input at every scale.
+/// tick. Past that threshold the width is arbitrary; keeping it small keeps the
+/// one entry code a negligible share of the input at every scale.
 const JUMP_RISING_SPINE_ENTRY_BITS: usize = 40;
 
 /// Wide-step pair spine depth at the default scale.
@@ -268,46 +267,46 @@ pub(crate) const WIDE_STEP_PAIRS_STEP_BITS: usize = 320;
 
 /// Wide-step spine depth at the default scale.
 ///
-/// The depth sits a few levels past a power of two, and the ladder doubles
-/// it, so at every sampled size a fold holding one value per level in a
-/// doubling buffer has just reallocated. The reallocation holds the old and
-/// new storage together, which is where a per-level cost reads highest.
+/// The depth sits a few levels past a power of two, and the ladder doubles it,
+/// so at every sampled size a fold holding one value per level in a doubling
+/// buffer has just reallocated. The reallocation holds the old and new storage
+/// together, which is where a per-level cost reads highest.
 const WIDE_STEP_SPINE_BASE_DEPTH: usize = 260;
 
 /// Wide-step spine step width in bits (fixed across scales).
 ///
 /// `2^64` is the smallest power of two wider than a 64-bit word, so every
-/// boundary between the spine's nested minima takes a range-minimum fold's
-/// wide form, at the narrowest step that does.
+/// boundary between the spine's nested minima takes a range-minimum fold's wide
+/// form, at the narrowest step that does.
 const WIDE_STEP_SPINE_STEP_BITS: usize = 64;
 
 /// Narrow-freeze zigzag cycles per half at the default scale.
 ///
-/// The base is a multiple of 4 deliberately: the family's rank exponent is
-/// its depth, `8c + 2`, and `rank_sum` lands each small summand at bit
-/// remainder `exp mod 32` (the freeze-position base's derivation carries the
-/// mechanism). `4 | c` keeps that remainder fixed across the level doubling,
-/// so the exponent leg compares like against like.
+/// The base is a multiple of 4 deliberately: the family's rank exponent is its
+/// depth, `8c + 2`, and `rank_sum` lands each small summand at bit remainder
+/// `exp mod 32` (the freeze-position base's derivation carries the mechanism).
+/// `4 | c` keeps that remainder fixed across the level doubling, so the
+/// exponent leg compares like against like.
 const NARROW_FREEZES_BASE_CYCLES: usize = 64;
 
 /// Rank-tie plateau digits and turns (the `RT(s, s)` diagonal) at the default
 /// scale.
 ///
 /// The stored versions grow linearly in the knob, but the puncture's
-/// construction stream spells its plateau once per turn, `Θ(s²)` bits, and
-/// the family builds that stream and mirrors it at every size, so the base
-/// sits at a quarter of [`PLATEAU_PUNCTURE_BASE_DIGITS`] to keep the build
-/// within the board's runtime at the top scale. It is a multiple of 32 for the same
+/// construction stream spells its plateau once per turn, `Θ(s²)` bits, and the
+/// family builds that stream and mirrors it at every size, so the base sits at
+/// a quarter of [`PLATEAU_PUNCTURE_BASE_DIGITS`] to keep the build within the
+/// board's runtime at the top scale. It is a multiple of 32 for the same
 /// `rank_sum` remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the build
-/// arm floors the knob at the generator's minimum width, which binds only
-/// under extreme scale-down.
+/// arm floors the knob at the generator's minimum width, which binds only under
+/// extreme scale-down.
 const RANK_TIE_BASE_DIGITS: usize = 96;
 
 /// Nonzero digits of the sparse-written families' height `S(r)` at the default
 /// scale.
 ///
-/// Both families hold their 32 leaves at depth 5, so their rank exponent is
-/// the same at every size, and the knob scales only the heights' width.
+/// Both families hold their 32 leaves at depth 5, so their rank exponent is the
+/// same at every size, and the knob scales only the heights' width.
 const SPARSE_HEIGHT_BASE_DIGITS: usize = 64;
 
 /// Wide-offset comb teeth at the default scale, for both prefix arrangements.
@@ -320,9 +319,9 @@ const WIDE_OFFSET_COMB_BASE_TEETH: usize = 256;
 
 /// Below-run spine fraction digits `m` at the default scale.
 ///
-/// The spine's depth, `32(2m + 1)`, is its rank's exponent, a multiple of 32
-/// at every size, so `rank_sum`'s small summands land at one bit remainder
-/// across the ladder.
+/// The spine's depth, `32(2m + 1)`, is its rank's exponent, a multiple of 32 at
+/// every size, so `rank_sum`'s small summands land at one bit remainder across
+/// the ladder.
 const BELOW_RUN_BASE_DIGITS: usize = 256;
 
 /// Two-operand jump-comb teeth at the default scale (the teeth operand's
@@ -355,28 +354,28 @@ const JUMP_PAIR_DIGIT_DIVISOR: usize = 8;
 /// dominating the encoded version's size).
 ///
 /// The scale of the freeze-position band's small run, so the board's default
-/// pair spans the regime the family is designed to test. The
-/// base is a multiple of 16 deliberately: the family's rank exponent is `2s −
+/// pair spans the regime the family is designed to test. The base is a multiple
+/// of 16 deliberately: the family's rank exponent is `2s −
 /// 1` (one trailing zero strips — exactly one leaf term, the odd `2^L + 1` at
 /// weight `2^1`, has 2-adic valuation one), and `rank_sum` lands each small
 /// summand at bit remainder `exp mod 32`, where a remainder near the digit top
-/// makes most landings span two digits instead of one — an
-/// amortized-O(1) constant, but one that flips with the remainder, and an
-/// exponent fitted across two scales with different remainders reads the flip
-/// as growth. `16 | s` keeps `2s ≡ 0 (mod 32)`, so every doubling
-/// preserves the remainder and the exponent leg compares like against like.
+/// makes most landings span two digits instead of one — an amortized-O(1)
+/// constant, but one that flips with the remainder, and an exponent fitted
+/// across two scales with different remainders reads the flip as growth.
+/// `16 | s` keeps `2s ≡ 0 (mod 32)`, so every doubling preserves the remainder
+/// and the exponent leg compares like against like.
 const FREEZE_POS_BASE_BLOCKS: usize = 1_024;
 
 /// Deferral re-arm blocks at the default scale (the per-block wide arming codes
 /// dominating the stored version's size).
 ///
-/// Half the deferral re-arm band's small run, so the board's default pair
-/// spans the regime the family is designed to test. The base is
-/// a multiple of 8 deliberately: the family's rank exponent is `36s`, and
-/// `rank_sum` lands its small summands at bit remainder `exp mod 32` (an
-/// amortized-O(1) constant that flips with the remainder — the freeze-position
-/// base's derivation carries the mechanism); `8 | s` keeps `36s ≡ 0 (mod 32)`,
-/// so every doubling compares like against like.
+/// Half the deferral re-arm band's small run, so the board's default pair spans
+/// the regime the family is designed to test. The base is a multiple of 8
+/// deliberately: the family's rank exponent is `36s`, and `rank_sum` lands its
+/// small summands at bit remainder `exp mod 32` (an amortized-O(1) constant
+/// that flips with the remainder — the freeze-position base's derivation
+/// carries the mechanism); `8 | s` keeps `36s ≡ 0 (mod 32)`, so every doubling
+/// compares like against like.
 const PROMO_REARM_BASE_BLOCKS: usize = 512;
 
 /// Weight-comb block pairs at the default scale (the spine's unit codes
@@ -386,20 +385,19 @@ const PROMO_REARM_BASE_BLOCKS: usize = 512;
 /// The rounding is the complete-subtree relation's call-site repair, and the
 /// level doubling then doubles the rounded count exactly. The base is large
 /// enough that the board's default pair spans the gap-skipping behavior the
-/// family exists to check.
-/// Power-of-two `n` keeps the spine depth `32n ≡ 0 (mod 32)`, so `rank_sum`
-/// lands its small summands at the same bit remainder at both scales and the
-/// exponent leg compares like against like (the freeze-position base's
-/// derivation carries the mechanism).
+/// family exists to check. Power-of-two `n` keeps the spine depth
+/// `32n ≡ 0 (mod 32)`, so `rank_sum` lands its small summands at the same bit
+/// remainder at both scales and the exponent leg compares like against like
+/// (the freeze-position base's derivation carries the mechanism).
 const WEIGHT_COMB_BASE_BLOCKS: usize = 512;
 
 /// Freeze-parade blocks at the default scale (the blocks' wide drop codes
 /// dominating the encoded version's size), rounded up to a power of two at
 /// every scale (the parade block is one complete subtree).
 ///
-/// The ladder's doubling exercises the write watermark. Power-of-two `k`
-/// keeps the spine depth `64k ≡ 0 (mod 32)`, the same `rank_sum` remainder
-/// alignment as the weight comb's.
+/// The ladder's doubling exercises the write watermark. Power-of-two `k` keeps
+/// the spine depth `64k ≡ 0 (mod 32)`, the same `rank_sum` remainder alignment
+/// as the weight comb's.
 const FREEZE_PARADE_BASE_BLOCKS: usize = 512;
 
 /// Concurrent-pair forked-party count at the default scale, rounded up to a
@@ -416,9 +414,9 @@ const TOOTH_TAIL_BASE_BOUNDARIES: usize = 4_096;
 /// diagonal) at the default scale (the blocks' wide climb codes dominating the
 /// encoded version's size).
 ///
-/// The base is a multiple of 32 deliberately: the family's rank exponent is linear in the
-/// knob, and `rank_sum` lands its small summands at bit remainder `exp mod 32`
-/// (an amortized-O(1) constant that flips with the remainder — the
+/// The base is a multiple of 32 deliberately: the family's rank exponent is
+/// linear in the knob, and `rank_sum` lands its small summands at bit remainder
+/// `exp mod 32` (an amortized-O(1) constant that flips with the remainder — the
 /// freeze-position base's derivation carries the mechanism); `32 | s` keeps any
 /// integer-linear exponent's remainder fixed across the level doubling, so the
 /// exponent leg compares like against like.
@@ -437,13 +435,12 @@ const WIDE_ARMING_BASE_DIGITS: usize = 512;
 /// Plateau-puncture digits (plateau digits and turn count together: the `PP(w,
 /// d)` diagonal at `w = d`) at the default scale.
 ///
-/// The family's encoded construction spells the plateau once per turn, so
-/// every bundle build pays `Θ(s²)` encoded bits and this knob owns the board's
+/// The family's encoded construction spells the plateau once per turn, so every
+/// bundle build pays `Θ(s²)` encoded bits and this knob owns the board's
 /// dominant build cost. It is a multiple of 32 for the same `rank_sum`
-/// remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the
-/// build arm floors the knob at the generator's minimum width (the plunge must
-/// trip the freeze allowance past a unit code), which binds only under extreme
-/// scale-down.
+/// remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`]; the build arm floors
+/// the knob at the generator's minimum width (the plunge must trip the freeze
+/// allowance past a unit code), which binds only under extreme scale-down.
 const PLATEAU_PUNCTURE_BASE_DIGITS: usize = 384;
 
 /// Lone-freeze oscillation pairs per axis (the `LF(s, s)` diagonal: one knob
@@ -451,10 +448,9 @@ const PLATEAU_PUNCTURE_BASE_DIGITS: usize = 384;
 /// the default scale.
 ///
 /// The board column scales both axes together, so a regression on either side
-/// reads on the doubling. A multiple of 32 for the
-/// same `rank_sum` remainder alignment as [`DENSE_SUFFIX_BASE_BLOCKS`], kept
-/// even at every scale by the build arm (the generator counts whole oscillation
-/// pairs).
+/// reads on the doubling. A multiple of 32 for the same `rank_sum` remainder
+/// alignment as [`DENSE_SUFFIX_BASE_BLOCKS`], kept even at every scale by the
+/// build arm (the generator counts whole oscillation pairs).
 const LONE_FREEZE_BASE_PAIRS: usize = 2_048;
 
 /// Boundaries per spike digit in the tooth-tail bundle.
@@ -486,8 +482,8 @@ const BENIGN_BASE_CLOCKS: usize = 256;
 /// power of two by construction).
 ///
 /// 4096 leaves woven into [`WEAVE_GROUPS`] parties give each operand about 256
-/// scattered leaves under a fully shared upper skeleton. This makes
-/// interleaved merges dominate without making the default board slow.
+/// scattered leaves under a fully shared upper skeleton. This makes interleaved
+/// merges dominate without making the default board slow.
 const WEAVE_BASE_LEAVES: usize = 4_096;
 
 /// How many parties the weave population folds: fixed across scales, so the
@@ -527,13 +523,13 @@ pub(super) struct QueryProbe {
 
 /// Build the query filter's width-by-arity witness.
 ///
-/// For `k` holes, the first two leaf heights move in opposite directions, so
-/// no hole absorbs another. The probe is `k² / 4` bits wide on its first and
-/// last leaves, with a narrow middle leaf. The first interval catches eager
-/// copies; the middle materializes exact differences; the last catches code
-/// that copies a later wide crossing into those differences. Total input is
-/// `O(k²)`, while either mistake allocates `O(k³)` bits. The divisor keeps a
-/// regressed acceptance run practical.
+/// For `k` holes, the first two leaf heights move in opposite directions, so no
+/// hole absorbs another. The probe is `k² / 4` bits wide on its first and last
+/// leaves, with a narrow middle leaf. The first interval catches eager copies;
+/// the middle materializes exact differences; the last catches code that copies
+/// a later wide crossing into those differences. Total input is `O(k²)`, while
+/// either mistake allocates `O(k³)` bits. The divisor keeps a regressed
+/// acceptance run practical.
 fn wide_query_probe(population: usize) -> QueryProbe {
     let count = (population / 8).max(2);
     let width = count
@@ -593,15 +589,15 @@ pub(super) struct FamilyData {
     /// the post-pass leaves in place.
     pub(super) version2: Option<Vec<u8>>,
     /// A disjoint encoded party pair within one universe: natural for the id
-    /// pair and the benign halves, constructed by the disjoint-mount adapter from a
-    /// cross shape's id side.
+    /// pair and the benign halves, constructed by the disjoint-mount adapter
+    /// from a cross shape's id side.
     pub(super) parties: Option<(Vec<u8>, Vec<u8>)>,
     /// The designated encoded (event version, id party) cross: the pairing the
     /// shape was built around, driving the tick rows' walk floors and the clock
     /// rows' operand choice.
     ///
-    /// Each cross shape's variant doc states the operation and cost pattern its cross
-    /// drives.
+    /// Each cross shape's variant doc states the operation and cost pattern its
+    /// cross drives.
     pub(super) cross: Option<(Vec<u8>, Vec<u8>)>,
     /// Whether the cross's mandatory projection output dominates its input (the
     /// comb-scatter and plateau-comb shapes): the projection rows
@@ -686,16 +682,16 @@ impl FamilyData {
         }
     }
 
-    /// Build a shape's operand bundle with its knobs set by `sampling`,
-    /// doubled `level` times.
+    /// Build a shape's operand bundle with its knobs set by `sampling`, doubled
+    /// `level` times.
     ///
-    /// `level` 0 and 1 are the two measured sizes of every cell. The arm
-    /// fills the slots the shape natively has; the post-pass below derives the
-    /// rest uniformly (a cross shape's version is its event side, its party
-    /// pair is the disjoint-mount adapter over its id side; every version gains
-    /// its rank pair, and its ticked counterpart wherever the arm built no
-    /// pairing of its own), so a new shape reaches every operation its bundle
-    /// supplies without naming any.
+    /// `level` 0 and 1 are the two measured sizes of every cell. The arm fills
+    /// the slots the shape natively has; the post-pass below derives the rest
+    /// uniformly (a cross shape's version is its event side, its party pair is
+    /// the disjoint-mount adapter over its id side; every version gains its
+    /// rank pair, and its ticked counterpart wherever the arm built no pairing
+    /// of its own), so a new shape reaches every operation its bundle supplies
+    /// without naming any.
     pub(super) fn build(kind: FamilyId, sampling: Sampling, level: u32) -> FamilyData {
         let size = |base: usize| -> usize { sampling.knob(base, MIN_SIZE_PARAM) << level };
         let mut data = match kind {
@@ -1577,10 +1573,9 @@ impl FamilyData {
 
     /// One clock per shape, from the bundle's slots.
     ///
-    /// A cross shape pairs its own id and event sides; a version-bearing
-    /// shape pairs the seed party with the adversarial version; a
-    /// party-only shape pairs the adversarial party with the empty
-    /// version.
+    /// A cross shape pairs its own id and event sides; a version-bearing shape
+    /// pairs the seed party with the adversarial version; a party-only shape
+    /// pairs the adversarial party with the empty version.
     pub(super) fn clock(&self) -> Option<(Clock, usize)> {
         if let Some((v, p, n)) = self.cross() {
             return Some((Clock::from_parts(p, v), n));
@@ -1625,8 +1620,8 @@ impl FamilyData {
     }
 }
 
-/// The disjoint-mount adapter: lift one party shape into a disjoint party
-/// pair inside a single universe.
+/// The disjoint-mount adapter: lift one party shape into a disjoint party pair
+/// inside a single universe.
 ///
 /// The pair mounts the shape under opposite children of a fresh root — `(shape,
 /// ·)` and `(·, shape)` — so the halves are disjoint by construction and
@@ -1654,9 +1649,9 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     (a, b)
 }
 
-/// The overlap-mount adapter: lift one party shape into an *overlapping*
-/// party pair whose single shared region sits at both operands' preorder ends —
-/// the disjoint-mount adapter's counterpart, for the rejection rows.
+/// The overlap-mount adapter: lift one party shape into an *overlapping* party
+/// pair whose single shared region sits at both operands' preorder ends — the
+/// disjoint-mount adapter's counterpart, for the rejection rows.
 ///
 /// `a` mounts the shape under a fresh root's left child and a marker under its
 /// right; `b` mounts the shape under the right child alone. The marker is a
@@ -1738,8 +1733,8 @@ pub(super) fn decode_party(bytes: &[u8]) -> Party {
     Party::decode(bytes).expect("board-generated party bytes are canonical")
 }
 
-/// A tiny xorshift64 generator: deterministic, dependency-free randomness
-/// for the benign control family.
+/// A tiny xorshift64 generator: deterministic, dependency-free randomness for
+/// the benign control family.
 struct XorShift(u64);
 
 impl XorShift {

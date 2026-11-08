@@ -1,4 +1,5 @@
-//! Configure a bootstrap session and retain its settings when a retry is needed.
+//! Configure a bootstrap session and retain its settings when a retry is
+//! needed.
 
 use std::{fmt, marker::PhantomData, ops::RangeBounds, sync::Arc};
 
@@ -22,12 +23,12 @@ use super::{MemoryBudget, SessionSettings};
 ///
 /// A failed session or a meeting between two bootstrappers returns this builder
 /// in [`Joined`], including any selected bookmark. Retry by calling `join` on
-/// the returned builder on another connection. No configuration or storage clone
-/// is needed. Builders without a bookmark also implement [`Clone`].
+/// the returned builder on another connection. No configuration or storage
+/// clone is needed. Builders without a bookmark also implement [`Clone`].
 ///
 /// Select [`bookmark`](Self::bookmark) to attach restart bookkeeping before
-/// returning the joined peer. A storage failure after joining instead
-/// returns the live, unbookmarked peer through [`Joined::Unbookmarked`].
+/// returning the joined peer. A storage failure after joining instead returns
+/// the live, unbookmarked peer through [`Joined::Unbookmarked`].
 ///
 /// # Serving a bootstrap
 ///
@@ -44,7 +45,8 @@ pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     bookmark: B,
     /// Maximum bookmark size inherited by the joined peer.
     bookmark_size_limit: usize,
-    /// Marks the payload type without storing a value or constraining auto traits.
+    /// Marks the payload type without storing a value or constraining auto
+    /// traits.
     marker: PhantomData<fn() -> T>,
 }
 
@@ -93,12 +95,11 @@ impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// restart bookkeeping, not messages; the join receives those from the
     /// provider. See [`Bookmark`] for storage and ownership requirements.
     ///
-    /// This calls [`Peer::bookmark`] once the session has ended with this
-    /// side holding its whole identity, whether or not the session then
-    /// completed. If attachment fails, [`Joined::Unbookmarked`] returns the
-    /// live peer and the storage error. If the session fails before the
-    /// identity arrives, or bails, the returned builder owns the untouched
-    /// bookmark and can retry.
+    /// This calls [`Peer::bookmark`] once the session has ended with this side
+    /// holding its whole identity, whether or not the session then completed.
+    /// If attachment fails, [`Joined::Unbookmarked`] returns the live peer and
+    /// the storage error. If the session fails before the identity arrives, or
+    /// bails, the returned builder owns the untouched bookmark and can retry.
     pub fn bookmark<B: Bookmark>(self, bookmark: B) -> Bootstrap<T, B> {
         Bootstrap {
             settings: self.settings,
@@ -123,7 +124,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         }
     }
 
-    /// Limit restart bookkeeping before attachment; see [`Peer::bookmark_size_limit`].
+    /// Limit restart bookkeeping before attachment; see
+    /// [`Peer::bookmark_size_limit`].
     pub fn bookmark_size_limit(mut self, bytes: usize) -> Self {
         self.bookmark_size_limit = bytes;
         self
@@ -140,9 +142,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         self
     }
 
-    /// Set the join's session deadline, also inherited by the joined peer.
-    /// See [`Peer::session_deadline`] for timing and expiry behavior.
-    /// Bookmark attachment after the wire session is not covered.
+    /// Set the join's session deadline, also inherited by the joined peer. See
+    /// [`Peer::session_deadline`] for timing and expiry behavior. Bookmark
+    /// attachment after the wire session is not covered.
     pub fn session_deadline<D, F>(mut self, deadline: D) -> Self
     where
         D: Fn() -> F + Send + Sync + 'static,
@@ -154,8 +156,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
 
     /// Set the joined peer's pipelining memory budget.
     ///
-    /// Bootstrap receives into an empty replica and has no disputed subtrees
-    /// to pipeline, so the join's own session holds little beyond what every
+    /// Bootstrap receives into an empty replica and has no disputed subtrees to
+    /// pipeline, so the join's own session holds little beyond what every
     /// budget sets aside, its room for messages on their way included; the
     /// budget matters most to its later synchronizations.
     /// [`target_message_size`](Self::target_message_size) bounds bootstrap's
@@ -164,9 +166,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// afford, and raises a budget below the minimum for its target to that
     /// minimum, at most
     /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), whichever
-    /// order the two are set in.
-    /// See [`Peer::sync_memory_budget`] for the contract and
-    /// [the sizing guide](crate::sizing) for tuning guidance.
+    /// order the two are set in. See [`Peer::sync_memory_budget`] for the
+    /// contract and [the sizing guide](crate::sizing) for tuning guidance.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.settings.sizing.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
         self
@@ -175,9 +176,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Set the batched-message size target during and after bootstrap.
     ///
     /// The provider uses the smaller of its target and ours, ours lowered to
-    /// what our [`sync_memory_budget`](Self::sync_memory_budget) affords.
-    /// Zero sends one leaf per message. See [`Peer::target_message_size`]
-    /// for defaults and what the target accounts for.
+    /// what our [`sync_memory_budget`](Self::sync_memory_budget) affords. Zero
+    /// sends one leaf per message. See [`Peer::target_message_size`] for
+    /// defaults and what the target accounts for.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.settings.sizing.run_budget = RunBudget::from_bytes(bytes);
         self
@@ -185,8 +186,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
 
     /// Set the write batch range during and after bootstrap.
     ///
-    /// See [`Peer::write_batch_range`] for the default, how the bounds
-    /// convert, and how to choose a range.
+    /// See [`Peer::write_batch_range`] for the default, how the bounds convert,
+    /// and how to choose a range.
     pub fn write_batch_range(mut self, range: impl RangeBounds<usize>) -> Self {
         self.settings.sizing.write_batch = WriteBatch::from_range(range);
         self
@@ -204,8 +205,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     ///
     /// Calling `observe` again adds another observer; callbacks visit them in
     /// registration order. Every observer also survives failed attempts in the
-    /// returned builder.
-    /// See [`observe`](crate::observe) for the observation contract.
+    /// returned builder. See [`observe`](crate::observe) for the observation
+    /// contract.
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.settings.observe.attach(observer);
         self
@@ -214,46 +215,46 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
 
 /// Run a configured bootstrap and attach its selected bookmark.
 impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
-    /// Join the connected peer's gossip network, returning a peer or a retryable builder.
+    /// Join the connected peer's gossip network, returning a peer or a
+    /// retryable builder.
     ///
     /// `read` and `write` are the two halves of one connection to an
     /// established member; see the [transport requirements](crate#transport).
     /// Pass `&mut` halves to keep the connection after the session.
     ///
-    /// Success receives the provider's current message set. The provider may
-    /// be gossiping or retiring. Two bootstrappers cannot supply each other;
-    /// both return [`Joined::Bailed`] with their builders.
+    /// Success receives the provider's current message set. The provider may be
+    /// gossiping or retiring. Two bootstrappers cannot supply each other; both
+    /// return [`Joined::Bailed`] with their builders.
     ///
     /// [`Joined::Failed`] returns the builder when the session fails before
     /// this side has received its whole identity, including on
     /// [`session_deadline`](Self::session_deadline) expiry. Discard the
-    /// connection and retry on another. Once the whole identity has
-    /// arrived, this side has joined however the session ends, because the
-    /// provider gave that identity up before sending it. A failure after
-    /// that point, while the two sides confirm completion, returns the live
-    /// peer with a [`Connection::Lost`] carrying the error.
+    /// connection and retry on another. Once the whole identity has arrived,
+    /// this side has joined however the session ends, because the provider gave
+    /// that identity up before sending it. A failure after that point, while
+    /// the two sides confirm completion, returns the live peer with a
+    /// [`Connection::Lost`] carrying the error.
     ///
     /// If a bookmark was selected, joining then attaches it through
     /// [`Peer::bookmark`], whether or not the session completed. A failed
-    /// attachment returns [`Joined::Unbookmarked`], preserving the joined
-    /// peer.
+    /// attachment returns [`Joined::Unbookmarked`], preserving the joined peer.
     ///
     /// Cancelling drops the builder and any joined peer. Cancellation during
-    /// the session leaves the connection at an unknown position; once
-    /// bookmark attachment begins, the session has ended, and the
-    /// connection stays where the session left it: at its boundary if the
-    /// session completed, at an unknown position if it failed. See
-    /// [what a session promises](crate#what-a-session-promises).
+    /// the session leaves the connection at an unknown position; once bookmark
+    /// attachment begins, the session has ended, and the connection stays where
+    /// the session left it: at its boundary if the session completed, at an
+    /// unknown position if it failed. See [what a session
+    /// promises](crate#what-a-session-promises).
     ///
-    /// The provider gives up the identity it donates before it starts to
-    /// send it, so cancelling a join after that point leaves the identity
-    /// held by no peer. No message is lost and no identity is duplicated,
-    /// but the identity can never be recycled, which lets versions grow as
-    /// a crashed peer's identity does (see [`Bookmark`]). To bound a join's
-    /// duration, configure [`session_deadline`](Self::session_deadline)
-    /// rather than dropping the future: a deadline that expires after the
-    /// whole identity has arrived returns the live peer with a
-    /// [`Connection::Lost`], where dropping the future would discard it.
+    /// The provider gives up the identity it donates before it starts to send
+    /// it, so cancelling a join after that point leaves the identity held by no
+    /// peer. No message is lost and no identity is duplicated, but the identity
+    /// can never be recycled, which lets versions grow as a crashed peer's
+    /// identity does (see [`Bookmark`]). To bound a join's duration, configure
+    /// [`session_deadline`](Self::session_deadline) rather than dropping the
+    /// future: a deadline that expires after the whole identity has arrived
+    /// returns the live peer with a [`Connection::Lost`], where dropping the
+    /// future would discard it.
     pub async fn join<R, W>(self, mut read: R, mut write: W) -> Joined<T, R, W, B>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -295,28 +296,28 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     }
 }
 
-/// A bootstrap's outcome: a new peer and its connection's fate, or the
-/// builder for a retry.
+/// A bootstrap's outcome: a new peer and its connection's fate, or the builder
+/// for a retry.
 ///
-/// Once this side has received its whole identity it has joined the
-/// network, however the session then ends. [`Joined`](Self::Joined) and
+/// Once this side has received its whole identity it has joined the network,
+/// however the session then ends. [`Joined`](Self::Joined) and
 /// [`Unbookmarked`](Self::Unbookmarked) carry the new peer beside a
-/// [`Connection`] that says whether the connection can carry another
-/// session. Without an identity, [`Bailed`](Self::Bailed) completed the
-/// session and returns the connection's halves, resting at the session
-/// boundary, and [`Failed`](Self::Failed) returns only the builder.
+/// [`Connection`] that says whether the connection can carry another session.
+/// Without an identity, [`Bailed`](Self::Bailed) completed the session and
+/// returns the connection's halves, resting at the session boundary, and
+/// [`Failed`](Self::Failed) returns only the builder.
 #[must_use = "Joined contains a peer or a builder needed for retry"]
 pub enum Joined<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
-    /// This side joined the network, and any selected bookmark was attached
-    /// and persisted.
+    /// This side joined the network, and any selected bookmark was attached and
+    /// persisted.
     Joined {
         /// The new peer, carrying the selected configuration and storage.
         peer: Peer<T, B>,
         /// Whether the connection can carry another session.
         connection: Connection<R, W>,
     },
-    /// Both endpoints were bootstrapping; neither could provide a gossip network.
-    /// Storage was not touched.
+    /// Both endpoints were bootstrapping; neither could provide a gossip
+    /// network. Storage was not touched.
     Bailed {
         /// The complete builder, ready to try another provider.
         bootstrap: Bootstrap<T, B>,
@@ -326,16 +327,16 @@ pub enum Joined<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
         write: W,
     },
     /// This side joined the network, but attaching the selected bookmark
-    /// failed. The returned peer is live and unbookmarked; retry its
-    /// bookmark attachment.
+    /// failed. The returned peer is live and unbookmarked; retry its bookmark
+    /// attachment.
     Unbookmarked {
         /// The joined peer and the attachment's failure.
         unbookmarked: Unbookmarked<T, B>,
         /// Whether the connection can carry another session.
         connection: Connection<R, W>,
     },
-    /// The session failed, and this side received no whole identity.
-    /// Storage was not touched; discard the connection.
+    /// The session failed, and this side received no whole identity. Storage
+    /// was not touched; discard the connection.
     Failed {
         /// The session error.
         error: Error,

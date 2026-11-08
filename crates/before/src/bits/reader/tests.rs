@@ -22,14 +22,13 @@ fn decode_gamma(bytes: &[u8], len: u64, position: u64) -> Result<(BigUint, u64),
     Ok((value, reader.position()))
 }
 
-/// The gamma reader decodes the same value from the same bits as the
-/// committed decoder across the machine-word boundary.
+/// The gamma reader decodes the same value from the same bits as the committed
+/// decoder across the machine-word boundary.
 ///
-/// Witnessed at the largest machine-word code (`k = 63`), the first
-/// big-integer code (`k = 64`), the next (`k = 65`), and wider codes
-/// (`k ≈ 100`): widths a reader passing on narrow values alone cannot
-/// fake, since our coding has no value cap while dsi-bitstream's own
-/// `read_gamma` stops at `u64`.
+/// Witnessed at the largest machine-word code (`k = 63`), the first big-integer
+/// code (`k = 64`), the next (`k = 65`), and wider codes (`k ≈ 100`): widths a
+/// reader passing on narrow values alone cannot fake, since our coding has no
+/// value cap while dsi-bitstream's own `read_gamma` stops at `u64`.
 #[test]
 fn gamma_reader_matches_decoder_across_the_word_seam() {
     let wide = |p: u32| BigUint::ONE << p as usize;
@@ -103,9 +102,9 @@ fn skipping_gamma_advances_exactly_as_far_as_a_read() {
     }
 }
 
-/// A code truncated at every cut point reads `Truncated` from the
-/// word-parallel reader exactly where the per-bit loop rejects it, at
-/// widths on both sides of the word seam.
+/// A code truncated at every cut point reads `Truncated` from the word-parallel
+/// reader exactly where the per-bit loop rejects it, at widths on both sides of
+/// the word seam.
 #[test]
 fn truncated_codes_reject_at_every_cut_point() {
     for value in [
@@ -136,12 +135,12 @@ fn truncated_codes_reject_at_every_cut_point() {
     }
 }
 
-/// `read_unary` agrees with the per-bit loop across the buffered
-/// reader's refill seams.
+/// `read_unary` agrees with the per-bit loop across the buffered reader's
+/// refill seams.
 ///
-/// Runs longer than one 32-bit word and one 64-bit buffer are read
-/// whole, the terminating `1` is consumed, and a run the live bits
-/// never terminate rejects.
+/// Runs longer than one 32-bit word and one 64-bit buffer are read whole, the
+/// terminating `1` is consumed, and a run the live bits never terminate
+/// rejects.
 #[test]
 fn unary_reads_match_the_per_bit_loop_across_word_seams() {
     for run in [0u64, 1, 7, 8, 31, 32, 33, 63, 64, 65, 200] {
@@ -171,9 +170,9 @@ fn unary_reads_match_the_per_bit_loop_across_word_seams() {
     }
 }
 
-/// A mid-stream open (`new_at`) reads exactly the bits the whole-stream
-/// cursor reads from that position: every prefix offset of a mixed
-/// stream, at and off byte boundaries.
+/// A mid-stream open (`new_at`) reads exactly the bits the whole-stream cursor
+/// reads from that position: every prefix offset of a mixed stream, at and off
+/// byte boundaries.
 #[test]
 fn mid_stream_opens_read_the_same_suffix() {
     let mut bits = BitsWriter::new();
@@ -211,8 +210,8 @@ fn mid_stream_opens_read_the_same_suffix() {
     }
 }
 
-/// One step of a differential stream: a unary run of `0` bits closed by a
-/// `1`, or one gamma code.
+/// One step of a differential stream: a unary run of `0` bits closed by a `1`,
+/// or one gamma code.
 #[derive(Clone, Debug)]
 enum StreamOp {
     /// A run of this many zeros, then its terminator.
@@ -248,9 +247,8 @@ fn arb_gamma_value() -> impl Strategy<Value = BigUint> {
     ]
 }
 
-/// The widest mantissa [`arb_gamma_value`] draws, in bits past its leading
-/// one: several 64-bit words, so a wide code spans many limbs and buffer
-/// refills.
+/// The widest mantissa [`arb_gamma_value`] draws, in bits past its leading one:
+/// several 64-bit words, so a wide code spans many limbs and buffer refills.
 const WIDE_GAMMA_BITS: u64 = 600;
 
 proptest! {

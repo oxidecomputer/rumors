@@ -57,10 +57,9 @@ proptest! {
     }
 }
 
-/// A grid of two points, each run twice, on a 250 ms link whose
-/// bandwidth-delay product the larger pair's transfer exceeds under
-/// [`WINDOW`], so the run plans raised-limit reruns of it beside its grid
-/// sessions.
+/// A grid of two points, each run twice, on a 250 ms link whose bandwidth-delay
+/// product the larger pair's transfer exceeds under [`WINDOW`], so the run
+/// plans raised-limit reruns of it beside its grid sessions.
 const GRID: &str = r#"
 repetitions = 2
 
@@ -97,8 +96,8 @@ fn environment() -> Environment {
     environment
 }
 
-/// A calibration whose noise point is `noise`, accepting sessions of up to
-/// one second.
+/// A calibration whose noise point is `noise`, accepting sessions of up to one
+/// second.
 fn calibration(noise: Point) -> Calibration {
     Calibration {
         fingerprint: String::new(),
@@ -132,8 +131,8 @@ fn scratch(test: &str) -> PathBuf {
 }
 
 /// The fixture executor: every session prepares at once and measures one
-/// second, its replicas converged and each side at the budget the library
-/// runs its request at.
+/// second, its replicas converged and each side at the budget the library runs
+/// its request at.
 struct Fixture;
 
 impl Executor for Fixture {
@@ -180,8 +179,8 @@ fn begin(dir: &Path, environment: &Environment) -> Part {
     try_begin(dir, environment).unwrap()
 }
 
-/// Begins the fixture run of [`GRID`] in `dir`, returning its part, or why
-/// it could not begin.
+/// Begins the fixture run of [`GRID`] in `dir`, returning its part, or why it
+/// could not begin.
 fn try_begin(dir: &Path, environment: &Environment) -> Result<Part> {
     let (points, skipped) = Grid::parse(GRID).unwrap().plan().unwrap();
     let sessions = grid::sessions(&points, 2, Some((WINDOW, 0.5)));
@@ -214,9 +213,9 @@ fn try_begin(dir: &Path, environment: &Environment) -> Result<Part> {
     )
 }
 
-/// Runs the first `cut` of `part`'s sessions and stops, as a run does when
-/// its process is killed: `run.json` keeps the record written before the
-/// first session. Returns the session that would have run next, if any.
+/// Runs the first `cut` of `part`'s sessions and stops, as a run does when its
+/// process is killed: `run.json` keeps the record written before the first
+/// session. Returns the session that would have run next, if any.
 fn run_cut_short(mut part: Part, cut: usize) -> Option<Session> {
     let mut sessions = std::mem::take(&mut part.sessions);
     let next = sessions.get(cut).cloned();
@@ -225,8 +224,8 @@ fn run_cut_short(mut part: Part, cut: usize) -> Option<Session> {
     next
 }
 
-/// The bytes a writer appends to `sessions.csv` for `row`, preceded by
-/// the header when `first` is set, as for a file's first row.
+/// The bytes a writer appends to `sessions.csv` for `row`, preceded by the
+/// header when `first` is set, as for a file's first row.
 fn row_bytes(row: &Row, first: bool) -> Vec<u8> {
     let mut writer = csv::WriterBuilder::new()
         .has_headers(first)
@@ -307,14 +306,13 @@ divided_proptest! {
     }
 }
 
-/// A resume under an environment that differs from the run's is refused
-/// before it touches the directory, and the refusal names the part that
-/// differs with both values.
+/// A resume under an environment that differs from the run's is refused before
+/// it touches the directory, and the refusal names the part that differs with
+/// both values.
 ///
-/// The differences tried are another host, and another build whose
-/// executable alone differs, as a change to the library alone makes: every
-/// fact the build records at compile time, its revision included, matches
-/// the run's.
+/// The differences tried are another host, and another build whose executable
+/// alone differs, as a change to the library alone makes: every fact the build
+/// records at compile time, its revision included, matches the run's.
 #[test]
 fn resume_under_another_environment_is_refused() {
     let environment = environment();
@@ -347,12 +345,12 @@ fn resume_under_another_environment_is_refused() {
     }
 }
 
-/// A new run refuses a directory that already holds a run, finished or
-/// cut short, and leaves that run's files as they were.
+/// A new run refuses a directory that already holds a run, finished or cut
+/// short, and leaves that run's files as they were.
 ///
 /// The rows of a run cut short are what `--resume` finishes it from, and a
-/// finished run's are its results, so a new run beginning there would
-/// destroy them. The refusal names `--resume`.
+/// finished run's are its results, so a new run beginning there would destroy
+/// them. The refusal names `--resume`.
 #[test]
 fn a_new_run_refuses_a_directory_holding_a_run() {
     let environment = environment();
@@ -375,8 +373,8 @@ fn a_new_run_refuses_a_directory_holding_a_run() {
     }
 }
 
-/// A run that finished is not resumed: there is nothing left to run, and
-/// its record already counts its parts.
+/// A run that finished is not resumed: there is nothing left to run, and its
+/// record already counts its parts.
 #[test]
 fn finished_run_is_not_resumed() {
     let dir = scratch("finished");

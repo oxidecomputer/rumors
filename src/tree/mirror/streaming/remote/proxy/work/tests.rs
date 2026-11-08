@@ -62,8 +62,8 @@ fn parked_session() -> ParkedSession {
     ParkedSession { work, peer }
 }
 
-/// An executor over the pipe halves `read` and `write`, with a backend
-/// whose errors retain identity.
+/// An executor over the pipe halves `read` and `write`, with a backend whose
+/// errors retain identity.
 fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
     Work::new(
         Ingress::new(
@@ -90,8 +90,8 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
     )
 }
 
-/// A read half that fails once with its error kind, then reports end of
-/// stream: a transport whose failure is not sticky.
+/// A read half that fails once with its error kind, then reports end of stream:
+/// a transport whose failure is not sticky.
 struct FailsOnce(Option<ErrorKind>);
 
 /// Report the error on the first read and end of stream on every later one.
@@ -196,9 +196,8 @@ fn a_ready_violation_explains_a_write_failure() {
     );
 }
 
-/// A write failure stands when the demultiplexer has only the peer's
-/// departure ready: both are transport failures, and the protocol's came
-/// first.
+/// A write failure stands when the demultiplexer has only the peer's departure
+/// ready: both are transport failures, and the protocol's came first.
 #[test]
 fn a_write_failure_stands_beside_departure() {
     let ParkedSession { work, peer } = parked_session();
@@ -212,8 +211,7 @@ fn a_write_failure_stands_beside_departure() {
     );
 }
 
-/// `scope` as a published question whose record and room no ledger
-/// charges.
+/// `scope` as a published question whose record and room no ledger charges.
 fn uncharged(scope: Scope) -> Outstanding {
     Outstanding {
         scope,
@@ -300,16 +298,15 @@ proptest! {
     }
 }
 
-/// A future that wakes itself and yields once, then completes: work left
-/// within the session, needing no outside event.
+/// A future that wakes itself and yields once, then completes: work left within
+/// the session, needing no outside event.
 struct YieldOnce(bool);
 
 /// Yield on the first poll, after waking the task; complete on the next.
 impl Future for YieldOnce {
     type Output = ();
 
-    /// Completes if it has yielded before; otherwise wakes the task and
-    /// yields.
+    /// Completes if it has yielded before; otherwise wakes the task and yields.
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         if self.0 {
             return Poll::Ready(());
@@ -320,9 +317,9 @@ impl Future for YieldOnce {
     }
 }
 
-/// A walk error the terminal step raises from work within the session fails
-/// the session, although the peer departed first: a departure waits for the
-/// walk to stop, and a walk error found meanwhile is the session's cause.
+/// A walk error the terminal step raises from work within the session fails the
+/// session, although the peer departed first: a departure waits for the walk to
+/// stop, and a walk error found meanwhile is the session's cause.
 #[test]
 fn a_walk_error_after_departure_is_the_cause() {
     let ParkedSession { work, peer } = parked_session();
@@ -347,9 +344,8 @@ fn a_walk_error_after_departure_is_the_cause() {
     );
 }
 
-/// The peer's departure, reported while the terminal step still has work
-/// within the session, fails the session although that work then completes
-/// the walk.
+/// The peer's departure, reported while the terminal step still has work within
+/// the session, fails the session although that work then completes the walk.
 #[test]
 fn departure_fails_a_walk_that_completes_after_it() {
     let ParkedSession { work, peer } = parked_session();
@@ -367,10 +363,9 @@ fn departure_fails_a_walk_that_completes_after_it() {
     );
 }
 
-/// A read error the demultiplexer has ready when the protocol completes
-/// fails the session as the peer's departure, carrying the transport's own
-/// error, although the transport would report only end of stream if read
-/// again.
+/// A read error the demultiplexer has ready when the protocol completes fails
+/// the session as the peer's departure, carrying the transport's own error,
+/// although the transport would report only end of stream if read again.
 #[test]
 fn a_ready_read_error_fails_completed_work() {
     let work = session_over(

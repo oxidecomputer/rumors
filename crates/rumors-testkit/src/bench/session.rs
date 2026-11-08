@@ -1,27 +1,26 @@
 //! Deterministic replica pairs, and the runner that reconciles them over a
 //! [`Link`] and reads what each side's ledger admitted.
 //!
-//! Every pair forks one network seeded from a ChaCha stream, a fixed one
-//! unless the shape names another seed, so its leaves, and with them the
-//! tree's shape, are the same on every run and every machine. Every message is a string sized so that its CBOR
-//! encoding, head and characters, takes the shape's
-//! [`message_bytes`](crate::bench::session::Shape::message_bytes): 100
-//! bytes unless the shape names another size.
+//! Every pair forks one network seeded from a ChaCha stream, a fixed one unless
+//! the shape names another seed, so its leaves, and with them the tree's shape,
+//! are the same on every run and every machine. Every message is a string sized
+//! so that its CBOR encoding, head and characters, takes the shape's
+//! [`message_bytes`](crate::bench::session::Shape::message_bytes): 100 bytes
+//! unless the shape names another size.
 //!
-//! A session's ledgers report every change through the process's ledger
-//! hook ([`observe_ledgers`]), and every unit they admit through its
-//! admission hook ([`observe_admissions`]). From those reports a
-//! [`LedgerReading`] keeps, beside its totals, three records of how the
-//! session spent its budget over time: the budget-counted bytes at every
-//! moment ([`LedgerReading::profile`]), every wait for admission
-//! ([`LedgerReading::waits`]), and what each place held for each depth
-//! ([`LedgerReading::holders`]). The link model polls both peers
-//! on the thread that drives the session, so the runner keeps each
-//! thread's readings apart and attributes them to the session that thread
-//! runs, and reads only while one of its sessions runs: a session a thread
-//! runs some other way reports through the same hooks, and the runner
-//! ignores it. The runner installs both hooks, so a process that runs
-//! sessions through it installs no other.
+//! A session's ledgers report every change through the process's ledger hook
+//! ([`observe_ledgers`]), and every unit they admit through its admission hook
+//! ([`observe_admissions`]). From those reports a [`LedgerReading`] keeps,
+//! beside its totals, three records of how the session spent its budget over
+//! time: the budget-counted bytes at every moment ([`LedgerReading::profile`]),
+//! every wait for admission ([`LedgerReading::waits`]), and what each place
+//! held for each depth ([`LedgerReading::holders`]). The link model polls both
+//! peers on the thread that drives the session, so the runner keeps each
+//! thread's readings apart and attributes them to the session that thread runs,
+//! and reads only while one of its sessions runs: a session a thread runs some
+//! other way reports through the same hooks, and the runner ignores it. The
+//! runner installs both hooks, so a process that runs sessions through it
+//! installs no other.
 //!
 //! [`Link`]: crate::bench::link::Link
 //! [`LedgerReading`]: crate::bench::session::LedgerReading
@@ -61,32 +60,32 @@ pub const LAN_BDP: u64 = 125_000;
 /// bandwidth-delay product.
 pub const METRO_BDP: u64 = 1_250_000;
 
-/// A long-haul link: 1 Gb/s with a 100 ms round trip, a 12.5 MB
-/// bandwidth-delay product.
+/// A long-haul link: 1 Gb/s with a 100 ms round trip, a 12.5 MB bandwidth-delay
+/// product.
 pub const LONG_HAUL_BDP: u64 = 12_500_000;
 
-/// The scopes a session can admit units about, the root's depth 0 through
-/// the leaves' 32.
+/// The scopes a session can admit units about, the root's depth 0 through the
+/// leaves' 32.
 pub const DEPTHS: usize = 33;
 
-/// The encoded size of every fixture message unless a shape names
-/// another: 100 bytes.
+/// The encoded size of every fixture message unless a shape names another: 100
+/// bytes.
 pub const MESSAGE_BYTES: usize = 100;
 
-/// The model's timing resolution between two sessions of one pair on a
-/// link with bandwidth: one segment's serialization per one-way hop of the
-/// critical path, which `latency_only` measures.
+/// The model's timing resolution between two sessions of one pair on a link
+/// with bandwidth: one segment's serialization per one-way hop of the critical
+/// path, which `latency_only` measures.
 ///
 /// A segment arrives whole, so each serialized hop of the critical path can
-/// shift by up to one segment's serialization between two sessions that
-/// differ only in how their bytes are grouped.
+/// shift by up to one segment's serialization between two sessions that differ
+/// only in how their bytes are grouped.
 pub fn resolution(latency_only: &Session) -> u64 {
     latency_only.hops() * SEGMENT_BYTES
 }
 
-/// The messages a pair shares, those each side inserted that the other
-/// has never seen, those each side redacted that the other still holds,
-/// and the bytes each message encodes in.
+/// The messages a pair shares, those each side inserted that the other has
+/// never seen, those each side redacted that the other still holds, and the
+/// bytes each message encodes in.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Shape {
     /// Messages both sides hold.
@@ -95,36 +94,36 @@ pub struct Shape {
     pub a: u64,
     /// Messages only [`Side::B`] holds, which [`Side::A`] has never seen.
     pub b: u64,
-    /// Messages both sides received, which [`Side::A`] has since redacted
-    /// and [`Side::B`] still holds: its version covers each, and its tree
-    /// holds none.
+    /// Messages both sides received, which [`Side::A`] has since redacted and
+    /// [`Side::B`] still holds: its version covers each, and its tree holds
+    /// none.
     pub redacted_a: u64,
-    /// Messages both sides received, which [`Side::B`] has since redacted
-    /// and [`Side::A`] still holds.
+    /// Messages both sides received, which [`Side::B`] has since redacted and
+    /// [`Side::A`] still holds.
     pub redacted_b: u64,
     /// The bytes each message's CBOR encoding takes, head included.
     pub message_bytes: usize,
     /// The draw of the pair's tree: messages the network sends and redacts
-    /// before any other, so that every later message's version, and with
-    /// it its leaf's path, differs from the draws before it.
+    /// before any other, so that every later message's version, and with it its
+    /// leaf's path, differs from the draws before it.
     ///
-    /// A leaf's path is its version's hash keyed by the network's secret,
-    /// so the counts and the network's seed fix a pair's tree; the draw
-    /// changes the tree and nothing else, since a redaction leaves no trace
-    /// in either tree.
+    /// A leaf's path is its version's hash keyed by the network's secret, so
+    /// the counts and the network's seed fix a pair's tree; the draw changes
+    /// the tree and nothing else, since a redaction leaves no trace in either
+    /// tree.
     pub draw: u64,
-    /// The seed of the pair's network, which keys every leaf's path: a
-    /// fixed seed unless the shape names another ([`Shape::with_network`]).
+    /// The seed of the pair's network, which keys every leaf's path: a fixed
+    /// seed unless the shape names another ([`Shape::with_network`]).
     ///
-    /// A suite that checks exact numbers keeps the fixed seed; a property
-    /// that holds for every secret draws one from
+    /// A suite that checks exact numbers keeps the fixed seed; a property that
+    /// holds for every secret draws one from
     /// [`network_seed`](crate::common::seed::network_seed).
     pub network: NetworkSeed,
 }
 
 impl Shape {
-    /// Two equal, disjoint sets of `messages` each: every message is
-    /// disputed in both directions.
+    /// Two equal, disjoint sets of `messages` each: every message is disputed
+    /// in both directions.
     pub const fn symmetric(messages: u64) -> Self {
         Self {
             shared: 0,
@@ -138,8 +137,8 @@ impl Shape {
         }
     }
 
-    /// Two sets of `messages` each, of which `shared_percent` percent are
-    /// held by both and the rest by one side alone.
+    /// Two sets of `messages` each, of which `shared_percent` percent are held
+    /// by both and the rest by one side alone.
     pub const fn overlapping(messages: u64, shared_percent: u64) -> Self {
         let shared = messages * shared_percent / 100;
         Self {
@@ -154,8 +153,8 @@ impl Shape {
         }
     }
 
-    /// `messages` on [`Side::A`] and none on [`Side::B`]: a catch-up, in
-    /// which every message crosses one way.
+    /// `messages` on [`Side::A`] and none on [`Side::B`]: a catch-up, in which
+    /// every message crosses one way.
     pub const fn catch_up(messages: u64) -> Self {
         Self {
             shared: 0,
@@ -169,8 +168,8 @@ impl Shape {
         }
     }
 
-    /// This shape with `a` more messages both sides received that
-    /// [`Side::A`] has redacted, and `b` that [`Side::B`] has.
+    /// This shape with `a` more messages both sides received that [`Side::A`]
+    /// has redacted, and `b` that [`Side::B`] has.
     pub const fn with_redactions(self, a: u64, b: u64) -> Self {
         Self {
             redacted_a: a,
@@ -200,14 +199,14 @@ impl Shape {
     }
 }
 
-/// The fixture message numbered `index` held by `holder`: the holder's
-/// letter and the index, zero-padded so the string's CBOR encoding, head
-/// and characters, takes `bytes` bytes.
+/// The fixture message numbered `index` held by `holder`: the holder's letter
+/// and the index, zero-padded so the string's CBOR encoding, head and
+/// characters, takes `bytes` bytes.
 ///
 /// # Panics
 ///
-/// If no string of `bytes` encoded bytes holds the letter and the index:
-/// a fixture whose messages are too small to number.
+/// If no string of `bytes` encoded bytes holds the letter and the index: a
+/// fixture whose messages are too small to number.
 fn message(holder: char, index: u64, bytes: usize) -> String {
     let width = text_chars(bytes)
         .and_then(|chars| chars.checked_sub(1))
@@ -224,12 +223,12 @@ fn message(holder: char, index: u64, bytes: usize) -> String {
     message
 }
 
-/// The characters of the ASCII text string whose CBOR encoding takes
-/// `bytes` bytes, if one does.
+/// The characters of the ASCII text string whose CBOR encoding takes `bytes`
+/// bytes, if one does.
 ///
-/// A text string's head is one byte for fewer than 24 characters, two for
-/// fewer than 256, three for fewer than 65,536, and five below 2^32; no
-/// string encodes in 25 bytes, since 24 characters need a two-byte head.
+/// A text string's head is one byte for fewer than 24 characters, two for fewer
+/// than 256, three for fewer than 65,536, and five below 2^32; no string
+/// encodes in 25 bytes, since 24 characters need a two-byte head.
 fn text_chars(bytes: usize) -> Option<usize> {
     [
         (1, 0..24),
@@ -249,36 +248,35 @@ fn letter(side: Side) -> char {
     }
 }
 
-/// The memory budget whose sessions at the default message-size target
-/// admit work against `bytes` in their ledgers.
+/// The memory budget whose sessions at the default message-size target admit
+/// work against `bytes` in their ledgers.
 ///
 /// That is `bytes` beside the floor allowance
 /// ([`FLOOR_ALLOWANCE`](rumors::testing::FLOOR_ALLOWANCE)) and the session
-/// allowance ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE))
-/// every budget sets aside there ([`memory_budget_admitting`]).
+/// allowance ([`SESSION_ALLOWANCE`](rumors::testing::SESSION_ALLOWANCE)) every
+/// budget sets aside there ([`memory_budget_admitting`]).
 ///
 /// A session raises this, set through the public setter, to
-/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) when `bytes`
-/// is below the largest grant. A suite that states its budgets by what the
-/// ledgers admit, such as fractions of `Λ` or of the no-cost point, and
-/// must reach below that, sets the ledger budget directly instead
+/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) when `bytes` is
+/// below the largest grant. A suite that states its budgets by what the ledgers
+/// admit, such as fractions of `Λ` or of the no-cost point, and must reach
+/// below that, sets the ledger budget directly instead
 /// ([`BudgetChoice::Ledger`]).
 pub fn admitting(bytes: usize) -> usize {
     memory_budget_admitting(bytes)
 }
 
-/// Builds a pair of the given shape, both peers on a memory budget of
-/// `budget` bytes, set through the public setter ([`pair_at`]).
+/// Builds a pair of the given shape, both peers on a memory budget of `budget`
+/// bytes, set through the public setter ([`pair_at`]).
 pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
     pair_at(shape, BudgetChoice::Bytes(budget))
 }
 
-/// Builds a pair of the given shape, both peers on the budget `budget`
-/// chooses.
+/// Builds a pair of the given shape, both peers on the budget `budget` chooses.
 ///
 /// The shared messages, and those either side goes on to redact, are sent
-/// before either side joins, so both receive them while joining; each side
-/// then redacts its own, numbered after the shared ones.
+/// before either side joins, so both receive them while joining; each side then
+/// redacts its own, numbered after the shared ones.
 pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<String>) {
     block_on(async {
         let root = shape.network.peer::<String>().into_rumors();
@@ -310,8 +308,7 @@ pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<St
 }
 
 /// Has `replica` redact the shared messages numbered in `redacted`, after
-/// checking that it holds those numbered in `kept`, which its peer
-/// redacts.
+/// checking that it holds those numbered in `kept`, which its peer redacts.
 ///
 /// # Panics
 ///
@@ -351,9 +348,9 @@ fn redact(replica: &Rumors<String>, kept: Range<u64>, redacted: Range<u64>, shap
 pub struct Case {
     /// The pair's shape.
     pub shape: Shape,
-    /// Both peers' budget: a memory budget through the public setter, or
-    /// a ledger budget through the test path, which reaches below the
-    /// public minimum.
+    /// Both peers' budget: a memory budget through the public setter, or a
+    /// ledger budget through the test path, which reaches below the public
+    /// minimum.
     pub budget: BudgetChoice,
     /// The link between them.
     pub link: LinkConfig,
@@ -368,16 +365,16 @@ pub struct Grants {
     pub bytes: u64,
     /// Units that waited for admission.
     pub waited: u64,
-    /// Units admitted exempt: their kind and depth held nothing, or they
-    /// fit within its bound, so they asked nothing of the budget.
+    /// Units admitted exempt: their kind and depth held nothing, or they fit
+    /// within its bound, so they asked nothing of the budget.
     pub exempt: u64,
     /// Bytes the grants returned unused once their units were built.
     pub returned: u64,
 }
 
 impl Grants {
-    /// Counts one admission, or one grant's return of what its unit did
-    /// not use.
+    /// Counts one admission, or one grant's return of what its unit did not
+    /// use.
     fn add(&mut self, admission: &Admission) {
         if admission.leftover {
             self.returned += admission.bytes as u64;
@@ -425,13 +422,13 @@ pub struct Wait {
     pub depth: usize,
     /// Its grant's bytes.
     pub bytes: usize,
-    /// Whether it was admitted exempt, once its kind and depth emptied or
-    /// it fit within their bound, rather than against the budget.
+    /// Whether it was admitted exempt, once its kind and depth emptied or it
+    /// fit within their bound, rather than against the budget.
     pub exempt: bool,
 }
 
-/// One step of a ledger's profile: from `at` until the next step's time,
-/// the ledger's excess, what its budget counts, was `bytes`.
+/// One step of a ledger's profile: from `at` until the next step's time, the
+/// ledger's excess, what its budget counts, was `bytes`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Step {
     /// The link time the step starts, in byte-times.
@@ -440,13 +437,13 @@ pub struct Step {
     pub bytes: usize,
 }
 
-/// One holder of a ledger's bytes: one place's charges for units of one
-/// kind at one depth.
+/// One holder of a ledger's bytes: one place's charges for units of one kind at
+/// one depth.
 ///
-/// Every charge belongs to one holder at a time, and moves between holders
-/// only when the session moves its bytes from one place to another, so the
-/// holders partition what the ledger holds: they add up, at every moment,
-/// to the bytes it holds in all.
+/// Every charge belongs to one holder at a time, and moves between holders only
+/// when the session moves its bytes from one place to another, so the holders
+/// partition what the ledger holds: they add up, at every moment, to the bytes
+/// it holds in all.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Holder {
     /// The place.
@@ -461,26 +458,26 @@ pub struct Held {
     /// The bytes it held, integrated over the link's clock.
     pub area: u128,
     /// The bytes it held while at least one unit waited for its ledger's
-    /// admission, integrated over the link's clock: what kept the budget
-    /// full while admission held work back.
+    /// admission, integrated over the link's clock: what kept the budget full
+    /// while admission held work back.
     pub area_waiting: u128,
-    /// The bytes that entered it, charged to it or moved into it from
-    /// another place: with `area`, the mean time a byte stayed
-    /// (`area / inflow`, by Little's law).
+    /// The bytes that entered it, charged to it or moved into it from another
+    /// place: with `area`, the mean time a byte stayed (`area / inflow`, by
+    /// Little's law).
     pub inflow: u64,
 }
 
-/// The invitation share check that weighed a ledger's share peak, dated by
-/// the link's clock.
+/// The invitation share check that weighed a ledger's share peak, dated by the
+/// link's clock.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DatedCheck {
-    /// The link time of the first ledger change that reported the check,
-    /// in byte-times.
+    /// The link time of the first ledger change that reported the check, in
+    /// byte-times.
     ///
-    /// A check that admits its question is reported by its grant's own
-    /// charge, at the moment it was made, so in a session with no budget,
-    /// where every check admits, this is the check's own time. A check that
-    /// refuses its question is reported by the ledger's next change.
+    /// A check that admits its question is reported by its grant's own charge,
+    /// at the moment it was made, so in a session with no budget, where every
+    /// check admits, this is the check's own time. A check that refuses its
+    /// question is reported by the ledger's next change.
     pub at: u64,
     /// The check's terms.
     pub check: SharePeak,
@@ -489,78 +486,72 @@ pub struct DatedCheck {
 /// What one side's ledger held and admitted over a session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LedgerReading {
-    /// The side whose session first reported the ledger, if it reported
-    /// while the runner polled one side's session: every ledger [`run`]
-    /// reads.
+    /// The side whose session first reported the ledger, if it reported while
+    /// the runner polled one side's session: every ledger [`run`] reads.
     pub side: Option<Side>,
-    /// Its largest excess: the most its kinds and depths of unit held
-    /// beyond their bounds at once, the part its budget counts.
+    /// Its largest excess: the most its kinds and depths of unit held beyond
+    /// their bounds at once, the part its budget counts.
     pub budget_peak: usize,
-    /// The link time its excess first reached `budget_peak`, in
-    /// byte-times.
+    /// The link time its excess first reached `budget_peak`, in byte-times.
     pub budget_peak_at: u64,
-    /// What each holder held at that moment, every holder that held
-    /// anything, in holder order: they add up to `budget_peak_held`.
+    /// What each holder held at that moment, every holder that held anything,
+    /// in holder order: they add up to `budget_peak_held`.
     pub budget_peak_holders: Vec<(Holder, usize)>,
     /// The bytes it held in all at that moment.
     pub budget_peak_held: usize,
     /// The most bytes it held in all.
     pub held_peak: usize,
-    /// The most bytes its kinds and depths held within their bounds at
-    /// once, what it held less its excess: at most the floor allowance
-    /// while every grant is within its bound.
+    /// The most bytes its kinds and depths held within their bounds at once,
+    /// what it held less its excess: at most the floor allowance while every
+    /// grant is within its bound.
     pub within_bounds_peak: usize,
-    /// The largest sum any of its invitation share checks weighed: the
-    /// share peak.
+    /// The largest sum any of its invitation share checks weighed: the share
+    /// peak.
     pub share_peak: usize,
     /// The check that weighed the share peak, if it made any.
     pub share_peak_check: Option<DatedCheck>,
-    /// For each depth, the largest sum among that depth's checks that
-    /// raised the share peak: the peak's history, split by depth.
+    /// For each depth, the largest sum among that depth's checks that raised
+    /// the share peak: the peak's history, split by depth.
     ///
-    /// A check that admits its question is reported by its grant's own
-    /// charge, so in a session with no budget, where every check admits,
-    /// every check that raises the peak is seen. A depth's entry is then its
-    /// largest check whenever that check outweighed every earlier check of
-    /// the ledger, as the checks a ledger makes first, before any other
-    /// depth's, always do.
+    /// A check that admits its question is reported by its grant's own charge,
+    /// so in a session with no budget, where every check admits, every check
+    /// that raises the peak is seen. A depth's entry is then its largest check
+    /// whenever that check outweighed every earlier check of the ledger, as the
+    /// checks a ledger makes first, before any other depth's, always do.
     pub share_peaks: [usize; DEPTHS],
     /// Units that waited for admission, as the ledger counts them.
     pub waited: u64,
-    /// Its excess, integrated over the link's clock: byte-times times
-    /// bytes.
+    /// Its excess, integrated over the link's clock: byte-times times bytes.
     pub budget_area: u128,
-    /// The bytes it charged over the session: the sum of every rise in
-    /// what it holds.
+    /// The bytes it charged over the session: the sum of every rise in what it
+    /// holds.
     pub charged: u64,
     /// The bytes its items needed beyond their grants, over the session.
     pub short: u64,
-    /// The bytes it held for each place, integrated over the link's clock,
-    /// in
-    /// [`Holding::ALL`](rumors::testing::Holding::ALL) order: which places
-    /// held the budget, and for how long.
+    /// The bytes it held for each place, integrated over the link's clock, in
+    /// [`Holding::ALL`](rumors::testing::Holding::ALL) order: which places held
+    /// the budget, and for how long.
     pub place_area: [u128; PLACES],
     /// Its grants to questions, by the depth of the scope each asks about.
     pub questions: [Grants; DEPTHS],
     /// Its grants to answers' own items, by the depth of the scope each
     /// answers.
     pub answers: [Grants; DEPTHS],
-    /// Its admissions, in order: when each unit started, which shows, for
-    /// one, whether the root's answer opens its subtrees at once or one
-    /// after another.
+    /// Its admissions, in order: when each unit started, which shows, for one,
+    /// whether the root's answer opens its subtrees at once or one after
+    /// another.
     pub dated: Vec<DatedAdmission>,
-    /// Its excess over the session, as steps in time order, one per link
-    /// time at which it changed.
+    /// Its excess over the session, as steps in time order, one per link time
+    /// at which it changed.
     ///
-    /// The value a step records is the one in force once every change at
-    /// its time is made, which is all an integral over time can see. Before
-    /// the first step it held nothing.
+    /// The value a step records is the one in force once every change at its
+    /// time is made, which is all an integral over time can see. Before the
+    /// first step it held nothing.
     pub profile: Vec<Step>,
-    /// Every unit that waited for admission, in the order each was
-    /// admitted.
+    /// Every unit that waited for admission, in the order each was admitted.
     pub waits: Vec<Wait>,
-    /// The link time during which at least one unit waited for its
-    /// admission, in byte-times.
+    /// The link time during which at least one unit waited for its admission,
+    /// in byte-times.
     pub waiting_time: u64,
     /// What each holder of its bytes held over the session.
     pub holders: BTreeMap<Holder, Held>,
@@ -640,8 +631,8 @@ impl Admitted {
             .unwrap_or(0)
     }
 
-    /// The largest sum any ledger's invitation share checks weighed: the
-    /// share peak ([`LedgerReading::share_peak`]).
+    /// The largest sum any ledger's invitation share checks weighed: the share
+    /// peak ([`LedgerReading::share_peak`]).
     pub fn share_peak(&self) -> usize {
         self.ledgers
             .iter()
@@ -650,24 +641,24 @@ impl Admitted {
             .unwrap_or(0)
     }
 
-    /// The session's no-cost point, read from an unlimited session: the
-    /// least budget its ledgers can admit work against at which it runs as
-    /// the unlimited session does.
+    /// The session's no-cost point, read from an unlimited session: the least
+    /// budget its ledgers can admit work against at which it runs as the
+    /// unlimited session does.
     ///
     /// That is the larger of `Λ`, every ledger's peak excess, and the
     /// [`share_peak`](Self::share_peak).
     ///
-    /// Below `Λ` some admission the unlimited session made would not fit,
-    /// and below the share peak some question it asked would not fit beside
-    /// its depth's claims, so some unit waits. At or above both, every check
-    /// the unlimited session made passes, by induction along its schedule.
+    /// Below `Λ` some admission the unlimited session made would not fit, and
+    /// below the share peak some question it asked would not fit beside its
+    /// depth's claims, so some unit waits. At or above both, every check the
+    /// unlimited session made passes, by induction along its schedule.
     pub fn no_cost_point(&self) -> usize {
         self.budget_peak().max(self.share_peak())
     }
 
     /// The least memory budget at which the session runs as the unlimited
-    /// session does: the one whose ledgers admit work against the
-    /// [no-cost point](Self::no_cost_point) ([`admitting`]).
+    /// session does: the one whose ledgers admit work against the [no-cost
+    /// point](Self::no_cost_point) ([`admitting`]).
     pub fn no_cost_budget(&self) -> usize {
         admitting(self.no_cost_point())
     }
@@ -678,8 +669,8 @@ impl Admitted {
     }
 }
 
-/// One ledger's reading while its session runs: the reading so far, and
-/// what integrating its excess over time needs.
+/// One ledger's reading while its session runs: the reading so far, and what
+/// integrating its excess over time needs.
 #[derive(Default)]
 struct Reading {
     /// The order of the ledger's first report among this thread's ledgers.
@@ -700,16 +691,15 @@ struct Reading {
     pending: BTreeMap<u64, (u64, Admission)>,
     /// The link time at which `pending` last changed.
     pending_since: u64,
-    /// The first unit that began waiting, or took its grant, while another
-    /// unit of its kind and depth still waited, if any, which [`admitted`]
-    /// reports.
+    /// The first unit that began waiting, or took its grant, while another unit
+    /// of its kind and depth still waited, if any, which [`admitted`] reports.
     crowded: Option<ChargeUnit>,
 }
 
 impl Reading {
-    /// The waiting clock at `now`: the link time so far during which at
-    /// least one unit waited, which grows at one byte-time per byte-time
-    /// while any does and stands still otherwise.
+    /// The waiting clock at `now`: the link time so far during which at least
+    /// one unit waited, which grows at one byte-time per byte-time while any
+    /// does and stands still otherwise.
     fn waiting_clock(&self, now: u64) -> u64 {
         let current = if self.pending.is_empty() {
             0
@@ -720,21 +710,21 @@ impl Reading {
     }
 
     /// Record `admission`'s unit as crowded if another unit of its kind and
-    /// depth is waiting: `admission` reports a unit starting to wait, before
-    /// it joins `pending`, or taking its grant, after it has left it.
+    /// depth is waiting: `admission` reports a unit starting to wait, before it
+    /// joins `pending`, or taking its grant, after it has left it.
     ///
     /// This checks the walk's structure, not a premise of liveness. In the
-    /// walk, each kind and depth has one producer, a stage of the pipeline
-    /// the walk runs as, which awaits each admission before it asks for the
-    /// next unit, so while a unit waits, no other unit of its kind and depth
-    /// either starts waiting or is granted. Admission serves each kind and
-    /// depth first come, first served, so a second waiter would only wait
-    /// its turn: it means the structure has changed, for example by
-    /// processing a level's replies concurrently or by asking for a unit
-    /// before awaiting the previous one. A unit granted past an earlier
-    /// waiter of its kind and depth, which the same check also records,
-    /// would break admission's first-come, first-served rule itself. A
-    /// waiting unit leaves `pending` only once it is admitted.
+    /// walk, each kind and depth has one producer, a stage of the pipeline the
+    /// walk runs as, which awaits each admission before it asks for the next
+    /// unit, so while a unit waits, no other unit of its kind and depth either
+    /// starts waiting or is granted. Admission serves each kind and depth first
+    /// come, first served, so a second waiter would only wait its turn: it
+    /// means the structure has changed, for example by processing a level's
+    /// replies concurrently or by asking for a unit before awaiting the
+    /// previous one. A unit granted past an earlier waiter of its kind and
+    /// depth, which the same check also records, would break admission's
+    /// first-come, first-served rule itself. A waiting unit leaves `pending`
+    /// only once it is admitted.
     fn check_alone(&mut self, admission: &Admission) {
         let unit = ChargeUnit {
             question: admission.question,
@@ -773,8 +763,8 @@ impl Reading {
     }
 }
 
-/// One thread's readings: the link whose clock dates them, and each ledger
-/// by its identity.
+/// One thread's readings: the link whose clock dates them, and each ledger by
+/// its identity.
 #[derive(Default)]
 struct Readings {
     /// The link the thread's session runs over.
@@ -785,16 +775,16 @@ struct Readings {
     joint_held: usize,
     /// The most `joint_held` has been.
     joint_held_peak: usize,
-    /// Whether a root answer has returned what its grant left over, which
-    /// it does once it has admitted its last question.
+    /// Whether a root answer has returned what its grant left over, which it
+    /// does once it has admitted its last question.
     root_answered: bool,
     /// The side whose session the runner is polling, if it is polling one.
     polling: Option<Side>,
 }
 
 impl Readings {
-    /// The reading of the ledger identified as `ledger`, begun if this is
-    /// its first report, as the ledger of the side being polled.
+    /// The reading of the ledger identified as `ledger`, begun if this is its
+    /// first report, as the ledger of the side being polled.
     fn ledger(&mut self, ledger: usize) -> &mut Reading {
         let order = self.ledgers.len();
         let side = self.polling;
@@ -818,13 +808,12 @@ thread_local! {
     static READINGS: RefCell<Readings> = RefCell::new(Readings::default());
 }
 
-/// Records one ledger change against the reporting thread's session, if
-/// the runner is running one on this thread.
+/// Records one ledger change against the reporting thread's session, if the
+/// runner is running one on this thread.
 ///
-/// A session this thread runs some other way, outside [`run`], reports
-/// through the same hook; its changes are not the runner's to read, and a
-/// stale reading of a ledger whose address it reuses would date them
-/// against the wrong clock.
+/// A session this thread runs some other way, outside [`run`], reports through
+/// the same hook; its changes are not the runner's to read, and a stale reading
+/// of a ledger whose address it reuses would date them against the wrong clock.
 fn record_change(change: LedgerChange) {
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
@@ -899,8 +888,8 @@ fn record_change(change: LedgerChange) {
     });
 }
 
-/// Records one admission against the reporting thread's session, if the
-/// runner is running one on this thread, as [`record_change`] does.
+/// Records one admission against the reporting thread's session, if the runner
+/// is running one on this thread, as [`record_change`] does.
 fn record_admission(admission: Admission) {
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
@@ -960,8 +949,8 @@ fn record_admission(admission: Admission) {
     });
 }
 
-/// Clears this thread's readings, so they cover only the session that
-/// runs over `link` next.
+/// Clears this thread's readings, so they cover only the session that runs over
+/// `link` next.
 fn start_reading(link: &Link) {
     assert!(
         observe_ledgers(record_change),
@@ -984,21 +973,20 @@ fn start_reading(link: &Link) {
 ///
 /// # Panics
 ///
-/// If a ledger's admissions that waited, counted one by one, differ from
-/// the count the ledger itself keeps, or if the bytes its admissions
-/// granted, with what its items needed beyond their grants, differ from
-/// the rises in what it holds: two computations of one quantity must
-/// agree.
+/// If a ledger's admissions that waited, counted one by one, differ from the
+/// count the ledger itself keeps, or if the bytes its admissions granted, with
+/// what its items needed beyond their grants, differ from the rises in what it
+/// holds: two computations of one quantity must agree.
 ///
 /// If a ledger granted a unit more than its kind and depth's bound
 /// ([`grant_bound`]), or admitted units of both sides' kinds and depths: the
 /// floor allowance a session sets aside rests on neither happening.
 ///
-/// If a unit began waiting for admission, or took its grant, while another
-/// unit of its kind and depth still waited in the same ledger: the walk
-/// gives each kind and depth one producer, which awaits each admission
-/// before it asks for the next unit, so a second waiter means the walk's
-/// structure has changed ([`Reading::check_alone`]).
+/// If a unit began waiting for admission, or took its grant, while another unit
+/// of its kind and depth still waited in the same ledger: the walk gives each
+/// kind and depth one producer, which awaits each admission before it asks for
+/// the next unit, so a second waiter means the walk's structure has changed
+/// ([`Reading::check_alone`]).
 fn admitted() -> Admitted {
     READINGS.with(|readings| {
         let mut readings = readings.borrow_mut();
@@ -1072,8 +1060,7 @@ fn admitted() -> Admitted {
     })
 }
 
-/// One completed session: what its ledgers admitted and what the link
-/// carried.
+/// One completed session: what its ledgers admitted and what the link carried.
 #[derive(Clone, Debug)]
 pub struct Session {
     /// The session that ran.
@@ -1090,8 +1077,8 @@ impl Session {
         self.report.duration()
     }
 
-    /// The bytes the busier direction carried: the session's duration on a
-    /// link with no delay and a writer that never pauses.
+    /// The bytes the busier direction carried: the session's duration on a link
+    /// with no delay and a writer that never pauses.
     pub fn busier_direction_bytes(&self) -> u64 {
         Side::BOTH
             .map(|side| self.report.sent_by(side).bytes())
@@ -1104,8 +1091,8 @@ impl Session {
     ///
     /// # Panics
     ///
-    /// If the duration is not a whole number of delays, which on a
-    /// latency-only link would mean some event happened between arrivals.
+    /// If the duration is not a whole number of delays, which on a latency-only
+    /// link would mean some event happened between arrivals.
     pub fn hops(&self) -> u64 {
         let delay = self.case.link.one_way_delay();
         assert_eq!(
@@ -1128,8 +1115,8 @@ pub fn run(case: Case) -> Session {
     run_within(case, |session| session()).0
 }
 
-/// `session`, as `side`'s session: while the runner polls it, every ledger
-/// that first reports is read as that side's ([`LedgerReading::side`]).
+/// `session`, as `side`'s session: while the runner polls it, every ledger that
+/// first reports is read as that side's ([`LedgerReading::side`]).
 async fn sided<F: Future>(side: Side, session: F) -> F::Output {
     let mut session = pin!(session);
     std::future::poll_fn(|cx| {
@@ -1141,9 +1128,9 @@ async fn sided<F: Future>(side: Side, session: F) -> F::Output {
     .await
 }
 
-/// Builds the pair `case` names and reconciles it over its link, running
-/// the session itself, and nothing of the pair's construction, inside
-/// `within`, which returns what it observed.
+/// Builds the pair `case` names and reconciles it over its link, running the
+/// session itself, and nothing of the pair's construction, inside `within`,
+/// which returns what it observed.
 ///
 /// `within` must call the closure it is given exactly once, on the calling
 /// thread: the session's readings are this thread's.
@@ -1196,16 +1183,16 @@ pub fn run_within<T>(case: Case, within: impl FnOnce(&mut dyn FnMut()) -> T) -> 
     )
 }
 
-/// The grants of the depth-1 questions the responder's root answer asks,
-/// in the order it asks them, when the pair `shape` names reconciles at an
-/// unlimited budget over a LAN.
+/// The grants of the depth-1 questions the responder's root answer asks, in the
+/// order it asks them, when the pair `shape` names reconciles at an unlimited
+/// budget over a LAN.
 ///
-/// Their total is the budget a session needs to open every top-level
-/// subtree at once. They are all admitted in the session's first round
-/// trip, so the session stops as soon as the root answer has admitted its
-/// last question, which it shows by returning what its grant left over:
-/// the count costs the pair's construction and one round trip, not a
-/// whole session, and reaches replica sizes a whole session cannot.
+/// Their total is the budget a session needs to open every top-level subtree at
+/// once. They are all admitted in the session's first round trip, so the
+/// session stops as soon as the root answer has admitted its last question,
+/// which it shows by returning what its grant left over: the count costs the
+/// pair's construction and one round trip, not a whole session, and reaches
+/// replica sizes a whole session cannot.
 pub fn root_question_grants(shape: Shape) -> Vec<usize> {
     let (a, b) = pair(shape, usize::MAX);
     let link = Link::new(LinkConfig::with_bdp(LAN_BDP));
@@ -1243,11 +1230,11 @@ pub fn root_question_grants(shape: Shape) -> Vec<usize> {
         .unwrap_or_default()
 }
 
-/// Runs every case, each on a thread of its own, returning the sessions in
-/// the cases' order.
+/// Runs every case, each on a thread of its own, returning the sessions in the
+/// cases' order.
 ///
-/// Each session runs on one thread against a link of its own, so running
-/// them side by side changes no session's report.
+/// Each session runs on one thread against a link of its own, so running them
+/// side by side changes no session's report.
 pub fn run_all<const N: usize>(cases: [Case; N]) -> [Session; N] {
     thread::scope(|scope| {
         cases

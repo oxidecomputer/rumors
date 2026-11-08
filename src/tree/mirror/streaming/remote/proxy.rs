@@ -12,8 +12,8 @@ use crate::tree::mirror::streaming::{channel::Sender, tasks::cancelled};
 /// Send one internal item or await cancellation if its consumer has gone.
 ///
 /// A task's consumer stops only when the session is failing. Parking the task
-/// until the session executor cancels all work keeps the error that stopped
-/// the consumer the one the executor reports.
+/// until the session executor cancels all work keeps the error that stopped the
+/// consumer the one the executor reports.
 async fn send_or_cancel<T>(sender: &mut Sender<T>, value: T) {
     if sender.send(value).await.is_err() {
         cancelled().await;

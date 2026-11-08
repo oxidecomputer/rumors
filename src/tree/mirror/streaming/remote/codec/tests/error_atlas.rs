@@ -1,19 +1,19 @@
 //! Stable witnesses for every frame-stream codec error reachable without
 //! resource exhaustion.
 //!
-//! The scope is the frame stream's own taxonomies — the encode, decode,
-//! and record-iteration errors the `describe_*` matches below inventory.
-//! The greeting's errors are witnessed beside its reader. Child-listing
-//! defects retain their typed [`ListingIssue`] where the frame decoder can
-//! reach them, so this atlas exercises that path.
+//! The scope is the frame stream's own taxonomies — the encode, decode, and
+//! record-iteration errors the `describe_*` matches below inventory. The
+//! greeting's errors are witnessed beside its reader. Child-listing defects
+//! retain their typed [`ListingIssue`] where the frame decoder can reach them,
+//! so this atlas exercises that path.
 //!
 //! Coverage is enforced from both ends: every `describe_*` match below is
 //! wildcard-free, so a new error variant fails compilation until it is
 //! described, and `atlas_covers_every_error_variant` requires each described
 //! variant's rendered marker to appear in the atlas — or to carry an explicit,
-//! reasoned exemption in `EXEMPT_MARKERS`. The one hole neither half can see:
-//! a variant whose new match arm is added without extending the marker tables
-//! or the witnesses; the comments at each match carry that obligation. An
+//! reasoned exemption in `EXEMPT_MARKERS`. The one hole neither half can see: a
+//! variant whose new match arm is added without extending the marker tables or
+//! the witnesses; the comments at each match carry that obligation. An
 //! exemption also outlives its variant silently — the check asserts absence,
 //! which a deleted variant satisfies trivially — so pruning a variant must
 //! prune its `EXEMPT_MARKERS` entry by hand.
@@ -45,9 +45,9 @@ use crate::{Version, message::Message, tree::typed::Hash};
 use serde::Serialize;
 /// One rendered marker per error variant the atlas must witness.
 ///
-/// Grouped by the enum whose `describe_*` match is the compile-time
-/// tripwire for it; a new variant's match arm and its entry here land
-/// together, with a witness below (or an exemption in `EXEMPT_MARKERS`).
+/// Grouped by the enum whose `describe_*` match is the compile-time tripwire
+/// for it; a new variant's match arm and its entry here land together, with a
+/// witness below (or an exemption in `EXEMPT_MARKERS`).
 const WITNESS_MARKERS: &[&str] = &[
     // EncodeErrorKind (describe_encode_kind).
     "kind: Write(part=",
@@ -91,8 +91,8 @@ const WITNESS_MARKERS: &[&str] = &[
 ];
 
 /// Variants deliberately absent from the atlas, each with the reason —
-/// unreachable without resource exhaustion, or witnessed in another
-/// layer's own suite.
+/// unreachable without resource exhaustion, or witnessed in another layer's own
+/// suite.
 const EXEMPT_MARKERS: &[(&str, &str)] = &[
     (
         "kind: SupplyTooLarge(",
@@ -125,16 +125,16 @@ fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value:
     run
 }
 
-/// Every feasible failure pins its fields and source chain, and its
-/// origin where one exists (the record-level witnesses carry none;
-/// `record_errors` says why).
+/// Every feasible failure pins its fields and source chain, and its origin
+/// where one exists (the record-level witnesses carry none; `record_errors`
+/// says why).
 #[test]
 fn codec_error_atlas_snapshot() {
     insta::assert_snapshot!(build_atlas());
 }
 
-/// Every inventoried error variant has an atlas witness, and every
-/// exemption is absent (a witnessed exemption is stale).
+/// Every inventoried error variant has an atlas witness, and every exemption is
+/// absent (a witnessed exemption is stale).
 #[test]
 fn atlas_covers_every_error_variant() {
     let atlas = build_atlas();
@@ -494,9 +494,9 @@ fn raw_query(stream: Stream, entry: &[u8]) -> Vec<u8> {
 
 /// Witness the record-level decode failures a supplied leaf can carry.
 ///
-/// These surface from the run's record iterator rather than the frame
-/// decoder — a structurally valid run defers canonical decoding of each
-/// record — so they have no `Origin` and no speaker dimension.
+/// These surface from the run's record iterator rather than the frame decoder —
+/// a structurally valid run defers canonical decoding of each record — so they
+/// have no `Origin` and no speaker dimension.
 fn record_errors(atlas: &mut String) {
     writeln!(atlas, "RECORD").unwrap();
 
@@ -522,8 +522,7 @@ fn record_errors(atlas: &mut String) {
     record_leaf(atlas, "record/trailing", &next_record_error(&run));
 }
 
-/// Frame one record content behind its embedded-sequence heads, as a run
-/// body.
+/// Frame one record content behind its embedded-sequence heads, as a run body.
 fn framed_record(record: &[u8]) -> Vec<u8> {
     let mut body = Vec::new();
     cbor::write_head(&mut body, MAJOR_TAG, TAG_CBOR_SEQUENCE);
@@ -607,8 +606,8 @@ fn raw_match(stream: Stream, body: &[u8]) -> Vec<u8> {
     encoded
 }
 
-/// A continuing match frame on `stream` whose body is a byte string of
-/// `set`, whatever its spelling.
+/// A continuing match frame on `stream` whose body is a byte string of `set`,
+/// whatever its spelling.
 fn raw_match_set(stream: Stream, set: &[u8]) -> Vec<u8> {
     let mut body = Vec::new();
     cbor::write_head(&mut body, MAJOR_BSTR, set.len() as u64);

@@ -1,11 +1,12 @@
 //! The streaming protocol's traits, generic over the session's backend.
 //!
 //! Both parties of a session speak one backend `I`: the messages a stage
-//! consumes and the messages it produces are keyed by the same node types.
-//! A party that owns no tree — the [`remote`](crate::tree::mirror::streaming::remote) proxy — is
-//! parameterized by its local counterparty's backend rather than defining one
-//! of its own, which is what lets the node types meet in the middle without a
-//! conversion anywhere in the schedule.
+//! consumes and the messages it produces are keyed by the same node types. A
+//! party that owns no tree — the
+//! [`remote`](crate::tree::mirror::streaming::remote) proxy — is parameterized
+//! by its local counterparty's backend rather than defining one of its own,
+//! which is what lets the node types meet in the middle without a conversion
+//! anywhere in the schedule.
 
 use std::pin::Pin;
 
@@ -61,7 +62,8 @@ pub trait Responses<B: Backend<Node<Z>: Leaf>, H: Height, E>:
     Stream<Item = Result<message::Reply<B, H>, E>> + Send + 'static
 {
 }
-/// Any stream with the required item, error, and lifetime bounds is a response stream.
+/// Any stream with the required item, error, and lifetime bounds is a response
+/// stream.
 impl<X, B: Backend<Node<Z>: Leaf>, H: Height, E> Responses<B, H, E> for X where
     X: Stream<Item = Result<message::Reply<B, H>, E>> + Send + 'static
 {
@@ -69,8 +71,8 @@ impl<X, B: Backend<Node<Z>: Leaf>, H: Height, E> Responses<B, H, E> for X where
 
 /// A response stream boxed to keep the recursively nested phase type bounded.
 ///
-/// Without erasure here, every phase nests the next phase's stream type, so
-/// the compiler's concrete type grows exponentially with tree height.
+/// Without erasure here, every phase nests the next phase's stream type, so the
+/// compiler's concrete type grows exponentially with tree height.
 pub type BoxResponses<B, H, E> = Pin<Box<dyn Responses<B, H, E>>>;
 
 /// The client's root phase: produce its greeting and await the peer's.
@@ -127,15 +129,15 @@ pub trait CompleteEqual<B: Backend<Node<Z>: Leaf>>: Phase<Height = Root> + Sized
 
 /// The opening burst: the initiator speaks first, and unprompted.
 ///
-/// Nothing precedes this stage. A root hash would be the natural thing to
-/// send, and it is exactly what the session never needs: two roots hash
-/// equal only when their versions are equal, and equal versions
-/// short-circuit the session before it reaches the protocol at all. So the
-/// initiator skips straight to its root's children — the same root-fan
-/// listing its [`Greeting`](message::Greeting) already carried. On the
-/// wire that makes this stage free: the remote proxy replays the greeting's
-/// listing instead of spending a hop on a standalone opening frame, and only
-/// the in-process message below actually flows.
+/// Nothing precedes this stage. A root hash would be the natural thing to send,
+/// and it is exactly what the session never needs: two roots hash equal only
+/// when their versions are equal, and equal versions short-circuit the session
+/// before it reaches the protocol at all. So the initiator skips straight to
+/// its root's children — the same root-fan listing its
+/// [`Greeting`](message::Greeting) already carried. On the wire that makes this
+/// stage free: the remote proxy replays the greeting's listing instead of
+/// spending a hop on a standalone opening frame, and only the in-process
+/// message below actually flows.
 pub trait Initiator<B: Backend<Node<Z>: Leaf>>: Phase<Height = Root> + Sized {
     /// The state awaiting replies one level below the root.
     type Next: Phase<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
@@ -208,8 +210,8 @@ pub trait Reply<B: Backend<Node<Z>: Leaf>>: Phase<Height: ReplyHeight> + Sized {
 /// The responder's terminal: absorb the initiator's leaf replies and answer
 /// each requested leaf with one leaf-height [`Reply`].
 ///
-/// Each requested leaf is answered pruned against the initiator's version,
-/// so a leaf the initiator deleted drops here instead of shipping.
+/// Each requested leaf is answered pruned against the initiator's version, so a
+/// leaf the initiator deleted drops here instead of shipping.
 pub trait CompleteResponder<B: Backend<Node<Z>: Leaf>>: Phase<Height = Z> + Sized {
     /// Answer the initiator's final leaf requests and complete in parallel.
     fn complete_responder(

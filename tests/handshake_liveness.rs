@@ -8,8 +8,8 @@
 //! frame grows with party count, so any phase whose two sides write
 //! symmetrically before reading deadlocks the pair the moment its frame
 //! outgrows the transport's window. That hazard class is invisible over the
-//! roomy connections the rest of the suite uses; these cells force every session
-//! shape through the window that hides nothing.
+//! roomy connections the rest of the suite uses; these cells force every
+//! session shape through the window that hides nothing.
 //!
 //! The fixtures make the version frames non-trivial on purpose — several
 //! disjoint originators plus bootstrap→retire cycles, self-checked to exceed
@@ -17,9 +17,9 @@
 //! convergence only, never greeting-frame contents.
 //!
 //! The watchdog is [`block_on`]'s quiescence detector: the sessions are
-//! closed-world in-memory futures, so a deadlock surfaces deterministically
-//! as a failed poll-progress check (with this file's cell name attached)
-//! rather than as a hung gate or a wall-clock guess.
+//! closed-world in-memory futures, so a deadlock surfaces deterministically as
+//! a failed poll-progress check (with this file's cell name attached) rather
+//! than as a hung gate or a wall-clock guess.
 
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
@@ -37,17 +37,16 @@ use crate::common::{
     },
 };
 
-/// Per-direction byte capacity of the connection every cell's session runs over: the
-/// harness minimum, so no frame of any phase fits in flight.
+/// Per-direction byte capacity of the connection every cell's session runs
+/// over: the harness minimum, so no frame of any phase fits in flight.
 const MIN_CAPACITY: usize = 1;
 
-/// Disjoint originators forked into a seasoned universe, each contributing
-/// its own events.
+/// Disjoint originators forked into a seasoned universe, each contributing its
+/// own events.
 ///
-/// They stay live through seasoning, so their regions'
-/// uneven tick counts keep the version's event tree branchy (a fully
-/// rejoined, uniformly ticked universe would normalize back to a
-/// one-or-two-byte version).
+/// They stay live through seasoning, so their regions' uneven tick counts keep
+/// the version's event tree branchy (a fully rejoined, uniformly ticked
+/// universe would normalize back to a one-or-two-byte version).
 const ORIGINATORS: u64 = 6;
 
 /// Base message count per originator; originator `i` commits `(i + 1)` times
@@ -64,8 +63,8 @@ const MESSAGES_PER_ORIGINATOR: u64 = 2;
 /// from normalizing back to a trivial frame.
 const GREETING_FLOOR: usize = 8;
 
-/// Messages each side commits on top of a converged pair to make a
-/// divergent cell's descent move content in both directions.
+/// Messages each side commits on top of a converged pair to make a divergent
+/// cell's descent move content in both directions.
 const DIVERGENT_MESSAGES: u64 = 8;
 
 /// Gossip `a` and `b` to completion over a fresh connection of the given
@@ -83,11 +82,11 @@ async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
 }
 
 /// Widen `rumors`'s causal version over roomy connections: fork [`ORIGINATORS`]
-/// disjoint peers with pairwise-distinct commit counts, gossip each back,
-/// and run one bootstrap→retire cycle.
+/// disjoint peers with pairwise-distinct commit counts, gossip each back, and
+/// run one bootstrap→retire cycle.
 ///
-/// The version then spans several party
-/// regions whose uneven tick counts defeat event-tree normalization.
+/// The version then spans several party regions whose uneven tick counts defeat
+/// event-tree normalization.
 ///
 /// `payload_base` keeps distinct seasoned replicas' payloads disjoint.
 async fn season(rumors: &Rumors<u64>, payload_base: u64) {
@@ -154,8 +153,7 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     );
 }
 
-/// The network `network` names, given a wide version and the selected
-/// budget.
+/// The network `network` names, given a wide version and the selected budget.
 async fn seasoned(network: NetworkSeed, budget: BudgetChoice) -> Rumors<u64> {
     let seed: Rumors<u64> = budget.apply(network.peer()).into_rumors();
     season(&seed, 0).await;
@@ -164,9 +162,9 @@ async fn seasoned(network: NetworkSeed, budget: BudgetChoice) -> Rumors<u64> {
 
 /// A converged, party-disjoint pair of seasoned replicas.
 ///
-/// Converged means equal versions, so both sides' greetings carry the same
-/// wide frame; cells that need divergence commit on top of the pair. The
-/// arguments select the budgets used by the session under test.
+/// Converged means equal versions, so both sides' greetings carry the same wide
+/// frame; cells that need divergence commit on top of the pair. The arguments
+/// select the budgets used by the session under test.
 async fn seasoned_pair(
     network: NetworkSeed,
     a_budget: BudgetChoice,
@@ -197,9 +195,9 @@ async fn converged_session(network: NetworkSeed) {
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
 
-/// Divergent gossip: both sides hold unshared content, so the session runs
-/// the full descent under the selected budgets and moves messages in
-/// both directions.
+/// Divergent gossip: both sides hold unshared content, so the session runs the
+/// full descent under the selected budgets and moves messages in both
+/// directions.
 async fn divergent_session(network: NetworkSeed, a_budget: BudgetChoice, b_budget: BudgetChoice) {
     let (a, b) = seasoned_pair(network, a_budget, b_budget).await;
     let converged_len = a.snapshot().len();
@@ -216,13 +214,13 @@ async fn divergent_session(network: NetworkSeed, a_budget: BudgetChoice, b_budge
     );
 }
 
-/// Bulk initiator: the smaller side holds many exclusive root children,
-/// which cross as supplies answering the responder's root-level requests
-/// while the responder's opening reply may still be flushing.
+/// Bulk initiator: the smaller side holds many exclusive root children, which
+/// cross as supplies answering the responder's root-level requests while the
+/// responder's opening reply may still be flushing.
 ///
-/// One extra message on the other side makes the bulk holder the smaller
-/// set, so the size election routes it into the initiator role
-/// deterministically, and every supply frame dwarfs the one-byte window.
+/// One extra message on the other side makes the bulk holder the smaller set,
+/// so the size election routes it into the initiator role deterministically,
+/// and every supply frame dwarfs the one-byte window.
 async fn bulk_initiator_session(network: NetworkSeed) {
     let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
     let converged_len = a.snapshot().len();
@@ -245,9 +243,9 @@ async fn bulk_initiator_session(network: NetworkSeed) {
     );
 }
 
-/// Empty meets populated: one replica has committed nothing (a tiny
-/// greeting), the other is seasoned (a wide one), so the two greeting
-/// frames are maximally asymmetric and the descent is one-sided.
+/// Empty meets populated: one replica has committed nothing (a tiny greeting),
+/// the other is seasoned (a wide one), so the two greeting frames are maximally
+/// asymmetric and the descent is one-sided.
 async fn empty_meets_populated_session(network: NetworkSeed) {
     let seed: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     // Fork the empty side out before any content exists, then season only
@@ -262,8 +260,8 @@ async fn empty_meets_populated_session(network: NetworkSeed) {
     );
 }
 
-/// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and
-/// the trailing party donation cross the minimal connection.
+/// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and the
+/// trailing party donation cross the minimal connection.
 async fn bootstrap_session(network: NetworkSeed) {
     let provider = seasoned(network, BudgetChoice::Serial).await;
     let (mut p_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
@@ -284,8 +282,8 @@ async fn bootstrap_session(network: NetworkSeed) {
     assert_connection_drained(p_end, n_end);
 }
 
-/// Retire: a seasoned, divergent retiree hands its content and then its
-/// whole party to the absorber, all through the minimal connection.
+/// Retire: a seasoned, divergent retiree hands its content and then its whole
+/// party to the absorber, all through the minimal connection.
 async fn retire_session(network: NetworkSeed) {
     let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
     let converged_len = b.snapshot().len();
@@ -319,12 +317,10 @@ async fn retire_session(network: NetworkSeed) {
 /// Mutual bootstrap: both sides are identity-less newcomers, so the session
 /// bails with `None` on both ends.
 ///
-/// The bail lands only after it is certified
-/// through a symmetric greeting exchange whose fixed-width frames overflow
-/// the one-byte window many times over.
-/// No seasoning is possible here: a
-/// bootstrapping peer holds no identity to widen, so the fixed frames are
-/// the whole hazard.
+/// The bail lands only after it is certified through a symmetric greeting
+/// exchange whose fixed-width frames overflow the one-byte window many times
+/// over. No seasoning is possible here: a bootstrapping peer holds no identity
+/// to widen, so the fixed frames are the whole hazard.
 async fn mutual_bootstrap_session() {
     let (mut a_end, mut b_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (a_out, b_out) = tokio::join!(
@@ -342,12 +338,11 @@ async fn mutual_bootstrap_session() {
     assert_connection_drained(a_end, b_end);
 }
 
-/// Retire into a bootstrapper: a seasoned retiree hands its whole tree and
-/// then its whole party to an identity-less newcomer.
+/// Retire into a bootstrapper: a seasoned retiree hands its whole tree and then
+/// its whole party to an identity-less newcomer.
 ///
-/// This is the maximally
-/// asymmetric greetings of bootstrap plus the trailing donation of retire,
-/// all through the minimal connection.
+/// This is the maximally asymmetric greetings of bootstrap plus the trailing
+/// donation of retire, all through the minimal connection.
 async fn retire_into_bootstrapper_session(network: NetworkSeed) {
     let retiree = seasoned(network, BudgetChoice::Serial).await;
     let before = retiree.snapshot();
@@ -387,8 +382,8 @@ async fn retire_into_bootstrapper_session(network: NetworkSeed) {
     assert_connection_drained(r_end, n_end);
 }
 
-/// Mutual retire: both sides declare `Retire`, so the session early-outs
-/// right after the preamble and both replicas survive intact.
+/// Mutual retire: both sides declare `Retire`, so the session early-outs right
+/// after the preamble and both replicas survive intact.
 async fn mutual_retire_session(network: NetworkSeed) {
     let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
     let a = a.try_into_peer().await.expect("a is the sole handle");
@@ -491,8 +486,8 @@ divided_proptest! {
     }
 }
 
-/// A mutual V2 bootstrap bails cleanly on both sides over a
-/// one-byte-window connection, its fixed-width greeting exchange included.
+/// A mutual V2 bootstrap bails cleanly on both sides over a one-byte-window
+/// connection, its fixed-width greeting exchange included.
 #[test]
 fn mutual_bootstrap() {
     block_on(mutual_bootstrap_session());

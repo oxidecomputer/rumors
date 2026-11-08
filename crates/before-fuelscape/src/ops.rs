@@ -1,35 +1,33 @@
-//! The operation roster: which public operations the atlas measures, how
-//! each row's inputs are drawn, and how each runs in the fuel guest.
+//! The operation roster: which public operations the atlas measures, how each
+//! row's inputs are drawn, and how each runs in the fuel guest.
 //!
-//! One table row per operation — adding an operation is one [`OpSpec`]
-//! entry. Each row names its input space (which picks the samplers and
-//! the size measure — the row's `size_measure` string is stamped on its
-//! render), the public operations it covers, and a `measure` function
-//! that stages the sampled encoded inputs into the guest and runs exactly
-//! one measured kernel, returning that call's fuel. Register loading and
-//! all other staging happen before the measured call, so a reading prices
-//! one public operation (plus the guest's constant dispatch overhead,
-//! identical for every sample).
+//! One table row per operation — adding an operation is one [`OpSpec`] entry.
+//! Each row names its input space (which picks the samplers and the size
+//! measure — the row's `size_measure` string is stamped on its render), the
+//! public operations it covers, and a `measure` function that stages the
+//! sampled encoded inputs into the guest and runs exactly one measured kernel,
+//! returning that call's fuel. Register loading and all other staging happen
+//! before the measured call, so a reading prices one public operation (plus the
+//! guest's constant dispatch overhead, identical for every sample).
 //!
 //! # Totality over the public surface
 //!
 //! Coverage is bound to the resource board's operation inventory: every entry
-//! is either claimed by a panel's
-//! `covers` list or carries a one-line reason in [`EXEMPTIONS`], and the
-//! parity test in `tests.rs` holds both directions mechanically. The
-//! compiler-derived surface check independently holds the board's
-//! function-like entries to the public API and pins every public trait
-//! implementation for review. The exemption reasons are the reviewed
-//! artifact; membership is enforced, never remembered.
+//! is either claimed by a panel's `covers` list or carries a one-line reason in
+//! [`EXEMPTIONS`], and the parity test in `tests.rs` holds both directions
+//! mechanically. The compiler-derived surface check independently holds the
+//! board's function-like entries to the public API and pins every public trait
+//! implementation for review. The exemption reasons are the reviewed artifact;
+//! membership is enforced, never remembered.
 //!
 //! Causal comparison has separate panels for the complete [`PartialOrd`]
-//! relation and for a directional operator such as `<=`: the latter can stop
-//! as soon as that direction is disproved. `concurrent` has its own row since
-//! it is a distinct public operation. Clock rows compose
-//! their operand from a sampled party and version (`Clock::from_parts`
-//! in unmeasured preparation); a clock's canonical encoding is exactly
-//! its party's bytes followed by its version's, so the constituents'
-//! total encoded size is the clock's own encoded size.
+//! relation and for a directional operator such as `<=`: the latter can stop as
+//! soon as that direction is disproved. `concurrent` has its own row since it
+//! is a distinct public operation. Clock rows compose their operand from a
+//! sampled party and version (`Clock::from_parts` in unmeasured preparation); a
+//! clock's canonical encoding is exactly its party's bytes followed by its
+//! version's, so the constituents' total encoded size is the clock's own
+//! encoded size.
 
 use fuzzfit_harness::wasm::{Guest, Measured};
 
@@ -48,75 +46,69 @@ pub enum Operand {
 /// How one row's inputs are drawn at a column's total size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Inputs {
-    /// A fixed operand list; the column's total encoded size splits
-    /// uniformly over the compositions into one exact size per operand.
+    /// A fixed operand list; the column's total encoded size splits uniformly
+    /// over the compositions into one exact size per operand.
     Operands(&'static [Operand]),
     /// [`Operands`](Inputs::Operands), with byte-identical operand pairs
-    /// rejected at draw time (whole-sample rejection, so the measure is
-    /// exactly uniform on the distinct pairs).
+    /// rejected at draw time (whole-sample rejection, so the measure is exactly
+    /// uniform on the distinct pairs).
     DistinctOperands(&'static [Operand]),
-    /// A version slice: arity drawn uniformly from every count the
-    /// column's budget can feed (`1..=size`, one byte per operand), then
-    /// the total split uniformly over the compositions into one exact
-    /// size per operand.
+    /// A version slice: arity drawn uniformly from every count the column's
+    /// budget can feed (`1..=size`, one byte per operand), then the total split
+    /// uniformly over the compositions into one exact size per operand.
     ///
-    /// Arity is stratified deliberately, not left to the composition
-    /// count: uniform over whole compositions would concentrate nearly
-    /// all mass at many-tiny-operand slices (the compositions of `N`
-    /// into `k` parts peak at `k ≈ N/2`), starving the thin-and-wide
-    /// and thick-and-narrow shapes a fold's cost actually turns on. The
-    /// stratified draw represents every arity equally per column; the
-    /// committed fold-cure families mark the adversarial arity ramps on
-    /// top of this bulk measure.
+    /// Arity is stratified deliberately, not left to the composition count:
+    /// uniform over whole compositions would concentrate nearly all mass at
+    /// many-tiny-operand slices (the compositions of `N` into `k` parts peak at
+    /// `k ≈ N/2`), starving the thin-and-wide and thick-and-narrow shapes a
+    /// fold's cost actually turns on. The stratified draw represents every
+    /// arity equally per column; the committed fold-cure families mark the
+    /// adversarial arity ramps on top of this bulk measure.
     VersionSlice,
-    /// [`VersionSlice`](Inputs::VersionSlice) with the arity draw capped:
-    /// arity uniform over `1..=min(cap, size)`, then the same
-    /// uniform-composition split.
+    /// [`VersionSlice`](Inputs::VersionSlice) with the arity draw capped: arity
+    /// uniform over `1..=min(cap, size)`, then the same uniform-composition
+    /// split.
     ///
     /// For rows whose public operation takes its arity as a compile-time
-    /// constant (`shape::combine`): the guest dispatches one
-    /// instantiation per arity up to the cap, so the drawn arity must
-    /// stay inside it, and the row's size measure stamps the sampled
-    /// population.
+    /// constant (`shape::combine`): the guest dispatches one instantiation per
+    /// arity up to the cap, so the drawn arity must stay inside it, and the
+    /// row's size measure stamps the sampled population.
     VersionSliceCapped(u32),
-    /// One encoded party followed by a version slice: the n-ary clock
-    /// rows' input space, composed in each row's own preparation.
+    /// One encoded party followed by a version slice: the n-ary clock rows'
+    /// input space, composed in each row's own preparation.
     ///
-    /// The fold and reconcile rows build disjoint clocks; the
-    /// batch-receive row builds one clock and keeps the rest as
-    /// messages.
+    /// The fold and reconcile rows build disjoint clocks; the batch-receive row
+    /// builds one clock and keeps the rest as messages.
     ///
-    /// The slice count is drawn uniformly from every count the column's
-    /// budget can feed (`1..=size − 1`: one byte for the party, one per
-    /// version), then the total splits uniformly over the compositions
-    /// into one exact size per operand, party first. Where a row
-    /// composes clocks, the party is fork-split in preparation so each
-    /// drawn version rides its own disjoint party — independent uniform
-    /// parties are almost never pairwise disjoint, so the fold's domain
-    /// is reached by splitting one.
+    /// The slice count is drawn uniformly from every count the column's budget
+    /// can feed (`1..=size − 1`: one byte for the party, one per version), then
+    /// the total splits uniformly over the compositions into one exact size per
+    /// operand, party first. Where a row composes clocks, the party is
+    /// fork-split in preparation so each drawn version rides its own disjoint
+    /// party — independent uniform parties are almost never pairwise disjoint,
+    /// so the fold's domain is reached by splitting one.
     ///
     /// The clock count is stratified for the same reason as
-    /// [`VersionSlice`](Inputs::VersionSlice)'s arity: a panel can read
-    /// a fold's arity factor only if the arity varies across samples.
+    /// [`VersionSlice`](Inputs::VersionSlice)'s arity: a panel can read a
+    /// fold's arity factor only if the arity varies across samples.
     ClockSlice,
-    /// One encoded party of exactly the column's size, split into a
-    /// drawn number of balanced shares in the guest: the party-fold
-    /// row's input space.
+    /// One encoded party of exactly the column's size, split into a drawn
+    /// number of balanced shares in the guest: the party-fold row's input
+    /// space.
     ///
-    /// The share count is drawn uniformly over
-    /// `1..=size` — a declared range, since the shares are minted in
-    /// the guest and the byte budget therefore does not bound the
-    /// count; `1..=size` mirrors the slice rows' arity-per-column
-    /// envelope so the fold panels read comparably. Any party admits
-    /// any share count (a balanced split subdivides leaves as far as it
-    /// needs), so the draw never rejects, and the size axis stays the
-    /// one party's own encoded bytes.
+    /// The share count is drawn uniformly over `1..=size` — a declared range,
+    /// since the shares are minted in the guest and the byte budget therefore
+    /// does not bound the count; `1..=size` mirrors the slice rows'
+    /// arity-per-column envelope so the fold panels read comparably. Any party
+    /// admits any share count (a balanced split subdivides leaves as far as it
+    /// needs), so the draw never rejects, and the size axis stays the one
+    /// party's own encoded bytes.
     PartyShares,
 }
 
 impl Inputs {
-    /// The smallest total size (bytes) a column of this input space can
-    /// have: one byte per operand.
+    /// The smallest total size (bytes) a column of this input space can have:
+    /// one byte per operand.
     pub fn min_bytes(&self) -> usize {
         match self {
             Inputs::Operands(operands) | Inputs::DistinctOperands(operands) => {
@@ -132,17 +124,16 @@ impl Inputs {
     }
 }
 
-/// The share count of the `party_forks` row: the size axis is the
-/// party's encoded bytes, the arity a declared constant.
+/// The share count of the `party_forks` row: the size axis is the party's
+/// encoded bytes, the arity a declared constant.
 const FORKS_SHARES: u32 = 8;
 
-/// The tick count the `version_ticks` row drives, a declared constant
-/// large enough that iterated single ticks could never reach it.
+/// The tick count the `version_ticks` row drives, a declared constant large
+/// enough that iterated single ticks could never reach it.
 ///
-/// The panel reads at the fused walk's flat cost, not a
-/// count-proportional one: the walk is at most two fused passes and one
-/// splice at any count, and the count itself enters only as its bit
-/// width.
+/// The panel reads at the fused walk's flat cost, not a count-proportional one:
+/// the walk is at most two fused passes and one splice at any count, and the
+/// count itself enters only as its bit width.
 const TICKS_COUNT: u32 = 1_000_000_000;
 
 /// The cost shared by operations that compute or verify an exact rank.
@@ -200,37 +191,36 @@ pub struct OpSpec {
     pub covers: &'static [&'static str],
     /// The declared size measure, stamped verbatim on the render.
     pub size_measure: &'static str,
-    /// The variant label distinguishing this panel where one doc site
-    /// carries several ("floor + ceiling", "vs `Version`"); empty for a
-    /// site's only panel. Leads the island summary so stacked charts
-    /// scan by variant.
+    /// The variant label distinguishing this panel where one doc site carries
+    /// several ("floor + ceiling", "vs `Version`"); empty for a site's only
+    /// panel. Leads the island summary so stacked charts scan by variant.
     pub variant: &'static str,
     /// The rustdoc complexity contract this panel's doc island shows.
     ///
     /// Display text with backticked code spans (e.g.
-    /// ``"`O(|self| + |party|)`"``); where one doc site carries several
-    /// panels, a leading label distinguishes them ("floor + ceiling:
-    /// …"). Compaction stamps it into the committed widget data.
+    /// ``"`O(|self| + |party|)`"``); where one doc site carries several panels,
+    /// a leading label distinguishes them ("floor + ceiling: …"). Compaction
+    /// stamps it into the committed widget data.
     pub contract: &'static str,
     /// What the widget selects initially, and whether it is a published claim.
     ///
     /// Expressions use the widget's grammar and denominate growth in total
-    /// encoded input bytes (for example, `"n"` or `"n log n"`).
-    /// Uniform sampling shows the *bulk*, so an early-exit operation
-    /// deliberately opens with a falling band — the bulk beating the
-    /// claimed worst case is the finding, and the flatter guides are one
-    /// click away. The amplification board and the fuzz-fit bands own
-    /// worst-case enforcement; this choice routes a reader's first look.
+    /// encoded input bytes (for example, `"n"` or `"n log n"`). Uniform
+    /// sampling shows the *bulk*, so an early-exit operation deliberately opens
+    /// with a falling band — the bulk beating the claimed worst case is the
+    /// finding, and the flatter guides are one click away. The amplification
+    /// board and the fuzz-fit bands own worst-case enforcement; this choice
+    /// routes a reader's first look.
     pub compensation: Compensation,
     /// Stage `inputs` (one canonical byte sequence per operand) and run the
     /// measured kernel, returning its fuel.
     ///
-    /// The last argument is the sample's drawn arity. Every host-drawn
-    /// row can read its arity off `inputs` itself (the slice rows do),
-    /// so those rows ignore it; the guest-split fold row
-    /// ([`PartyShares`](Inputs::PartyShares)) mints its fold operands
-    /// inside the guest from the single drawn party, so its drawn share
-    /// count reaches the kernel only through this argument.
+    /// The last argument is the sample's drawn arity. Every host-drawn row can
+    /// read its arity off `inputs` itself (the slice rows do), so those rows
+    /// ignore it; the guest-split fold row
+    /// ([`PartyShares`](Inputs::PartyShares)) mints its fold operands inside
+    /// the guest from the single drawn party, so its drawn share count reaches
+    /// the kernel only through this argument.
     pub measure: fn(&mut Guest, &[Vec<u8>], usize) -> Measured,
 }
 
@@ -256,38 +246,37 @@ const M_CLOCK: &str = "total encoded bytes of the clock's party and version part
 /// The size measure of the fork-split disjoint-clock rows.
 const M_CLOCK_PAIR: &str = "total encoded bytes of one party and two versions, split uniform \
      three ways; the party fork-split into the clocks' disjoint parties";
-/// The size measure of the span rows whose span is composed in
-/// preparation as two sampled operands' pair hull.
+/// The size measure of the span rows whose span is composed in preparation as
+/// two sampled operands' pair hull.
 const M_SPAN_HULL: &str = "total encoded bytes of the two operands whose pair hull is the \
      span (hull composed in unmeasured preparation; the endpoints' sizes are on the \
      operands' scale, not exactly their sum)";
-/// The size measure of the span placement rows: a hulled pair plus a
-/// probe.
+/// The size measure of the span placement rows: a hulled pair plus a probe.
 const M_SPAN_PROBE: &str = "total encoded bytes of the two hull operands and the probe, \
      split uniform three ways (the span composed in unmeasured preparation as the \
      operands' pair hull, so the measured fused walk reads the probe against the \
      hull's meet and join)";
-/// The size measure of the binary span-operator rows: two spans, each
-/// composed in preparation as a sampled pair's hull.
+/// The size measure of the binary span-operator rows: two spans, each composed
+/// in preparation as a sampled pair's hull.
 const M_SPAN_PAIR: &str = "total encoded bytes of the four operands whose pair hulls are \
      the two spans, split uniform four ways (hulls composed in unmeasured preparation; \
      the endpoints' sizes are on the operands' scale, not exactly their sum)";
-/// The size measure of span folds: drawn versions
-/// composed into spans as cyclically adjacent pair hulls.
+/// The size measure of span folds: drawn versions composed into spans as
+/// cyclically adjacent pair hulls.
 const M_SPAN_FOLD: &str = "total encoded bytes; arity uniform over 1..=size, split \
      uniform over the compositions, the k drawn versions composed in unmeasured \
      preparation into k spans (span i the pair hull of versions i and i+1, \
      cyclically, so each operand rides in two adjacent hulls), the first span \
      riding as the fold's receiver";
-/// The size measure of the masked span placement rows: a hulled pair,
-/// the masking party, and the probe.
+/// The size measure of the masked span placement rows: a hulled pair, the
+/// masking party, and the probe.
 const M_OWN_SPAN_PROBE: &str = "total encoded bytes of the two hull operands, the \
      masking party, and the probe, split uniform four ways (the span composed in \
      unmeasured preparation as the operands' pair hull; the measured verdict runs \
      the masked co-walks against the projected endpoints, no materialization)";
 
-/// Stage encoded bytes and decode them into a version register
-/// (unmeasured preparation; the decode's own fuel is discarded).
+/// Stage encoded bytes and decode them into a version register (unmeasured
+/// preparation; the decode's own fuel is discarded).
 fn load_version(guest: &mut Guest, reg: u32, bytes: &[u8]) {
     guest.stage_write(bytes);
     let r = guest.call("ff_version_decode", &[reg]);
@@ -308,8 +297,8 @@ fn prep(guest: &mut Guest, kernel: &str, args: &[u32]) {
     assert_eq!(r.ret, 0, "prep: {kernel} reported {}", r.ret);
 }
 
-/// Compose a clock into register 0 from encoded party and version
-/// encodings (registers 1 and 2 hold the consumed parts; unmeasured).
+/// Compose a clock into register 0 from encoded party and version encodings
+/// (registers 1 and 2 hold the consumed parts; unmeasured).
 fn compose_clock(guest: &mut Guest, party: &[u8], version: &[u8]) {
     load_party(guest, 1, party);
     load_version(guest, 2, version);
@@ -317,8 +306,8 @@ fn compose_clock(guest: &mut Guest, party: &[u8], version: &[u8]) {
 }
 
 /// Compose two disjoint-party clocks into registers 4 and 5: one party
-/// (register 0) fork-split in the guest, one version per side
-/// (unmeasured preparation for the join/sync rows).
+/// (register 0) fork-split in the guest, one version per side (unmeasured
+/// preparation for the join/sync rows).
 fn compose_clock_pair(guest: &mut Guest, inputs: &[Vec<u8>]) {
     load_party(guest, 0, &inputs[0]);
     prep(guest, "ff_party_fork", &[1, 0]);
@@ -337,8 +326,8 @@ fn load_slice(guest: &mut Guest, inputs: &[Vec<u8>]) -> u32 {
 }
 
 /// The measured operations. Every kernel's return value is nonnegative on
-/// success (comparison kernels encode their verdict as 0..=3); the plan
-/// asserts that, so a misuse can never be read as a fuel value.
+/// success (comparison kernels encode their verdict as 0..=3); the plan asserts
+/// that, so a misuse can never be read as a fuel value.
 pub const ROSTER: &[OpSpec] = &[
     // ───────────────────────────── Version ─────────────────────────────
     OpSpec {
@@ -2294,19 +2283,18 @@ pub const ROSTER: &[OpSpec] = &[
     },
 ];
 
-/// The public operations deliberately without a panel, each with its
-/// one-line reason.
+/// The public operations deliberately without a panel, each with its one-line
+/// reason.
 ///
-/// The reviewed half of the totality binding: the parity test in
-/// `tests.rs` enforces membership both ways, so these reasons are for
-/// the reader reviewing each exemption.
+/// The reviewed half of the totality binding: the parity test in `tests.rs`
+/// enforces membership both ways, so these reasons are for the reader reviewing
+/// each exemption.
 ///
-/// Two recurring genres: constant-input constructors and other O(1)
-/// forms have no honest size axis to plot, and delegating wrappers are
-/// priced at the panel of the mechanism they enter. An exemption stands
-/// on a missing size axis or on mechanism identity — never on a missing
-/// kernel (the guest grows a kernel whenever an operation deserves its
-/// own panel).
+/// Two recurring genres: constant-input constructors and other O(1) forms have
+/// no honest size axis to plot, and delegating wrappers are priced at the panel
+/// of the mechanism they enter. An exemption stands on a missing size axis or
+/// on mechanism identity — never on a missing kernel (the guest grows a kernel
+/// whenever an operation deserves its own panel).
 pub const EXEMPTIONS: &[(&str, &str)] = &[
     // ── constructors without a size axis ──
     (

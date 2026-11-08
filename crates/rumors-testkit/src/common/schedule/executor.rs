@@ -1,13 +1,13 @@
-//! Run a [`Schedule<T>`] against a fresh fleet of peers and a
-//! spec-shaped oracle.
+//! Run a [`Schedule<T>`] against a fresh fleet of peers and a spec-shaped
+//! oracle.
 //!
-//! One private core runs the full event alphabet — membership events
-//! included — over a slot-per-peer fleet (a retired peer vacates its
-//! slot). [`execute_with`], [`execute`], and [`execute_and_quiesce`]
-//! are the membership-free entry points: they validate the alphabet and
-//! return the fleet as a plain `Vec`. [`execute_membership`] and
-//! [`execute_membership_and_quiesce`] expose the slotted result for
-//! membership schedules.
+//! One private core runs the full event alphabet — membership events included —
+//! over a slot-per-peer fleet (a retired peer vacates its slot).
+//! [`execute_with`], [`execute`], and [`execute_and_quiesce`] are the
+//! membership-free entry points: they validate the alphabet and return the
+//! fleet as a plain `Vec`. [`execute_membership`] and
+//! [`execute_membership_and_quiesce`] expose the slotted result for membership
+//! schedules.
 
 use std::collections::BTreeMap;
 
@@ -34,16 +34,15 @@ pub struct ExecutionResult<T: Send + Sync + 'static> {
     pub resolved_versions: BTreeMap<EventIdx, Version>,
 }
 
-/// What executing a membership schedule leaves behind: the fleet as
-/// slots (a retired peer's slot is `None`), every retiree's complete
-/// observation log, and the same oracle and version map as the
-/// membership-free result.
+/// What executing a membership schedule leaves behind: the fleet as slots (a
+/// retired peer's slot is `None`), every retiree's complete observation log,
+/// and the same oracle and version map as the membership-free result.
 pub struct MembershipExecutionResult<T: Send + Sync + 'static> {
     /// One slot per peer ever created — the initial fleet, then every
     /// mid-schedule bootstrap in order. `None` marks a retired peer.
     pub slots: Vec<Option<Peer<T>>>,
-    /// Each retired peer's observation log, complete as of the drain
-    /// that preceded its retirement.
+    /// Each retired peer's observation log, complete as of the drain that
+    /// preceded its retirement.
     pub retired_observations: BTreeMap<usize, Vec<(Version, T)>>,
     /// The specification state after the same schedule.
     pub oracle: Oracle<T>,
@@ -62,8 +61,8 @@ impl<T: Send + Sync + 'static> MembershipExecutionResult<T> {
     }
 }
 
-/// Run the schedule against a fresh `Vec<Peer<T>>` and a fresh
-/// `Oracle<T>`, allowing every gossip event.
+/// Run the schedule against a fresh `Vec<Peer<T>>` and a fresh `Oracle<T>`,
+/// allowing every gossip event.
 ///
 /// Peer `i`'s memory budget is `budgets.choice(i)`: the suites sweep this
 /// dimension, so the fleet mixes zero, explicit, and default budgets (and
@@ -75,9 +74,9 @@ where
     execute_with(schedule, budgets, |_, _, _| true)
 }
 
-/// Run the schedule and then drive every peer to a full-mesh fixed
-/// point. After this returns, every `peers[i].local` should hold the
-/// same live content as every other and match the oracle's projection.
+/// Run the schedule and then drive every peer to a full-mesh fixed point. After
+/// this returns, every `peers[i].local` should hold the same live content as
+/// every other and match the oracle's projection.
 pub fn execute_and_quiesce<T>(
     schedule: &Schedule<T>,
     budgets: &BudgetAssignment,
@@ -92,25 +91,23 @@ where
 
 /// Run a membership-free schedule with a caller-supplied gossip filter.
 ///
-/// `allow_gossip(a, b, event_idx)` returns whether the gossip event
-/// at `event_idx` between peers `a` and `b` should actually fire; a
-/// `false` return turns it into a no-op for the purposes of this
-/// execution.
+/// `allow_gossip(a, b, event_idx)` returns whether the gossip event at
+/// `event_idx` between peers `a` and `b` should actually fire; a `false` return
+/// turns it into a no-op for the purposes of this execution.
 ///
-/// When gossip is suppressed, the schedule's *valid-by-construction*
-/// guarantee for `Redact` events no longer holds: a `Redact` whose
-/// target the peer has not yet observed in this run is silently
-/// skipped (and the oracle does not record it), which models real
-/// usage — application code can only `redact()` a [`Version`] it has
-/// been handed.
+/// When gossip is suppressed, the schedule's *valid-by-construction* guarantee
+/// for `Redact` events no longer holds: a `Redact` whose target the peer has
+/// not yet observed in this run is silently skipped (and the oracle does not
+/// record it), which models real usage — application code can only `redact()` a
+/// [`Version`] it has been handed.
 ///
 /// # Panics
 ///
-/// Panics if the schedule carries membership events: this entry point
-/// promises a fleet with every peer present at its original index, so
-/// membership schedules must run through [`execute_membership`]. The
-/// alphabet is validated up front — a bootstrap-only schedule would
-/// otherwise return an oversized fleet instead of the promised panic.
+/// Panics if the schedule carries membership events: this entry point promises
+/// a fleet with every peer present at its original index, so membership
+/// schedules must run through [`execute_membership`]. The alphabet is validated
+/// up front — a bootstrap-only schedule would otherwise return an oversized
+/// fleet instead of the promised panic.
 pub fn execute_with<T, F>(
     schedule: &Schedule<T>,
     budgets: &BudgetAssignment,
@@ -151,8 +148,8 @@ where
     execute_slots(schedule, budgets, |_, _, _| true)
 }
 
-/// Run a membership schedule, then drive the surviving peers to a
-/// full-mesh fixed point.
+/// Run a membership schedule, then drive the surviving peers to a full-mesh
+/// fixed point.
 pub fn execute_membership_and_quiesce<T>(
     schedule: &Schedule<T>,
     budgets: &BudgetAssignment,
@@ -165,18 +162,17 @@ where
     result
 }
 
-/// The execution core: run any schedule over a slotted fleet with a
-/// gossip filter.
+/// The execution core: run any schedule over a slotted fleet with a gossip
+/// filter.
 ///
-/// The fleet starts along the schedule's fork tree: peer 0 is the
-/// universe seed, and every other initial peer is a genuine
-/// party-disjoint fork of an already-built peer (`fork_parents[i] < i`),
-/// created by serving it a bootstrap. Mid-schedule `Bootstrap` events
-/// append newcomer slots the same way; `Retire` events run a real
-/// retirement session over a clean in-memory connection (the absorber side is
-/// plain gossip) and vacate the retiree's slot, saving its observation
-/// log. All peers descend from one seed and live parties stay pairwise
-/// disjoint, so every session can always merge.
+/// The fleet starts along the schedule's fork tree: peer 0 is the universe
+/// seed, and every other initial peer is a genuine party-disjoint fork of an
+/// already-built peer (`fork_parents[i] < i`), created by serving it a
+/// bootstrap. Mid-schedule `Bootstrap` events append newcomer slots the same
+/// way; `Retire` events run a real retirement session over a clean in-memory
+/// connection (the absorber side is plain gossip) and vacate the retiree's
+/// slot, saving its observation log. All peers descend from one seed and live
+/// parties stay pairwise disjoint, so every session can always merge.
 fn execute_slots<T, F>(
     schedule: &Schedule<T>,
     budgets: &BudgetAssignment,

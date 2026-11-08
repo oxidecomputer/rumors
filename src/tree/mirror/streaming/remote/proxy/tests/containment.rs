@@ -20,8 +20,8 @@ use super::harness::{
 };
 
 /// Drive the two-proxy topology in which the right endpoint's materialized
-/// participant is the protocol server, returning each endpoint's result
-/// instead of asserting success.
+/// participant is the protocol server, returning each endpoint's result instead
+/// of asserting success.
 async fn reconcile_results(
     a: TreeRoot,
     b: TreeRoot,
@@ -43,15 +43,14 @@ async fn reconcile_results(
     .await
 }
 
-/// A supplied leaf whose version escapes the sender's declared greeting
-/// version fails the session at the receiver's decoder, as
-/// `UncontainedSupply` naming the escaped leaf, in either protocol
-/// position.
+/// A supplied leaf whose version escapes the sender's declared greeting version
+/// fails the session at the receiver's decoder, as `UncontainedSupply` naming
+/// the escaped leaf, in either protocol position.
 ///
-/// The receiving endpoint reports the violation from its proxy, whose
-/// decoder reads the escaped record, whether its materialized participant
-/// is the client (left) or the server (right). The sender's endpoint is
-/// left to whatever its aborted transport surfaces.
+/// The receiving endpoint reports the violation from its proxy, whose decoder
+/// reads the escaped record, whether its materialized participant is the client
+/// (left) or the server (right). The sender's endpoint is left to whatever its
+/// aborted transport surfaces.
 #[test]
 fn uncontained_supply_is_rejected_at_the_wire() {
     for receiver_left in [true, false] {
@@ -129,12 +128,12 @@ proptest! {
     }
 }
 
-/// A `(receiver, sender, redacted)` triple: the replicas share `shared`
-/// leaves inserted on one party, of which the receiver then redacted the
-/// one at `choice`, which the sender still holds.
+/// A `(receiver, sender, redacted)` triple: the replicas share `shared` leaves
+/// inserted on one party, of which the receiver then redacted the one at
+/// `choice`, which the sender still holds.
 ///
-/// The receiver holds one leaf fewer, so it initiates in both sides'
-/// elections whatever version either side reads.
+/// The receiver holds one leaf fewer, so it initiates in both sides' elections
+/// whatever version either side reads.
 fn redacted_pair(shared: usize, choice: prop::sample::Index) -> (TreeRoot, TreeRoot, Version) {
     let mut sender = Tree::<()>::default();
     sender.act(

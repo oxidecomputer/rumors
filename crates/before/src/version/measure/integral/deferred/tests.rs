@@ -17,7 +17,8 @@ fn weight_prefix(weights: &[u64]) -> Vec<u64> {
     prefix
 }
 
-/// Find the deepest leaf by expanding the production split rule on an explicit stack.
+/// Find the deepest leaf by expanding the production split rule on an explicit
+/// stack.
 fn split_depth(weights: &[u64]) -> usize {
     let prefix = weight_prefix(weights);
     let mut deepest = 0;
@@ -34,10 +35,12 @@ fn split_depth(weights: &[u64]) -> usize {
     deepest
 }
 
-/// Exponentially increasing weights produce a chain even though uniform weights balance.
+/// Exponentially increasing weights produce a chain even though uniform weights
+/// balance.
 ///
-/// Repeating each power of two also produces a chain: the weight need only halve
-/// every second level. These cases protect both the chosen depth measure and its factor two.
+/// Repeating each power of two also produces a chain: the weight need only
+/// halve every second level. These cases protect both the chosen depth measure
+/// and its factor two.
 #[test]
 fn exponential_and_uniform_weights_have_expected_depths() {
     let n = 16;
@@ -54,7 +57,8 @@ fn exponential_and_uniform_weights_have_expected_depths() {
     assert_eq!(split_depth(&vec![8; n]), 4);
 }
 
-/// Recursively expand a bounded test tree, asserting nonempty children at every split.
+/// Recursively expand a bounded test tree, asserting nonempty children at every
+/// split.
 ///
 /// Every split leaves both halves nonempty, as asserted before descending, so
 /// the recursion is less than `hi - lo` levels deep.

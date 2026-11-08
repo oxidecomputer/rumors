@@ -27,8 +27,8 @@ fn leaf(version: &mut Version) -> typed::View<Z> {
     typed::View::leaf(version.clone(), Message::new(()))
 }
 
-/// The height-`Z` key with `parent` as its first byte and `radix` as its
-/// last, zeros between: children share a parent iff their first bytes agree.
+/// The height-`Z` key with `parent` as its first byte and `radix` as its last,
+/// zeros between: children share a parent iff their first bytes agree.
 fn key(parent: u8, radix: u8) -> Prefix<Z> {
     let mut bytes = [0u8; 32];
     bytes[0] = parent;

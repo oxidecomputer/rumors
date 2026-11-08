@@ -28,19 +28,19 @@ pub const MAX_QUERY_CHILDREN: usize = FAN;
 /// Bytes of the byte-string head ahead of one listed Merkle hash.
 pub const HASH_HEAD_LEN: usize = cbor::head_len(widen(MERKLE_HASH_LEN));
 
-/// Elements in one listing entry's value: the child's hash, then its
-/// grandchild count less one.
+/// Elements in one listing entry's value: the child's hash, then its grandchild
+/// count less one.
 const ENTRY_ELEMENTS: u64 = 2;
 
 /// Bytes of the array head opening one listing entry's value.
 pub const ENTRY_HEAD_LEN: usize = cbor::head_len(ENTRY_ELEMENTS);
 
-/// Bytes one listed child occupies as a map entry: its radix key's head,
-/// then its value, a two-element array of its hash (head and digest) and
-/// its grandchild count less one.
+/// Bytes one listed child occupies as a map entry: its radix key's head, then
+/// its value, a two-element array of its hash (head and digest) and its
+/// grandchild count less one.
 ///
-/// Radixes of 24 and above take a two-byte key head; smaller radixes take
-/// one. Counts take one byte through 24, two through 256, and three above.
+/// Radixes of 24 and above take a two-byte key head; smaller radixes take one.
+/// Counts take one byte through 24, two through 256, and three above.
 pub const fn listing_entry_len(radix: u8, grandchildren: Grandchildren) -> usize {
     cbor::head_len(radix as u64)
         + ENTRY_HEAD_LEN
@@ -49,15 +49,15 @@ pub const fn listing_entry_len(radix: u8, grandchildren: Grandchildren) -> usize
         + cbor::head_len(grandchildren.wire() as u64)
 }
 
-/// Head bytes of the embedded-CBOR-sequence tag (63) opening every supply
-/// run and every record within one.
+/// Head bytes of the embedded-CBOR-sequence tag (63) opening every supply run
+/// and every record within one.
 pub(super) const RECORD_TAG_LEN: usize = cbor::head_len(TAG_CBOR_SEQUENCE);
 
 /// Largest encoded size of a supply run's tag and byte-string head.
 pub(super) const SUPPLY_HEAD_LEN: usize = RECORD_TAG_LEN + cbor::head_len(u32::MAX as u64);
 
-/// The fewest bytes a record's heads can occupy: the tag head plus a
-/// one-byte byte-string head.
+/// The fewest bytes a record's heads can occupy: the tag head plus a one-byte
+/// byte-string head.
 pub(super) const MIN_RECORD_HEADS_LEN: usize = RECORD_TAG_LEN + 1;
 
 /// Head bytes of the version-atom tag ahead of a record's version.
@@ -84,8 +84,8 @@ pub enum Frame {
     End(End),
 }
 
-/// A protocol reply frame: any frame but a logical stream's end, which only
-/// the pipe writes.
+/// A protocol reply frame: any frame but a logical stream's end, which only the
+/// pipe writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplyFrame(Frame);
 
@@ -115,27 +115,26 @@ pub type WireFrame = (Stream, Frame);
 /// One supply frame's run of leaf records, held in encoded form.
 ///
 /// A run is a CBOR sequence of one or more records. Each record is an
-/// embedded-sequence item — tag 63 wrapping a byte string — whose content
-/// is itself a two-item CBOR sequence: the version atom (its own tag
-/// wrapping a byte string of the version's canonical encoding) followed by
-/// the message's CBOR payload. The record's byte-string head delimits the
-/// payload, so the payload travels bare, and the version's framing is what
-/// lets the decoder split the two without re-measuring. The run stays
-/// encoded on both sides of the wire — the encoder appends records copied
-/// from borrowed leaf data ([`push`](Self::push)) and the decoder yields
-/// them one at a time ([`records`](Self::records)) — so neither side
-/// materializes a decoded vector of leaves per frame; the bound is one
-/// run's bytes.
+/// embedded-sequence item — tag 63 wrapping a byte string — whose content is
+/// itself a two-item CBOR sequence: the version atom (its own tag wrapping a
+/// byte string of the version's canonical encoding) followed by the message's
+/// CBOR payload. The record's byte-string head delimits the payload, so the
+/// payload travels bare, and the version's framing is what lets the decoder
+/// split the two without re-measuring. The run stays encoded on both sides of
+/// the wire — the encoder appends records copied from borrowed leaf data
+/// ([`push`](Self::push)) and the decoder yields them one at a time
+/// ([`records`](Self::records)) — so neither side materializes a decoded vector
+/// of leaves per frame; the bound is one run's bytes.
 ///
-/// Construction guarantees record framing: [`push`] rejects a record no
-/// run body can carry within the wire's run byte cap, and
-/// [`from_encoded`](Self::from_encoded) rejects wire bytes whose record
-/// items do not chain exactly to the end in canonical form. A [`records`]
-/// iterator therefore never fails structurally, only on a record's
-/// content: malformed version-atom framing, version bytes that fail the
-/// strict [`Version`] decoder, or an application payload that does not
-/// decode. The version's tag and byte-string head are spelling-judged;
-/// the application payload remains general CBOR.
+/// Construction guarantees record framing: [`push`] rejects a record no run
+/// body can carry within the wire's run byte cap, and
+/// [`from_encoded`](Self::from_encoded) rejects wire bytes whose record items
+/// do not chain exactly to the end in canonical form. A [`records`] iterator
+/// therefore never fails structurally, only on a record's content: malformed
+/// version-atom framing, version bytes that fail the strict [`Version`]
+/// decoder, or an application payload that does not decode. The version's tag
+/// and byte-string head are spelling-judged; the application payload remains
+/// general CBOR.
 ///
 /// [`push`]: Self::push
 /// [`records`]: Self::records
@@ -186,8 +185,8 @@ impl LeafRun {
         self.bytes.is_empty()
     }
 
-    /// Bytes this run occupies on the wire, excluding the frame head and
-    /// the run's own embedded-sequence head.
+    /// Bytes this run occupies on the wire, excluding the frame head and the
+    /// run's own embedded-sequence head.
     pub fn encoded_len(&self) -> usize {
         self.bytes.len()
     }
@@ -205,12 +204,11 @@ impl LeafRun {
     /// Bytes one record with these components will occupy in a run.
     ///
     /// Exactly what [`push`](Self::push) writes — the record's
-    /// embedded-sequence tag and byte-string head, the version atom's tag
-    /// and byte-string framing plus its canonical bytes, and the payload.
-    /// Tests compare this calculation with the bytes actually written.
-    /// Saturating: a sum past `usize::MAX` cannot occur for in-memory
-    /// slices, and an over-large record is rejected by [`push`](Self::push)
-    /// regardless.
+    /// embedded-sequence tag and byte-string head, the version atom's tag and
+    /// byte-string framing plus its canonical bytes, and the payload. Tests
+    /// compare this calculation with the bytes actually written. Saturating: a
+    /// sum past `usize::MAX` cannot occur for in-memory slices, and an
+    /// over-large record is rejected by [`push`](Self::push) regardless.
     pub fn record_len(version: &Version, message: &Message) -> usize {
         record_item_len(Self::record_body_len(version, message))
     }
@@ -224,21 +222,21 @@ impl LeafRun {
             .saturating_add(message.as_slice().len())
     }
 
-    /// Append one leaf record from borrowed components, for a run built
-    /// within `budget`.
+    /// Append one leaf record from borrowed components, for a run built within
+    /// `budget`.
     ///
     /// The buffer grows exactly, never past the run body `budget` admits
-    /// ([`RunBudget::body`]) unless the run's bytes need more: a buffer
-    /// that must grow takes twice its capacity, or the bytes needed if
-    /// more, and at most the body. So a run built within its budget never
-    /// holds more than the budget's body, and a run that outgrows it, by
-    /// one lone record, holds exactly its own bytes. Doubling while below
-    /// the body keeps the copying linear in the bytes pushed.
+    /// ([`RunBudget::body`]) unless the run's bytes need more: a buffer that
+    /// must grow takes twice its capacity, or the bytes needed if more, and at
+    /// most the body. So a run built within its budget never holds more than
+    /// the budget's body, and a run that outgrows it, by one lone record, holds
+    /// exactly its own bytes. Doubling while below the body keeps the copying
+    /// linear in the bytes pushed.
     ///
     /// # Errors
     ///
-    /// Rejects a record no run can carry — one whose whole record item
-    /// exceeds the wire's run byte cap — leaving the run untouched.
+    /// Rejects a record no run can carry — one whose whole record item exceeds
+    /// the wire's run byte cap — leaving the run untouched.
     pub fn push(
         &mut self,
         version: &Version,
@@ -269,8 +267,8 @@ impl LeafRun {
         Ok(())
     }
 
-    /// Validate wire bytes as a run: nonempty, canonical record items
-    /// chaining exactly to the end.
+    /// Validate wire bytes as a run: nonempty, canonical record items chaining
+    /// exactly to the end.
     pub fn from_encoded(bytes: Vec<u8>) -> Result<Self, LeafRunError> {
         if bytes.is_empty() {
             return Err(LeafRunError::Empty);
@@ -320,8 +318,8 @@ impl LeafRun {
 
     /// Split the validated run back into its exact record contents.
     ///
-    /// `pub(super)` for the capture renderer, which decodes each
-    /// record's version structurally without knowing the leaf type.
+    /// `pub(super)` for the capture renderer, which decodes each record's
+    /// version structurally without knowing the leaf type.
     pub(super) fn record_slices(&self) -> RecordSlices<'_> {
         RecordSlices { rest: &self.bytes }
     }
@@ -358,8 +356,8 @@ pub(super) enum RecordHeadError {
 }
 
 /// Parse one record's leading heads — the embedded-sequence tag and its
-/// byte-string head — off the front of `input`, returning the record's
-/// content length.
+/// byte-string head — off the front of `input`, returning the record's content
+/// length.
 pub(super) fn record_head(input: &mut &[u8]) -> Result<u64, RecordHeadError> {
     let head = cbor::read_head(input).map_err(RecordHeadError::Head)?;
     if head.major != MAJOR_TAG || head.value != TAG_CBOR_SEQUENCE {
@@ -396,8 +394,8 @@ pub(super) fn checked_run_len(len: usize) -> Result<u64, LengthOverflow> {
     }
 }
 
-/// Whether a run body of `len` bytes is exactly one record: the first
-/// record's heads plus the content they declare span the body.
+/// Whether a run body of `len` bytes is exactly one record: the first record's
+/// heads plus the content they declare span the body.
 ///
 /// The decoder uses this after a run exceeds its budget to recognize the one
 /// allowed overhang. Record decoding still validates its contents.
@@ -515,9 +513,9 @@ pub enum RecordStructureError {
 
 /// One structural problem in a child-listing map.
 ///
-/// Every child listing entering from the wire — a query frame's body or
-/// the greeting's root-fan listing — passes one structural gate, and
-/// this names how a listing failed it.
+/// Every child listing entering from the wire — a query frame's body or the
+/// greeting's root-fan listing — passes one structural gate, and this names how
+/// a listing failed it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ListingIssue {
@@ -584,14 +582,13 @@ pub enum ListingStructureError {
 
 /// Incrementally validated state of one child-listing map's entries.
 ///
-/// This is the one gate every child listing entering from the wire
-/// passes, whichever surface carries it — a query frame's body or the
-/// greeting's root-fan listing — and whichever reader drives it (the
-/// async decoder, the sync oracle, or the slice parser). The map's
-/// deterministic-encoding key order and the wire's canonical child order
-/// are one discipline: keys must be strictly ascending radixes, so an
-/// equal adjacent pair is rejected exactly like a descent
-/// ([`ListingIssue::Order`]).
+/// This is the one gate every child listing entering from the wire passes,
+/// whichever surface carries it — a query frame's body or the greeting's
+/// root-fan listing — and whichever reader drives it (the async decoder, the
+/// sync oracle, or the slice parser). The map's deterministic-encoding key
+/// order and the wire's canonical child order are one discipline: keys must be
+/// strictly ascending radixes, so an equal adjacent pair is rejected exactly
+/// like a descent ([`ListingIssue::Order`]).
 pub(super) struct ListingBuilder {
     children: Vec<Listed>,
     previous: Option<u8>,
@@ -612,8 +609,8 @@ impl ListingBuilder {
         })
     }
 
-    /// Judge one entry's key head: an unsigned radix, strictly above the
-    /// last recorded entry's.
+    /// Judge one entry's key head: an unsigned radix, strictly above the last
+    /// recorded entry's.
     ///
     /// A pure check, so a reader may judge a key as soon as it arrives and
     /// again when its entry is whole; recording the entry
@@ -643,8 +640,8 @@ impl ListingBuilder {
         Ok(())
     }
 
-    /// Accept one entry's count head: an unsigned grandchild count less
-    /// one, which every count from one to 65,536 fits.
+    /// Accept one entry's count head: an unsigned grandchild count less one,
+    /// which every count from one to 65,536 fits.
     pub(super) fn count(head: cbor::Head) -> Result<Grandchildren, ListingIssue> {
         match u16::try_from(head.value) {
             Ok(less_one) if head.major == MAJOR_UINT => Ok(Grandchildren::from_wire(less_one)),
@@ -665,8 +662,8 @@ impl ListingBuilder {
         Ok(())
     }
 
-    /// Record one entry whose key and value heads were accepted; later
-    /// keys must ascend past its radix.
+    /// Record one entry whose key and value heads were accepted; later keys
+    /// must ascend past its radix.
     pub(super) fn entry(
         &mut self,
         radix: u8,
@@ -688,8 +685,8 @@ impl ListingBuilder {
     }
 }
 
-/// Parse one complete child-listing map off the front of `input`,
-/// advancing past it.
+/// Parse one complete child-listing map off the front of `input`, advancing
+/// past it.
 pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<Listed>, ListingIssue> {
     let head = cbor::read_head(input).map_err(ListingIssue::Head)?;
     if head.major != MAJOR_MAP {
@@ -723,11 +720,11 @@ pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<Listed>, Listin
 }
 
 /// Append one child listing as a canonical map: ascending radix keys, each
-/// value an array of the child's hash, a definite-length byte string, and
-/// its grandchild count less one.
+/// value an array of the child's hash, a definite-length byte string, and its
+/// grandchild count less one.
 ///
-/// The encoder is not a trust boundary — callers guarantee canonical
-/// child order — so this writes without revalidating it.
+/// The encoder is not a trust boundary — callers guarantee canonical child
+/// order — so this writes without revalidating it.
 pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[Listed]) {
     cbor::write_head(out, MAJOR_MAP, widen(children.len()));
     for Listed {

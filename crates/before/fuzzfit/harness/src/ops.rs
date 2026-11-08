@@ -3,33 +3,32 @@
 //! A *program* is a sequence of [`Op`]s over a register file. Each operation
 //! calls one guest export; the vocabulary covers a subset of the public API.
 //! Strategies generate programs, the mirror executes them natively, and the
-//! driver replays them in the guest under fuel metering. The numeric suite
-//! and fuelscape also call guest exports directly.
+//! driver replays them in the guest under fuel metering. The numeric suite and
+//! fuelscape also call guest exports directly.
 //!
 //! # Denomination
 //!
 //! Every measured step is judged against its *denominated size* in bits,
-//! following the parent crate's denomination criterion: encoded
-//! operand bits for every operation except the classes
-//! whose mandatory output is asymptotically larger than any constant times
-//! their input —
+//! following the parent crate's denomination criterion: encoded operand bits
+//! for every operation except the classes whose mandatory output is
+//! asymptotically larger than any constant times their input —
 //!
-//! - **output-dominated projection** (`Version / Party`,
-//!   `Clock::own_version`) and **balanced share splitting**
-//!   (`Party::forks(n)`, whose output is `n` encoded parties) are judged
-//!   against input + encoded output (canonical coding cannot be padded);
+//! - **output-dominated projection** (`Version / Party`, `Clock::own_version`)
+//!   and **balanced share splitting** (`Party::forks(n)`, whose output is `n`
+//!   encoded parties) are judged against input + encoded output (canonical
+//!   coding cannot be padded);
 //! - **rank operations** use the rank's canonical encoded length. Display also
 //!   includes the text written, whose binary form is proportional to the same
 //!   value width.
 //!
 //! # The mirror
 //!
-//! [`Mirror`] executes each op natively over the same register discipline
-//! the guest uses (linear where the API is linear), computing the step's
-//! denominator from real operand sizes and predicting the guest's return
-//! code. Where an operation can reject, such as joining overlapping
-//! parties, the mirror's native outcome is the prediction; a guest that
-//! disagrees fails the differential immediately.
+//! [`Mirror`] executes each op natively over the same register discipline the
+//! guest uses (linear where the API is linear), computing the step's
+//! denominator from real operand sizes and predicting the guest's return code.
+//! Where an operation can reject, such as joining overlapping parties, the
+//! mirror's native outcome is the prediction; a guest that disagrees fails the
+//! differential immediately.
 
 use std::cmp::Ordering;
 
@@ -41,9 +40,9 @@ pub type Reg = u32;
 /// One measured operation over registers; the harness's program alphabet.
 ///
 /// Field conventions mirror the guest ABI: `dst` slots are written, plain
-/// operand slots are read, and operands documented as consumed follow the
-/// API's own linearity (`Version` join/meet consume `a`; `Party`/`Clock`
-/// join consume `b`; `into_parts`/`from_parts` consume their sources).
+/// operand slots are read, and operands documented as consumed follow the API's
+/// own linearity (`Version` join/meet consume `a`; `Party`/`Clock` join consume
+/// `b`; `into_parts`/`from_parts` consume their sources).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     /// `Clock::seed` — the program's single universe.
@@ -92,11 +91,11 @@ pub enum Op {
     VersionLag { dst: Reg, a: Reg, b: Reg },
     /// `Version::min_ticks`.
     VersionMinTicks { src: Reg },
-    /// `Version::join_all` over `src..src + n` (consumes the range; the
-    /// first register is the receiver).
+    /// `Version::join_all` over `src..src + n` (consumes the range; the first
+    /// register is the receiver).
     VersionJoinAll { dst: Reg, src: Reg, n: u32 },
-    /// `Version::meet_all` over `src..src + n` (consumes the range; the
-    /// first register is the receiver).
+    /// `Version::meet_all` over `src..src + n` (consumes the range; the first
+    /// register is the receiver).
     VersionMeetAll { dst: Reg, src: Reg, n: u32 },
     /// `Version::encode` into the stage.
     VersionEncode { src: Reg },
@@ -240,30 +239,30 @@ enum NVal {
 pub struct Step {
     /// The denominated size, in bits (never zero: floored at 1).
     pub denom_bits: u64,
-    /// The return value the guest must produce (`0` success, `-2` a
-    /// predicted operation rejection, comparison codes for query ops, the
-    /// actual value for i64 kernels).
+    /// The return value the guest must produce (`0` success, `-2` a predicted
+    /// operation rejection, comparison codes for query ops, the actual value
+    /// for i64 kernels).
     pub expect: i64,
-    /// Whether the step's operands dispatch an identity-law fast path
-    /// (see [`Step::identity`]).
+    /// Whether the step's operands dispatch an identity-law fast path (see
+    /// [`Step::identity`]).
     pub identity: bool,
 }
 
 impl Step {
     /// Whether this step's predicted outcome is an operation rejection.
     ///
-    /// Rejection arms are priced as their own bands (the band key is
-    /// kernel × outcome): a rejection's cost law is a different mechanism
-    /// from the success path's, and pooling the two lets a regression in
-    /// either hide under the other's ceiling.
+    /// Rejection arms are priced as their own bands (the band key is kernel ×
+    /// outcome): a rejection's cost law is a different mechanism from the
+    /// success path's, and pooling the two lets a regression in either hide
+    /// under the other's ceiling.
     pub fn rejected(&self) -> bool {
         self.expect == ERR_OP
     }
 
-    /// Whether this step's operands dispatch an identity-law fast path
-    /// in `before` — a comparison over one clone-shared buffer, or a
-    /// metric over equal versions — mirrored here by the same predicate
-    /// the fast path dispatches on.
+    /// Whether this step's operands dispatch an identity-law fast path in
+    /// `before` — a comparison over one clone-shared buffer, or a metric over
+    /// equal versions — mirrored here by the same predicate the fast path
+    /// dispatches on.
     ///
     /// These steps still receive the native/guest differential check but are
     /// excluded from fuel fits: equality shortcuts do not exercise the walk
@@ -276,17 +275,17 @@ impl Step {
 
 /// Whether two versions read one clone-shared stored buffer.
 ///
-/// The mirror-side observation of the ptr-identity rungs' dispatch
-/// predicate, through the public byte view: clones share storage, so
-/// their byte borrows alias — and the mirror's registers alias exactly
-/// when the guest's do, because both executions ran the same ops.
+/// The mirror-side observation of the ptr-identity rungs' dispatch predicate,
+/// through the public byte view: clones share storage, so their byte borrows
+/// alias — and the mirror's registers alias exactly when the guest's do,
+/// because both executions ran the same ops.
 fn version_buffers_alias(a: &Version, b: &Version) -> bool {
     let (ab, bb) = (a.as_bytes(), b.as_bytes());
     core::ptr::eq(ab.as_ptr(), bb.as_ptr()) && ab.len() == bb.len()
 }
 
-/// A mirrored execution error: the program is malformed (a generator bug,
-/// never a `before` bug).
+/// A mirrored execution error: the program is malformed (a generator bug, never
+/// a `before` bug).
 #[derive(Debug)]
 pub struct Malformed {
     /// Which op misfired.
@@ -300,15 +299,15 @@ const ERR_OP: i64 = -2;
 
 /// The seed ops' nominal denominator: one byte.
 ///
-/// `Clock::seed`/`Party::seed` take no operand, so the operand-bits
-/// criterion has nothing to price; a fixed nonzero denominator keeps
-/// the log-log point finite. The exact value carries no information —
-/// the seed rows are constant-classified (fuel judged at this single
-/// size, no slope to distort), so any positive constant serves.
+/// `Clock::seed`/`Party::seed` take no operand, so the operand-bits criterion
+/// has nothing to price; a fixed nonzero denominator keeps the log-log point
+/// finite. The exact value carries no information — the seed rows are
+/// constant-classified (fuel judged at this single size, no slope to distort),
+/// so any positive constant serves.
 const SEED_DENOM_BITS: u64 = 8;
 
-/// The native mirror: executes programs natively, computing denominators
-/// and expected outcomes for the guest replay.
+/// The native mirror: executes programs natively, computing denominators and
+/// expected outcomes for the guest replay.
 #[derive(Default)]
 pub struct Mirror {
     regs: Vec<Option<NVal>>,
@@ -844,8 +843,8 @@ impl Mirror {
     }
 }
 
-/// A nonnegative FNV-1a digest of a decimal rendering: the `i64`
-/// channel's encoding for unbounded counts, mirrored in the guest's
+/// A nonnegative FNV-1a digest of a decimal rendering: the `i64` channel's
+/// encoding for unbounded counts, mirrored in the guest's
 /// `ff_version_min_ticks`.
 fn decimal_digest(text: &str) -> i64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;

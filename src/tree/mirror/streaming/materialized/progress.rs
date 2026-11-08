@@ -1,8 +1,8 @@
 //! Ordering instrumentation for the materialized walk.
 //!
 //! [`Progress`] travels through production code as a zero-sized value. Tests
-//! give it an endpoint identity and record the publications needed to check
-//! the walk's ordering and wire transcript.
+//! give it an endpoint identity and record the publications needed to check the
+//! walk's ordering and wire transcript.
 
 use crate::tree::{
     mirror::streaming::{
@@ -72,15 +72,15 @@ impl Progress {
         }
     }
 
-    /// Record an outgoing reply's wire action, at its first chunk, before
-    /// its internal twin.
+    /// Record an outgoing reply's wire action, at its first chunk, before its
+    /// internal twin.
     pub fn wire(self, _scope: ErasedPrefix) {
         #[cfg(test)]
         trace::record(self.work, _scope.as_bytes(), trace::Kind::Wire);
     }
 
-    /// Record the wire action of a later chunk of the scope's reply, before
-    /// the question it ends at.
+    /// Record the wire action of a later chunk of the scope's reply, before the
+    /// question it ends at.
     pub fn chunk(self, _scope: ErasedPrefix) {
         #[cfg(test)]
         trace::record(self.work, _scope.as_bytes(), trace::Kind::Chunk);

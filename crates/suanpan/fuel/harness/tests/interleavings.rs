@@ -1,11 +1,11 @@
 //! The interleaving-fuel property, deterministic cases at boundaries of the
-//! harness's own model, and the census showing the skeletons reach the
-//! regimes the checks rely on.
+//! harness's own model, and the census showing the skeletons reach the regimes
+//! the checks rely on.
 //!
-//! The property runs proptest's configured case count; each case runs one
-//! guest instance per variant `judge` describes, one of them at values of a
-//! few megabytes and one over 4096 repetitions. The census runs the model
-//! alone, from a fixed seed.
+//! The property runs proptest's configured case count; each case runs one guest
+//! instance per variant `judge` describes, one of them at values of a few
+//! megabytes and one over 4096 repetitions. The census runs the model alone,
+//! from a fixed seed.
 
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
@@ -67,8 +67,8 @@ fn at(units: u64, offset: i64) -> Extent {
     Extent { units, offset }
 }
 
-/// Judges `context` with no block, panicking with the violation if a bound
-/// is exceeded.
+/// Judges `context` with no block, panicking with the violation if a bound is
+/// exceeded.
 fn judge_context(context: Vec<Step<Extent>>) {
     if let Err(violation) = judge(&Skeleton::new(context, Vec::new())) {
         panic!("{violation}");
@@ -78,9 +78,9 @@ fn judge_context(context: Vec<Step<Extent>>) {
 /// An owned addition of two zeros, then a gap round reaching up to `u`, in
 /// every repetition, passes the judgment.
 ///
-/// The addition returns its operand, a new accumulator, so the gap round
-/// grows storage again in every repetition, and the model charges that
-/// growth rather than counting the repetition as fixed-charge.
+/// The addition returns its operand, a new accumulator, so the gap round grows
+/// storage again in every repetition, and the model charges that growth rather
+/// than counting the repetition as fixed-charge.
 ///
 /// The skeleton is the shrunk case behind the first committed seed of the
 /// property.
@@ -103,9 +103,8 @@ fn growth_after_an_owned_addition_of_zeros_is_charged() {
     ]);
 }
 
-/// A digit parked at the extreme coefficient just above `u`, then a gap
-/// round through bit 32, `u`, and bit 96 below and across it, passes the
-/// judgment.
+/// A digit parked at the extreme coefficient just above `u`, then a gap round
+/// through bit 32, `u`, and bit 96 below and across it, passes the judgment.
 ///
 /// The skeleton is the shrunk case behind the second committed seed of the
 /// property, kept fixed here because the seed alone replays whatever program
@@ -134,12 +133,12 @@ fn a_gap_round_under_a_parked_extreme_digit_passes() {
     ]);
 }
 
-/// Two owned additions between values whose top digits coincide, the
-/// receiver one bit narrower, pass the judgment.
+/// Two owned additions between values whose top digits coincide, the receiver
+/// one bit narrower, pass the judgment.
 ///
 /// The implementation keeps the receiver's storage on a tie of stored digit
-/// counts, so the storage two units high regrows in every repetition, and
-/// the model, unable to tell which storage survives, charges the regrowth.
+/// counts, so the storage two units high regrows in every repetition, and the
+/// model, unable to tell which storage survives, charges the regrowth.
 #[test]
 fn growth_after_an_owned_addition_of_close_widths_is_charged() {
     let (a, b) = (Member::ALL[0], Member::ALL[1]);
@@ -199,11 +198,11 @@ fn a_declined_stability_query_agrees_with_the_model() {
     judge_context(context);
 }
 
-/// A fixed-charge block that updates and questions a member the context
-/// left a unit wide is checked, and passes.
+/// A fixed-charge block that updates and questions a member the context left a
+/// unit wide is checked, and passes.
 ///
-/// Its calls cost the same at the end of its repetitions, and at the top
-/// unit at most twice what they cost at the middle.
+/// Its calls cost the same at the end of its repetitions, and at the top unit
+/// at most twice what they cost at the middle.
 #[test]
 fn a_fixed_charge_block_over_a_wide_member_is_checked() {
     let a = Member::ALL[0];
@@ -247,15 +246,15 @@ fn a_fixed_charge_block_over_a_wide_member_is_checked() {
     }
 }
 
-/// A bitset level that reallocates at `64 · u` but not at `u` stays within
-/// the copy allowance, and the case passes.
+/// A bitset level that reallocates at `64 · u` but not at `u` stays within the
+/// copy allowance, and the case passes.
 ///
 /// One member takes a top-only value by `clone_from` each repetition, so its
-/// digits never reallocate and its written set starts fresh; then two
-/// one-limb writes in the gap below its run straddle `2 · u`, which lies
-/// inside one 64-digit bitset word at `u` and on a word boundary at
-/// `64 · u`. The second write reallocates a bitset level at the upper unit
-/// alone, the case `COPY_GROWTH`'s derivation bounds.
+/// digits never reallocate and its written set starts fresh; then two one-limb
+/// writes in the gap below its run straddle `2 · u`, which lies inside one
+/// 64-digit bitset word at `u` and on a word boundary at `64 · u`. The second
+/// write reallocates a bitset level at the upper unit alone, the case
+/// `COPY_GROWTH`'s derivation bounds.
 #[test]
 fn a_bitset_level_reallocating_at_the_upper_unit_alone_stays_within_the_copy_allowance() {
     let (a, b) = (Member::ALL[0], Member::ALL[1]);
@@ -301,32 +300,31 @@ fn a_bitset_level_reallocating_at_the_upper_unit_alone_stays_within_the_copy_all
 
 /// The seed of the census's skeleton stream.
 ///
-/// Fixed because the census measures its generators
-/// deterministically: a regime it counts has no mass derived from the
-/// generators' weights, so its floors hold for this corpus alone.
+/// Fixed because the census measures its generators deterministically: a regime
+/// it counts has no mass derived from the generators' weights, so its floors
+/// hold for this corpus alone.
 const CENSUS_SEED: [u8; 32] = *b"suanpan-fuel interleaving census";
 
 /// The number of skeletons the census draws.
 const CENSUS_SKELETONS: usize = 64;
 
-/// The skeleton strategy realizes every regime the property relies on, at
-/// the base unit and at the top unit alike, and draws every conversion
-/// target and both ownerships of a primitive on the left.
+/// The skeleton strategy realizes every regime the property relies on, at the
+/// base unit and at the top unit alike, and draws every conversion target and
+/// both ownerships of a primitive on the left.
 ///
-/// The step regimes are steps of opposite signs, cancellations of half a
-/// unit or more, borrows across runs half a unit long, storage growth,
-/// sparse high digits, and shifted updates, counted at both units, beside
-/// the conversions to each target and the primitives on the left that
-/// consume or borrow their member. The
-/// skeleton regimes are those in which the two fixed-charge checks compare
-/// work over storage that scales: a steady repetition whose storage widths
-/// differ between units, and a block that touches a member at least a unit
-/// wide.
+/// The step regimes are steps of opposite signs, cancellations of half a unit
+/// or more, borrows across runs half a unit long, storage growth, sparse high
+/// digits, and shifted updates, counted at both units, beside the conversions
+/// to each target and the primitives on the left that consume or borrow their
+/// member. The skeleton regimes are those in which the two fixed-charge checks
+/// compare work over storage that scales: a steady repetition whose storage
+/// widths differ between units, and a block that touches a member at least a
+/// unit wide.
 ///
 /// The census replays a fixed stream of skeletons in the model alone. Each
-/// floor asserts that its regime is alive, not how often it occurs: the
-/// floors sit at a quarter of the counts the stream realized when they were
-/// set, so they need re-measuring only when the strategy or proptest's draws
+/// floor asserts that its regime is alive, not how often it occurs: the floors
+/// sit at a quarter of the counts the stream realized when they were set, so
+/// they need re-measuring only when the strategy or proptest's draws
 /// deliberately change.
 #[test]
 fn skeletons_reach_every_regime_at_both_scales() {

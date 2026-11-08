@@ -1,15 +1,15 @@
 //! Early exits: an operation whose answer is decided stops reading.
 //!
-//! Each fixture decides its answer at the first elementary interval of a
-//! comb whose tail grows with the probe's tooth count, so a walk that stops
-//! there reads the same fuel at every tail length, and one that reads on
-//! grows with the tail.
+//! Each fixture decides its answer at the first elementary interval of a comb
+//! whose tail grows with the probe's tooth count, so a walk that stops there
+//! reads the same fuel at every tail length, and one that reads on grows with
+//! the tail.
 
 use focused_fuel_harness::{assert_equal, Probe};
 
-/// The semantic equality walk on a pair the first elementary interval
-/// refutes reads only that interval: its fuel is the same whatever the length
-/// of the comb's tail.
+/// The semantic equality walk on a pair the first elementary interval refutes
+/// reads only that interval: its fuel is the same whatever the length of the
+/// comb's tail.
 ///
 /// The comb `C(1024, teeth)` keeps its first leaf at `2^1024 − 1` at every
 /// tooth count, so the deciding interval's work is fixed by construction and
@@ -20,16 +20,16 @@ fn eq_exit_cost_is_tail_independent_on_first_interval_refuted_pair() {
     assert_equal(Probe::EqRefutedAtFirstInterval, &[512, 1_024, 4_096]);
 }
 
-/// Comb tooth counts for the span and query exits, an eightfold range of
-/// tail lengths behind a fixed deciding interval.
+/// Comb tooth counts for the span and query exits, an eightfold range of tail
+/// lengths behind a fixed deciding interval.
 const TEETH: [u64; 3] = [512, 1_024, 4_096];
 
 /// Span queries stop at the first refuted direction.
 ///
 /// `dominance` stops when the start is concurrent with the probe or strictly
-/// above it, `precedence` when the end is concurrent with the probe or
-/// strictly below it, and `contains` when the probe lies above the end or
-/// below the start.
+/// above it, `precedence` when the end is concurrent with the probe or strictly
+/// below it, and `contains` when the probe lies above the end or below the
+/// start.
 ///
 /// Every fixture decides at the comb's first interval while the comb's tail
 /// grows eightfold. Form: equal fuel (F-eq) over the tooth count, for each

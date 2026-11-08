@@ -1,10 +1,10 @@
-//! Probes of the party walks that resolve deep subtrees whole: `sync`'s
-//! fused join-and-fork, and `without`'s splice and block paths.
+//! Probes of the party walks that resolve deep subtrees whole: `sync`'s fused
+//! join-and-fork, and `without`'s splice and block paths.
 //!
-//! The operands are spelled bit by bit in the party encoding (two presence
-//! bits per node, a terminal owned cell for `00`, a `1` marker, then zero
-//! padding) and decoded through the public, validating `Party::decode`, which
-//! rejects any spelling that is not canonical.
+//! The operands are spelled bit by bit in the party encoding (two presence bits
+//! per node, a terminal owned cell for `00`, a `1` marker, then zero padding)
+//! and decoded through the public, validating `Party::decode`, which rejects
+//! any spelling that is not canonical.
 
 use before::{Clock, Party, Version};
 
@@ -45,8 +45,8 @@ fn node(left: Option<&Bits>, right: Option<&Bits>) -> Bits {
     Bits(bits)
 }
 
-/// A unary chain of `levels` nodes, each with only its left child (or only
-/// its right, if `left_side` is false), over `tail`.
+/// A unary chain of `levels` nodes, each with only its left child (or only its
+/// right, if `left_side` is false), over `tail`.
 fn spine(levels: usize, left_side: bool, tail: &Bits) -> Bits {
     let mut bits = Vec::with_capacity(2 * levels + tail.0.len());
     for _ in 0..levels {
@@ -102,8 +102,7 @@ fn splice(depth: usize) -> (Bits, Bits) {
     )
 }
 
-/// The adjacent pair at `depth`: the leftmost `2^-depth` cell and its
-/// sibling.
+/// The adjacent pair at `depth`: the leftmost `2^-depth` cell and its sibling.
 fn adjacent(depth: usize) -> (Bits, Bits) {
     (
         leftmost(depth),
@@ -111,9 +110,9 @@ fn adjacent(depth: usize) -> (Bits, Bits) {
     )
 }
 
-/// Measures `Clock::sync` of two clocks with empty versions whose parties
-/// are `pair`, checking the two halves against `Party::join` then
-/// `Party::fork` of the same pair.
+/// Measures `Clock::sync` of two clocks with empty versions whose parties are
+/// `pair`, checking the two halves against `Party::join` then `Party::fork` of
+/// the same pair.
 fn sync((a, b): (Bits, Bits)) -> u64 {
     let mut joined = a.party();
     joined
@@ -166,8 +165,7 @@ pub fn sync_adjacent(depth: usize) -> u64 {
     sync(adjacent(depth))
 }
 
-/// Measures `Party::join` then `Party::fork` of the delegated pair at
-/// `depth`.
+/// Measures `Party::join` then `Party::fork` of the delegated pair at `depth`.
 pub fn join_fork_delegated(depth: usize) -> u64 {
     join_fork(delegated(depth))
 }
@@ -177,14 +175,12 @@ pub fn join_fork_splice(depth: usize) -> u64 {
     join_fork(splice(depth))
 }
 
-/// Measures `Party::join` then `Party::fork` of the adjacent pair at
-/// `depth`.
+/// Measures `Party::join` then `Party::fork` of the adjacent pair at `depth`.
 pub fn join_fork_adjacent(depth: usize) -> u64 {
     join_fork(adjacent(depth))
 }
 
-/// Measures `self.without(other)`, checking the remainder against
-/// `expected`.
+/// Measures `self.without(other)`, checking the remainder against `expected`.
 fn without(this: &Bits, other: &Bits, expected: Option<&Bits>) -> u64 {
     let (this, other) = (this.party(), other.party());
     let expected = expected.map(Bits::party);
@@ -217,8 +213,8 @@ pub fn without_block(depth: usize) -> u64 {
     without(&this, &other, Some(&remainder))
 }
 
-/// Measures carving the leftmost `2^-depth` cell out of the seed, which
-/// builds the cell's complement level by level.
+/// Measures carving the leftmost `2^-depth` cell out of the seed, which builds
+/// the cell's complement level by level.
 pub fn without_complement(depth: usize) -> u64 {
     without(&full(), &leftmost(depth), Some(&complement_leftmost(depth)))
 }

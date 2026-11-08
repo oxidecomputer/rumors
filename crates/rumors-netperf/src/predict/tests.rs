@@ -16,8 +16,8 @@ fn point(replicas: Replicas, mean: f64) -> Point {
     point
 }
 
-/// Replica counts with some messages on each side, so every rate a fit
-/// reads is determined.
+/// Replica counts with some messages on each side, so every rate a fit reads is
+/// determined.
 fn replicas() -> impl Strategy<Value = Replicas> {
     (
         0u64..1_000_000,

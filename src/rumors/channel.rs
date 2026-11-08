@@ -1,7 +1,7 @@
 //! Shared waiting state for replica-content observers.
 //!
-//! A watch receiver cannot lend itself to `changed()` across stream polls.
-//! This state machine moves the receiver into an owned future so its waker
+//! A watch receiver cannot lend itself to `changed()` across stream polls. This
+//! state machine moves the receiver into an owned future so its waker
 //! registration survives until a change arrives, then returns the receiver to
 //! the observer.
 
@@ -57,7 +57,8 @@ impl<T: Send + Sync + 'static> Channel<T> {
         }
     }
 
-    /// Registers a persistent wait after the observer has consumed current state.
+    /// Registers a persistent wait after the observer has consumed current
+    /// state.
     ///
     /// The future owns the receiver so its waker registration survives until
     /// the observer is polled again.

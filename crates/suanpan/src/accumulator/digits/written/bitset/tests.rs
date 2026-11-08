@@ -27,8 +27,8 @@ const FAR: usize = 1 << 19;
 const MAX_RUN: usize = 160;
 
 /// Level-0 lengths, in words, at and beside each length where the levels'
-/// structure changes: a second level appears past 1 word, a third past 64,
-/// and a fourth past 4,096, and level 1 gains a word past 128 and past 4,160.
+/// structure changes: a second level appears past 1 word, a third past 64, and
+/// a fourth past 4,096, and level 1 gains a word past 128 and past 4,160.
 const LEVEL_0_LENGTHS: &[usize] = &[
     1, 2, 63, 64, 65, 66, 128, 129, 4095, 4096, 4097, 4098, 4160, 4161,
 ];
@@ -48,9 +48,9 @@ enum Op {
     /// Insert position zero, which `clear` requires, then clear, which must
     /// pass exactly the oracle's other positions and leave position zero.
     ///
-    /// The clear must examine level 0 and one more level per level at which
-    /// the largest position lies outside word zero, and empty exactly the
-    /// nonempty words off position zero's path.
+    /// The clear must examine level 0 and one more level per level at which the
+    /// largest position lies outside word zero, and empty exactly the nonempty
+    /// words off position zero's path.
     Clear,
 }
 
@@ -136,8 +136,8 @@ fn apply(op: &Op, set: &mut Bitset, oracle: &mut BTreeSet<usize>, touched: &mut 
     }
 }
 
-/// Every position whose membership or predecessor could disagree: each named
-/// or held position and its neighbors, each boundary and its neighbors, and
+/// Every position whose membership or predecessor could disagree: each named or
+/// held position and its neighbors, each boundary and its neighbors, and
 /// positions above everything held, up to `usize::MAX`.
 fn probes(oracle: &BTreeSet<usize>, touched: &BTreeSet<usize>) -> BTreeSet<usize> {
     let above = oracle.last().map_or(0, |&last| last + 1);
@@ -261,8 +261,8 @@ fn max_levels_covers_every_position() {
 const TALL: usize = 64 * 64 * 64;
 
 /// Positions at and beside the word, level-1, and level-2 boundaries, from
-/// which [`a_clear_leaves_zero_and_climbs_only_past_emptied_words`] builds
-/// the sets it clears and draws the insertions that follow.
+/// which [`a_clear_leaves_zero_and_climbs_only_past_emptied_words`] builds the
+/// sets it clears and draws the insertions that follow.
 const CLEAR_POINTS: [usize; 7] = [0, 1, 63, 64, 4095, 4096, TALL];
 
 /// Count the nonempty words of `set`, at every level.
@@ -282,26 +282,25 @@ fn levels_off_word_zero(position: usize) -> usize {
 }
 
 /// A clear leaves position zero alone, climbs only past levels at which it
-/// empties a word other than word zero, and empties exactly the nonempty
-/// words off position zero's path.
+/// empties a word other than word zero, and empties exactly the nonempty words
+/// off position zero's path.
 ///
 /// After it, a later insertion and every query agree with the oracle.
 ///
-/// A hierarchy of four levels is built by inserting position zero and
-/// [`TALL`], and clearing. Then, for every subset of [`CLEAR_POINTS`], the
-/// subset is inserted and cleared. The clear must pass exactly the subset's
-/// points other than zero and leave exactly position zero, with both
-/// invariants and the storage kept, having examined level 0 and one level
-/// more for each level at which the largest point lies outside word zero.
-/// An empty subset, or zero alone, therefore stops at level 0. Below the
-/// levels it examines, it must empty exactly the words that were nonempty
-/// and not on position zero's path, so it reads no empty word. Each point,
-/// and the position after it, is then inserted into a copy. Because
-/// word zero stays nonempty at every level, the insertion must climb one
-/// level plus one for each level at which its position lies outside word
-/// zero, where an insertion into an emptied hierarchy would climb every
-/// level. Then `contains` and `last_below` must agree with the oracle at
-/// every probe.
+/// A hierarchy of four levels is built by inserting position zero and [`TALL`],
+/// and clearing. Then, for every subset of [`CLEAR_POINTS`], the subset is
+/// inserted and cleared. The clear must pass exactly the subset's points other
+/// than zero and leave exactly position zero, with both invariants and the
+/// storage kept, having examined level 0 and one level more for each level at
+/// which the largest point lies outside word zero. An empty subset, or zero
+/// alone, therefore stops at level 0. Below the levels it examines, it must
+/// empty exactly the words that were nonempty and not on position zero's path,
+/// so it reads no empty word. Each point, and the position after it, is then
+/// inserted into a copy. Because word zero stays nonempty at every level, the
+/// insertion must climb one level plus one for each level at which its position
+/// lies outside word zero, where an insertion into an emptied hierarchy would
+/// climb every level. Then `contains` and `last_below` must agree with the
+/// oracle at every probe.
 #[test]
 fn a_clear_leaves_zero_and_climbs_only_past_emptied_words() {
     let mut tall = Bitset::default();

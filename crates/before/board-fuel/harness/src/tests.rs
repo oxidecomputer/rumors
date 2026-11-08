@@ -1,5 +1,5 @@
-//! Checks the fuel board's work queue: its order across the ladder's
-//! samplings, and the pool that runs it.
+//! Checks the fuel board's work queue: its order across the ladder's samplings,
+//! and the pool that runs it.
 
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,9 +9,8 @@ use before::testing::meter::board::{Sampling, DEFAULT_SCALE, LADDER_TOP_SCALE, S
 use super::{queue, run_queue};
 
 /// For the ladder's samplings, given in sweep order, [`queue`] lists every
-/// shard of the top scale, then of the past-power sampling, then of the
-/// base scale, then of the small inputs, each sampling's shards in shard
-/// order.
+/// shard of the top scale, then of the past-power sampling, then of the base
+/// scale, then of the small inputs, each sampling's shards in shard order.
 #[test]
 fn queue_orders_the_ladder_top_past_power_base_small() {
     let samplings = [
@@ -28,16 +27,16 @@ fn queue_orders_the_ladder_top_past_power_base_small() {
     assert_eq!(queue(&samplings, shards), expected);
 }
 
-/// [`run_queue`] returns every task's result in queue order when no task
-/// fails, and otherwise the error of the first failing task in queue order.
+/// [`run_queue`] returns every task's result in queue order when no task fails,
+/// and otherwise the error of the first failing task in queue order.
 ///
 /// The claim is checked for every queue of up to six tasks, every set of
-/// failing tasks, and one to eight workers; no task may run twice, and
-/// every task must run when none fails.
+/// failing tasks, and one to eight workers; no task may run twice, and every
+/// task must run when none fails.
 ///
-/// The queue lists the tasks in reverse, so results in task order, or the
-/// first failure in task order, would not pass. Each run's interleaving is
-/// whatever the scheduler produces; the claim holds under every one.
+/// The queue lists the tasks in reverse, so results in task order, or the first
+/// failure in task order, would not pass. Each run's interleaving is whatever
+/// the scheduler produces; the claim holds under every one.
 #[test]
 fn run_queue_returns_results_in_queue_order_or_the_first_failure() {
     for len in 0..=6usize {

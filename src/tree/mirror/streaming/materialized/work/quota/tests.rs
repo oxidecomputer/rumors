@@ -1,14 +1,14 @@
-//! A reply's quota against the room it prices and the chunks it lets
-//! park, on a handle type small enough that a covered set costs more than
-//! the reaction slot it frees.
+//! A reply's quota against the room it prices and the chunks it lets park, on a
+//! handle type small enough that a covered set costs more than the reaction
+//! slot it frees.
 //!
 //! The in-memory backend's reaction is at least as large as a covered set,
-//! which makes the set's net price zero there; the handle `()` makes a
-//! reaction smaller than a set, so these tests price the set's excess
-//! too. Each test charges the room on a ledger of its own and builds every
-//! chunk the quota accepts as the decoder would, at exactly its
-//! lengths, so the ledger's count of bytes items needed beyond the room is
-//! an oracle independent of how the quota prices what is left.
+//! which makes the set's net price zero there; the handle `()` makes a reaction
+//! smaller than a set, so these tests price the set's excess too. Each test
+//! charges the room on a ledger of its own and builds every chunk the quota
+//! accepts as the decoder would, at exactly its lengths, so the ledger's count
+//! of bytes items needed beyond the room is an oracle independent of how the
+//! quota prices what is left.
 
 use proptest::prelude::*;
 
@@ -24,12 +24,11 @@ use crate::tree::mirror::streaming::{
 };
 use crate::tree::typed::Hash;
 
-/// A handle that holds nothing, so a reaction is smaller than a covered
-/// set.
+/// A handle that holds nothing, so a reaction is smaller than a covered set.
 type Small = ();
 
-/// The small handle prices a covered set above the reaction slot it frees,
-/// so the tests below exercise a nonzero net set price.
+/// The small handle prices a covered set above the reaction slot it frees, so
+/// the tests below exercise a nonzero net set price.
 const _: () = assert!(
     covered_set_price::<Small>() > 0,
     "the small handle must make a covered set cost more than a reaction",
@@ -38,16 +37,16 @@ const _: () = assert!(
 /// One frame of a generated reply, or a chunk boundary.
 #[derive(Clone, Debug)]
 enum Step {
-    /// A match at `radix`, covering the radixes above it whose offsets from
-    /// it this mask's bits pick, the lowest bit an offset of one, with
-    /// child counts of `children` together.
+    /// A match at `radix`, covering the radixes above it whose offsets from it
+    /// this mask's bits pick, the lowest bit an offset of one, with child
+    /// counts of `children` together.
     Match {
         radix: Radix,
         mask: u32,
         children: usize,
     },
-    /// A query at `radix` listing `entries` children, ending a chunk unless
-    /// it is the reply's last frame and `ends` is false.
+    /// A query at `radix` listing `entries` children, ending a chunk unless it
+    /// is the reply's last frame and `ends` is false.
     Query {
         radix: Radix,
         entries: usize,
@@ -57,12 +56,12 @@ enum Step {
     Supply { radix: Radix, children: usize },
 }
 
-/// Where a generated reaction sits: just above the reply's latest one, so
-/// that most generated replies get far, or at any radix.
+/// Where a generated reaction sits: just above the reply's latest one, so that
+/// most generated replies get far, or at any radix.
 #[derive(Clone, Copy, Debug)]
 enum Radix {
-    /// This many radixes above the latest reaction's, or above the lowest
-    /// radix before the first.
+    /// This many radixes above the latest reaction's, or above the lowest radix
+    /// before the first.
     Above(u8),
     /// This radix.
     At(u8),
@@ -106,15 +105,15 @@ fn step() -> impl Strategy<Value = Step> {
     ]
 }
 
-/// Bounds of any reaction slots up to a fan and any listing up to a few
-/// fans, with positions up to a fan.
+/// Bounds of any reaction slots up to a fan and any listing up to a few fans,
+/// with positions up to a fan.
 fn bounds() -> impl Strategy<Value = (ReplyBound, usize)> {
     (0..=FAN, 0..=4 * FAN, 0..=FAN)
         .prop_map(|(reactions, listing, positions)| (ReplyBound { reactions, listing }, positions))
 }
 
-/// A listing of `entries` children, allocated at exactly its length, as
-/// the codec decodes one.
+/// A listing of `entries` children, allocated at exactly its length, as the
+/// codec decodes one.
 fn listing(entries: usize) -> Vec<Listed> {
     let mut listing = Vec::with_capacity(entries);
     listing.extend((0..entries).map(|radix| Listed {
@@ -126,17 +125,16 @@ fn listing(entries: usize) -> Vec<Listed> {
     listing
 }
 
-/// What one reply delivered against its quota, as the chunks it
-/// parked hold it.
+/// What one reply delivered against its quota, as the chunks it parked hold it.
 #[derive(Debug, Default)]
 struct Delivered {
-    /// The reaction slots the chunks' reactions take: one per reaction,
-    /// and one per child their match covers.
+    /// The reaction slots the chunks' reactions take: one per reaction, and one
+    /// per child their match covers.
     slots: usize,
     /// The listing entries their queries carry.
     listing: usize,
-    /// The positions their matches and queries take, and the children
-    /// their match covers.
+    /// The positions their matches and queries take, and the children their
+    /// match covers.
     positions: usize,
 }
 
@@ -163,12 +161,12 @@ impl Delivered {
     }
 }
 
-/// Take everything `ready` holds as one chunk out of `quota`, ending
-/// the reply if `last`, onto `chunks`.
+/// Take everything `ready` holds as one chunk out of `quota`, ending the reply
+/// if `last`, onto `chunks`.
 ///
-/// It checks that the chunk's bytes come out of the price: the price falls
-/// by at least the chunk's bytes, or, for the last chunk, was at least the
-/// chunk's bytes.
+/// It checks that the chunk's bytes come out of the price: the price falls by
+/// at least the chunk's bytes, or, for the last chunk, was at least the chunk's
+/// bytes.
 fn take(
     quota: &mut ReplyQuota<Small>,
     ready: &mut Vec<Reaction<Small>>,
@@ -331,14 +329,14 @@ proptest! {
     }
 }
 
-/// A frame past each limit is refused with the limit it would pass, and
-/// leaves the quota as it was.
+/// A frame past each limit is refused with the limit it would pass, and leaves
+/// the quota as it was.
 ///
-/// The bound allows two reaction slots and three listing entries against
-/// three positions. A query at radix 5 listing two entries fits; then
-/// a query listing two more passes the listing, one at radix 5 again
-/// breaks the order, a supply at radix 9 fits, and a match covering radix
-/// 12 would take a third and fourth slot.
+/// The bound allows two reaction slots and three listing entries against three
+/// positions. A query at radix 5 listing two entries fits; then a query listing
+/// two more passes the listing, one at radix 5 again breaks the order, a supply
+/// at radix 9 fits, and a match covering radix 12 would take a third and fourth
+/// slot.
 #[test]
 fn each_limit_refuses_the_frame_that_would_pass_it() {
     let bound = ReplyBound {
@@ -359,11 +357,11 @@ fn each_limit_refuses_the_frame_that_would_pass_it() {
     );
 }
 
-/// A match takes a position for itself and each child it covers, a second
-/// match is refused, and a supply at a covered radix is refused.
+/// A match takes a position for itself and each child it covers, a second match
+/// is refused, and a supply at a covered radix is refused.
 ///
-/// Against two positions, a match covering one more child takes both, so
-/// a later query finds none.
+/// Against two positions, a match covering one more child takes both, so a
+/// later query finds none.
 #[test]
 fn a_match_takes_the_positions_it_covers() {
     let bound = ReplyBound {

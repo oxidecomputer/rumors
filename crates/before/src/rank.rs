@@ -8,11 +8,11 @@
 //! # Canonical representation
 //!
 //! A rank is stored as `num / 2^exp` in lowest terms: the numerator and the
-//! denominator share no factor of two. A positive exponent therefore comes
-//! with an odd numerator, zero is stored with exponent zero, and an integral
-//! rank has exponent zero and a numerator that may be even. This
-//! normalization gives every value one in-memory representation and makes
-//! structural equality exact numeric equality.
+//! denominator share no factor of two. A positive exponent therefore comes with
+//! an odd numerator, zero is stored with exponent zero, and an integral rank
+//! has exponent zero and a numerator that may be even. This normalization gives
+//! every value one in-memory representation and makes structural equality exact
+//! numeric equality.
 //!
 //! # Canonical byte encoding
 //!
@@ -37,9 +37,10 @@
 //! that a fraction sorts before any proper extension of itself.
 //!
 //! Together, the integer code and fractional groups make byte-wise
-//! lexicographic order equal [`Ord`] on ranks. The closing marker makes the stream
-//! self-delimiting, and two distinct ranks always differ before either stream
-//! ends. Appending arbitrary suffixes therefore cannot change their order.
+//! lexicographic order equal [`Ord`] on ranks. The closing marker makes the
+//! stream self-delimiting, and two distinct ranks always differ before either
+//! stream ends. Appending arbitrary suffixes therefore cannot change their
+//! order.
 //!
 //! Decoding is strict and incremental. Storage grows only in proportion to
 //! bytes already read, never from an untrusted length claim. It rejects
@@ -79,10 +80,10 @@ mod tests;
 ///
 /// # Canonical encoding
 ///
-/// [`Rank::encode`] produces canonical bytes whose lexicographic order
-/// equals [`Rank`]'s numeric order. The encoding is also self-delimiting: an
-/// arbitrary suffix may be appended to each encoded rank without changing the
-/// order between distinct ranks. This makes the encoding suitable as the first
+/// [`Rank::encode`] produces canonical bytes whose lexicographic order equals
+/// [`Rank`]'s numeric order. The encoding is also self-delimiting: an arbitrary
+/// suffix may be appended to each encoded rank without changing the order
+/// between distinct ranks. This makes the encoding suitable as the first
 /// component of a composite key in a byte-ordered store.
 ///
 /// ```
@@ -105,16 +106,16 @@ mod tests;
 /// may be much smaller. The rank's memory use and canonical byte length are
 /// `O(‖r‖)`.
 ///
-/// Comparison, equality, hashing, and cloning take `O(‖r‖)` time. Addition
-/// and subtraction take `O(‖a‖ + ‖b‖)` time. Encoding and decoding are linear
-/// in the bytes written or read.
+/// Comparison, equality, hashing, and cloning take `O(‖r‖)` time. Addition and
+/// subtraction take `O(‖a‖ + ‖b‖)` time. Encoding and decoding are linear in
+/// the bytes written or read.
 ///
 /// # Rank and minimum ticks
 ///
 /// [`Version::min_ticks`](crate::Version::min_ticks) is a lower bound on how
 /// many events could have produced a version. Rank instead measures how those
-/// events cover the unit interval, so it can distinguish versions with the
-/// same minimum event count:
+/// events cover the unit interval, so it can distinguish versions with the same
+/// minimum event count:
 ///
 /// ```
 /// use before::{Party, Version};
@@ -131,8 +132,8 @@ mod tests;
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Rank {
-    /// The numerator. Normalized: odd whenever `exp` is positive, and zero
-    /// only with `exp` zero, so each value has exactly one representation.
+    /// The numerator. Normalized: odd whenever `exp` is positive, and zero only
+    /// with `exp` zero, so each value has exactly one representation.
     ///
     num: BigUint,
     /// The binary exponent of the denominator `2^exp`.
@@ -258,8 +259,8 @@ impl Rank {
     ///
     /// # Serialized size
     ///
-    /// The representation uses at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits: one
-    /// bit per integral bit and nine bits per eight fractional bits.
+    /// The representation uses at most `9⁄8 · ‖r‖ + O(log ‖r‖)` bits: one bit
+    /// per integral bit and nine bits per eight fractional bits.
     ///
     /// # Complexity
     ///
@@ -292,13 +293,12 @@ impl Rank {
     }
 
     /// Encodes this rank to an arbitrary writer: exactly
-    /// [`encode`](Rank::encode)'s canonical bytes, without an up-front
-    /// whole allocation.
+    /// [`encode`](Rank::encode)'s canonical bytes, without an up-front whole
+    /// allocation.
     ///
     /// # Errors
     ///
-    /// Whatever the writer itself reports; the encoding side is
-    /// infallible.
+    /// Whatever the writer itself reports; the encoding side is infallible.
     ///
     /// # Complexity
     ///
@@ -332,9 +332,9 @@ impl Rank {
     ///
     /// - [`Decode::Truncated`] when the stream ends inside the integral header,
     ///   its mantissa, or the fraction (a group or its continuation bit);
-    /// - [`Decode::TrailingBits`] when the byte string is not the minimal packing
-    ///   of its content (bytes past the stream's own, a set bit in the padding,
-    ///   or an all-zero final fraction group);
+    /// - [`Decode::TrailingBits`] when the byte string is not the minimal
+    ///   packing of its content (bytes past the stream's own, a set bit in the
+    ///   padding, or an all-zero final fraction group);
     /// - [`Decode::NotCanonical`] when the integral header declares a mantissa
     ///   width outside the format's `u64` range;
     /// - [`Decode::TooLarge`] when the fraction's depth in bits reaches 2^64,
@@ -555,16 +555,16 @@ impl Rank {
 /// expansion bits plus the one closing bit.
 const FRACTION_GROUP_BITS: u64 = 8;
 
-/// The numerator bits that fraction group `group` of a rank with exponent
-/// `exp` carries, most significant first: `Some(i)` for numerator bit `i`,
-/// `None` for the zero padding past the expansion's end.
+/// The numerator bits that fraction group `group` of a rank with exponent `exp`
+/// carries, most significant first: `Some(i)` for numerator bit `i`, `None` for
+/// the zero padding past the expansion's end.
 ///
 /// `group` must be below `exp.div_ceil(FRACTION_GROUP_BITS)`, the number of
 /// groups the encoder writes. Expansion bit `j`, counting from the binary
-/// point, is numerator bit `exp - j`, and the group holds `j` from `8g + 1`
-/// to `8g + 8`. That upper end reaches 2^64 in the last group of an exponent
-/// of `2^64 - 7` or more, so we measure from `exp` instead: the precondition
-/// gives `8g < exp`, so `exp - 8g` neither underflows nor overflows.
+/// point, is numerator bit `exp - j`, and the group holds `j` from `8g + 1` to
+/// `8g + 8`. That upper end reaches 2^64 in the last group of an exponent of
+/// `2^64 - 7` or more, so we measure from `exp` instead: the precondition gives
+/// `8g < exp`, so `exp - 8g` neither underflows nor overflows.
 fn fraction_group_bits(exp: u64, group: u64) -> impl Iterator<Item = Option<u64>> {
     let after_previous_groups = exp - group * FRACTION_GROUP_BITS;
     (1..=FRACTION_GROUP_BITS).map(move |k| after_previous_groups.checked_sub(k))
@@ -572,10 +572,11 @@ fn fraction_group_bits(exp: u64, group: u64) -> impl Iterator<Item = Option<u64>
 
 /// Bytes examined directly before decoding falls back to incremental reads.
 ///
-/// Retrying this fixed prefix bounds the extra work independently of input size.
+/// Retrying this fixed prefix bounds the extra work independently of input
+/// size.
 ///
-/// `pub(crate)` so the reader tests can end rank encodings beside the end
-/// of the prefix and of the first refill.
+/// `pub(crate)` so the reader tests can end rank encodings beside the end of
+/// the prefix and of the first refill.
 pub(crate) const DECODE_CHUNK_BYTES: usize = 64;
 
 /// A byte-at-a-time source dressed as an MSB-first bit reader: one byte
@@ -603,9 +604,9 @@ impl Rank {
     /// Parse one canonical stream from a byte source, consuming exactly the
     /// bytes the stream spans.
     ///
-    /// The closing bit makes the stream self-delimiting, so this never asks
-    /// for a byte belonging to a following field. Allocations grow only from
-    /// bits already read, never from a claimed width.
+    /// The closing bit makes the stream self-delimiting, so this never asks for
+    /// a byte belonging to a following field. Allocations grow only from bits
+    /// already read, never from a claimed width.
     pub(crate) fn decode_stream(
         next_byte: impl FnMut() -> Result<u8, Decode>,
     ) -> Result<Rank, Decode> {
@@ -730,9 +731,9 @@ struct BitSink {
 }
 
 impl BitSink {
-    /// An empty sink growing as bits arrive: the decoder's shape,
-    /// where preallocating from a header's claimed width would let a
-    /// few malicious bytes provoke a large buffer.
+    /// An empty sink growing as bits arrive: the decoder's shape, where
+    /// preallocating from a header's claimed width would let a few malicious
+    /// bytes provoke a large buffer.
     fn new() -> BitSink {
         BitSink {
             bytes: Vec::new(),
@@ -755,9 +756,8 @@ impl BitSink {
     /// The final byte's zero padding is stripped by one shift, and the
     /// materialization does not require an aligned copy.
     ///
-    /// The caller's first pushed bit is set (the mantissa's implied
-    /// leading one), which is the materialization's no-leading-zero-byte
-    /// contract.
+    /// The caller's first pushed bit is set (the mantissa's implied leading
+    /// one), which is the materialization's no-leading-zero-byte contract.
     fn into_num(self) -> BigUint {
         let pad = if self.used == 0 { 0 } else { 8 - self.used };
         BigUint::from_bytes_be(&self.bytes) >> u32::from(pad)
@@ -947,8 +947,8 @@ impl PartialOrd for Rank {
 /// budget consumed so far) not to combine histories.
 ///
 /// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
-/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
-/// at every step and costs up to `O(k + k · n)`.
+/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total at
+/// every step and costs up to `O(k + k · n)`.
 ///
 /// # Complexity
 ///
@@ -997,8 +997,8 @@ impl Add<Rank> for &Rank {
 /// Adds a rank in place, as `+` does.
 ///
 /// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
-/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
-/// at every step and costs up to `O(k + k · n)`.
+/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total at
+/// every step and costs up to `O(k + k · n)`.
 impl AddAssign<&Rank> for Rank {
     fn add_assign(&mut self, rhs: &Rank) {
         *self = &*self + rhs;
@@ -1008,8 +1008,8 @@ impl AddAssign<&Rank> for Rank {
 /// Adds an owned rank in place, as `+` does.
 ///
 /// To add many ranks, use [`Sum`]: for `k` ranks whose binary widths sum to
-/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total
-/// at every step and costs up to `O(k + k · n)`.
+/// `n`, it costs `O(k + n)`, where a loop of `+=` rebuilds the running total at
+/// every step and costs up to `O(k + k · n)`.
 impl AddAssign<Rank> for Rank {
     fn add_assign(&mut self, rhs: Rank) {
         *self = &*self + &rhs;
@@ -1299,8 +1299,7 @@ impl Rank {
 ///
 /// # Complexity
 ///
-/// Linear in the input length, using storage proportional to its binary
-/// digits.
+/// Linear in the input length, using storage proportional to its binary digits.
 impl FromStr for Rank {
     type Err = ParseRank;
 

@@ -10,9 +10,9 @@ use crate::tree::typed::untyped::tests::{
 
 use super::{Node, PATH_LEN, View};
 
-/// A tree as the untyped suites generate them: up to [`MAX_TEST_DEPTH`]
-/// levels deep, or built from leaves at whole 32-byte paths, whose
-/// compressed paths reach every length up to the whole key.
+/// A tree as the untyped suites generate them: up to [`MAX_TEST_DEPTH`] levels
+/// deep, or built from leaves at whole 32-byte paths, whose compressed paths
+/// reach every length up to the whole key.
 fn arb_any_tree() -> impl Strategy<Value = Node> {
     prop_oneof![
         (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
@@ -26,18 +26,17 @@ fn arb_any_tree() -> impl Strategy<Value = Node> {
     ]
 }
 
-/// Visit every level of `tree`'s listings, root first, each as a view, as
-/// the node [`Node::into_children`] builds for it, and with its coordinate,
-/// with `visit`.
+/// Visit every level of `tree`'s listings, root first, each as a view, as the
+/// node [`Node::into_children`] builds for it, and with its coordinate, with
+/// `visit`.
 ///
-/// The tree's own handles stay held throughout, as the walk holds the
-/// stored tree while it lists, so each compressed level of the copies is a
-/// copy of a shared node. The two listings must agree on the radices they
-/// yield; the pairs beneath are visited in turn. A level's coordinate is
-/// the path from the root to it: the root's is zeros, as many as the path
-/// bytes above the tree's height, and each child's extends its parent's by
-/// its radix. The traversal keeps an explicit stack, so it never recurses
-/// on the tree's shape.
+/// The tree's own handles stay held throughout, as the walk holds the stored
+/// tree while it lists, so each compressed level of the copies is a copy of a
+/// shared node. The two listings must agree on the radices they yield; the
+/// pairs beneath are visited in turn. A level's coordinate is the path from the
+/// root to it: the root's is zeros, as many as the path bytes above the tree's
+/// height, and each child's extends its parent's by its radix. The traversal
+/// keeps an explicit stack, so it never recurses on the tree's shape.
 fn visit_levels(
     tree: &Node,
     mut visit: impl FnMut(&View, &Node, &[u8]) -> Result<(), TestCaseError>,
@@ -79,12 +78,11 @@ fn visit_levels(
     Ok(())
 }
 
-/// The key bytes of the level `at` and of the levels down through
-/// `view`'s body: `at`, then the path bytes the view leaves visible,
-/// shallowest first.
+/// The key bytes of the level `at` and of the levels down through `view`'s
+/// body: `at`, then the path bytes the view leaves visible, shallowest first.
 ///
-/// Its first `PATH_LEN - h` bytes are the coordinate of the level at
-/// height `h`, for every height from the view's own down to its body's.
+/// Its first `PATH_LEN - h` bytes are the coordinate of the level at height
+/// `h`, for every height from the view's own down to its body's.
 fn key_through_body(view: &View, at: &[u8]) -> Vec<u8> {
     let prefix = &view.node.inner.prefix;
     let visible = &prefix[..prefix.len() - view.peeled.bytes()];

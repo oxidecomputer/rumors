@@ -1,27 +1,27 @@
-//! The budget criterion: how a session's duration may move as its budget
-//! grows below the no-cost point, on generated pairs and links.
+//! The budget criterion: how a session's duration may move as its budget grows
+//! below the no-cost point, on generated pairs and links.
 //!
 //! # The criterion
 //!
-//! Write `T(B)` for a session's duration at ledger budget `B` (the budget
-//! its ledgers admit work against, beside the floor and session allowances),
-//! `N*` for the session's no-cost point, and `δ` for the link's one-way
-//! delay, so that one round trip is `2δ` on every link. The criterion
-//! states what holds for every pair of ledger budgets `0 ≤ B ≤ B′`, zero
-//! included: below as well as above the largest grant
-//! ([`LARGEST_GRANT`](rumors::testing::LARGEST_GRANT)), the least ledger
-//! budget a public memory budget leaves, which only the test path's
-//! budgets reach below:
+//! Write `T(B)` for a session's duration at ledger budget `B` (the budget its
+//! ledgers admit work against, beside the floor and session allowances), `N*`
+//! for the session's no-cost point, and `δ` for the link's one-way delay, so
+//! that one round trip is `2δ` on every link. The criterion states what holds
+//! for every pair of ledger budgets `0 ≤ B ≤ B′`, zero included: below as well
+//! as above the largest grant
+//! ([`LARGEST_GRANT`](rumors::testing::LARGEST_GRANT)), the least ledger budget
+//! a public memory budget leaves, which only the test path's budgets reach
+//! below:
 //!
 //! - **(a)** On every link, no inversion exceeds one round trip:
-//!   `T(B′) ≤ T(B) + 2δ`. Inversions are cumulative, so the claim covers
-//!   every pair, not only adjacent budgets.
-//! - **(b)** On the latency-only link, none occur above a threshold the
-//!   session sets: `T(B′) ≤ T(B)` whenever `B ≥ B*`.
+//!   `T(B′) ≤ T(B) + 2δ`. Inversions are cumulative, so the claim covers every
+//!   pair, not only adjacent budgets.
+//! - **(b)** On the latency-only link, none occur above a threshold the session
+//!   sets: `T(B′) ≤ T(B)` whenever `B ≥ B*`.
 //!
 //! On links with bandwidth, a larger budget can still reorder the bytes a
-//! direction writes above `B*`, which shifts its serialization by up to
-//! about a message, so (b) is not asserted there.
+//! direction writes above `B*`, which shifts its serialization by up to about a
+//! message, so (b) is not asserted there.
 //!
 //! At `B ≥ N*` the session is the unlimited session, event for event
 //! ([`no_slowdown`](super::no_slowdown)), so the pairs that matter have `B <
@@ -83,26 +83,25 @@ const BUDGETS: usize = 3;
 /// The denominator of the fractions that place a budget in its range.
 const PARTS: u32 = 1 << 16;
 
-/// The pairs a case draws: messages on each side, and the percent of them
-/// both sides hold.
+/// The pairs a case draws: messages on each side, and the percent of them both
+/// sides hold.
 ///
-/// The sizes give a no-cost point of about 5 to 6.5 MB on the
-/// latency-only link and a depth-1 claims' total of about 4 to 5.3 MB,
-/// while keeping a case's sessions inside the suite's time.
+/// The sizes give a no-cost point of about 5 to 6.5 MB on the latency-only link
+/// and a depth-1 claims' total of about 4 to 5.3 MB, while keeping a case's
+/// sessions inside the suite's time.
 ///
 /// The sizes start high and sharing is capped so that `D₁` stays below the
-/// no-cost point. On the latency-only link that point is then the
-/// initiator's depth-2 share peak: the depth-2 questions its answers ask at
-/// once, about as many as the messages each side holds alone, with their
-/// rooms and their replies' needs. `D₁` weighs a fixed fan of questions,
-/// one per child of the root, beyond the first of them, which fit within
-/// their kind and depth's bound and take no share check; their rooms and
-/// needs follow every child the peer lists, shared or not. So sharing
-/// removes depth-2 questions without shrinking `D₁`, and fewer messages
-/// shrink the depth-2 peak toward `D₁`'s fixed fan. From 10,000 messages
-/// and up to a twentieth shared, `D₁` stays below about 0.86 of the no-cost
-/// point; at 10,000 messages it reaches it at about a fifth shared, leaving
-/// nothing above `D₁` to judge.
+/// no-cost point. On the latency-only link that point is then the initiator's
+/// depth-2 share peak: the depth-2 questions its answers ask at once, about as
+/// many as the messages each side holds alone, with their rooms and their
+/// replies' needs. `D₁` weighs a fixed fan of questions, one per child of the
+/// root, beyond the first of them, which fit within their kind and depth's
+/// bound and take no share check; their rooms and needs follow every child the
+/// peer lists, shared or not. So sharing removes depth-2 questions without
+/// shrinking `D₁`, and fewer messages shrink the depth-2 peak toward `D₁`'s
+/// fixed fan. From 10,000 messages and up to a twentieth shared, `D₁` stays
+/// below about 0.86 of the no-cost point; at 10,000 messages it reaches it at
+/// about a fifth shared, leaving nothing above `D₁` to judge.
 fn shapes() -> impl Strategy<Value = Shape> {
     (10_000_u64..=12_000, 0_u64..=5)
         .prop_map(|(messages, shared)| Shape::overlapping(messages, shared))
@@ -113,8 +112,8 @@ fn between(low: usize, high: usize, parts: u32) -> usize {
     low + (high - low) * parts as usize / PARTS as usize
 }
 
-/// The case of `shape` on `link` at ledger budget `budget`, or at an
-/// unlimited budget for [`UNLIMITED`].
+/// The case of `shape` on `link` at ledger budget `budget`, or at an unlimited
+/// budget for [`UNLIMITED`].
 fn case(shape: Shape, link: LinkConfig, budget: usize) -> Case {
     Case {
         shape,
@@ -130,8 +129,8 @@ fn case(shape: Shape, link: LinkConfig, budget: usize) -> Case {
 /// The depth-1 claims' total of the unlimited session `reference` on the
 /// latency-only link: the largest depth-1 share check either ledger weighed.
 ///
-/// Those checks are the responder's first, so each one that outweighed
-/// the others raised its ledger's share peak
+/// Those checks are the responder's first, so each one that outweighed the
+/// others raised its ledger's share peak
 /// ([`LedgerReading::share_peaks`](rumors_testkit::bench::session::LedgerReading::share_peaks)).
 fn depth1_claims(reference: &Session) -> usize {
     reference
@@ -162,13 +161,12 @@ impl Judged {
     }
 }
 
-/// Checks (a) on every pair of one link's sessions, and (b) on every pair
-/// whose smaller budget is at least `threshold`, if given, returning what
-/// it judged.
+/// Checks (a) on every pair of one link's sessions, and (b) on every pair whose
+/// smaller budget is at least `threshold`, if given, returning what it judged.
 ///
-/// `sessions` are the link's sessions at drawn budgets below its no-cost
-/// point, sorted by ledger budget, and `reference` its unlimited session,
-/// which joins every pair as the larger budget.
+/// `sessions` are the link's sessions at drawn budgets below its no-cost point,
+/// sorted by ledger budget, and `reference` its unlimited session, which joins
+/// every pair as the larger budget.
 fn check_pairs(
     sessions: &[(usize, &Session)],
     reference: &Session,
@@ -275,22 +273,22 @@ fn check_case(
     judged
 }
 
-/// At every budget, zero included, a larger budget never costs a session
-/// more than one round trip, on any link, and never costs it anything at
-/// or above its depth-1 claims' total on the latency-only link.
+/// At every budget, zero included, a larger budget never costs a session more
+/// than one round trip, on any link, and never costs it anything at or above
+/// its depth-1 claims' total on the latency-only link.
 ///
 /// This is the criterion the module docs state, measured rather than proven:
 /// (a) on every link, and (b) on the latency-only link alone, since on a link
-/// with bandwidth a larger budget can reorder a direction's writes and
-/// lengthen the session by about one message's serialization.
+/// with bandwidth a larger budget can reorder a direction's writes and lengthen
+/// the session by about one message's serialization.
 ///
-/// Neither half may pass vacuously. Each case premises a constrained
-/// session: its no-cost point exceeds zero on both links, its depth-1
-/// claims' total lies strictly between zero and the no-cost point, so it
-/// judges pairs both below and above the threshold, and units wait at every
-/// budget it draws. And over the run, some drawn budget must have slowed
-/// its session beyond the unlimited one, and some pair must hold two drawn
-/// budgets `B < B′`, both below the no-cost point.
+/// Neither half may pass vacuously. Each case premises a constrained session:
+/// its no-cost point exceeds zero on both links, its depth-1 claims' total lies
+/// strictly between zero and the no-cost point, so it judges pairs both below
+/// and above the threshold, and units wait at every budget it draws. And over
+/// the run, some drawn budget must have slowed its session beyond the unlimited
+/// one, and some pair must hold two drawn budgets `B < B′`, both below the
+/// no-cost point.
 #[test]
 fn a_larger_budget_costs_at_most_a_round_trip() {
     let judged = std::cell::Cell::new(Judged::default());
@@ -336,16 +334,15 @@ fn a_larger_budget_costs_at_most_a_round_trip() {
     );
 }
 
-/// The first burst of `session` on the latency-only link: the admissions
-/// the responder's ledger made within one round trip of `start`, the time
-/// of its first depth-1 question in the unlimited session.
+/// The first burst of `session` on the latency-only link: the admissions the
+/// responder's ledger made within one round trip of `start`, the time of its
+/// first depth-1 question in the unlimited session.
 ///
-/// The responder's ledger is the one whose session reported from `side`.
-/// Its depth-1 questions travel one way to the initiator, which answers at
-/// once, since the link model computes in no time, so no depth-1 reply can
-/// reach the responder before one round trip has passed: until then,
-/// nothing the budget holds can return to admit a depth-1 question that
-/// waited for one.
+/// The responder's ledger is the one whose session reported from `side`. Its
+/// depth-1 questions travel one way to the initiator, which answers at once,
+/// since the link model computes in no time, so no depth-1 reply can reach the
+/// responder before one round trip has passed: until then, nothing the budget
+/// holds can return to admit a depth-1 question that waited for one.
 fn first_burst(session: &Session, side: Option<Side>, start: u64) -> Vec<DatedAdmission> {
     let round_trip = 2 * session.case.link.one_way_delay();
     session
@@ -361,9 +358,9 @@ fn first_burst(session: &Session, side: Option<Side>, start: u64) -> Vec<DatedAd
         .collect()
 }
 
-/// On the latency-only link, a session's first burst is the unlimited
-/// session's at every ledger budget of at least `D₁`, and differs from it
-/// at every budget below `D₁`.
+/// On the latency-only link, a session's first burst is the unlimited session's
+/// at every ledger budget of at least `D₁`, and differs from it at every budget
+/// below `D₁`.
 ///
 /// This is the threshold's own property, which the module docs argue under "The
 /// threshold": at a budget of at least `D₁` every depth-1 question the
@@ -374,12 +371,11 @@ fn first_burst(session: &Session, side: Option<Side>, start: u64) -> Vec<DatedAd
 /// admission, each one's time, unit, grant, and whether it waited or was
 /// exempt.
 ///
-/// Each case runs the pair at `D₁` and `D₁ − 1`, which the claim must
-/// separate exactly, and at one budget drawn in `[0, D₁ − 1)` and one
-/// drawn in `(D₁, N*)`. Neither half may pass vacuously: the unlimited
-/// burst must hold depth-1 questions, and `D₁` must lie strictly between
-/// zero and the no-cost point, so that every budget drawn lies below the
-/// point where nothing waits.
+/// Each case runs the pair at `D₁` and `D₁ − 1`, which the claim must separate
+/// exactly, and at one budget drawn in `[0, D₁ − 1)` and one drawn in
+/// `(D₁, N*)`. Neither half may pass vacuously: the unlimited burst must hold
+/// depth-1 questions, and `D₁` must lie strictly between zero and the no-cost
+/// point, so that every budget drawn lies below the point where nothing waits.
 #[test]
 fn the_first_burst_saturates_at_the_depth1_claims_total() {
     run(

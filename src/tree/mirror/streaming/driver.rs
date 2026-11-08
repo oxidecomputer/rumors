@@ -2,29 +2,28 @@
 //!
 //! Each phase consumes a height-typed state and returns the next state at a
 //! different height. An ordinary loop cannot hold that changing type, so
-//! `mirror!` expands the fixed schedule into straight-line calls. The
-//! [`Peer`] bounds make a wrong schedule fail to compile before it reaches a
-//! terminal phase.
+//! `mirror!` expands the fixed schedule into straight-line calls. The [`Peer`]
+//! bounds make a wrong schedule fail to compile before it reaches a terminal
+//! phase.
 //!
-//! Replies cross between participants as streams. A failed producer cannot
-//! end its stream normally: its consumer would interpret that EOF as a clean
-//! phase boundary, advance, and later wait forever for the failed participant.
+//! Replies cross between participants as streams. A failed producer cannot end
+//! its stream normally: its consumer would interpret that EOF as a clean phase
+//! boundary, advance, and later wait forever for the failed participant.
 //! [`divert`] records the source error and parks instead. [`race_session`] then
 //! returns that error and cancels the rest of the schedule.
 //!
 //! # Holding each value once
 //!
-//! Every session boxes the state machine this driver builds, and boxing
-//! copies all of its bytes, so the code here avoids two ways the compiler
-//! would store a value twice. An `async fn` keeps each argument in its state
-//! for its whole run, so awaiting a future argument holds that future twice:
-//! as the argument, and as the value awaited. A local moved out field by
-//! field, rather than whole, still counts as holding its value until its
-//! scope ends, so it is saved across every await in that scope. The helpers
-//! here therefore return combinators instead of awaiting future arguments,
-//! [`race_session`] borrows the session pinned where it is built, and
-//! `mirror!` moves each phase's state whole, inside a block that ends before
-//! the session's await.
+//! Every session boxes the state machine this driver builds, and boxing copies
+//! all of its bytes, so the code here avoids two ways the compiler would store
+//! a value twice. An `async fn` keeps each argument in its state for its whole
+//! run, so awaiting a future argument holds that future twice: as the argument,
+//! and as the value awaited. A local moved out field by field, rather than
+//! whole, still counts as holding its value until its scope ends, so it is
+//! saved across every await in that scope. The helpers here therefore return
+//! combinators instead of awaiting future arguments, [`race_session`] borrows
+//! the session pinned where it is built, and `mirror!` moves each phase's state
+//! whole, inside a block that ends before the session's await.
 
 use std::{
     future::Future,
@@ -47,10 +46,10 @@ use crate::tree::{
 
 /// One participant's route into the session's shared error type.
 ///
-/// Every route of a session shares one take-once slot holding the sending
-/// half of a oneshot channel. The first report takes the sender and delivers
-/// its error, so the first error wins, and every later report finds the slot
-/// empty and drops its error.
+/// Every route of a session shares one take-once slot holding the sending half
+/// of a oneshot channel. The first report takes the sender and delivers its
+/// error, so the first error wins, and every later report finds the slot empty
+/// and drops its error.
 pub(super) struct ErrorRoute<E, S> {
     /// The session's take-once slot for the first-error sender.
     sender: Arc<Mutex<Option<oneshot::Sender<S>>>>,
@@ -69,7 +68,8 @@ impl<E, S> Clone for ErrorRoute<E, S> {
     }
 }
 
-/// Report stream errors and map terminal errors through one participant's route.
+/// Report stream errors and map terminal errors through one participant's
+/// route.
 impl<E, S> ErrorRoute<E, S> {
     /// Report the first response-stream error without blocking its producer.
     pub(super) fn report(&self, error: E) {
@@ -88,8 +88,8 @@ impl<E, S> ErrorRoute<E, S> {
 
     /// Map one terminal future into the session's common error type.
     ///
-    /// A combinator, not an `async fn`, so that the result holds `future`
-    /// once (see the module docs).
+    /// A combinator, not an `async fn`, so that the result holds `future` once
+    /// (see the module docs).
     pub(super) fn resolve<O>(
         self,
         future: impl Future<Output = Result<O, E>>,
@@ -126,8 +126,8 @@ struct FirstError<E> {
 
 /// Race a session against response errors, preserving their causal priority.
 ///
-/// The session is borrowed pinned where its caller built it, so that the
-/// race does not hold a second copy of it (see the module docs).
+/// The session is borrowed pinned where its caller built it, so that the race
+/// does not hold a second copy of it (see the module docs).
 async fn race_session<O, E>(
     session: Pin<&mut impl Future<Output = Result<O, E>>>,
     mut first_error: FirstError<E>,
@@ -156,8 +156,8 @@ async fn race_session<O, E>(
 
 /// Fail-fast join two branches after mapping their distinct error types.
 ///
-/// A combinator, not an `async fn`, so that the join holds each branch
-/// once (see the module docs).
+/// A combinator, not an `async fn`, so that the join holds each branch once
+/// (see the module docs).
 pub(super) fn try_join_mapped<L, R, LO, RO, LE, RE, E, LW, RW>(
     left: L,
     wrap_left: LW,
@@ -180,8 +180,8 @@ where
 /// mapping their distinct errors into the session error type.
 ///
 /// Each step moves both participants' `(state, route)` pairs whole (`{ $x }`)
-/// and binds their parts only inside a block, so that no moved-out local
-/// is still in scope at the session's one await (see the module docs).
+/// and binds their parts only inside a block, so that no moved-out local is
+/// still in scope at the session's one await (see the module docs).
 macro_rules! mirror {
     (@one $producer:ident >> $consumer:ident.$method:ident) => {
         let ($producer, $consumer) = {
@@ -270,8 +270,8 @@ where
 /// Divert one producer's errors while forwarding its responses.
 ///
 /// On error the stream parks rather than ending, because EOF means successful
-/// phase completion to its consumer. [`race_session`] observes the routed
-/// error and cancels the parked schedule.
+/// phase completion to its consumer. [`race_session`] observes the routed error
+/// and cancels the parked schedule.
 fn divert<B, H, E, D>(
     responses: impl Responses<B, H, E>,
     route: ErrorRoute<E, D>,

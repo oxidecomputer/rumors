@@ -24,14 +24,14 @@
 //!
 //! ## The types
 //!
-//! | Type                                    | Is                                                                                          | Core operations                                                                                                                                                                                                                                                     |
-//! |-----------------------------------------|---------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-//! | [`Party`]                               | a distinct entity which may emit events                                                     | [`tick`](Party::tick), [`fork`](Party::fork)/[`forks`](Party::forks), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                                                                                                                    |
-//! | [`Version`]                             | a causal timestamp; a history of known events                                               | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), [`join`](Version::join) (`\|`), [`meet`](Version::meet) (`&`), [`span`](Version::span) (`^`), [`project`](Version::project) (`/`), [`rank`](Version::rank)                |
-//! | [`Clock`]                               | a [`Party`] paired with its current [`Version`]                                             | [`tick`](Clock::tick), [`fork`](Clock::fork)/[`forks`](Clock::forks), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), [`absorb`](Clock::absorb) (`\|`, `\|=`) a [`Version`]                                                                    |
-//! | [`Rank`]/[`Ranked`]                     | a total order extending the causal order, with a lexicographically concordant serialization | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub)/[`saturating_sub`](Rank::saturating_sub), [`encode`](Rank::encode), [`decode`](Rank::decode)                                                                                    |
-//! | [`Span`]                                | an ordered pair of versions `lo <= hi`                                                      | [`union`](Span::union) (`+`), [`intersect`](Span::intersect) (`*`), pointwise [`join`](Span::join)/[`meet`](Span::meet) (`\|`, `&`), [`project`](Span::project), queries ([`place`](Span::place), [`dominance`](Span::dominance), [`precedence`](Span::precedence)) |
-//! | [`causally`]/[`Query`](causally::Query) | a query language for causal range membership                                                | [`after`](causally::after), [`before`](causally::before), [`strictly_after`](causally::strictly_after), [`strictly_before`](causally::strictly_before), [`since`](causally::since), [`until`](causally::until), [`delta`](causally::delta), [`toward`](causally::toward), negation (`!`), conjunction (`&`), [`contains`](causally::Query::contains), [`coverage`](causally::Query::coverage)|
+//! | Type                                    | Is                                                                                          | Core operations                                                                                                                                                                                                                                                                                                                                                                               |
+//! |-----------------------------------------|---------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+//! | [`Party`]                               | a distinct entity which may emit events                                                     | [`tick`](Party::tick), [`fork`](Party::fork)/[`forks`](Party::forks), [`join`](Party::join), [`is_disjoint`](Party::is_disjoint)                                                                                                                                                                                                                                                              |
+//! | [`Version`]                             | a causal timestamp; a history of known events                                               | [`tick`](Version::tick), [`PartialOrd`] (`<`, `<=`, [`concurrent`](Version::concurrent)), [`join`](Version::join) (`\|`), [`meet`](Version::meet) (`&`), [`span`](Version::span) (`^`), [`project`](Version::project) (`/`), [`rank`](Version::rank)                                                                                                                                          |
+//! | [`Clock`]                               | a [`Party`] paired with its current [`Version`]                                             | [`tick`](Clock::tick), [`fork`](Clock::fork)/[`forks`](Clock::forks), [`join`](Clock::join), [`send`](Clock::send), [`recv`](Clock::recv), [`absorb`](Clock::absorb) (`\|`, `\|=`) a [`Version`]                                                                                                                                                                                              |
+//! | [`Rank`]/[`Ranked`]                     | a total order extending the causal order, with a lexicographically concordant serialization | [`Ord`] (`<`, `==`, `>`, etc.), summation (`+`), [`checked_sub`](Rank::checked_sub)/[`saturating_sub`](Rank::saturating_sub), [`encode`](Rank::encode), [`decode`](Rank::decode)                                                                                                                                                                                                              |
+//! | [`Span`]                                | an ordered pair of versions `lo <= hi`                                                      | [`union`](Span::union) (`+`), [`intersect`](Span::intersect) (`*`), pointwise [`join`](Span::join)/[`meet`](Span::meet) (`\|`, `&`), [`project`](Span::project), queries ([`place`](Span::place), [`dominance`](Span::dominance), [`precedence`](Span::precedence))                                                                                                                           |
+//! | [`causally`]/[`Query`](causally::Query) | a query language for causal range membership                                                | [`after`](causally::after), [`before`](causally::before), [`strictly_after`](causally::strictly_after), [`strictly_before`](causally::strictly_before), [`since`](causally::since), [`until`](causally::until), [`delta`](causally::delta), [`toward`](causally::toward), negation (`!`), conjunction (`&`), [`contains`](causally::Query::contains), [`coverage`](causally::Query::coverage) |
 //!
 //! ## Quickstart
 //!
@@ -97,8 +97,10 @@
 //! To use [`Clock`] in this manner:
 //!
 //! - Record changes to data using [`tick`](Clock::tick).
-//! - Transmit your [`Version`] to your counterparties using [`clock.version()`](Clock::version), **not** [`Clock::send`].
-//! - Upon receiving a version from a counterparty, [`absorb`](Clock::absorb) it (a.k.a. the operator forms `|` or `|=`), **not** [`Clock::recv`].
+//! - Transmit your [`Version`] to your counterparties using
+//!   [`clock.version()`](Clock::version), **not** [`Clock::send`].
+//! - Upon receiving a version from a counterparty, [`absorb`](Clock::absorb) it
+//!   (a.k.a. the operator forms `|` or `|=`), **not** [`Clock::recv`].
 //!
 //! Consistently eschewing [`Clock::send`] and [`Clock::recv`] ensures that your
 //! clock's [`Version`] tracks only *data causality*, and not the ordering of
@@ -157,12 +159,15 @@
 //! To use [`Clock`] in this manner:
 //!
 //! - Record changes to data using [`tick`](Clock::tick).
-//! - Transmit [`Version`]s to your counterparties using [`clock.send()`](Clock::send), and **not**
-//!   [`clock.version()`](Clock::version). Unlike [`clock.version()`](Clock::version), [`send`](Clock::send)
-//!   increments the inner [`Version`] prior to producing it for transmission.
-//! - Upon receiving a version from a counterparty, [`recv`](Clock::recv) it; **do not** [`absorb`](Clock::absorb) it.
-//!   Unlike [`absorb`](Clock::absorb) (and its operator forms `|` and `|=`), [`recv`](Clock::recv) increments the clock's
-//!   inner [`Version`] after absorbing the received one.
+//! - Transmit [`Version`]s to your counterparties using
+//!   [`clock.send()`](Clock::send), and **not**
+//!   [`clock.version()`](Clock::version). Unlike
+//!   [`clock.version()`](Clock::version), [`send`](Clock::send) increments the
+//!   inner [`Version`] prior to producing it for transmission.
+//! - Upon receiving a version from a counterparty, [`recv`](Clock::recv) it;
+//!   **do not** [`absorb`](Clock::absorb) it. Unlike [`absorb`](Clock::absorb)
+//!   (and its operator forms `|` and `|=`), [`recv`](Clock::recv) increments
+//!   the clock's inner [`Version`] after absorbing the received one.
 //!
 //! Consistently using [`send`](Clock::send) and [`recv`](Clock::recv) in this
 //! manner ensures that the [`Clock`] tracks *process causality*, by following
@@ -222,20 +227,19 @@
 //! always disjoint*:
 //!
 //! 1. **Causal Singularity.** A system of clocks has one [`Clock::seed`] (or
-//!    [`Party::seed`]), created once, from which every [`Clock`] and
-//!    [`Party`] in the system descends. Multiple "universes" of [`Clock`]s
-//!    and/or [`Party`]s may coexist, each descended from its own
+//!    [`Party::seed`]), created once, from which every [`Clock`] and [`Party`]
+//!    in the system descends. Multiple "universes" of [`Clock`]s and/or
+//!    [`Party`]s may coexist, each descended from its own
 //!    [`seed`](Clock::seed), as long as parties, versions, and clocks from
 //!    different seeds never intermingle.
 //!
 //! 2. **Identity Linearity.** Advancing a [`Clock`] or [`Party`] (by
-//!    [`tick`](Clock::tick), [`fork`](Clock::fork),
-//!    [`join`](Clock::join), etc.) retires every earlier state of it: from then
-//!    on, only the latest state of the identity may act. Within a process, the
-//!    compiler enforces this, as [`Party`] and [`Clock`] are
-//!    [`!Clone`](Clone). This leaves exactly one hole: bytes. A
-//!    serialized state sidesteps the type system, and
-//!    [`decode`](Clock::decode) cannot tell the latest state from a stale
+//!    [`tick`](Clock::tick), [`fork`](Clock::fork), [`join`](Clock::join),
+//!    etc.) retires every earlier state of it: from then on, only the latest
+//!    state of the identity may act. Within a process, the compiler enforces
+//!    this, as [`Party`] and [`Clock`] are [`!Clone`](Clone). This leaves
+//!    exactly one hole: bytes. A serialized state sidesteps the type system,
+//!    and [`decode`](Clock::decode) cannot tell the latest state from a stale
 //!    one. Restore a [`Clock`] or [`Party`] persisted prior to its latest
 //!    elsewhere-observed state, and there are now two non-disjoint copies of
 //!    its identity: the restored [`Party`] may overlap its own descendant, an
@@ -279,33 +283,32 @@
 //! [`concurrent`](Version::concurrent). Three tools extend it:
 //!
 //! - **Filtering**: the [`causally`] module composes causal queries, e.g.
-//!   [`since(a)`](causally::since) is everything `a` does not already
-//!   contain, [`before(b)`](causally::before) everything `b` contains, and
-//!   [`delta(a, b)`](causally::delta) everything `b` contains but `a` does
-//!   not; any compatible bounds conjoin with `&` into a
-//!   [`causally::Query`], whose membership predicate is causal
-//!   containment and which classifies whole version regions at once
-//!   ([`coverage`](causally::Query::coverage)). For questions about a
-//!   concrete pair of bounding [`Version`]s, [`Span`] interrogates the
-//!   pair simultaneously and efficiently.
+//!   [`since(a)`](causally::since) is everything `a` does not already contain,
+//!   [`before(b)`](causally::before) everything `b` contains, and
+//!   [`delta(a, b)`](causally::delta) everything `b` contains but `a` does not;
+//!   any compatible bounds conjoin with `&` into a [`causally::Query`], whose
+//!   membership predicate is causal containment and which classifies whole
+//!   version regions at once ([`coverage`](causally::Query::coverage)). For
+//!   questions about a concrete pair of bounding [`Version`]s, [`Span`]
+//!   interrogates the pair simultaneously and efficiently.
 //! - **Sorting**: where a *total* order over versions is needed, [`Rank`]
-//!   measures a version by a quantity that strictly grows with every tick,
-//!   so `v < w` implies `v.rank() < w.rank()`: causes always sort before
-//!   their effects. Only concurrent versions can tie, so any deterministic
-//!   tiebreak then yields the same total order on every replica. [`Ranked`]
-//!   builds that total order in: it views a [`Version`] by its rank, with the
-//!   version's own canonical bytes as an arbitrary tiebreak, and its
+//!   measures a version by a quantity that strictly grows with every tick, so
+//!   `v < w` implies `v.rank() < w.rank()`: causes always sort before their
+//!   effects. Only concurrent versions can tie, so any deterministic tiebreak
+//!   then yields the same total order on every replica. [`Ranked`] builds that
+//!   total order in: it views a [`Version`] by its rank, with the version's own
+//!   canonical bytes as an arbitrary tiebreak, and its
 //!   [`encode`](Ranked::encode) emits a canonical encoding whose plain
 //!   lexicographic order *is* the total order on [`Ranked`], allowing an
 //!   ordinary byte-oriented key-value store to sort by causal ordering.
-//! - **Simultaneous comparison**: in some cases, it is desirable to compare
-//!   a [`Version`] against both an upper and a lower bound at the same time,
+//! - **Simultaneous comparison**: in some cases, it is desirable to compare a
+//!   [`Version`] against both an upper and a lower bound at the same time,
 //!   establishing its relationship in the causal interval `lo <= v <= hi`.
-//!   [`Span`] represents precisely such ordered pairs of [`Version`]s, with
-//!   a host of algebraic operations and queries of varying granularity to
+//!   [`Span`] represents precisely such ordered pairs of [`Version`]s, with a
+//!   host of algebraic operations and queries of varying granularity to
 //!   establish the relative ordering of [`Version`]s against the represented
-//!   interval. These operations are more efficient than the individual comparisons
-//!   which would otherwise be required.
+//!   interval. These operations are more efficient than the individual
+//!   comparisons which would otherwise be required.
 //!
 //! ## Space Efficiency
 //!

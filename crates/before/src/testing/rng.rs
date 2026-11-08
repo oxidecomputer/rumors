@@ -1,10 +1,9 @@
 //! Deterministic word streams for the corpus-generating sweeps.
 //!
-//! Several tests generate an adversarial corpus from a committed seed
-//! constant and assert an invariant over every case; the seed's whole value
-//! is that it names the same corpus on every run, on every machine, forever.
-//! This module is the one home for that randomness, so no test carries its
-//! own generator.
+//! Several tests generate an adversarial corpus from a committed seed constant
+//! and assert an invariant over every case; the seed's whole value is that it
+//! names the same corpus on every run, on every machine, forever. This module
+//! is the one home for that randomness, so no test carries its own generator.
 
 use proptest::test_runner::{RngAlgorithm, TestRng};
 use rand::{Rng, SeedableRng};
@@ -26,11 +25,11 @@ pub(crate) fn word_stream(seed: u64) -> impl FnMut() -> u64 {
 /// proptest strategy as a corpus rather than running it as a property.
 ///
 /// The 32 seed bytes are expanded from [`word_stream`], so the portability
-/// argument above carries over; the ChaCha algorithm choice makes the
-/// `TestRng` itself value-stable too. What a seed names here is the corpus
-/// *up to the strategy's own draw pattern*: a proptest major bump may reshape
-/// how strategies consume randomness, and is a deliberate
-/// corpus-regeneration event exactly like a `rand_core` bump.
+/// argument above carries over; the ChaCha algorithm choice makes the `TestRng`
+/// itself value-stable too. What a seed names here is the corpus *up to the
+/// strategy's own draw pattern*: a proptest major bump may reshape how
+/// strategies consume randomness, and is a deliberate corpus-regeneration event
+/// exactly like a `rand_core` bump.
 pub(crate) fn strategy_rng(seed: u64) -> TestRng {
     let mut words = word_stream(seed);
     let mut bytes = [0u8; 32];

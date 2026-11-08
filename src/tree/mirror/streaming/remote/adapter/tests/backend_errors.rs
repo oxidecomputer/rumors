@@ -1,4 +1,5 @@
-//! Source-error propagation across the backend traversal operations used by the adapter.
+//! Source-error propagation across the backend traversal operations used by the
+//! adapter.
 
 use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::listed;
@@ -244,13 +245,13 @@ fn assert_encode_failure(error: EncodeError<Failure<Infallible>>, expected: Oper
     }
 }
 
-/// The first fixture leaf whose path byte at every level lies in
-/// `2..u8::MAX`, so the supply radix at each height has two lower radixes
-/// and one higher radix beside it.
+/// The first fixture leaf whose path byte at every level lies in `2..u8::MAX`,
+/// so the supply radix at each height has two lower radixes and one higher
+/// radix beside it.
 ///
-/// A leaf's path is its version's hash under the fixture secret, so the
-/// search is deterministic;
-/// each candidate qualifies with probability about (253/256)³², about 0.7.
+/// A leaf's path is its version's hash under the fixture secret, so the search
+/// is deterministic; each candidate qualifies with probability about
+/// (253/256)³², about 0.7.
 fn interior_radix_leaf() -> LeafCase {
     const CANDIDATES: u64 = 64;
     (0..CANDIDATES)
@@ -273,9 +274,9 @@ fn assert_decode_failure(error: DecodeError<Failure<Infallible>>, expected: Oper
 
 /// Every injectable traversal reports its exact source error.
 ///
-/// Encoding yields the frames of the reactions completed before the
-/// failure, each flagged to continue, and no frame of the failing reaction
-/// or of any later one; decoding leaves the following reply untouched.
+/// Encoding yields the frames of the reactions completed before the failure,
+/// each flagged to continue, and no frame of the failing reaction or of any
+/// later one; decoding leaves the following reply untouched.
 #[test]
 fn backend_source_failures_are_exhaustive_and_atomic() {
     let leaf = interior_radix_leaf();

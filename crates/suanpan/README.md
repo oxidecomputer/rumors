@@ -7,8 +7,8 @@ Exact signed accumulation with bounded carry and cancellation work.
 `Accumulator` is a signed integer of any width, built for running totals
 whose updates change sign near carry boundaries: a weighted sum that moves
 back and forth across `2^k`, for example. A normalized big integer carries
-through the same high positions on every such update. An accumulator keeps
-a redundant representation instead, so each update touches only a few
+through the same high positions on every such update. An accumulator keeps a
+redundant representation instead, so each update touches only a few
 positions, and each read compacts the cancellation it touches, so no later
 operation pays for it again.
 
@@ -51,19 +51,19 @@ division, or right shift:
 
 Wide values stream in as little-endian `u64` limbs through
 `add_shifted_limbs` and
-`sub_shifted_limbs`, scaled by the power of
-two given first. `add_shifted` and
+`sub_shifted_limbs`, scaled by the power
+of two given first. `add_shifted` and
 `sub_shifted` take another accumulator the same
 way, and `signed_magnitude` reads a value
-out as `Limbs`, which dereference to a `[u64]` slice and stay inline
-below `2^128`.
+out as `Limbs`, which dereference to a `[u64]` slice and stay inline below
+`2^128`.
 
 ## Reads compact what they touch
 
-Every read, whether a comparison, a sign query, a conversion, formatting,
-or use as an operand, rewrites the cancellation it reads into a shorter
-form of the same value. The value never changes, but the stored form can,
-and with it the bound on the value's width that
+Every read, whether a comparison, a sign query, a conversion, formatting, or
+use as an operand, rewrites the cancellation it reads into a shorter form of
+the same value. The value never changes, but the stored form can, and with
+it the bound on the value's width that
 `stored_bits` reports. Reads go through a
 `RefCell`, so they take `&self`; as a result an
 accumulator is `Send` but not `Sync`.
@@ -74,44 +74,43 @@ deferred cancellation.
 
 `is_known_zero` is a constant-time check that
 reads nothing: `true` proves zero, and `false` proves nothing.
-`cmp_zero_stable_under` proves that
-no adjustment below a given width can change the sign, which lets a caller
-skip reading a much narrower operand.
+`cmp_zero_stable_under` proves that no
+adjustment below a given width can change the sign, which lets a caller skip
+reading a much narrower operand.
 
 ## Costs
 
-An accumulator's costs follow from what you pass in and what you read
-out. An update never pays linearly for the width of the accumulator it
-changes: beyond a logarithm at a nonzero shift, it pays only to grow
-storage, once. Four rules give the cost of updates, reads, and storage:
+An accumulator's costs follow from what you pass in and what you read out.
+An update never pays linearly for the width of the accumulator it changes:
+beyond a logarithm at a nonzero shift, it pays only to grow storage, once.
+Four rules give the cost of updates, reads, and storage:
 
-- **An update costs what it adds.** Adding or subtracting a primitive
-  costs O(1), `L` limbs O(`L`), and another accumulator O(1 + `n`) for an
-  `n`-limb value, however wide the receiver is and however often updates
-  change its sign.
+- **An update costs what it adds.** Adding or subtracting a primitive costs
+  O(1), `L` limbs O(`L`), and another accumulator O(1 + `n`) for an `n`-limb
+  value, however wide the receiver is and however often updates change its
+  sign.
 - **A read costs what it returns.** A sign query, a comparison with a
   primitive, or a conversion to a primitive returns a constant and costs
-  O(1). A magnitude read, a hash, or a clone costs the width of the value
-  it returns.
-- **Growing storage costs once.** An accumulator stores every bit from 0
-  up to the highest bit it has written, its *storage width*. Unlike the
-  value's width, which falls when the value does, the storage width only
-  rises: writing above it costs the distance, once, and writing that high
-  again costs nothing more. `clear` keeps the
-  storage width; `clone_from` and a nonzero shift start it again at their
-  result's width.
-- **A shifted update adds a logarithm.** An update at a nonzero shift
-  costs an extra base-64 logarithm of the storage width, at most 11 steps
-  on a 64-bit target and 6 on a 32-bit one, to record which bits it wrote,
-  so that later reads can skip the bits no update has written.
+  O(1). A magnitude read, a hash, or a clone costs the width of the value it
+  returns.
+- **Growing storage costs once.** An accumulator stores every bit from 0 up
+  to the highest bit it has written, its *storage width*. Unlike the value's
+  width, which falls when the value does, the storage width only rises:
+  writing above it costs the distance, once, and writing that high again
+  costs nothing more. `clear` keeps the storage width;
+  `clone_from` and a nonzero shift start it again at their result's width.
+- **A shifted update adds a logarithm.** An update at a nonzero shift costs
+  an extra base-64 logarithm of the storage width, at most 11 steps on a
+  64-bit target and 6 on a 32-bit one, to record which bits it wrote, so
+  that later reads can skip the bits no update has written.
 
-These costs are amortized, as `Vec::push`'s is. One call can finish
-carries or cancellation that earlier updates left, and then cost up to the
-storage width of the accumulators it touches; but the update that left
-that work paid for it, and no work is done twice. That is: over any
-sequence of operations, the total time is proportional to the bits passed
-in, plus the bits read out, plus the width each storage reaches, plus one
-logarithm per shifted update.
+These costs are amortized, as `Vec::push`'s is. One call can finish carries
+or cancellation that earlier updates left, and then cost up to the storage
+width of the accumulators it touches; but the update that left that work
+paid for it, and no work is done twice. That is: over any sequence of
+operations, the total time is proportional to the bits passed in, plus the
+bits read out, plus the width each storage reaches, plus one logarithm per
+shifted update.
 
 Memory follows the widest storage an accumulator has held, as a `Vec`'s
 allocation follows its capacity: `clear`, `clone_from`, and a shift of a
@@ -120,28 +119,26 @@ keep the allocation they find, and
 `reserve_bits` can enlarge it. An operation's
 temporary space is at most the width it reads or returns.
 
-Note that no rule charges an update linearly for its receiver's width,
-only rule 4's logarithm at a nonzero shift. A normalized big integer's
-update can cost its whole width, carrying or borrowing through high bits
-the update never touched; an accumulator's update cannot.
+Note that no rule charges an update linearly for its receiver's width, only
+rule 4's logarithm at a nonzero shift. A normalized big integer's update can
+cost its whole width, carrying or borrowing through high bits the update
+never touched; an accumulator's update cannot.
 
 The remaining operations cost as follows. Negating an owned accumulator
-costs O(1), whatever its width, and negating a borrowed one costs a
-clone. Shifts build a new value, and cost its width, as a clone does.
-`Display` adds to its read a decimal conversion that costs the square of
-the value's width. Comparing two accumulators reads only the narrower
-one, and costs its width. `clear` costs amortized
-O(1).
+costs O(1), whatever its width, and negating a borrowed one costs a clone.
+Shifts build a new value, and cost its width, as a clone does. `Display`
+adds to its read a decimal conversion that costs the square of the value's
+width. Comparing two accumulators reads only the narrower one, and costs its
+width. `clear` costs amortized O(1).
 
-In arithmetic, ownership decides only what the result can reuse. A
-borrowed accumulator is read in full, and an owned one can lend its
-storage to the result; of two owned operands, only the narrower is read.
-Addition and subtraction follow the rule alike. So `a + b` and `a - b`
-read only the narrower of the two, `a + &b` and `a - &b` read `b`,
-`&a + b` and `&a - b` read `a`, and `&a + &b` and `&a - &b` read both;
-`5 - a` costs what `a + 5` costs. `abs_diff`
-reads only the narrower of its two owned operands. An operator and the
-method it names cost the same.
+In arithmetic, ownership decides only what the result can reuse. A borrowed
+accumulator is read in full, and an owned one can lend its storage to the
+result; of two owned operands, only the narrower is read. Addition and
+subtraction follow the rule alike. So `a + b` and `a - b` read only the
+narrower of the two, `a + &b` and `a - &b` read `b`, `&a + b` and `&a - b`
+read `a`, and `&a + &b` and `&a - &b` read both; `5 - a` costs what `a + 5`
+costs. `abs_diff` reads only the narrower of its
+two owned operands. An operator and the method it names cost the same.
 
 ```rust
 use suanpan::Accumulator;
@@ -183,8 +180,8 @@ cancellation. The crate requires `std`.
 
 ## Features
 
-- `num-bigint` converts accumulators to and from `num-bigint`'s `BigInt`
-  and `BigUint`, and accepts both as `+=` and `-=` operands. Converting a
+- `num-bigint` converts accumulators to and from `num-bigint`'s `BigInt` and
+  `BigUint`, and accepts both as `+=` and `-=` operands. Converting a
   negative value to `BigUint` fails with `NegativeValueError`.
 
 <!-- cargo-rdme end -->

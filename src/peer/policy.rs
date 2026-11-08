@@ -15,7 +15,8 @@ type Initiation<T> = dyn Fn(Changes<T>) -> BoxStream<'static, Gossip> + Send + S
 /// A new deadline future for one active session.
 type Deadline = dyn Fn() -> BoxFuture<'static, ()> + Send + Sync;
 
-/// Immutable factories shared by a replica's handles; each driver owns its state.
+/// Immutable factories shared by a replica's handles; each driver owns its
+/// state.
 pub(crate) struct Policy<T: Send + Sync + 'static> {
     /// None selects the unmodified change stream.
     when: Option<Arc<Initiation<T>>>,
@@ -68,8 +69,8 @@ impl<T: Send + Sync + 'static> Policy<T> {
         self.deadline = Some(Arc::new(move || Box::pin(deadline())));
     }
 
-    /// Race a complete wire exchange against one application-owned deadline.
-    /// A ready session result wins, preserving confirmed completion or a failure.
+    /// Race a complete wire exchange against one application-owned deadline. A
+    /// ready session result wins, preserving confirmed completion or a failure.
     pub(super) async fn run<R, B: Bookmark>(
         &self,
         session: impl Future<Output = Result<R, Error<B>>>,

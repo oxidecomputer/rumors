@@ -7,18 +7,17 @@
 //!
 //! Each source is decomposed only enough to keep one contribution inside the
 //! carry intermediate: small values use 32-bit magnitude pieces, 64-bit limbs
-//! split in half, and another value's stored digits already satisfy the
-//! bound, or stream as its magnitude digits at a nonzero bit offset. They all
-//! pass through [`Digits::add_stored_at`], so no alternate write path can
-//! bypass the digit or written-set invariants.
+//! split in half, and another value's stored digits already satisfy the bound,
+//! or stream as its magnitude digits at a nonzero bit offset. They all pass
+//! through [`Digits::add_stored_at`], so no alternate write path can bypass the
+//! digit or written-set invariants.
 //!
 //! Every public method here applies the receiver's flag once, on entry, to an
-//! [`Update`] of the value, producing a [`StoredUpdate`]: the methods that
-//! take an `Update` apply it at once, and
-//! [`deposit_value`](Digits::deposit_value) derives its update from its
-//! value's sign and passes it on. An accumulator operand's flag is applied to
-//! the same update first. The private deposit helpers take only a
-//! `StoredUpdate`.
+//! [`Update`] of the value, producing a [`StoredUpdate`]: the methods that take
+//! an `Update` apply it at once, and [`deposit_value`](Digits::deposit_value)
+//! derives its update from its value's sign and passes it on. An accumulator
+//! operand's flag is applied to the same update first. The private deposit
+//! helpers take only a `StoredUpdate`.
 //!
 //! Position calculations stay in `u128` until a nonzero contribution needs a
 //! buffer index. Zero pieces record their operand read but neither allocate
@@ -33,18 +32,20 @@ use crate::accumulator::{digit_index, DIGIT_BITS, DIGIT_MASK};
 
 /// Deposit scaled inputs, each at the cost its operand kind states.
 impl Digits {
-    /// Deposit an exact signed value at a bit offset without a wide intermediate.
+    /// Deposit an exact signed value at a bit offset without a wide
+    /// intermediate.
     ///
     /// Splitting into base-2^32 pieces keeps each shifted contribution below
-    /// 2^63. The caller's small value may have up to 127 magnitude bits;
-    /// this path therefore costs a fixed number of deposits rather than work
+    /// 2^63. The caller's small value may have up to 127 magnitude bits; this
+    /// path therefore costs a fixed number of deposits rather than work
     /// proportional to the shift.
     pub fn deposit_value(&mut self, value: i128, shift: u64) {
         let update = Update::from_sign(value.cmp(&0));
         self.deposit_magnitude(value.unsigned_abs(), update, shift);
     }
 
-    /// Deposit a full-width magnitude without ever negating it in a signed type.
+    /// Deposit a full-width magnitude without ever negating it in a signed
+    /// type.
     pub fn deposit_magnitude(&mut self, mut magnitude: u128, update: Update, shift: u64) {
         let update = self.to_stored(update);
         let (digit_shift, bit_shift) =
@@ -61,15 +62,15 @@ impl Digits {
         }
     }
 
-    /// Deposit another nonzero value at a bit offset, given its digits and
-    /// its sign.
+    /// Deposit another nonzero value at a bit offset, given its digits and its
+    /// sign.
     ///
     /// Every stored position costs one operand read, including zero gaps. At
     /// bit offset zero, each stored digit is deposited as it stands: one
     /// contribution of magnitude below `2B`, with `B = 2^32`, at offset zero.
-    /// At any other offset, a stored digit whose sign opposes the value's
-    /// could carry by itself once shifted, leaving the next digit to cancel
-    /// that carry, so the value's magnitude is deposited instead, as
+    /// At any other offset, a stored digit whose sign opposes the value's could
+    /// carry by itself once shifted, leaving the next digit to cancel that
+    /// carry, so the value's magnitude is deposited instead, as
     /// [`add_magnitude`](Self::add_magnitude) deposits it.
     pub fn add_digits(&mut self, operand: &Digits, sign: Ordering, shift: u64, update: Update) {
         // The operand's stored digits sum to its value, negated when its flag
@@ -109,19 +110,19 @@ impl Digits {
         self.add_stored_magnitude(operand.stored_digits(), operand.orient(sign), shift, update);
     }
 
-    /// Deposit the magnitude of a nonzero stored sum, given its digits and
-    /// the sum's sign, with that sign and a stored update, at a bit offset.
+    /// Deposit the magnitude of a nonzero stored sum, given its digits and the
+    /// sum's sign, with that sign and a stored update, at a bit offset.
     ///
-    /// The stored digits stream through [`MagnitudeCarry`] and are left as
-    /// they are: each position below the stored top deposits the sum's
-    /// magnitude digit there, below the base, and the top deposits the
-    /// magnitude's whole remaining part, below `2^34`, so the deposits end
-    /// where the stored digits do. Every stored position costs one operand
-    /// read, including zero gaps. Every contribution has one sign, which is
-    /// the case of the crate's cost argument in which an update writes each
-    /// position a constant number of times; into zeroed digits, as a shift
-    /// deposits, the result's top digit has the deposits' sign, and recentering
-    /// leaves any digit of the other sign within `B / 2` of zero.
+    /// The stored digits stream through [`MagnitudeCarry`] and are left as they
+    /// are: each position below the stored top deposits the sum's magnitude
+    /// digit there, below the base, and the top deposits the magnitude's whole
+    /// remaining part, below `2^34`, so the deposits end where the stored
+    /// digits do. Every stored position costs one operand read, including zero
+    /// gaps. Every contribution has one sign, which is the case of the crate's
+    /// cost argument in which an update writes each position a constant number
+    /// of times; into zeroed digits, as a shift deposits, the result's top
+    /// digit has the deposits' sign, and recentering leaves any digit of the
+    /// other sign within `B / 2` of zero.
     fn add_stored_magnitude(
         &mut self,
         operand: &[i64],
@@ -152,8 +153,8 @@ impl Digits {
         self.deposit_magnitude_piece(piece, position, bit_shift, update);
     }
 
-    /// Deposit one piece of a magnitude, below `2^34` and shifted by fewer
-    /// than 32 bits, at `position`; a zero piece deposits nothing.
+    /// Deposit one piece of a magnitude, below `2^34` and shifted by fewer than
+    /// 32 bits, at `position`; a zero piece deposits nothing.
     fn deposit_magnitude_piece(
         &mut self,
         piece: u64,
@@ -169,9 +170,9 @@ impl Digits {
 
     /// Deposit a wide little-endian limb stream directly at its bit offset.
     ///
-    /// A limb supplies two base-2^32 contributions, each shifted by fewer
-    /// than 32 bits. No operand copy is allocated, and every yielded limb,
-    /// including zero limbs, is read once.
+    /// A limb supplies two base-2^32 contributions, each shifted by fewer than
+    /// 32 bits. No operand copy is allocated, and every yielded limb, including
+    /// zero limbs, is read once.
     pub fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, update: Update, shift: u64) {
         let update = self.to_stored(update);
         let (digit_shift, bit_shift) =

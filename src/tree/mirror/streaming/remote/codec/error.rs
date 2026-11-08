@@ -116,8 +116,8 @@ pub enum EncodeErrorKind {
         #[source]
         source: std::io::Error,
     },
-    /// Flushing written frames failed; the error's origin names the last
-    /// frame written, which the flush did not deliver.
+    /// Flushing written frames failed; the error's origin names the last frame
+    /// written, which the flush did not deliver.
     #[error("could not flush the completed frame")]
     Flush(#[source] std::io::Error),
     /// A supplied run cannot be represented by the framing format.

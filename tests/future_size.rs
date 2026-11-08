@@ -3,10 +3,9 @@
 //! Boxed reconciliation boundaries keep the deeply nested protocol futures out
 //! of callers' layouts. These checks allow modest growth in session state but
 //! catch a missing boundary before callers encounter excessive stack use or
-//! compiler recursion limits. The gate checks the development profile's
-//! layout, which builds `rumors` at opt-level 1; these futures have the same
-//! sizes when `rumors` is unoptimized, as it is in a caller's development
-//! build.
+//! compiler recursion limits. The gate checks the development profile's layout,
+//! which builds `rumors` at opt-level 1; these futures have the same sizes when
+//! `rumors` is unoptimized, as it is in a caller's development build.
 
 use std::mem::size_of_val;
 
@@ -43,8 +42,8 @@ fn gossip_future_fits_budget() {
     );
 }
 
-/// `Peer::retire` adds handoff to a gossip session: the same erasure
-/// boundary must keep it flat.
+/// `Peer::retire` adds handoff to a gossip session: the same erasure boundary
+/// must keep it flat.
 #[test]
 fn retire_future_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -62,8 +61,8 @@ fn retire_future_fits_budget() {
 }
 
 /// `Bootstrap::join` runs the same mirror descent from an empty tree; its
-/// erasure is `bootstrap_reconcile`'s boxed future, the same discipline
-/// as `Reconciliation::reconcile`.
+/// erasure is `bootstrap_reconcile`'s boxed future, the same discipline as
+/// `Reconciliation::reconcile`.
 #[test]
 fn bootstrap_future_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -82,8 +81,8 @@ fn bootstrap_future_fits_budget() {
 
 /// `Rumors::gossip` keeps the continuous driver behind a boxed stream.
 ///
-/// What this test would first observe is a stream handed out unboxed with
-/// deep state behind it; the stream cannot see the `Reconciliation::reconcile`
+/// What this test would first observe is a stream handed out unboxed with deep
+/// state behind it; the stream cannot see the `Reconciliation::reconcile`
 /// boundary, which the gossip and retire tests beside it hold.
 #[test]
 fn gossip_stream_fits_budget() {

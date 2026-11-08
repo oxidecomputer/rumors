@@ -1,5 +1,5 @@
-//! Listing entries against the counts a backend reports: every count a node
-//! can have lists, and every count no node can have is an error naming it.
+//! Listing entries against the counts a backend reports: every count a node can
+//! have lists, and every count no node can have is an error naming it.
 
 use before::Span;
 use proptest::prelude::*;
@@ -54,8 +54,8 @@ impl ErasedNode for Counted {
     }
 }
 
-/// Generates a count around `limit`, the largest any node can have: every
-/// count up to a little past it, and counts far past it up to `usize::MAX`.
+/// Generates a count around `limit`, the largest any node can have: every count
+/// up to a little past it, and counts far past it up to `usize::MAX`.
 fn arb_count(limit: usize) -> impl Strategy<Value = usize> {
     prop_oneof![0..=limit + 2, limit + 1..=usize::MAX, Just(usize::MAX),]
 }

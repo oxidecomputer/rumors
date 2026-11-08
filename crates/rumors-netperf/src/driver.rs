@@ -1,15 +1,15 @@
-//! Driving one measured session through its two peer processes, wherever
-//! they run: both local in network namespaces (emulation mode), or one
-//! local and one on another host behind `serve` (pair mode).
+//! Driving one measured session through its two peer processes, wherever they
+//! run: both local in network namespaces (emulation mode), or one local and one
+//! on another host behind `serve` (pair mode).
 //!
 //! The driver holds each peer's control channel and runs the conversation
-//! [`crate::peer`] describes in two halves. [`prepare`] builds the pair,
-//! moves side B's replica to its process, and checks it arrived whole;
-//! [`finish`] runs the measured session. Calibration prepares several
-//! sessions and then finishes them together, so they gossip at the same
-//! moment; a run prepares many sessions while none is timed, and then
-//! finishes them in its order ([`crate::schedule`]). Between the two
-//! halves both peers wait, idle, holding their replicas.
+//! [`crate::peer`] describes in two halves. [`prepare`] builds the pair, moves
+//! side B's replica to its process, and checks it arrived whole; [`finish`]
+//! runs the measured session. Calibration prepares several sessions and then
+//! finishes them together, so they gossip at the same moment; a run prepares
+//! many sessions while none is timed, and then finishes them in its order
+//! ([`crate::schedule`]). Between the two halves both peers wait, idle, holding
+//! their replicas.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
@@ -69,8 +69,8 @@ impl Channel for crate::netns::Namespaced {
     }
 }
 
-/// A control connection to a remote `serve`, which relays to a peer
-/// process it started for this session.
+/// A control connection to a remote `serve`, which relays to a peer process it
+/// started for this session.
 pub type Remote = Lines<BufReader<TcpStream>, TcpStream>;
 
 /// Where each side listens and how the other side reaches it.
@@ -89,8 +89,8 @@ pub struct Prepared {
     pub build: BuildReport,
     /// Wall seconds side B took to join its replica from side A.
     pub fetch_seconds: f64,
-    /// What sides A and B used over the preparation, where the driver can
-    /// read it: in emulation, where both processes are its own children.
+    /// What sides A and B used over the preparation, where the driver can read
+    /// it: in emulation, where both processes are its own children.
     pub usage: Option<[ProcessUsage; 2]>,
 }
 
@@ -109,8 +109,8 @@ pub struct Measured {
 ///
 /// # Errors
 ///
-/// If either peer fails or answers out of order, or side B's joined
-/// replica differs from the one side A built.
+/// If either peer fails or answers out of order, or side B's joined replica
+/// differs from the one side A built.
 pub fn prepare(
     point: &Point,
     warm_bytes: u64,
@@ -165,8 +165,8 @@ pub fn prepare(
 ///
 /// # Errors
 ///
-/// If either peer fails or answers out of order. A failed session is not
-/// an error: each side's [`Outcome::error`] records it.
+/// If either peer fails or answers out of order. A failed session is not an
+/// error: each side's [`Outcome::error`] records it.
 pub fn finish(
     prepared: Prepared,
     a: &mut dyn Channel,

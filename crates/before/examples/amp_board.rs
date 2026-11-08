@@ -3,20 +3,20 @@
 //! The board itself (the operation × input-family sweep, the meters, the
 //! green/red criterion, and the not-applicable coverage list) lives in
 //! `before::testing::meter::board`; this binary installs the counting allocator
-//! the board's peak-heap column reads (a global allocator is per-binary
-//! state the library cannot own), parses the size knob, and orchestrates
-//! the process sharding below.
+//! the board's peak-heap column reads (a global allocator is per-binary state
+//! the library cannot own), parses the size knob, and orchestrates the process
+//! sharding below.
 //!
-//! Usage: `just amp-board` (release, the profile the committed readings
-//! come from; dev runs are a debugging view whose readings are never
-//! committed), or directly
+//! Usage: `just amp-board` (release, the profile the committed readings come
+//! from; dev runs are a debugging view whose readings are never committed), or
+//! directly
 //! `cargo run -p before --example amp_board --features serde,borsh -- [scale]`
 //! where the optional `scale` (a positive number, default
 //! `board::DEFAULT_SCALE`) multiplies every input family's base size and
-//! renders a single-scale debugging view whose verdicts never bind. The
-//! `serde` and `borsh` features are `required-features`: a build without them
-//! would leave the deserialization rows out of a board that still prints
-//! verdict colors, so cargo refuses it outright.
+//! renders a single-scale debugging view whose verdicts never bind. The `serde`
+//! and `borsh` features are `required-features`: a build without them would
+//! leave the deserialization rows out of a board that still prints verdict
+//! colors, so cargo refuses it outright.
 //!
 //! # The acceptance verdict
 //!
@@ -24,22 +24,22 @@
 //! measurement ladder once (two sizes at each of the two growth sampling
 //! scales, `board::DEFAULT_SCALE` and `board::LADDER_TOP_SCALE`, plus a
 //! small-input pair at `board::SMALL_INPUT_SCALE` and a pair whose size knobs
-//! sit just past a power of two, `board::Sampling::PastPowerOfTwo`) and
-//! judges that one sweep twice:
+//! sit just past a power of two, `board::Sampling::PastPowerOfTwo`) and judges
+//! that one sweep twice:
 //!
-//! 1. The acceptance judgment renders one matrix per sweep (the ladder's
-//!    base, its top, the small inputs, and the past-power inputs), fitting
-//!    each exponent as one trend over the four growth points and judging
-//!    every constant, model band, and liveness floor at every size.
-//! 2. The worst-case ranking pin entry-compares the argmax family per
-//!    operation × currency at both growth scales against the committed table,
-//!    printing one drift line per disagreement.
+//! 1. The acceptance judgment renders one matrix per sweep (the ladder's base,
+//!    its top, the small inputs, and the past-power inputs), fitting each
+//!    exponent as one trend over the four growth points and judging every
+//!    constant, model band, and liveness floor at every size.
+//! 2. The worst-case ranking pin entry-compares the argmax family per operation
+//!    × currency at both growth scales against the committed table, printing
+//!    one drift line per disagreement.
 //!
-//! Both judgments always run, so a red cell never hides ranking drift. Red
-//! rows and drift lines print to stdout with the matrices; stderr carries a
-//! one-line summary of each failed judgment (the red-cell count, and a notice
-//! that the pin drifted). The run exits nonzero if any cell is red anywhere on
-//! the ladder or any ranking drifted, so every gate leg that runs the board
+//! Both judgments always run, so a red cell never hides ranking drift. Red rows
+//! and drift lines print to stdout with the matrices; stderr carries a one-line
+//! summary of each failed judgment (the red-cell count, and a notice that the
+//! pin drifted). The run exits nonzero if any cell is red anywhere on the
+//! ladder or any ranking drifted, so every gate leg that runs the board
 //! consumes the exit code.
 //!
 //! With `--capture <file>`, the run also writes every cell's exact readings at
@@ -63,8 +63,8 @@
 //! `calibrate [<capture>...]` (`just amp-board-calibrate`) sweeps the same
 //! ladder, judges nothing, and rewrites the heap ceiling table
 //! (`board::recalibrate`) from the larger of this host's reading and each
-//! capture's reading at every sample, printing one line per cell whose
-//! ceiling moved. Pass a capture taken on each other required architecture
+//! capture's reading at every sample, printing one line per cell whose ceiling
+//! moved. Pass a capture taken on each other required architecture
 //! (`acceptance --capture` there) from the same source tree, which
 //! `AMP_BOARD_SOURCE_TREE` names: the calibration refuses another tree's
 //! capture, and refuses to write a table that would not cover exactly the
@@ -80,18 +80,17 @@
 //!
 //! # Process sharding
 //!
-//! The sweep is single-threaded within a process by design (the
-//! peak-heap column reads the process-global allocator, so concurrent
-//! threads would blend live sets) and parallelizes by process instead:
-//! every mode that sweeps (all but `compare`, which reads two captures)
-//! spawns one copy of this binary per slice of the operation
-//! × family cell grid (`--shard i/N`, an internal protocol;
-//! `board::shard` documents it), each child measuring its slice
-//! single-threaded, and the parent merges, judges, and renders. Every
-//! judged quantity is, for a given build target, a deterministic counter
-//! over state a child owns privately, so the shard count is a throughput
-//! setting and never an input to a reading: `AMP_BOARD_SHARDS` overrides
-//! it (default: available parallelism).
+//! The sweep is single-threaded within a process by design (the peak-heap
+//! column reads the process-global allocator, so concurrent threads would blend
+//! live sets) and parallelizes by process instead: every mode that sweeps (all
+//! but `compare`, which reads two captures) spawns one copy of this binary per
+//! slice of the operation × family cell grid (`--shard i/N`, an internal
+//! protocol; `board::shard` documents it), each child measuring its slice
+//! single-threaded, and the parent merges, judges, and renders. Every judged
+//! quantity is, for a given build target, a deterministic counter over state a
+//! child owns privately, so the shard count is a throughput setting and never
+//! an input to a reading: `AMP_BOARD_SHARDS` overrides it (default: available
+//! parallelism).
 
 use std::fs;
 use std::io;
@@ -105,20 +104,19 @@ use peak_alloc::PeakAlloc;
 #[global_allocator]
 static HEAP: PeakAlloc = PeakAlloc;
 
-/// The currencies this runner measures and its verdict requires: heap,
-/// through the counting allocator.
+/// The currencies this runner measures and its verdict requires: heap, through
+/// the counting allocator.
 const MEASURED: [Currency; 1] = [Currency::Heap];
 
-/// The shard-count override. Unset, the runner uses available
-/// parallelism.
+/// The shard-count override. Unset, the runner uses available parallelism.
 const SHARDS_ENV: &str = "AMP_BOARD_SHARDS";
 
 /// Live bytes at the board's last peak reset: the level its peak readings rise
 /// from.
 static PEAK_ORIGIN: AtomicUsize = AtomicUsize::new(0);
 
-/// The native board's meters: the peak-heap readers over this binary's
-/// global allocator, and no fuel, which only a wasm guest can read.
+/// The native board's meters: the peak-heap readers over this binary's global
+/// allocator, and no fuel, which only a wasm guest can read.
 ///
 /// The allocator counts process-wide, which the board's single-threaded sweep
 /// makes exact: no other thread allocates while a cell is measured.
@@ -139,8 +137,8 @@ fn meters() -> Meters {
 }
 
 /// The shard count for this run: the override if set, else available
-/// parallelism, capped at the cell-grid size (more children than cells
-/// would only spawn empty sweeps).
+/// parallelism, capped at the cell-grid size (more children than cells would
+/// only spawn empty sweeps).
 fn shard_count() -> usize {
     let requested = match std::env::var_os(SHARDS_ENV) {
         Some(value) => value
@@ -155,10 +153,9 @@ fn shard_count() -> usize {
     requested.min(board::max_useful_shards())
 }
 
-/// Build the child spawner: launch `count` copies of this binary
-/// concurrently, one cell-grid slice each at the given sampling, and
-/// return their stdout captures in shard order (the merge validates
-/// each child's stamps).
+/// Build the child spawner: launch `count` copies of this binary concurrently,
+/// one cell-grid slice each at the given sampling, and return their stdout
+/// captures in shard order (the merge validates each child's stamps).
 fn spawner(count: usize) -> impl Fn(Sampling) -> io::Result<Vec<Vec<u8>>> {
     move |sampling: Sampling| {
         let exe = std::env::current_exe()?;
@@ -208,8 +205,8 @@ fn parse_shard_spec(spec: &str) -> (usize, usize) {
     parsed.unwrap_or_else(|| panic!("amp-board: malformed --shard argument {spec:?}"))
 }
 
-/// Child mode: sweep one family slice and emit samples on stdout in the
-/// shard wire form (internal; spawned by the parent run below).
+/// Child mode: sweep one family slice and emit samples on stdout in the shard
+/// wire form (internal; spawned by the parent run below).
 fn run_child(args: &[String]) {
     let (index, count) = parse_shard_spec(
         args.get(1)

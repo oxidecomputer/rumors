@@ -1,35 +1,34 @@
-//! How many calls a session makes on the transport halves it is given, on
-//! fixed sessions.
+//! How many calls a session makes on the transport halves it is given, on fixed
+//! sessions.
 //!
-//! A session's read half and write half are whatever the application
-//! supplies: a TCP socket, a TLS stream, a QUIC stream. Each call the
-//! session makes on them that completes costs that transport something
-//! whatever it is: a system call per write or read on a raw socket, a
-//! record per write on an unbuffered TLS stream. This suite counts the
-//! completed calls at that boundary (`poll_read`, `poll_fill_buf`,
-//! `consume`, `poll_write`, `poll_write_vectored`, `poll_flush`) on
-//! deterministic sessions, so a change to how a session writes or reads
-//! moves a committed number. A session reads through a buffer it is
-//! given (`AsyncBufRead`), whose calls cost nothing beyond a copy, so the
-//! suite also counts the completed reads beneath that buffer, from the
-//! transport itself: those are what a raw socket pays a system call for.
+//! A session's read half and write half are whatever the application supplies:
+//! a TCP socket, a TLS stream, a QUIC stream. Each call the session makes on
+//! them that completes costs that transport something whatever it is: a system
+//! call per write or read on a raw socket, a record per write on an unbuffered
+//! TLS stream. This suite counts the completed calls at that boundary
+//! (`poll_read`, `poll_fill_buf`, `consume`, `poll_write`,
+//! `poll_write_vectored`, `poll_flush`) on deterministic sessions, so a change
+//! to how a session writes or reads moves a committed number. A session reads
+//! through a buffer it is given (`AsyncBufRead`), whose calls cost nothing
+//! beyond a copy, so the suite also counts the completed reads beneath that
+//! buffer, from the transport itself: those are what a raw socket pays a system
+//! call for.
 //!
 //! A call completes when it returns `Ready`. A call that returns `Pending`
-//! waits for the peer; it is not counted, because how often a session
-//! waits depends on how its tasks interleave rather than on how it writes
-//! or reads. A wait usually costs a Tokio socket no system call, since the
-//! socket answers it from the readiness state its event loop keeps; after
-//! a read that exactly filled the caller's buffer, it costs one `read`
-//! that finds nothing (`EAGAIN`). `consume` always completes.
+//! waits for the peer; it is not counted, because how often a session waits
+//! depends on how its tasks interleave rather than on how it writes or reads. A
+//! wait usually costs a Tokio socket no system call, since the socket answers
+//! it from the readiness state its event loop keeps; after a read that exactly
+//! filled the caller's buffer, it costs one `read` that finds nothing
+//! (`EAGAIN`). `consume` always completes.
 //!
-//! Each session runs both peers in their own tasks on a current-thread
-//! runtime, over an in-memory connection whose directions buffer more than
-//! any fixture sends, so no write or flush waits for room; reads wait
-//! whenever the peer has sent nothing new. The write halves come in two
-//! kinds: one that
-//! takes a vectored write whole, as a TCP socket, a TLS stream, or a
-//! `BufWriter` does, and one that, like the trait's default, takes only a
-//! vectored write's first slice.
+//! Each session runs both peers in their own tasks on a current-thread runtime,
+//! over an in-memory connection whose directions buffer more than any fixture
+//! sends, so no write or flush waits for room; reads wait whenever the peer has
+//! sent nothing new. The write halves come in two kinds: one that takes a
+//! vectored write whole, as a TCP socket, a TLS stream, or a `BufWriter` does,
+//! and one that, like the trait's default, takes only a vectored write's first
+//! slice.
 
 use std::io::IoSlice;
 use std::ops::{Bound, RangeBounds};
@@ -47,12 +46,12 @@ use rumors::{Rumors, default};
 use rumors_testkit::bench::session::{Shape, pair};
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
-/// Bytes each direction of the connection buffers: more than any fixture
-/// sends in one direction, so no write waits for its reader.
+/// Bytes each direction of the connection buffers: more than any fixture sends
+/// in one direction, so no write waits for its reader.
 const CAPACITY: usize = 4 << 20;
 
-/// The calls one session made on its transport halves, summed over both
-/// sides, beside the frames both sides' statistics count.
+/// The calls one session made on its transport halves, summed over both sides,
+/// beside the frames both sides' statistics count.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Calls {
     /// Completed `poll_read` calls on the transport beneath the read half's
@@ -99,8 +98,7 @@ struct Counters {
     flush_marks: Mutex<Vec<u64>>,
 }
 
-/// A transport half that counts the calls a session makes on it that
-/// complete.
+/// A transport half that counts the calls a session makes on it that complete.
 struct Counted<T> {
     /// The in-memory half beneath.
     inner: T,
@@ -141,8 +139,8 @@ impl<T: AsyncRead + Unpin> AsyncRead for Counted<T> {
     }
 }
 
-/// Count each completed look into the buffer and each consumption,
-/// passing them through.
+/// Count each completed look into the buffer and each consumption, passing them
+/// through.
 impl<T: AsyncBufRead + Unpin> AsyncBufRead for Counted<T> {
     /// Fills through, counting the call if it completes.
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<&[u8]>> {
@@ -184,8 +182,8 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Counted<T> {
         self.accepted(poll)
     }
 
-    /// Passes the slices through whole on a vectored half, counting the
-    /// call if it completes; otherwise writes the first nonempty slice as a
+    /// Passes the slices through whole on a vectored half, counting the call if
+    /// it completes; otherwise writes the first nonempty slice as a
     /// `poll_write`.
     fn poll_write_vectored(
         mut self: Pin<&mut Self>,
@@ -210,8 +208,8 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Counted<T> {
         self.vectored
     }
 
-    /// Flushes through, counting the call and marking how many bytes it
-    /// follows if it completes.
+    /// Flushes through, counting the call and marking how many bytes it follows
+    /// if it completes.
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         let poll = Pin::new(&mut self.inner).poll_flush(cx);
         let poll = waited(&self.counters.waits, poll);
@@ -235,22 +233,22 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Counted<T> {
 /// What one side wrote, item by item and flush by flush.
 #[derive(Debug, Default)]
 struct Trace {
-    /// The length of each item the side wrote, control items and frames
-    /// alike, in the order it wrote them.
+    /// The length of each item the side wrote, control items and frames alike,
+    /// in the order it wrote them.
     items: Vec<usize>,
-    /// The bytes each flush carried: those written since the flush before
-    /// it, omitting flushes that carried nothing.
+    /// The bytes each flush carried: those written since the flush before it,
+    /// omitting flushes that carried nothing.
     flushes: Vec<usize>,
     /// The writes and flushes on the side's write half that waited.
     waits: u64,
 }
 
-/// An observer that records the length of every item its sessions send,
-/// in the order they are written.
+/// An observer that records the length of every item its sessions send, in the
+/// order they are written.
 ///
 /// Every sent stream's handler runs in the task that writes that stream's
-/// items, the control items before and after the frames and every frame
-/// in the multiplexer's order, so one shared list records the write order.
+/// items, the control items before and after the frames and every frame in the
+/// multiplexer's order, so one shared list records the write order.
 #[derive(Clone, Default)]
 struct ItemLog(Arc<Mutex<Vec<usize>>>);
 
@@ -275,14 +273,14 @@ impl StreamObserver for ItemLog {
     }
 }
 
-/// Gossip once over `end` through counting halves, with the write batch
-/// range `batch`, returning the calls, the frames this side sent, and, if
-/// `traced`, what it wrote item by item and flush by flush.
+/// Gossip once over `end` through counting halves, with the write batch range
+/// `batch`, returning the calls, the frames this side sent, and, if `traced`,
+/// what it wrote item by item and flush by flush.
 ///
 /// The read half's buffer is rebuilt over a counted transport, as
-/// `memory_connection` builds it (a `BufReader` of Tokio's default
-/// capacity), so the reads it makes of the transport are counted apart
-/// from the session's calls on it. Only a traced session is observed.
+/// `memory_connection` builds it (a `BufReader` of Tokio's default capacity),
+/// so the reads it makes of the transport are counted apart from the session's
+/// calls on it. Only a traced session is observed.
 async fn gossip(
     peer: Rumors<String>,
     end: MemoryEnd,
@@ -358,12 +356,11 @@ async fn gossip(
     )
 }
 
-/// Reconcile the pair `shape` describes once at the write batch range
-/// `batch`, and return the calls both sides made and, if `traced`, what
-/// each side wrote.
+/// Reconcile the pair `shape` describes once at the write batch range `batch`,
+/// and return the calls both sides made and, if `traced`, what each side wrote.
 ///
-/// Each peer runs in its own task, over write halves that do or do not
-/// take vectored writes whole.
+/// Each peer runs in its own task, over write halves that do or do not take
+/// vectored writes whole.
 ///
 /// Building the pair runs the peers' own joining sessions, before counting
 /// starts.
@@ -407,15 +404,14 @@ fn session_at(shape: Shape, vectored: bool, batch: impl RangeBounds<usize>) -> C
     session_traced(shape, vectored, batch, false).0
 }
 
-/// Reconcile the pair `shape` describes once, untraced, at the default
-/// write batch range, and return the calls both sides made.
+/// Reconcile the pair `shape` describes once, untraced, at the default write
+/// batch range, and return the calls both sides made.
 fn session(shape: Shape, vectored: bool) -> Calls {
     session_at(shape, vectored, WRITE_BATCH_RANGE)
 }
 
-/// The fixed sessions, each a name and its pair: identical replicas, a
-/// hundred differences beside a shared set, a catch-up, and two disjoint
-/// sets.
+/// The fixed sessions, each a name and its pair: identical replicas, a hundred
+/// differences beside a shared set, a catch-up, and two disjoint sets.
 fn fixtures() -> [(&'static str, Shape); 4] {
     let shared = 10_000;
     [
@@ -434,14 +430,14 @@ fn fixtures() -> [(&'static str, Shape); 4] {
     ]
 }
 
-/// The fixture with the most frames, nearly all of them small: two
-/// disjoint sets of 5,000 messages, which the sides exchange in full.
+/// The fixture with the most frames, nearly all of them small: two disjoint
+/// sets of 5,000 messages, which the sides exchange in full.
 fn disjoint() -> Shape {
     Shape::symmetric(5_000)
 }
 
-/// The control items each side writes outside the frames, each with its
-/// own flush: its preamble, its greeting, and its completion marker.
+/// The control items each side writes outside the frames, each with its own
+/// flush: its preamble, its greeting, and its completion marker.
 const CONTROL_ITEMS: u64 = 3;
 
 /// The sides of a session.
@@ -449,30 +445,28 @@ const SIDES: u64 = 2;
 
 /// The calls follow from how a session writes, whatever the baseline.
 ///
-/// A session writes each control item with a plain write of its own,
-/// followed by a flush. It copies its frames into its write buffer, of
-/// about 63 KiB, and writes the buffer out as one plain write at each
-/// flush, and before any frame that does not fit beside the buffered ones;
-/// a frame at least the buffer's size goes to the write half directly, as
-/// one vectored write where the half takes them whole. It flushes only
-/// after writing an item, and each flush writes out what the buffer holds.
-/// No fixture here sends a frame near the buffer's size, so on both kinds
-/// of write half every write is a plain one: no vectored write reaches
-/// either half, and the two kinds see the same calls. Those equalities
-/// rest on the fixtures as well as on how the session writes, and fail
-/// once a fixture sends a frame that large. Every flush writes the buffer
-/// out, and the buffer never writes itself out between flushes: the
+/// A session writes each control item with a plain write of its own, followed
+/// by a flush. It copies its frames into its write buffer, of about 63 KiB, and
+/// writes the buffer out as one plain write at each flush, and before any frame
+/// that does not fit beside the buffered ones; a frame at least the buffer's
+/// size goes to the write half directly, as one vectored write where the half
+/// takes them whole. It flushes only after writing an item, and each flush
+/// writes out what the buffer holds. No fixture here sends a frame near the
+/// buffer's size, so on both kinds of write half every write is a plain one: no
+/// vectored write reaches either half, and the two kinds see the same calls.
+/// Those equalities rest on the fixtures as well as on how the session writes,
+/// and fail once a fixture sends a frame that large. Every flush writes the
+/// buffer out, and the buffer never writes itself out between flushes: the
 /// multiplexer flushes before a frame that would push its batch past the
-/// batch's ceiling, which under the default write batch range is at most
-/// its largest batch, 16 KiB, below the buffer's capacity. So the plain
-/// writes equal the flushes. Every write carries at least one item, so
-/// the writes number at most the items, and at least the control items. A
-/// session that sends frames flushes them, so the counters are counting.
+/// batch's ceiling, which under the default write batch range is at most its
+/// largest batch, 16 KiB, below the buffer's capacity. So the plain writes
+/// equal the flushes. Every write carries at least one item, so the writes
+/// number at most the items, and at least the control items. A session that
+/// sends frames flushes them, so the counters are counting.
 ///
-/// The read half's buffer reads the transport only within one of the
-/// session's calls on it, so the transport reads number at most the
-/// session's reads and fills, and at least one: every session reads its
-/// peer's preamble.
+/// The read half's buffer reads the transport only within one of the session's
+/// calls on it, so the transport reads number at most the session's reads and
+/// fills, and at least one: every session reads its peer's preamble.
 #[test]
 fn calls_follow_from_how_a_session_writes() {
     let controls = CONTROL_ITEMS * SIDES;
@@ -500,34 +494,32 @@ fn calls_follow_from_how_a_session_writes() {
 /// The fixed sessions' calls equal the committed baseline.
 ///
 /// The multiplexer flushes once a poll finds no frame ready after it has
-/// yielded to the session's other work, and before a frame that would
-/// push its batch past the batch's ceiling under the default write batch
-/// range: the segment size, about 1.4 KB, for a batch of frames that each
-/// fit it, and the largest batch, 16 KiB, for a batch that starts with a
-/// larger frame. So the frames the session readies over consecutive
-/// passes of its task set share a flush, and in the catch-up, whose supply
-/// runs average about 4.4 KB, consecutive runs share flushes of up to
-/// 16 KiB. Its buffer reaches the transport as one plain write per flush,
-/// whichever kind of write half it is. The demultiplexer looks at each
-/// item's first byte in the read half's buffer (`poll_fill_buf`), without
-/// consuming it, and the session then reads each item's parts with calls
-/// of their own, a few per frame received, which consume what they copy:
-/// it never calls `consume` itself. Identical replicas exchange only the
-/// control items, which their readers read without looking first.
+/// yielded to the session's other work, and before a frame that would push its
+/// batch past the batch's ceiling under the default write batch range: the
+/// segment size, about 1.4 KB, for a batch of frames that each fit it, and the
+/// largest batch, 16 KiB, for a batch that starts with a larger frame. So the
+/// frames the session readies over consecutive passes of its task set share a
+/// flush, and in the catch-up, whose supply runs average about 4.4 KB,
+/// consecutive runs share flushes of up to 16 KiB. Its buffer reaches the
+/// transport as one plain write per flush, whichever kind of write half it is.
+/// The demultiplexer looks at each item's first byte in the read half's buffer
+/// (`poll_fill_buf`), without consuming it, and the session then reads each
+/// item's parts with calls of their own, a few per frame received, which
+/// consume what they copy: it never calls `consume` itself. Identical replicas
+/// exchange only the control items, which their readers read without looking
+/// first.
 ///
 /// Beneath the read half's buffer, of Tokio's default capacity, 8 KiB, the
 /// transport is read when a call finds the buffer empty: to refill it, or
-/// directly for a read of at least its capacity. A read that finds fewer
-/// bytes buffered than it asks for takes only those, so an item that
-/// straddles the end of a refill costs the session a second read. In the
-/// catch-up, whose supply runs average about 4.4 KB, about one run per
-/// refill straddles one.
+/// directly for a read of at least its capacity. A read that finds fewer bytes
+/// buffered than it asks for takes only those, so an item that straddles the
+/// end of a refill costs the session a second read. In the catch-up, whose
+/// supply runs average about 4.4 KB, about one run per refill straddles one.
 ///
-/// The counts are deterministic: the fixtures' networks are seeded, the
-/// runtime polls its tasks in a fixed order, no write waits, and nothing in
-/// a session reads a clock. They move when how a session writes, reads, or
-/// schedules its work changes, or a fixture does, and a commit that moves
-/// them says why.
+/// The counts are deterministic: the fixtures' networks are seeded, the runtime
+/// polls its tasks in a fixed order, no write waits, and nothing in a session
+/// reads a clock. They move when how a session writes, reads, or schedules its
+/// work changes, or a fixture does, and a commit that moves them says why.
 #[test]
 fn calls_match_the_baseline() {
     let calls =
@@ -569,12 +561,12 @@ fn calls_match_the_baseline() {
     );
 }
 
-/// The segment size of the default write batch range: the ceiling of a
-/// batch that starts with a frame at most this large.
+/// The segment size of the default write batch range: the ceiling of a batch
+/// that starts with a frame at most this large.
 const SEGMENT: usize = *WRITE_BATCH_RANGE.start();
 
-/// The largest batch of the default write batch range: the ceiling of a
-/// batch that starts with a frame larger than [`SEGMENT`].
+/// The largest batch of the default write batch range: the ceiling of a batch
+/// that starts with a frame larger than [`SEGMENT`].
 const LARGEST: usize = *WRITE_BATCH_RANGE.end();
 
 /// What [`check_flushes`] counted on one side's trace.
@@ -583,28 +575,26 @@ struct Flushes {
     /// Flushes of frames that each fit [`SEGMENT`], which the segment size
     /// ended: the next item would not have fitted beside them.
     ended_by_segment: u64,
-    /// Flushes whose first item is larger than [`SEGMENT`] and that carry
-    /// more items after it.
+    /// Flushes whose first item is larger than [`SEGMENT`] and that carry more
+    /// items after it.
     shared_large: u64,
 }
 
-/// Check that every flush in `trace` carries whole items within its
-/// batch's ceiling, or one item larger than it, and count how its flushes
-/// ended.
+/// Check that every flush in `trace` carries whole items within its batch's
+/// ceiling, or one item larger than it, and count how its flushes ended.
 ///
-/// `trace` is a side's trace at the default write batch range over a
-/// write half that never waited. Since nothing waited, a batch's ceiling is
-/// [`SEGMENT`] when its first item fits it and fewer than [`CUTS_TO_GROW`]
-/// batches in a row before it were cut at their ceiling, and [`LARGEST`]
-/// otherwise. A batch was cut at its ceiling only if the item after it
-/// would not have fitted beside it under that ceiling, so only if it would
-/// not have fitted under the smallest ceiling the batch could have had:
-/// [`SEGMENT`] when its first item fits it. The check counts the flushes in
-/// a row that may have been cut by that measure, which are at least as
-/// many as were, and predicts [`SEGMENT`] for every flush whose first item
-/// fits it and that follows fewer than [`CUTS_TO_GROW`] of them: there the
-/// session must have used it, and elsewhere [`LARGEST`] bounds either
-/// ceiling. Every item must reach a flush.
+/// `trace` is a side's trace at the default write batch range over a write half
+/// that never waited. Since nothing waited, a batch's ceiling is [`SEGMENT`]
+/// when its first item fits it and fewer than [`CUTS_TO_GROW`] batches in a row
+/// before it were cut at their ceiling, and [`LARGEST`] otherwise. A batch was
+/// cut at its ceiling only if the item after it would not have fitted beside it
+/// under that ceiling, so only if it would not have fitted under the smallest
+/// ceiling the batch could have had: [`SEGMENT`] when its first item fits it.
+/// The check counts the flushes in a row that may have been cut by that
+/// measure, which are at least as many as were, and predicts [`SEGMENT`] for
+/// every flush whose first item fits it and that follows fewer than
+/// [`CUTS_TO_GROW`] of them: there the session must have used it, and elsewhere
+/// [`LARGEST`] bounds either ceiling. Every item must reach a flush.
 fn check_flushes(trace: &Trace) -> Flushes {
     assert_eq!(trace.waits, 0, "the write half never waits");
     let mut counted = Flushes::default();
@@ -652,47 +642,45 @@ fn check_flushes(trace: &Trace) -> Flushes {
     counted
 }
 
-/// The frames per flush beyond the control items' flushes, in hundredths
-/// of a frame.
+/// The frames per flush beyond the control items' flushes, in hundredths of a
+/// frame.
 fn hundredths_per_flush(calls: Calls) -> u64 {
     let controls = CONTROL_ITEMS * SIDES;
     assert!(calls.flushes > controls, "{calls:?}");
     calls.frames * 100 / (calls.flushes - controls)
 }
 
-/// In the disjoint session at the default write batch range, every flush
-/// keeps to its batch's ceiling, some reach the segment size, and the
-/// yield batches more frames per flush than flushing at every empty poll.
+/// In the disjoint session at the default write batch range, every flush keeps
+/// to its batch's ceiling, some reach the segment size, and the yield batches
+/// more frames per flush than flushing at every empty poll.
 ///
-/// Each flush writes the session's buffer out as one plain write, which a
-/// raw socket pays a system call for, so what a flush carries is the
-/// batching a session achieves on the wire. This session sends many small
-/// frames (about 88 bytes each) across large divergence, as a session
-/// reconciling millions of small differences does.
+/// Each flush writes the session's buffer out as one plain write, which a raw
+/// socket pays a system call for, so what a flush carries is the batching a
+/// session achieves on the wire. This session sends many small frames (about 88
+/// bytes each) across large divergence, as a session reconciling millions of
+/// small differences does.
 ///
 /// The multiplexer shares one task set with the encoders that feed it, and
-/// taking a frame from a lane wakes that lane's encoder, which runs only
-/// once the multiplexer's poll returns. So when a poll finds every lane
-/// empty with frames unflushed, the multiplexer yields to the set, a few
-/// passes in a row, and flushes only if none of those passes brings a
-/// frame. Its batch grows across passes of the set until a run of passes
-/// brings nothing or the next frame would push it past its ceiling.
+/// taking a frame from a lane wakes that lane's encoder, which runs only once
+/// the multiplexer's poll returns. So when a poll finds every lane empty with
+/// frames unflushed, the multiplexer yields to the set, a few passes in a row,
+/// and flushes only if none of those passes brings a frame. Its batch grows
+/// across passes of the set until a run of passes brings nothing or the next
+/// frame would push it past its ceiling.
 ///
-/// The test checks each side's flushes against the items it wrote, which
-/// an observer records in write order ([`check_flushes`]). Some flushes
-/// must be ones the segment size ended, where the next item would not
-/// have fitted, so the ceiling is exercised rather than met vacuously by
-/// small flushes.
+/// The test checks each side's flushes against the items it wrote, which an
+/// observer records in write order ([`check_flushes`]). Some flushes must be
+/// ones the segment size ended, where the next item would not have fitted, so
+/// the ceiling is exercised rather than met vacuously by small flushes.
 ///
-/// The floor compares two runs of this session that differ only in the
-/// yield. The unbounded range `..` sets no segment size and no largest
-/// batch, so no ceiling ends a batch; `..=0` sets no ceiling either, and
-/// flushes at every poll that finds no frame ready, without yielding. In
-/// both, the buffer writes itself out only when full. The yielding run must
-/// carry more frames per flush, beyond the control items' flushes: if it
-/// carries no more, its flushes no longer wait for the encoders the
-/// multiplexer woke. Both runs must flush beyond the control items, so
-/// neither count can stop counting unnoticed.
+/// The floor compares two runs of this session that differ only in the yield.
+/// The unbounded range `..` sets no segment size and no largest batch, so no
+/// ceiling ends a batch; `..=0` sets no ceiling either, and flushes at every
+/// poll that finds no frame ready, without yielding. In both, the buffer writes
+/// itself out only when full. The yielding run must carry more frames per
+/// flush, beyond the control items' flushes: if it carries no more, its flushes
+/// no longer wait for the encoders the multiplexer woke. Both runs must flush
+/// beyond the control items, so neither count can stop counting unnoticed.
 #[test]
 fn flushes_batch_frames_within_the_write_batch_range() {
     let (_, traces) = session_traced(disjoint(), true, WRITE_BATCH_RANGE, true);
@@ -709,17 +697,16 @@ fn flushes_batch_frames_within_the_write_batch_range() {
     );
 }
 
-/// In the catch-up at the default write batch range, supply runs larger
-/// than the segment size share flushes with the frames after them, up to
-/// the largest batch, so the session flushes less often than it sends
-/// frames.
+/// In the catch-up at the default write batch range, supply runs larger than
+/// the segment size share flushes with the frames after them, up to the largest
+/// batch, so the session flushes less often than it sends frames.
 ///
-/// The catch-up's supply runs average about 4.4 KB, above the segment
-/// size, about 1.4 KB, so each starts a batch whose ceiling is the largest
-/// batch, 16 KiB, after the batch before it is flushed. Every flush must
-/// keep to its ceiling ([`check_flushes`]), some flushes must carry a
-/// large run and items after it, and the flushes beyond the control items'
-/// must number fewer than the frames.
+/// The catch-up's supply runs average about 4.4 KB, above the segment size,
+/// about 1.4 KB, so each starts a batch whose ceiling is the largest batch, 16
+/// KiB, after the batch before it is flushed. Every flush must keep to its
+/// ceiling ([`check_flushes`]), some flushes must carry a large run and items
+/// after it, and the flushes beyond the control items' must number fewer than
+/// the frames.
 #[test]
 fn large_frames_share_flushes_in_the_catch_up() {
     let (calls, traces) = session_traced(Shape::catch_up(10_000), true, WRITE_BATCH_RANGE, true);
@@ -734,18 +721,17 @@ fn large_frames_share_flushes_in_the_catch_up() {
     );
 }
 
-/// At the write batch range `..=0`, the fixed sessions' calls equal those
-/// of a multiplexer that flushes at every poll finding no frame ready,
-/// without yielding first, with no ceiling on a flush.
+/// At the write batch range `..=0`, the fixed sessions' calls equal those of a
+/// multiplexer that flushes at every poll finding no frame ready, without
+/// yielding first, with no ceiling on a flush.
 ///
-/// An end of zero selects exactly that rule, so the counts are the ones
-/// that rule produces on these deterministic sessions. A flush carries
-/// the frames ready within one poll, as many as the lanes then hold, and
-/// the buffer writes itself out whenever the next frame does not fit, as
-/// the catch-up's writes outnumbering its flushes show. The counts must
-/// not move while an end of zero keeps its meaning; they move when the
-/// lanes' capacities or the session's scheduling change what one poll
-/// finds ready.
+/// An end of zero selects exactly that rule, so the counts are the ones that
+/// rule produces on these deterministic sessions. A flush carries the frames
+/// ready within one poll, as many as the lanes then hold, and the buffer writes
+/// itself out whenever the next frame does not fit, as the catch-up's writes
+/// outnumbering its flushes show. The counts must not move while an end of zero
+/// keeps its meaning; they move when the lanes' capacities or the session's
+/// scheduling change what one poll finds ready.
 #[test]
 fn a_zero_batch_flushes_at_every_empty_poll() {
     let calls =

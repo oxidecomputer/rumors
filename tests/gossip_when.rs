@@ -1,9 +1,9 @@
 //! Continuous gossip under per-connection initiation policies.
 //!
-//! Hand-driven policy streams exercise suppression, remote serving, connection reuse,
-//! and cancellation. Closed in-memory schedules use the quiescence detector, including
-//! every assertion that a driver has gone quiet. Tokio tasks carry a wall-clock
-//! backstop only when the test expects progress.
+//! Hand-driven policy streams exercise suppression, remote serving, connection
+//! reuse, and cancellation. Closed in-memory schedules use the quiescence
+//! detector, including every assertion that a driver has gone quiet. Tokio
+//! tasks carry a wall-clock backstop only when the test expects progress.
 
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
@@ -91,8 +91,8 @@ where
         .into_rumors()
 }
 
-/// One session under two hand-driven drivers: tick one (or both) sides,
-/// then await one item from each driver, asserting both are `Ok`.
+/// One session under two hand-driven drivers: tick one (or both) sides, then
+/// await one item from each driver, asserting both are `Ok`.
 async fn one_round(
     a_sessions: &mut (impl stream::Stream<Item = Result<Gossiped, Error>> + Unpin),
     b_sessions: &mut (impl stream::Stream<Item = Result<Gossiped, Error>> + Unpin),
@@ -716,19 +716,18 @@ divided_proptest! {
     }
 }
 
-/// Upper bound on the byte offset at which a severed connection's cut
-/// can land.
+/// Upper bound on the byte offset at which a severed connection's cut can land.
 ///
-/// Derived from measurement: a clean run of the severed-connection
-/// fixture ([`run_severed`]) moves fewer bytes per endpoint than this
-/// bound, and the bound stays within twice that, so generated cuts reach
-/// every byte of the session and keep landing inside it. The two-sided
-/// pin is [`max_sever_cut_spans_the_fixture_session`]; re-measure there
-/// before touching this number.
+/// Derived from measurement: a clean run of the severed-connection fixture
+/// ([`run_severed`]) moves fewer bytes per endpoint than this bound, and the
+/// bound stays within twice that, so generated cuts reach every byte of the
+/// session and keep landing inside it. The two-sided pin is
+/// [`max_sever_cut_spans_the_fixture_session`]; re-measure there before
+/// touching this number.
 const MAX_SEVER_CUT: usize = 256;
 
-/// What one severed-connection run of the fixture leaves behind: each
-/// driver's items in order, and the two replicas for the checks.
+/// What one severed-connection run of the fixture leaves behind: each driver's
+/// items in order, and the two replicas for the checks.
 struct Severed {
     a_items: Vec<Result<Gossiped, Error>>,
     b_items: Vec<Result<Gossiped, Error>>,
@@ -736,13 +735,12 @@ struct Severed {
     b: Rumors<u64>,
 }
 
-/// Run the severed-connection fixture: the [`pair`] with one send on each
-/// side, A driven by a single tick and B by remote-led serving, over one
-/// in-memory connection with `a_fault` and `b_fault` applied to the two
-/// ends.
+/// Run the severed-connection fixture: the [`pair`] with one send on each side,
+/// A driven by a single tick and B by remote-led serving, over one in-memory
+/// connection with `a_fault` and `b_fault` applied to the two ends.
 ///
-/// Each side's end is owned by its future, so the failing side's drop
-/// surfaces as EOF to the other rather than deadlocking the join.
+/// Each side's end is owned by its future, so the failing side's drop surfaces
+/// as EOF to the other rather than deadlocking the join.
 async fn run_severed(network: NetworkSeed, a_fault: FaultPlan, b_fault: FaultPlan) -> Severed {
     let (a, b) = pair(network).await;
     a.send(1).unwrap();
@@ -776,9 +774,9 @@ async fn run_severed(network: NetworkSeed, a_fault: FaultPlan, b_fault: FaultPla
     }
 }
 
-/// The severed-connection contract, checked on one run's outcome:
-/// terminal shape, atomicity, the epilogue's certification, and recovery
-/// over a fresh clean connection.
+/// The severed-connection contract, checked on one run's outcome: terminal
+/// shape, atomicity, the epilogue's certification, and recovery over a fresh
+/// clean connection.
 async fn check_severed(run: &Severed) {
     let Severed {
         a_items,
@@ -828,14 +826,14 @@ async fn check_severed(run: &Severed) {
     assert_eq!(a_snapshot.len(), 2);
 }
 
-/// Byte extent of the severed-connection fixture on a clean run, per
-/// endpoint: `(a_written, b_written, b_read)`.
+/// Byte extent of the severed-connection fixture on a clean run, per endpoint:
+/// `(a_written, b_written, b_read)`.
 ///
 /// The same pair, sends, drivers, and connection capacity as [`run_severed`],
 /// metered with the counters the fault cuts spend. The in-memory connection and
-/// the single-threaded driver make the run byte-identical across
-/// invocations from one network seed, which lets [`a_lost_marker_certifies_one_side`] place a
-/// cut one byte short of a clean session.
+/// the single-threaded driver make the run byte-identical across invocations
+/// from one network seed, which lets [`a_lost_marker_certifies_one_side`] place
+/// a cut one byte short of a clean session.
 async fn fixture_session_bytes(network: NetworkSeed) -> (usize, usize, usize) {
     let (a, b) = pair(network).await;
     a.send(1).unwrap();
@@ -1013,7 +1011,8 @@ enum Op {
     Pump(u8),
 }
 
-/// Generate local edits, initiation requests, and opportunities for network progress.
+/// Generate local edits, initiation requests, and opportunities for network
+/// progress.
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
         Just(Op::SendA),

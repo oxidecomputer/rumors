@@ -3,11 +3,11 @@
 //! reads, and an encoder's output only on the bytes it writes.
 //!
 //! `std::io::Read` lets a reader return fewer bytes than asked, return
-//! `Interrupted` before any answer, and fail partway, and `std::io::Write`
-//! lets a writer do the same. A [`ScriptedReader`] and a [`ScriptedWriter`]
-//! do each of these on a generated [`IoSchedule`], so a decoder or encoder
-//! that mishandles a short read or write, an interrupt, or a failure meets the
-//! case on some draw.
+//! `Interrupted` before any answer, and fail partway, and `std::io::Write` lets
+//! a writer do the same. A [`ScriptedReader`] and a [`ScriptedWriter`] do each
+//! of these on a generated [`IoSchedule`], so a decoder or encoder that
+//! mishandles a short read or write, an interrupt, or a failure meets the case
+//! on some draw.
 
 use std::io;
 
@@ -15,14 +15,14 @@ use proptest::prelude::*;
 
 use crate::rank::DECODE_CHUNK_BYTES;
 
-/// How a [`ScriptedReader`] paces the bytes it serves, or a
-/// [`ScriptedWriter`] the bytes it accepts.
+/// How a [`ScriptedReader`] paces the bytes it serves, or a [`ScriptedWriter`]
+/// the bytes it accepts.
 #[derive(Debug)]
 pub(crate) struct IoSchedule {
     /// The most bytes one call serves or accepts.
     pub(crate) chunk: usize,
-    /// The `Interrupted` errors returned before each answer, cycled: answer
-    /// `i` is preceded by `interrupts[i % interrupts.len()]` of them.
+    /// The `Interrupted` errors returned before each answer, cycled: answer `i`
+    /// is preceded by `interrupts[i % interrupts.len()]` of them.
     pub(crate) interrupts: Vec<u8>,
 }
 
@@ -36,13 +36,12 @@ pub(crate) fn arb_io_schedule() -> impl Strategy<Value = IoSchedule> {
         .prop_map(|(chunk, interrupts)| IoSchedule { chunk, interrupts })
 }
 
-/// A reader that serves its input on an [`IoSchedule`], and can fail
-/// partway.
+/// A reader that serves its input on an [`IoSchedule`], and can fail partway.
 ///
-/// An *answer* is a call that serves bytes, reports the end of input, or
-/// fails; the schedule's interrupts come before each one. Given a failure
-/// offset, the reader serves the bytes before it and then fails with kind
-/// `Other` instead of serving more or reporting the end.
+/// An *answer* is a call that serves bytes, reports the end of input, or fails;
+/// the schedule's interrupts come before each one. Given a failure offset, the
+/// reader serves the bytes before it and then fails with kind `Other` instead
+/// of serving more or reporting the end.
 pub(crate) struct ScriptedReader<'a> {
     /// The bytes served, in order.
     input: &'a [u8],
@@ -129,10 +128,10 @@ impl io::Read for ScriptedReader<'_> {
 
 /// A writer that accepts bytes on an [`IoSchedule`], and can fail partway.
 ///
-/// An *answer* is a call that accepts bytes or fails; the schedule's
-/// interrupts come before each one, and each answer accepts at most the
-/// schedule's chunk. Given a limit, the writer accepts the bytes before it and
-/// then fails with kind `Other` instead of accepting more.
+/// An *answer* is a call that accepts bytes or fails; the schedule's interrupts
+/// come before each one, and each answer accepts at most the schedule's chunk.
+/// Given a limit, the writer accepts the bytes before it and then fails with
+/// kind `Other` instead of accepting more.
 pub(crate) struct ScriptedWriter<'a> {
     /// The bytes accepted, in order.
     written: Vec<u8>,
@@ -172,8 +171,8 @@ impl<'a> ScriptedWriter<'a> {
     }
 }
 
-/// Returns the schedule's pending interrupt, or else the next answer; an
-/// empty write accepts nothing at once.
+/// Returns the schedule's pending interrupt, or else the next answer; an empty
+/// write accepts nothing at once.
 ///
 /// # Panics
 ///

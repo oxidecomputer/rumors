@@ -1,6 +1,6 @@
-//! The per-universe [`rumors::Network`] guard: combining operations must
-//! refuse peers from a different seed, even when their parties happen to
-//! look disjoint.
+//! The per-universe [`rumors::Network`] guard: combining operations must refuse
+//! peers from a different seed, even when their parties happen to look
+//! disjoint.
 //!
 //! Covers handle inheritance, bootstrap propagation, gossip, and retirement.
 
@@ -15,10 +15,9 @@ use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::{NetworkSeed, distinct_network_seeds, network_seed};
 use rumors_testkit::divided_proptest;
 
-/// A peer founding the network `network` names. The seed's stream supplies
-/// the network's secret, and with it its identifier: distinct seeds give
-/// distinct networks, and the tests rely on nothing else about the
-/// identifiers.
+/// A peer founding the network `network` names. The seed's stream supplies the
+/// network's secret, and with it its identifier: distinct seeds give distinct
+/// networks, and the tests rely on nothing else about the identifiers.
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>(
     network: NetworkSeed,
 ) -> Peer<T> {

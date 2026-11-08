@@ -1,9 +1,9 @@
 //! Pointwise differential checks across three implementations.
 //!
-//! Each descriptor defines the same deterministic operation for production,
-//! the recursive oracle, and the function-space oracle. Shared drivers apply
-//! every descriptor to complementary populations: arbitrary canonical
-//! values, values produced by realistic clock traces, and deep values from
+//! Each descriptor defines the same deterministic operation for production, the
+//! recursive oracle, and the function-space oracle. Shared drivers apply every
+//! descriptor to complementary populations: arbitrary canonical values, values
+//! produced by realistic clock traces, and deep values from
 //! [`generators::leaf_list`](crate::testing::generators::leaf_list) and
 //! [`generators::regions`](crate::testing::generators::regions). The deep
 //! population is too deep for the function space's grid scan, so its driver
@@ -68,14 +68,13 @@ pub(crate) enum Legs {
 
 /// How a production result is compared with the recursive oracle's.
 ///
-/// Implemented once per result type a descriptor can produce, so a
-/// descriptor never spells its own comparison and the drivers never carry
-/// an assert-kind switch: the result types decide. Verdicts and carrier
-/// quantities compare directly; tree-shaped results compare *both ways*
-/// across the bridge (the production value equals the oracle value raised
-/// through it, and lowering the production value returns the oracle value),
-/// so a result that is right in meaning but not in normal form is a
-/// failure, not a pass.
+/// Implemented once per result type a descriptor can produce, so a descriptor
+/// never spells its own comparison and the drivers never carry an assert-kind
+/// switch: the result types decide. Verdicts and carrier quantities compare
+/// directly; tree-shaped results compare *both ways* across the bridge (the
+/// production value equals the oracle value raised through it, and lowering the
+/// production value returns the oracle value), so a result that is right in
+/// meaning but not in normal form is a failure, not a pass.
 pub(crate) trait Matches<Reference> {
     /// Whether this production result agrees with the oracle's.
     fn matches(&self, reference: &Reference) -> bool;
@@ -89,8 +88,8 @@ impl Matches<tree::Version> for Version {
 }
 
 impl Matches<tree::Party> for Option<Party> {
-    /// The oracle carries the empty region as a value where production
-    /// carries it as `None`, so the arms are matched before the trees.
+    /// The oracle carries the empty region as a value where production carries
+    /// it as `None`, so the arms are matched before the trees.
     fn matches(&self, reference: &tree::Party) -> bool {
         match self {
             None => reference.is_empty(),
@@ -136,9 +135,8 @@ impl Matches<Rank> for Rank {
     }
 }
 
-/// Shape rows (plateau, region, overlay, and refinement-cell listings)
-/// compare directly: both sides are already folded into the same
-/// absolute vocabulary.
+/// Shape rows (plateau, region, overlay, and refinement-cell listings) compare
+/// directly: both sides are already folded into the same absolute vocabulary.
 impl Matches<Vec<Leaf>> for Vec<Leaf> {
     fn matches(&self, reference: &Vec<Leaf>) -> bool {
         self == reference
@@ -163,21 +161,20 @@ impl Matches<Vec<(u64, Vec<BigUint>)>> for Vec<(u64, Vec<BigUint>)> {
     }
 }
 
-/// How a function-space result is compared with the recursive oracle's, at
-/// a comparison grid.
+/// How a function-space result is compared with the recursive oracle's, at a
+/// comparison grid.
 ///
 /// The function-space counterpart of [`Matches`], implemented once per result
 /// type a function-space spelling can produce. Function-shaped results
-/// ([`function::Event`],
-/// [`function::Id`]) compare by scanning both functions over the
-/// grid; the reference tree is lifted for the scan, and its own depth is
-/// folded into the grid so a reference deeper than the operands (which no
-/// pointwise combinator produces, but the comparison does not assume that)
-/// is still resolved exactly. Scalar and verdict results compare directly,
-/// the grid unread.
+/// ([`function::Event`], [`function::Id`]) compare by scanning both functions
+/// over the grid; the reference tree is lifted for the scan, and its own depth
+/// is folded into the grid so a reference deeper than the operands (which no
+/// pointwise combinator produces, but the comparison does not assume that) is
+/// still resolved exactly. Scalar and verdict results compare directly, the
+/// grid unread.
 pub(crate) trait FunctionMatches<Reference> {
-    /// Whether this function-space result agrees with the oracle's, scanned
-    /// at (at least) `grid`.
+    /// Whether this function-space result agrees with the oracle's, scanned at
+    /// (at least) `grid`.
     fn function_matches(&self, reference: &Reference, grid: u32) -> bool;
 }
 
@@ -227,10 +224,10 @@ impl FunctionMatches<Rank> for Rank {
 
 /// Shape rows against the function space.
 ///
-/// The rows rebuild into normal oracle trees (the reconstruction
-/// collapses any refinement fragments), and the existing
-/// recursive-versus-function scans decide. The rows come from the
-/// descriptor's recursive spelling, whose depths the grid already covers.
+/// The rows rebuild into normal oracle trees (the reconstruction collapses any
+/// refinement fragments), and the existing recursive-versus-function scans
+/// decide. The rows come from the descriptor's recursive spelling, whose depths
+/// the grid already covers.
 impl FunctionMatches<Vec<Leaf>> for function::Event {
     fn function_matches(&self, reference: &Vec<Leaf>, grid: u32) -> bool {
         let tree = shape_rows::version_from_rows(reference);
@@ -281,18 +278,19 @@ impl FunctionMatches<Vec<(u64, Vec<BigUint>)>> for (function::Event, function::E
 ///
 /// The header tags each operand as a `version`, `party`, `disjoint_party`, or
 /// `clock`. For every operation, the body gives three adjacent spellings:
-/// `production`, `recursive`, and `function`. The macro converts the recursive-oracle
-/// inputs into the other two representations, evaluates all three spellings,
-/// and compares their results through [`Matches`] and [`FunctionMatches`].
-/// Each spelling receives fresh values, so it may consume or mutate them.
+/// `production`, `recursive`, and `function`. The macro converts the
+/// recursive-oracle inputs into the other two representations, evaluates all
+/// three spellings, and compares their results through [`Matches`] and
+/// [`FunctionMatches`]. Each spelling receives fresh values, so it may consume
+/// or mutate them.
 ///
 /// `function(g)` also receives a grid fine enough to resolve every operand.
 /// Spellings that do not scan the grid name it `_g`. A generated check takes
 /// [`Legs`] first: [`Legs::TreeOracle`] skips the function-space spelling, for
-/// operands too deep for its grid scan. The macro registers each
-/// generated check in the group's private slice under the operation's Rust
-/// name. The group must then appear in `for_each_diff_group!`; otherwise the
-/// dead-code lint rejects it.
+/// operands too deep for its grid scan. The macro registers each generated
+/// check in the group's private slice under the operation's Rust name. The
+/// group must then appear in `for_each_diff_group!`; otherwise the dead-code
+/// lint rejects it.
 macro_rules! diff_ops {
     (
         $(#[$group_meta:meta])* static $group:ident: ($($param:ident: $kind:tt),+ $(,)?);
@@ -774,14 +772,12 @@ diff_ops! {
     }
 }
 
-/// Expands to every registered descriptor group: its static, the driver
-/// name the arbitrary-population consumer gives it, and its input
-/// signature.
+/// Expands to every registered descriptor group: its static, the driver name
+/// the arbitrary-population consumer gives it, and its input signature.
 ///
-/// Consumers take an optional argument clause (`consumer(args)`) ahead of
-/// the list as `args: (...)`, exactly as the law-group roster does. The
-/// signature kinds name the carrier each input borrows: `version`, `party`,
-/// or `clock`.
+/// Consumers take an optional argument clause (`consumer(args)`) ahead of the
+/// list as `args: (...)`, exactly as the law-group roster does. The signature
+/// kinds name the carrier each input borrows: `version`, `party`, or `clock`.
 macro_rules! for_each_diff_group {
     ($callback:ident) => { for_each_diff_group!($callback()); };
     ($callback:ident($($args:tt)*)) => {

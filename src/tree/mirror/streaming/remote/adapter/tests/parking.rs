@@ -1,22 +1,21 @@
 //! What a parked decoded reply holds.
 //!
 //! The proxy parks every decoded reply until its stage takes it, and each
-//! question's reservation prices the reply it invites by its counts:
-//! reactions, listing entries, and supplies. That pricing holds only if a
-//! decoded reply's size does not scale with the subtrees it names.
+//! question's reservation prices the reply it invites by its counts: reactions,
+//! listing entries, and supplies. That pricing holds only if a decoded reply's
+//! size does not scale with the subtrees it names.
 //!
-//! Supplied payloads stream through `Convert::assemble` into backend
-//! custody while the reply retains one node handle per supplied node, and
-//! a maximally disputed reply retains a pure skeleton of at most fan²
-//! listing entries, each a radix, a hash, and a grandchild count.
+//! Supplied payloads stream through `Convert::assemble` into backend custody
+//! while the reply retains one node handle per supplied node, and a maximally
+//! disputed reply retains a pure skeleton of at most fan² listing entries, each
+//! a radix, a hash, and a grandchild count.
 //!
 //! While such a reply decodes, its encoding and its decoded skeleton can be
-//! resident at once. Both halves are measured here against the figures
-//! they are derived from, so neither needs a ceiling of its own: the
-//! encoded reply is exactly a fan of full-fan query frames
-//! ([`MAX_QUERY_CHILDREN`] of [`FULL_FAN_QUERY_FRAME_LEN`] bytes each), and
-//! the decoded skeleton holds exactly fan²
-//! listing entries of `size_of::<Listed>()` bytes each.
+//! resident at once. Both halves are measured here against the figures they are
+//! derived from, so neither needs a ceiling of its own: the encoded reply is
+//! exactly a fan of full-fan query frames ([`MAX_QUERY_CHILDREN`] of
+//! [`FULL_FAN_QUERY_FRAME_LEN`] bytes each), and the decoded skeleton holds
+//! exactly fan² listing entries of `size_of::<Listed>()` bytes each.
 
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::mem;
@@ -49,9 +48,9 @@ use super::{
     codec, fixture_bounds, hash, runtime, unbounded,
 };
 
-/// Leaves committed under the supplied root fan: enough that the fan's
-/// child nodes are multi-leaf, so a handle demonstrably covers a subtree
-/// larger than itself.
+/// Leaves committed under the supplied root fan: enough that the fan's child
+/// nodes are multi-leaf, so a handle demonstrably covers a subtree larger than
+/// itself.
 const LEAVES: u64 = 512;
 
 /// A parked decoded reply holds one node handle per supplied node — O(fan)
@@ -170,15 +169,14 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     }
 }
 
-/// A maximally disputed reply parks a bounded skeleton and no payload, and
-/// both its halves are exactly the figures they are derived from.
+/// A maximally disputed reply parks a bounded skeleton and no payload, and both
+/// its halves are exactly the figures they are derived from.
 ///
-/// The skeleton is fan queries of fan listing entries each, every count at
-/// its widest. Its encoding is exactly a fan of frames, each a full-fan
-/// query frame ([`FULL_FAN_QUERY_FRAME_LEN`]). Its decoded form holds
-/// exactly fan² listing entries, at exactly
-/// their size, so the two resident at once mid-decode hold that sum and no
-/// more.
+/// The skeleton is fan queries of fan listing entries each, every count at its
+/// widest. Its encoding is exactly a fan of frames, each a full-fan query frame
+/// ([`FULL_FAN_QUERY_FRAME_LEN`]). Its decoded form holds exactly fan² listing
+/// entries, at exactly their size, so the two resident at once mid-decode hold
+/// that sum and no more.
 #[test]
 fn maximally_disputed_reply_parks_bounded_skeleton() {
     let listing: Vec<Listed> = (0..FAN)

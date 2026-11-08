@@ -105,8 +105,8 @@ impl Party {
     ///
     /// Each recursive call compares the families over one half of the current
     /// subinterval, one level down in every branch of both families. The
-    /// recursion is therefore as deep as the deepest party in either family,
-    /// an oracle tree inside the envelope its harness bounds.
+    /// recursion is therefore as deep as the deepest party in either family, an
+    /// oracle tree inside the envelope its harness bounds.
     #[cfg(test)]
     pub(crate) fn same_multiplicity(lhs: &[&Party], rhs: &[&Party]) -> bool {
         let is_leaf = |p: &&Party| matches!(p, Party::Leaf(_));
@@ -151,9 +151,9 @@ impl Party {
         b
     }
 
-    /// Splits the party into its balanced partition of `n` shares, in order,
-    /// by the paper's splits: the keeper's half takes the first `⌈n/2⌉`
-    /// shares and the other half the rest, recursively.
+    /// Splits the party into its balanced partition of `n` shares, in order, by
+    /// the paper's splits: the keeper's half takes the first `⌈n/2⌉` shares and
+    /// the other half the rest, recursively.
     ///
     /// This is the partition production's `forks`, array conversions, and
     /// `sync_all` deal. A stack of pending `(party, count)` pairs, the other

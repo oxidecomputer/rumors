@@ -2,75 +2,70 @@
 //! sessions apart from them, in the run's order.
 //!
 //! A session has two parts ([`crate::predict`]): its *preparation*, which
-//! starts its processes, builds its pair, and moves side B's replica, and
-//! its *timed session*, the gossip its row measures. Preparation is most
-//! of a run's work and measures nothing, so the run prepares many sessions
-//! at once. Timed sessions are what the run measures, and calibration
-//! judges them only beside each other ([`crate::calibrate`]): it times as
-//! many as the job count at once, with nothing else running. So the run
-//! never times a session while any preparation runs.
+//! starts its processes, builds its pair, and moves side B's replica, and its
+//! *timed session*, the gossip its row measures. Preparation is most of a run's
+//! work and measures nothing, so the run prepares many sessions at once. Timed
+//! sessions are what the run measures, and calibration judges them only beside
+//! each other ([`crate::calibrate`]): it times as many as the job count at
+//! once, with nothing else running. So the run never times a session while any
+//! preparation runs.
 //!
 //! # The schedule
 //!
 //! The run alternates between two phases:
 //!
-//! 1. **Preparing.** The run chooses a *window*: the next sessions in its
-//!    order that have not been timed, as many as fit the limits
-//!    ([`Limits`]). It prepares every session of the window, up to
-//!    [`Limits::prepare_jobs`] at once, longest first, and waits for the
-//!    last to finish. A prepared session waits with its replicas in its
-//!    processes, idle, until its turn.
+//! 1. **Preparing.** The run chooses a *window*: the next sessions in its order
+//!    that have not been timed, as many as fit the limits ([`Limits`]). It
+//!    prepares every session of the window, up to [`Limits::prepare_jobs`] at
+//!    once, longest first, and waits for the last to finish. A prepared session
+//!    waits with its replicas in its processes, idle, until its turn.
 //! 2. **Timing.** The run times the window's sessions in its order, up to
-//!    [`Limits::timed_jobs`] at once, and waits for the last to finish.
-//!    Each session's processes exit as its timed session ends, which frees
-//!    their memory for the next window.
+//!    [`Limits::timed_jobs`] at once, and waits for the last to finish. Each
+//!    session's processes exit as its timed session ends, which frees their
+//!    memory for the next window.
 //!
-//! The order the sessions are timed in is the order the scheduler is
-//! given: the run shuffles it so that drift spreads across points
-//! ([`crate::run`]), and preparation, which measures nothing, may run in
-//! any order within a window.
+//! The order the sessions are timed in is the order the scheduler is given: the
+//! run shuffles it so that drift spreads across points ([`crate::run`]), and
+//! preparation, which measures nothing, may run in any order within a window.
 //!
 //! # Choosing a window
 //!
-//! A window holds the sessions of an unbroken stretch of the order from
-//! the next session to time, so its sessions are timed back to back, and
-//! the stretch is bounded two ways:
+//! A window holds the sessions of an unbroken stretch of the order from the
+//! next session to time, so its sessions are timed back to back, and the
+//! stretch is bounded two ways:
 //!
-//! - **Memory.** A prepared session holds its replicas until it is timed,
-//!   and a large pair holds gigabytes, so the predicted peak bytes of a
-//!   window's sessions ([`crate::predict::MemoryModel`]) stay within
-//!   [`Limits::memory_bytes`]. A session whose prediction alone exceeds
-//!   the bound forms a window of its own: it must run, and nothing waits
-//!   beside it.
+//! - **Memory.** A prepared session holds its replicas until it is timed, and a
+//!   large pair holds gigabytes, so the predicted peak bytes of a window's
+//!   sessions ([`crate::predict::MemoryModel`]) stay within
+//!   [`Limits::memory_bytes`]. A session whose prediction alone exceeds the
+//!   bound forms a window of its own: it must run, and nothing waits beside it.
 //! - **Count.** Each prepared session holds two processes and their file
 //!   descriptors, so a window holds at most [`Limits::window`] sessions.
 //!
-//! Within those bounds the window's length is a choice. The preparing
-//! phase lasts until its longest-running worker finishes, so its cost is
-//! not the window's work divided among the workers but the *makespan* of
-//! scheduling it longest first (Graham's LPT rule): a window of 46 equal
-//! jobs on 32 workers takes two rounds for less than one and a half
-//! rounds of work. The scheduler therefore takes, among the admissible
-//! lengths, the one whose window keeps the workers busiest: the largest
-//! ratio of predicted work to workers times predicted makespan, the
-//! longest such window on a tie. What idle workers still cost shows in a
-//! run's prediction ([`Simulation`]), which sets its preparing time beside
-//! the time it would take with every worker busy.
+//! Within those bounds the window's length is a choice. The preparing phase
+//! lasts until its longest-running worker finishes, so its cost is not the
+//! window's work divided among the workers but the *makespan* of scheduling it
+//! longest first (Graham's LPT rule): a window of 46 equal jobs on 32 workers
+//! takes two rounds for less than one and a half rounds of work. The scheduler
+//! therefore takes, among the admissible lengths, the one whose window keeps
+//! the workers busiest: the largest ratio of predicted work to workers times
+//! predicted makespan, the longest such window on a tie. What idle workers
+//! still cost shows in a run's prediction ([`Simulation`]), which sets its
+//! preparing time beside the time it would take with every worker busy.
 //!
 //! # Why phases rather than overlap
 //!
 //! Preparing the next window while the current one is timed would hide
-//! preparation entirely, but a preparation computes and allocates hard,
-//! more than a second timed session does, and calibration has not
-//! measured that a timed session beside preparation measures what it
-//! measures alone. So the phases never overlap, and the run records each
-//! session's preparing and timed intervals so that `check` can confirm
-//! they did not ([`crate::check`]).
+//! preparation entirely, but a preparation computes and allocates hard, more
+//! than a second timed session does, and calibration has not measured that a
+//! timed session beside preparation measures what it measures alone. So the
+//! phases never overlap, and the run records each session's preparing and timed
+//! intervals so that `check` can confirm they did not ([`crate::check`]).
 //!
-//! The [`Scheduler`] is a state machine that decides only what to start,
-//! so the run drives it with processes and threads, [`simulate`] drives
-//! it with predicted durations to estimate a run's wall time, and the
-//! tests drive it with every interleaving of completions.
+//! The [`Scheduler`] is a state machine that decides only what to start, so the
+//! run drives it with processes and threads, [`simulate`] drives it with
+//! predicted durations to estimate a run's wall time, and the tests drive it
+//! with every interleaving of completions.
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
@@ -80,8 +75,8 @@ use std::collections::BinaryHeap;
 pub struct Job {
     /// The predicted wall seconds of its preparation.
     pub prepare_seconds: f64,
-    /// The predicted peak bytes it holds from the start of its preparation
-    /// to the end of its timed session.
+    /// The predicted peak bytes it holds from the start of its preparation to
+    /// the end of its timed session.
     pub bytes: u64,
 }
 
@@ -118,11 +113,10 @@ enum Phase {
 
 /// The schedule of one part of a run, as [this module](self) describes it.
 ///
-/// The caller asks for [`steps`](Self::steps), starts each one, and
-/// reports each as it finishes ([`prepared`](Self::prepared),
-/// [`timed`](Self::timed)), until [`finished`](Self::finished). A
-/// preparation that fails is still reported as prepared: its session's
-/// turn then records the failure.
+/// The caller asks for [`steps`](Self::steps), starts each one, and reports
+/// each as it finishes ([`prepared`](Self::prepared), [`timed`](Self::timed)),
+/// until [`finished`](Self::finished). A preparation that fails is still
+/// reported as prepared: its session's turn then records the failure.
 #[derive(Clone, Debug)]
 pub struct Scheduler {
     /// Every session, in the order they are timed.
@@ -132,12 +126,11 @@ pub struct Scheduler {
     /// The next session to time; every earlier one has started its timed
     /// session.
     head: usize,
-    /// The end of the current window, exclusive: the window is
-    /// `head..end` while timing, and its preparations' sessions while
-    /// preparing.
+    /// The end of the current window, exclusive: the window is `head..end`
+    /// while timing, and its preparations' sessions while preparing.
     end: usize,
-    /// The window's sessions not yet started preparing, ordered so that
-    /// the longest pops first.
+    /// The window's sessions not yet started preparing, ordered so that the
+    /// longest pops first.
     unprepared: Vec<usize>,
     /// Preparations running.
     preparing: usize,
@@ -176,8 +169,8 @@ impl Scheduler {
         scheduler
     }
 
-    /// Every step that may start now, in the order to start them; the
-    /// scheduler counts each as running until it is reported finished.
+    /// Every step that may start now, in the order to start them; the scheduler
+    /// counts each as running until it is reported finished.
     pub fn steps(&mut self) -> Vec<Step> {
         let mut steps = Vec::new();
         loop {
@@ -245,8 +238,8 @@ impl Scheduler {
         self.windows
     }
 
-    /// Opens the next window from the head and enters the preparing
-    /// phase, as [the module docs](self) describe.
+    /// Opens the next window from the head and enters the preparing phase, as
+    /// [the module docs](self) describe.
     fn open_window(&mut self) {
         let rest = &self.jobs[self.head..];
         let mut held = 0u64;
@@ -308,9 +301,9 @@ impl Ord for Seconds {
     }
 }
 
-/// The makespan of `seconds` on `workers` under Graham's longest-first
-/// rule: each job, longest first, goes to the worker that frees first.
-/// Sorts `seconds` longest first.
+/// The makespan of `seconds` on `workers` under Graham's longest-first rule:
+/// each job, longest first, goes to the worker that frees first. Sorts
+/// `seconds` longest first.
 pub fn makespan(seconds: &mut [f64], workers: usize) -> f64 {
     seconds.sort_by(|x, y| y.total_cmp(x));
     let mut loads: BinaryHeap<Reverse<Seconds>> = (0..workers.max(1).min(seconds.len()))
@@ -327,8 +320,8 @@ pub fn makespan(seconds: &mut [f64], workers: usize) -> f64 {
 }
 
 /// The share of `workers`' time the jobs `seconds` keep busy over their
-/// [`makespan`]: one when nothing idles, and one for jobs that take no
-/// time at all.
+/// [`makespan`]: one when nothing idles, and one for jobs that take no time at
+/// all.
 fn utilization(seconds: &mut [f64], workers: usize) -> f64 {
     let work: f64 = seconds.iter().sum();
     let span = makespan(seconds, workers);
@@ -342,8 +335,7 @@ fn utilization(seconds: &mut [f64], workers: usize) -> f64 {
 /// What [`simulate`] predicts of a run.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Simulation {
-    /// Wall seconds from the first preparation to the last timed session's
-    /// end.
+    /// Wall seconds from the first preparation to the last timed session's end.
     pub wall_seconds: f64,
     /// Wall seconds during which some preparation runs.
     pub preparing_seconds: f64,
@@ -356,9 +348,9 @@ pub struct Simulation {
     pub windows: usize,
 }
 
-/// Plays the schedule of `jobs` within `limits` through on a simulated
-/// clock, each preparation taking its [`Job::prepare_seconds`] and each
-/// timed session its entry in `timed_seconds`.
+/// Plays the schedule of `jobs` within `limits` through on a simulated clock,
+/// each preparation taking its [`Job::prepare_seconds`] and each timed session
+/// its entry in `timed_seconds`.
 ///
 /// # Panics
 ///

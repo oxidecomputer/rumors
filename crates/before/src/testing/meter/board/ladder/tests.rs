@@ -1,6 +1,5 @@
 //! Checks that one ladder sweep reaches each of the board's consumers at the
-//! right sampling: the acceptance matrices, the ranking pin, and the
-//! capture.
+//! right sampling: the acceptance matrices, the ranking pin, and the capture.
 //!
 //! The ladders here are synthetic: two families on one operation, with heap
 //! readings chosen so that each sweep is recognizable in every consumer's
@@ -48,8 +47,8 @@ fn green_cap(denom: usize) -> u64 {
     (heap_ceiling(denom) as u64).min(HEAP_TREND_RESOLUTION_BYTES as u64)
 }
 
-/// A sample of `denom` input bytes reading `heap` heap bytes, with no
-/// liveness obligation.
+/// A sample of `denom` input bytes reading `heap` heap bytes, with no liveness
+/// obligation.
 fn sample(denom: usize, heap: u64) -> Sample {
     Sample {
         denom_bytes: denom,
@@ -96,10 +95,9 @@ fn alpha_readings() -> [u64; 4] {
 /// At the base, `alpha` reads the green cap ([`green_cap`]) and `beta` half of
 /// it; at the top, the roles swap. Both families share each sweep's input
 /// sizes, so `alpha` is worst at the base and `beta` at the top. On the small
-/// inputs both read half the cap, and on the past-power inputs a quarter of
-/// it, ties. No reading exceeds the fit's resolution, so every fitted
-/// exponent is flat, and every reading is within the heap ceiling at its
-/// size.
+/// inputs both read half the cap, and on the past-power inputs a quarter of it,
+/// ties. No reading exceeds the fit's resolution, so every fitted exponent is
+/// flat, and every reading is within the heap ceiling at its size.
 fn ladder() -> Ladder {
     let [small, past_power, base, top] = alpha_readings();
     Ladder {
@@ -137,13 +135,13 @@ fn judge(ladder: &Ladder, pins: &[(&str, &str, [&str; 1])]) -> (Verdict, String)
     )
 }
 
-/// A green ladder that matches its pin passes, and the pin reads the base
-/// sweep at the default scale and the top sweep at the acceptance scale: the
-/// same pin with its two scales' rows exchanged drifts at both.
+/// A green ladder that matches its pin passes, and the pin reads the base sweep
+/// at the default scale and the top sweep at the acceptance scale: the same pin
+/// with its two scales' rows exchanged drifts at both.
 ///
 /// A pin check handed the small or past-power sweep fails the first half,
-/// because both families tie there. One handed base and top swapped comes up clean against
-/// the exchanged pin, and fails the second half.
+/// because both families tie there. One handed base and top swapped comes up
+/// clean against the exchanged pin, and fails the second half.
 #[test]
 fn ranking_pin_reads_each_growth_sweep_at_its_own_scale() {
     let (verdict, text) = judge(&ladder(), PINS);
@@ -177,8 +175,8 @@ fn ranking_pin_reads_each_growth_sweep_at_its_own_scale() {
 /// pin is still checked and reported beside it.
 ///
 /// The small sweep binds acceptance even though the growth fit never reads it,
-/// and a red cell never stops the pin from running: a change that breaks
-/// both reports both.
+/// and a red cell never stops the pin from running: a change that breaks both
+/// reports both.
 #[test]
 fn small_input_red_fails_the_verdict_and_the_pin_still_runs() {
     let mut red = ladder();
@@ -197,8 +195,8 @@ fn small_input_red_fails_the_verdict_and_the_pin_still_runs() {
 
 /// A cell red only on the past-power sweep fails the verdict.
 ///
-/// The past-power samples sit where a doubling buffer holds its peak, and
-/// their readings bind every ceiling though no growth fit reads them.
+/// The past-power samples sit where a doubling buffer holds its peak, and their
+/// readings bind every ceiling though no growth fit reads them.
 #[test]
 fn past_power_red_fails_the_verdict() {
     let mut red = ladder();
@@ -218,9 +216,9 @@ fn past_power_red_fails_the_verdict() {
 /// and past-power matrices each show that sweep's per-byte heap reading for
 /// `alpha`.
 ///
-/// `alpha`'s reading per input byte differs between the four sweeps (the
-/// test checks that premise first), so a matrix rendered from another sweep
-/// shows another value.
+/// `alpha`'s reading per input byte differs between the four sweeps (the test
+/// checks that premise first), so a matrix rendered from another sweep shows
+/// another value.
 #[test]
 fn acceptance_matrices_render_their_own_sweeps() {
     let per_byte = |reading: u64, denom: usize| format!("{:.1}/B", reading as f64 / denom as f64);
@@ -317,13 +315,13 @@ fn capture_writes_each_sweep_under_its_own_sampling() {
     );
 }
 
-/// A verdict that requires a currency the run did not measure is refused
-/// before anything is judged.
+/// A verdict that requires a currency the run did not measure is refused before
+/// anything is judged.
 ///
 /// A run whose build left a counter out, or whose runner supplied no meter,
 /// reads `None` in that currency everywhere, and the judgment skips it; were
-/// the verdict not refused, such a run would pass while judging nothing in
-/// that currency.
+/// the verdict not refused, such a run would pass while judging nothing in that
+/// currency.
 #[test]
 fn verdicts_refuse_runs_missing_a_required_currency() {
     let mut out = Vec::new();
@@ -337,9 +335,9 @@ fn verdicts_refuse_runs_missing_a_required_currency() {
         .expect_err("judge refuses as accept does");
 }
 
-/// `ladder` with every sample's heap measured against a model that restates
-/// the defaults: the sample's own growth and proportional axes, and no
-/// ceiling of its own.
+/// `ladder` with every sample's heap measured against a model that restates the
+/// defaults: the sample's own growth and proportional axes, and no ceiling of
+/// its own.
 fn restating_models(mut ladder: Ladder) -> Ladder {
     let cells = ladder
         .small
@@ -360,8 +358,8 @@ fn restating_models(mut ladder: Ladder) -> Ladder {
 }
 
 /// An operation whose heap model restates the defaults at every sample of its
-/// ladder is refused: the rendered row would disclose an override that
-/// changes nothing.
+/// ladder is refused: the rendered row would disclose an override that changes
+/// nothing.
 #[test]
 #[should_panic(expected = "probe_op's heap model must change a unit axis or the ceiling")]
 fn a_model_restating_the_defaults_everywhere_is_refused() {

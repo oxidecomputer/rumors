@@ -5,17 +5,17 @@ use crate::tree::mirror::streaming::message::listed;
 
 use crate::tree::mirror::cbor::HeadError;
 
-/// The record heads ahead of a record's content: the embedded-sequence
-/// tag plus the byte-string head for `content` bytes.
+/// The record heads ahead of a record's content: the embedded-sequence tag plus
+/// the byte-string head for `content` bytes.
 fn record_heads(content: usize) -> usize {
     RECORD_TAG_LEN + cbor::head_len(content as u64)
 }
 
 /// Push's capacity check is eager and charges the record's whole item.
 ///
-/// A record is admitted exactly when its heads plus its content fit the
-/// wire's run byte cap, so a record item with length past `u32::MAX`
-/// fails at record level rather than later at the run head.
+/// A record is admitted exactly when its heads plus its content fit the wire's
+/// run byte cap, so a record item with length past `u32::MAX` fails at record
+/// level rather than later at the run head.
 #[test]
 fn record_capacity_charges_the_whole_item() {
     assert!(checked_run_len(u32::MAX as usize).is_ok());
@@ -88,9 +88,9 @@ proptest::proptest! {
     }
 }
 
-/// A pushed run round-trips through `from_encoded` and yields the same
-/// records: the writer's record heads are exactly what the validator
-/// chains over, one record at a time.
+/// A pushed run round-trips through `from_encoded` and yields the same records:
+/// the writer's record heads are exactly what the validator chains over, one
+/// record at a time.
 #[test]
 fn pushed_runs_validate_and_iterate() {
     let mut version = crate::Version::new();
@@ -110,8 +110,8 @@ fn pushed_runs_validate_and_iterate() {
     assert_eq!(decoded.record_count(), 3);
 }
 
-/// A run whose record opens with anything but the embedded-sequence tag,
-/// or whose head is widened past shortest form, is rejected typed: the
+/// A run whose record opens with anything but the embedded-sequence tag, or
+/// whose head is widened past shortest form, is rejected typed: the
 /// deterministic contract holds inside runs too.
 #[test]
 fn malformed_record_heads_are_typed() {
@@ -153,10 +153,9 @@ fn malformed_record_heads_are_typed() {
     ));
 }
 
-/// The listing writer and the listing parser are inverses on every
-/// canonical listing, and the parser holds keys strictly ascending:
-/// the map's deterministic key order and the wire's canonical child
-/// order are one rule.
+/// The listing writer and the listing parser are inverses on every canonical
+/// listing, and the parser holds keys strictly ascending: the map's
+/// deterministic key order and the wire's canonical child order are one rule.
 #[test]
 fn listings_round_trip_and_hold_canonical_order() {
     use std::collections::BTreeSet;
@@ -178,9 +177,9 @@ fn listings_round_trip_and_hold_canonical_order() {
     });
 }
 
-/// A listing with a descending or repeated key is rejected with the
-/// order violation, exactly like a wire query: an equal adjacent pair is
-/// as non-canonical as a descent.
+/// A listing with a descending or repeated key is rejected with the order
+/// violation, exactly like a wire query: an equal adjacent pair is as
+/// non-canonical as a descent.
 #[test]
 fn unordered_listings_are_rejected() {
     for (previous, radix) in [(3u8, 3u8), (5, 2)] {

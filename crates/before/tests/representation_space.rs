@@ -5,8 +5,8 @@
 //! representation also spends one topology bit per node, but its payload size
 //! depends on differences between adjacent leaf values. With event counts
 //! capped at `2^64`, alternating `0` and `2^64` therefore gives the least
-//! favorable large-tree comparison: every encoded difference is as wide as
-//! the cap permits while the oracle's node count is unchanged.
+//! favorable large-tree comparison: every encoded difference is as wide as the
+//! cap permits while the oracle's node count is unchanged.
 
 use std::hint::black_box;
 use std::mem::size_of_val;
@@ -46,8 +46,8 @@ fn oracle_population(count: usize) -> Vec<oracle::Clock> {
 /// Measure a value's inline size and the heap it retains, and check that
 /// dropping it releases that heap.
 ///
-/// The reading counts only this thread's allocator requests, so allocations
-/// the test harness makes on its own threads cannot enter it.
+/// The reading counts only this thread's allocator requests, so allocations the
+/// test harness makes on its own threads cannot enter it.
 fn resident_bytes<T>(build: impl FnOnce() -> T) -> usize {
     let (whole, resident) = measure(|| {
         let value = black_box(build());

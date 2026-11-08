@@ -26,8 +26,8 @@ pub enum HandOffDefect {
 
     /// The byte string declares a length this host cannot address.
     ///
-    /// A 64-bit host addresses any declarable length, so this arises
-    /// only on narrower targets (e.g. `wasm32`).
+    /// A 64-bit host addresses any declarable length, so this arises only on
+    /// narrower targets (e.g. `wasm32`).
     #[error("the hand-off declares an unaddressable length")]
     UnaddressableLength,
 
@@ -37,11 +37,11 @@ pub enum HandOffDefect {
 
     /// The byte string's content is not one canonical party encoding.
     ///
-    /// The body arrived whole — exactly the length its head declared —
-    /// so this is never a transport cut: the content itself is wrong.
-    /// An encoding the declared length cuts short is
-    /// [`Truncated`](before::error::Decode::Truncated) here, not
-    /// a transport truncation.
+    /// The body arrived whole — exactly the length its head declared — so this
+    /// is never a transport cut: the content itself is wrong. An encoding the
+    /// declared length cuts short is
+    /// [`Truncated`](before::error::Decode::Truncated) here, not a transport
+    /// truncation.
     #[error("the hand-off bytes are not one canonical party encoding: {0}")]
     Undecodable(before::error::Decode),
 }

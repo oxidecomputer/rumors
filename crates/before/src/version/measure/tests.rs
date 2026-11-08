@@ -69,22 +69,22 @@ fn assert_projection(v: &Version, p: &Party) {
 ///
 /// Each measure is checked against two independent oracles, both exact:
 ///
-/// - **The paper oracle**: each measure re-derived from the recursive
-///   oracle's join, meet, and rank through the valuation identities the
-///   rustdoc states, `distance = rank(a ∨ b) − rank(a ∧ b)` and
+/// - **The paper oracle**: each measure re-derived from the recursive oracle's
+///   join, meet, and rank through the valuation identities the rustdoc states,
+///   `distance = rank(a ∨ b) − rank(a ∧ b)` and
 ///   `lag(a, b) = rank(a ∨ b) − rank(a)`.
-/// - **The composed forms**: the same identities assembled from this
-///   crate's own kernels (the emission sweep's join/meet streams, the
-///   rank fold over them, and [`Rank::checked_sub`]), so the pair measures
-///   are checked digit for digit against rank arithmetic computed along a
-///   code path they do not share.
+/// - **The composed forms**: the same identities assembled from this crate's
+///   own kernels (the emission sweep's join/meet streams, the rank fold over
+///   them, and [`Rank::checked_sub`]), so the pair measures are checked digit
+///   for digit against rank arithmetic computed along a code path they do not
+///   share.
 ///
 /// Every pairing also checks the signed co-sweep: `rank_cmp` must match the
 /// oracle's rank order in both operand orders. It is the one fold whose total
 /// carries a sign, and its `Equal` answer requires the signed settlement to
 /// cancel exactly through whatever parked or deferred state the pair creates.
-/// The nonnegative measures never need that answer: their totals are
-/// monotone differences, debug-asserted nonnegative at the fold.
+/// The nonnegative measures never need that answer: their totals are monotone
+/// differences, debug-asserted nonnegative at the fold.
 fn assert_pair(a: &Version, b: &Version) {
     let (ta, tb) = (to_oracle_version(a), to_oracle_version(b));
     let order = ta.rank().cmp(&tb.rank());
@@ -159,8 +159,8 @@ fn family_pool() -> Vec<Version> {
     ]
 }
 
-/// The id operand pool for projection: the whole interval, one half, a
-/// quarter, and the scattered fragments that keep every other comb tooth.
+/// The id operand pool for projection: the whole interval, one half, a quarter,
+/// and the scattered fragments that keep every other comb tooth.
 fn party_pool() -> Vec<Party> {
     let mut seed = Party::seed();
     let mut half = seed.fork();
@@ -182,10 +182,9 @@ fn party_pool() -> Vec<Party> {
 /// The id-pool cross checks the oracle's projection mask; the ordered pairs
 /// check distance and lag as re-derived from the oracle's lattice folds.
 ///
-/// The families are the shapes the amplification board measures (carry
-/// cliffs, wide teeth, cancelling chains, harmonic spines), so a
-/// height-tracking or freeze bookkeeping error fails here before any cost
-/// bound does.
+/// The families are the shapes the amplification board measures (carry cliffs,
+/// wide teeth, cancelling chains, harmonic spines), so a height-tracking or
+/// freeze bookkeeping error fails here before any cost bound does.
 #[test]
 fn families_agree_with_the_encodings() {
     let pool = family_pool();
@@ -210,13 +209,13 @@ fn families_agree_with_the_encodings() {
 /// when its live drift is wider than
 /// [`HEIGHT_FREEZE_ALLOWANCE_BITS`](super::integral::HEIGHT_FREEZE_ALLOWANCE_BITS)
 /// plus one bit, and `arb_magnitude` reaches 514 bits, so arbitrary trees do
-/// freeze. A deferral needs more: at a later freeze, a parked height wider
-/// than that freeze's drift by more than the allowance, so a parked height
-/// wider than twice the allowance plus one bit beside a drift wider than the
+/// freeze. A deferral needs more: at a later freeze, a parked height wider than
+/// that freeze's drift by more than the allowance, so a parked height wider
+/// than twice the allowance plus one bit beside a drift wider than the
 /// allowance plus one bit. Arbitrary trees reach that conjunction too rarely
-/// for their sweeps to cover the deferred-height reduction. These shapes
-/// reach it, and the arming trains create multiple entries with both uniform
-/// and alternating signs.
+/// for their sweeps to cover the deferred-height reduction. These shapes reach
+/// it, and the arming trains create multiple entries with both uniform and
+/// alternating signs.
 fn deferral_pool() -> Vec<Version> {
     vec![
         version_of(&Shape::PromotionRearm.build1(1)),
@@ -250,9 +249,9 @@ fn deferral_pool() -> Vec<Version> {
     ]
 }
 
-/// Every deferred-height family shape agrees with the tree-fold oracle on rank and
-/// min_ticks, and every ordered pair agrees on distance and lag against both
-/// the oracle and the composed forms.
+/// Every deferred-height family shape agrees with the tree-fold oracle on rank
+/// and min_ticks, and every ordered pair agrees on distance and lag against
+/// both the oracle and the composed forms.
 ///
 /// This checks the settlement's values at the shapes the cost tests measure:
 /// single and repeated armings, mixed-sign armings whose parked sums cancel
@@ -263,8 +262,8 @@ fn deferral_pool() -> Vec<Version> {
 /// plateaus, which the families' unit-base mates never reach.
 ///
 /// The [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors keep both
-/// claims live: the single folds defer, and so do the pair measures'
-/// co-sweeps, each counted around its own production calls alone.
+/// claims live: the single folds defer, and so do the pair measures' co-sweeps,
+/// each counted around its own production calls alone.
 #[test]
 fn deferral_families_agree_with_the_oracle() {
     let pool = deferral_pool();
@@ -322,8 +321,8 @@ fn spine_of(heights: &[BigUint]) -> Version {
 /// The exact-cancellation freeze schedule.
 ///
 /// Heights whose freezes park `+2^(32p)`, `−(2^32 − 1)·2^(32(p−1))`, and
-/// `−2^(32(p−1))`. Those terms cancel although the parked accumulator retains
-/// a high positive digit over negative ones. A fourth freeze follows a climb to
+/// `−2^(32(p−1))`. Those terms cancel although the parked accumulator retains a
+/// high positive digit over negative ones. A fourth freeze follows a climb to
 /// `2^(32q)`; it settles a segment against the zero-valued parked component.
 /// The final height `s` leaves the newly parked climb a closing segment.
 ///
@@ -331,8 +330,9 @@ fn spine_of(heights: &[BigUint]) -> Version {
 /// exceed that delta's one bit plus the freeze allowance `a` bits. `suanpan`
 /// keeps every value below `2^(stored_bits + 2)`, so a power `2^(32m)` holds at
 /// least `32m − 1` working bits in every stored form, and the smallest drifts,
-/// `2^(32(p−1))` and `2^(32q)`, cross the trigger in every form when `32(p − 1)`
-/// and `32q` exceed `a + 2`. No compaction can then keep a freeze from firing.
+/// `2^(32(p−1))` and `2^(32q)`, cross the trigger in every form when
+/// `32(p − 1)` and `32q` exceed `a + 2`. No compaction can then keep a freeze
+/// from firing.
 ///
 /// # Panics
 ///
@@ -377,13 +377,13 @@ fn zero_drift_heights(p: u32, d: u64) -> Vec<BigUint> {
     ]
 }
 
-/// The worked point of the cancellation family, with the freeze tap proving
-/// the schedule really parks.
+/// The worked point of the cancellation family, with the freeze tap proving the
+/// schedule really parks.
 ///
-/// Four freezes fire, the fourth settling a segment against a parked
-/// component whose buffered positive and negative terms cancel. The cheap
-/// `is_known_zero` check cannot detect that cancellation, and every fold
-/// stays exact against the tree oracle.
+/// Four freezes fire, the fourth settling a segment against a parked component
+/// whose buffered positive and negative terms cancel. The cheap `is_known_zero`
+/// check cannot detect that cancellation, and every fold stays exact against
+/// the tree oracle.
 #[test]
 fn parked_cancellation_settles_exactly() {
     let v = spine_of(&parked_cancellation_heights(11, 10, 5));
@@ -440,21 +440,20 @@ proptest! {
 }
 
 /// `rank_cmp` agrees with the oracle rank order across the deferral pool and
-/// reads `Equal` on a mirrored equal-rank pair, with the freeze tap
-/// proving both legs actually park drift.
+/// reads `Equal` on a mirrored equal-rank pair, with the freeze tap proving
+/// both legs actually park drift.
 ///
-/// This checks the signed co-sweep's values where freezes and deferrals
-/// fire. The pool cross checks the sign against the oracle's rank order in
-/// both operand orders where the sweeps park, defer, and settle wide drift.
-/// The mirrored pair, one deferring shape on each side of a fresh root fork,
-/// is two distinct streams of exactly equal rank, so it checks the `Equal`
-/// answer, which requires the signed settlement to cancel to zero through
-/// parking, deferral, and settlement. The
-/// [`FREEZE_HITS`](super::integral::FREEZE_HITS) and
-/// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors show that the
+/// This checks the signed co-sweep's values where freezes and deferrals fire.
+/// The pool cross checks the sign against the oracle's rank order in both
+/// operand orders where the sweeps park, defer, and settle wide drift. The
+/// mirrored pair, one deferring shape on each side of a fresh root fork, is two
+/// distinct streams of exactly equal rank, so it checks the `Equal` answer,
+/// which requires the signed settlement to cancel to zero through parking,
+/// deferral, and settlement. The [`FREEZE_HITS`](super::integral::FREEZE_HITS)
+/// and [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floors show that the
 /// regime is reached: a pool or pair that never froze, or froze without
-/// deferring, would pass every value check while running none of the
-/// deferred reduction.
+/// deferring, would pass every value check while running none of the deferred
+/// reduction.
 #[test]
 fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
     let assert_cmp = |a: &Version, b: &Version| {
@@ -509,9 +508,9 @@ fn rank_cmp_agrees_with_the_oracle_in_the_freeze_regime() {
 /// The multi-scale census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
 ///
-/// Fixed because the census measures its generators
-/// deterministically: a regime it counts has no mass derived from the
-/// generators' weights, so its floors hold for this corpus alone.
+/// Fixed because the census measures its generators deterministically: a regime
+/// it counts has no mass derived from the generators' weights, so its floors
+/// hold for this corpus alone.
 const MULTISCALE_CENSUS_SEED: u64 = 17;
 
 /// Multi-scale pairs keep generator mass on deferral, in single folds and in
@@ -524,12 +523,12 @@ const MULTISCALE_CENSUS_SEED: u64 = 17;
 /// A pair defers in single folds when
 /// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) rises across either
 /// operand's rank, and in co-sweeps when it rises across `rank_cmp`,
-/// `distance`, and `lag`, counted apart. A pair ties when the recursive
-/// oracle finds its versions distinct and of equal rank. The law drivers
-/// draw the same pairs at the case count divided by
-/// [`TWO_VERSION_DIVISOR`], the fewest cases of any consumer, so the floors
-/// follow from that premise and their case count. A generator change that
-/// stops reaching a regime fails here whatever the census last read.
+/// `distance`, and `lag`, counted apart. A pair ties when the recursive oracle
+/// finds its versions distinct and of equal rank. The law drivers draw the same
+/// pairs at the case count divided by [`TWO_VERSION_DIVISOR`], the fewest cases
+/// of any consumer, so the floors follow from that premise and their case
+/// count. A generator change that stops reaching a regime fails here whatever
+/// the census last read.
 #[test]
 fn multiscale_pairs_keep_mass_on_deferral_and_ties() {
     assert_default_case_count();
@@ -578,12 +577,12 @@ fn freezes_and_deferrals_during(measure: impl FnOnce()) -> (u64, u64) {
     (freezes_after - freezes, deferrals_after - deferrals)
 }
 
-/// Every registry family built to fire the integral's freeze fires exactly
-/// the freezes and deferrals its layout implies.
+/// Every registry family built to fire the integral's freeze fires exactly the
+/// freezes and deferrals its layout implies.
 ///
 /// A family that stops freezing or deferring still passes its value checks and
-/// its cost ceilings, while measuring a cheaper regime than it claims, so
-/// each count is asserted here by name. The wide drifts are
+/// its cost ceilings, while measuring a cheaper regime than it claims, so each
+/// count is asserted here by name. The wide drifts are
 /// [`FREEZE_DRIFT_BITS`](crate::testing::meter::FREEZE_DRIFT_BITS) or wider, so
 /// they trip the trigger in every stored form, and no compaction of `live` can
 /// lower a count. The armings that must defer are
@@ -598,9 +597,9 @@ fn freezes_and_deferrals_during(measure: impl FnOnce()) -> (u64, u64) {
 /// - `FP(k)`: `k − 1` freezes; the first block's drop lies in the opening
 ///   height. No deferral: every parked drop is as wide as the next drift.
 /// - `FZ(k)`: `k − 1` freezes, one per cross-pair code, and no deferral.
-/// - `NF(e, c)`: `4c` freezes, one at each one-tick step after a wide step.
-///   No deferral: the parked height alternates `2^e + 1` and `1`, never
-///   wider than the next drift by the allowance.
+/// - `NF(e, c)`: `4c` freezes, one at each one-tick step after a wide step. No
+///   deferral: the parked height alternates `2^e + 1` and `1`, never wider than
+///   the next drift by the allowance.
 /// - `PR(p)`: `2p` freezes, each block's arming and settling freezes, and `p`
 ///   deferrals, each block's settling freeze deferring its arming.
 /// - `DS(p, d)`: `2p + 1` freezes, the blocks' freezes and one where the
@@ -612,8 +611,8 @@ fn freezes_and_deferrals_during(measure: impl FnOnce()) -> (u64, u64) {
 ///   swing.
 /// - `PP(w, d)`: one freeze, at the plunge, and no deferral.
 /// - `JP(k, m, d)` under `distance`: `2m` freezes, two crests per comb level,
-///   and no deferral: no parked crest outspans the drift that follows it by
-///   the allowance.
+///   and no deferral: no parked crest outspans the drift that follows it by the
+///   allowance.
 #[test]
 fn freeze_families_fire_their_freezes() {
     let rank_counts = |encoded: Encoding| {
@@ -700,11 +699,10 @@ fn freeze_families_fire_their_freezes() {
 ///
 /// The jump-pair dimensions straddle the freeze allowance (`k = 3` up to `k =
 /// 512`, past the 256-bit digit bound), so the pair measures are checked on
-/// shapes where the difference's live component carries wide drift across
-/// the other operand's cheap boundaries, the interleaving the family exists
-/// to reach. The concurrent pair checks the side-switch density population,
-/// where the difference's sign flips at every one of the `n − 1` overlay
-/// boundaries.
+/// shapes where the difference's live component carries wide drift across the
+/// other operand's cheap boundaries, the interleaving the family exists to
+/// reach. The concurrent pair checks the side-switch density population, where
+/// the difference's sign flips at every one of the `n − 1` overlay boundaries.
 #[test]
 fn pair_families_agree() {
     for (k, m, d) in [(3, 1, 1), (16, 4, 2), (320, 6, 3), (512, 8, 2)] {
@@ -750,8 +748,8 @@ fn exhaustive_small_scope_agrees() {
 /// depths, plateau consumption, zero deltas across subtree boundaries) crossed
 /// with every orientation schedule reachable at this scope, by brute force
 /// rather than sampling. The family and proptest sweeps check the same
-/// identities against the oracle; here the composed kernels are the oracle,
-/// so the quadratic pair product stays fast.
+/// identities against the oracle; here the composed kernels are the oracle, so
+/// the quadratic pair product stays fast.
 #[test]
 fn exhaustive_small_scope_pairs_agree() {
     let events: Vec<Version> = all_normal_events(EV_SMALL_DEPTH)
@@ -956,8 +954,8 @@ proptest! {
 /// Returns every arming train the exhaustive train tests cover, as `(n, w, g,
 /// alternate)`.
 ///
-/// The box spans entry counts across several reduction shapes (a lone entry,
-/// a full level, an odd drain), arming widths of 19 to 22 digits (608 to 704
+/// The box spans entry counts across several reduction shapes (a lone entry, a
+/// full level, an odd drain), arming widths of 19 to 22 digits (608 to 704
 /// bits), wider than any height an arbitrary tree reaches, window densities
 /// from trivial to multi-digit, and both sign schedules. An arbitrary leaf's
 /// height sums at most five `arb_magnitude` draws along its path, each below
@@ -977,10 +975,10 @@ fn arming_train_box() -> impl Iterator<Item = (usize, usize, usize, bool)> {
 /// [`DEFERRAL_HITS`](super::integral::DEFERRAL_HITS) floor keeps that regime
 /// live for every train. The pair leg crosses the train against its
 /// opposite-schedule twin, so the difference's orientation flips inside wide
-/// plateaus. That co-sweep freezes for trains of more than one block and
-/// defers for none: no nonzero parked height in the difference is wider than
-/// the drift after it by the freeze allowance. The mirrored trains and the
-/// multi-scale pairs drive deferral through the co-sweeps.
+/// plateaus. That co-sweep freezes for trains of more than one block and defers
+/// for none: no nonzero parked height in the difference is wider than the drift
+/// after it by the freeze allowance. The mirrored trains and the multi-scale
+/// pairs drive deferral through the co-sweeps.
 #[test]
 fn arming_trains_agree_across_their_box() {
     for (n, w, g, alternate) in arming_train_box() {

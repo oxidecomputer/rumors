@@ -53,18 +53,18 @@ fn wide_counts_order_and_render() {
     assert!(wide > Count::from(u128::MAX));
 }
 
-/// Every unsigned primitive's boundary converts, renders, and respells
-/// exactly: 0, 1, and `MAX - 1`, `MAX`, and `MAX + 1` of each width.
+/// Every unsigned primitive's boundary converts, renders, and respells exactly:
+/// 0, 1, and `MAX - 1`, `MAX`, and `MAX + 1` of each width.
 ///
-/// Each count is built from its value's 64-bit digits through public
-/// addition alone. Its limbs must equal those digits, with the size hint
-/// equal to the limb count; its `Display` and `parse` must round-trip the
-/// decimal; and each `TryFrom`, borrowed and owned, must succeed exactly when
-/// the value is at most the destination's `MAX`, judged by comparing
-/// arbitrary-precision values rather than by the conversion `Count` delegates
-/// to, and must then yield the value and convert back to the count. The
-/// `usize` row repeats the `u64` row on a 64-bit host and the `u32` row on a
-/// 32-bit one, so the sweep keeps both meanings in view.
+/// Each count is built from its value's 64-bit digits through public addition
+/// alone. Its limbs must equal those digits, with the size hint equal to the
+/// limb count; its `Display` and `parse` must round-trip the decimal; and each
+/// `TryFrom`, borrowed and owned, must succeed exactly when the value is at
+/// most the destination's `MAX`, judged by comparing arbitrary-precision values
+/// rather than by the conversion `Count` delegates to, and must then yield the
+/// value and convert back to the count. The `usize` row repeats the `u64` row
+/// on a 64-bit host and the `u32` row on a 32-bit one, so the sweep keeps both
+/// meanings in view.
 #[test]
 fn every_primitive_boundary_converts_exactly() {
     let maxima = [

@@ -33,12 +33,14 @@ pub enum Check {
     RankArithmetic = 7,
     /// Exercise the shifted-landing path selected by parameter `a`.
     SuanpanLanding = 8,
-    /// Reserve parameter `a` bits of storage in two accumulators at once,
-    /// more than the guest can honor.
+    /// Reserve parameter `a` bits of storage in two accumulators at once, more
+    /// than the guest can honor.
     SuanpanReserve = 9,
-    /// Shift zero, stored in the form selected by parameter `a`, onto digit position `2^32 - 1`.
+    /// Shift zero, stored in the form selected by parameter `a`, onto digit
+    /// position `2^32 - 1`.
     SuanpanZeroShift = 10,
-    /// Compact a cancelled stored top while asking for stability under width `a`.
+    /// Compact a cancelled stored top while asking for stability under width
+    /// `a`.
     SuanpanStabilityWidth = 11,
     /// Deliberately exhaust the guest's memory, proving that the harness tells
     /// an allocation-failure abort from a panic.

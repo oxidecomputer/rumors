@@ -30,16 +30,16 @@ use crate::{
 
 /// Serializes the tests in this module.
 ///
-/// The census ledger and every knob are process-global, so tests
-/// overlapping in one process (plain `cargo test` runs tests as threads)
-/// would change each other's in-flight sessions and drain each other's
-/// violations. Every test holds this lock for its whole body — through
-/// [`serialized`] directly or through a [`Knob`] guard — which makes
-/// plain `cargo test` sound, not merely nextest's process-per-test.
+/// The census ledger and every knob are process-global, so tests overlapping in
+/// one process (plain `cargo test` runs tests as threads) would change each
+/// other's in-flight sessions and drain each other's violations. Every test
+/// holds this lock for its whole body — through [`serialized`] directly or
+/// through a [`Knob`] guard — which makes plain `cargo test` sound, not merely
+/// nextest's process-per-test.
 static SERIAL: Mutex<()> = Mutex::new(());
 
-/// A test's hold on [`SERIAL`]; dropping it drains any violations the
-/// test left on the ledger, so a failure cannot leak into its successor.
+/// A test's hold on [`SERIAL`]; dropping it drains any violations the test left
+/// on the ledger, so a failure cannot leak into its successor.
 struct Serialized {
     _guard: MutexGuard<'static, ()>,
 }
@@ -52,26 +52,25 @@ impl Drop for Serialized {
 
 /// Take the module's serialization lock for one test's lifetime.
 ///
-/// A `should_panic` test poisons the lock by design; the poison guards
-/// no invariant here (knob guards restore honesty and [`Serialized`]
-/// drains the ledger), so it clears and continues.
+/// A `should_panic` test poisons the lock by design; the poison guards no
+/// invariant here (knob guards restore honesty and [`Serialized`] drains the
+/// ledger), so it clears and continues.
 fn serialized() -> Serialized {
     Serialized {
         _guard: SERIAL.lock().unwrap_or_else(PoisonError::into_inner),
     }
 }
 
-/// A reference-backend honesty knob: process-global state resting at an
-/// honest value.
+/// A reference-backend honesty knob: process-global state resting at an honest
+/// value.
 ///
-/// State rather than a const parameter deliberately: every distinct
-/// backend type instantiates the whole height-indexed protocol tower
-/// (measured at +0.7 GiB of rustc peak memory per additional
-/// instantiation), so the honest and lying variants must share one type.
-/// A knob rests at its honest value, [`set`](Knob::set) is the only way
-/// to move it, and the guard `set` returns holds [`SERIAL`] and restores
-/// honesty on drop — a test that never sets a knob gets the honest
-/// backend.
+/// State rather than a const parameter deliberately: every distinct backend
+/// type instantiates the whole height-indexed protocol tower (measured at +0.7
+/// GiB of rustc peak memory per additional instantiation), so the honest and
+/// lying variants must share one type. A knob rests at its honest value,
+/// [`set`](Knob::set) is the only way to move it, and the guard `set` returns
+/// holds [`SERIAL`] and restores honesty on drop — a test that never sets a
+/// knob gets the honest backend.
 struct Knob {
     cell: AtomicUsize,
     honest: usize,
@@ -91,8 +90,8 @@ impl Knob {
 
     /// Spend one unit of the knob's value: true while it was positive.
     ///
-    /// For knobs that count faults to inject rather than bytes to add;
-    /// the guard restores the honest value on drop regardless.
+    /// For knobs that count faults to inject rather than bytes to add; the
+    /// guard restores the honest value on drop regardless.
     fn take(&self) -> bool {
         self.cell
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
@@ -112,8 +111,8 @@ impl Knob {
     }
 }
 
-/// A lying test's hold: the serialization guard plus the obligation to
-/// restore the knob's honest value on drop.
+/// A lying test's hold: the serialization guard plus the obligation to restore
+/// the knob's honest value on drop.
 struct Dishonest {
     knob: &'static Knob,
     _serial: Serialized,
@@ -138,9 +137,8 @@ impl Measure for Local {
     }
 }
 
-/// The in-memory backend's operations keep their contracts, and
-/// reconciliation at [`CENSUS_BUDGET`] stays within its peak-increase
-/// budget.
+/// The in-memory backend's operations keep their contracts, and reconciliation
+/// at [`CENSUS_BUDGET`] stays within its peak-increase budget.
 #[test]
 fn local_backend_conforms() {
     let _serial = serialized();
@@ -149,58 +147,57 @@ fn local_backend_conforms() {
 
 /// A materializing reference backend, shaped like a database row store.
 ///
-/// Each node value owns a buffer sized like the row it would keep
-/// resident (header, child table, version bounds), on top of a `Local`
-/// handle standing in for the store. Its handle is wider and more aligned
-/// than a pointer ([`MaterializedNode`]).
+/// Each node value owns a buffer sized like the row it would keep resident
+/// (header, child table, version bounds), on top of a `Local` handle standing
+/// in for the store. Its handle is wider and more aligned than a pointer
+/// ([`MaterializedNode`]).
 #[derive(Clone, Copy, Debug)]
 struct Materializing;
 
 /// Leaves the bulk walk silently drops: honest at zero.
 static WALK_SKIPS: Knob = Knob::new(0);
 
-/// Whether the bulk walk yields its first two leaves in swapped order:
-/// honest at zero, unordered above it.
+/// Whether the bulk walk yields its first two leaves in swapped order: honest
+/// at zero, unordered above it.
 static LEAVES_SWAP: Knob = Knob::new(0);
 
-/// Whether the bulk walk re-tags its first leaf's prefix outside the
-/// walked subtree: honest at zero, escaping above it.
+/// Whether the bulk walk re-tags its first leaf's prefix outside the walked
+/// subtree: honest at zero, escaping above it.
 static WALK_ESCAPES: Knob = Knob::new(0);
 
-/// Interior `parent` calls (a fan of at least one real child) answered
-/// with `Ok(None)`, spent one per call: honest at zero.
+/// Interior `parent` calls (a fan of at least one real child) answered with
+/// `Ok(None)`, spent one per call: honest at zero.
 static PARENT_DROPS: Knob = Knob::new(0);
 
-/// Whether an empty group presented to `parent` is answered with a
-/// conjured node instead of `None`: honest at zero.
+/// Whether an empty group presented to `parent` is answered with a conjured
+/// node instead of `None`: honest at zero.
 static PARENT_CONJURES: Knob = Knob::new(0);
 
 /// Leaves bulk assembly silently drops: honest at zero.
 static ASSEMBLE_SKIPS: Knob = Knob::new(0);
 
-/// Whether bulk assembly yields its first two nodes in swapped order:
-/// honest at zero, unordered above it.
+/// Whether bulk assembly yields its first two nodes in swapped order: honest at
+/// zero, unordered above it.
 static ASSEMBLE_SWAP: Knob = Knob::new(0);
 
-/// The one-based position of the assembled node bulk assembly folds and
-/// then swallows: honest at zero (none swallowed).
+/// The one-based position of the assembled node bulk assembly folds and then
+/// swallows: honest at zero (none swallowed).
 static ASSEMBLED_DROPS: Knob = Knob::new(0);
 
-/// The one-based position of the assembled node bulk assembly re-tags to
-/// its neighbor's prefix: honest at zero (none re-tagged).
+/// The one-based position of the assembled node bulk assembly re-tags to its
+/// neighbor's prefix: honest at zero (none re-tagged).
 static ASSEMBLE_RETAGS: Knob = Knob::new(0);
 
-/// Bytes subtracted from every node's `version_bytes` answer: honest at
-/// zero, deflating the aggregate above it.
+/// Bytes subtracted from every node's `version_bytes` answer: honest at zero,
+/// deflating the aggregate above it.
 static VERSION_DEFLATE: Knob = Knob::new(0);
 
 /// Grandchildren added to every branch's `grandchildren` answer: honest at
 /// zero, an overcount of the children its children list above it.
 static GRANDCHILDREN_SKEW: Knob = Knob::new(0);
 
-/// Bytes added to a leaf's `version_bytes` answer: honest at zero,
-/// pushing a leaf's claimed encoding past its parents' aggregates above
-/// it.
+/// Bytes added to a leaf's `version_bytes` answer: honest at zero, pushing a
+/// leaf's claimed encoding past its parents' aggregates above it.
 static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 
 /// Children added to every node's `child_count` answer: honest at zero, an
@@ -222,46 +219,45 @@ fn reported(hash: Hash) -> Hash {
     Hash::from(bytes)
 }
 
-/// Whether every node's `child_radices` answer drops its radices: honest
-/// at zero, an answer of no radices for a node with children above it.
+/// Whether every node's `child_radices` answer drops its radices: honest at
+/// zero, an answer of no radices for a node with children above it.
 static RADICES_DROP: Knob = Knob::new(0);
 
-/// Whether listing a node's children yields its first two in swapped
-/// order: honest at zero, out of radix order above it.
+/// Whether listing a node's children yields its first two in swapped order:
+/// honest at zero, out of radix order above it.
 static CHILDREN_SWAP: Knob = Knob::new(0);
 
-/// Whether listing the root's children yields its first child twice:
-/// honest at zero, a repeated radix above it.
+/// Whether listing the root's children yields its first child twice: honest at
+/// zero, a repeated radix above it.
 ///
-/// Confined to the root because a repeat at every level compounds: the
-/// bulk walk explodes through this listing, so a leaf under a chain of
-/// single-child nodes would be walked once for every doubling along it.
+/// Confined to the root because a repeat at every level compounds: the bulk
+/// walk explodes through this listing, so a leaf under a chain of single-child
+/// nodes would be walked once for every doubling along it.
 static CHILDREN_REPEAT: Knob = Knob::new(0);
 
-/// Bytes listing each child allocates and frees, beyond the row it
-/// yields: honest at zero, scratch the listing never reports above it.
+/// Bytes listing each child allocates and frees, beyond the row it yields:
+/// honest at zero, scratch the listing never reports above it.
 static LISTING_SCRATCH: Knob = Knob::new(0);
 
-/// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
-/// at zero, a residency-changing re-tag above it.
+/// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest at
+/// zero, a residency-changing re-tag above it.
 static ASSUME_SLACK: Knob = Knob::new(0);
 
-/// Extra bytes a row keeps after [`Backend::erase`] re-tags it: honest
-/// at zero, a residency-changing re-tag above it.
+/// Extra bytes a row keeps after [`Backend::erase`] re-tags it: honest at zero,
+/// a residency-changing re-tag above it.
 static ERASE_SLACK: Knob = Knob::new(0);
 
-/// Which endpoint every erased node's version bounds collapse to, where
-/// the session classifies subtrees against a counterparty's version:
-/// honest at zero, the floor at [`TO_FLOOR`], the ceiling at
-/// [`TO_CEILING`].
+/// Which endpoint every erased node's version bounds collapse to, where the
+/// session classifies subtrees against a counterparty's version: honest at
+/// zero, the floor at [`TO_FLOOR`], the ceiling at [`TO_CEILING`].
 static SPAN_COLLAPSE: Knob = Knob::new(0);
 
-/// [`SPAN_COLLAPSE`]'s setting that reports each node's floor as its
-/// ceiling too, under-reporting the ceiling.
+/// [`SPAN_COLLAPSE`]'s setting that reports each node's floor as its ceiling
+/// too, under-reporting the ceiling.
 const TO_FLOOR: usize = 1;
 
-/// [`SPAN_COLLAPSE`]'s setting that reports each node's ceiling as its
-/// floor too, over-reporting the floor.
+/// [`SPAN_COLLAPSE`]'s setting that reports each node's ceiling as its floor
+/// too, over-reporting the floor.
 const TO_CEILING: usize = 2;
 
 /// `span`, collapsed to one endpoint as [`SPAN_COLLAPSE`] directs.
@@ -280,14 +276,14 @@ const ROW_HEADER: usize = 64;
 const ROW_ENTRY: usize = 24;
 
 /// The budget each census runs its backend's session at beside a budget of
-/// zero, 4 MiB, and the most the larger run's peak may exceed the
-/// zero-budget run's.
+/// zero, 4 MiB, and the most the larger run's peak may exceed the zero-budget
+/// run's.
 const CENSUS_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
 ///
-/// Aligned wider than a pointer, as a handle carrying a 16-byte row id
-/// would be.
+/// Aligned wider than a pointer, as a handle carrying a 16-byte row id would
+/// be.
 #[derive(Clone, Debug)]
 #[repr(align(16))]
 struct MaterializedNode<N> {
@@ -322,8 +318,8 @@ where
         self.inner.len()
     }
 
-    /// Read the underlying node's grandchild count, skewed above the leaves
-    /// to exercise a miscounting backend.
+    /// Read the underlying node's grandchild count, skewed above the leaves to
+    /// exercise a miscounting backend.
     fn grandchild_count(&self) -> usize {
         let skew = if H::HEIGHT == 0 {
             0
@@ -373,8 +369,8 @@ fn bounds_of<H: Height>(node: &typed::View<H>) -> usize {
 // The erased observations pass through the row wrapper; the row itself
 // carries no readable state.
 impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
-    /// Borrow the wrapped node's version bounds, collapsed to one endpoint
-    /// to exercise a backend whose erased bounds disagree with its leaves.
+    /// Borrow the wrapped node's version bounds, collapsed to one endpoint to
+    /// exercise a backend whose erased bounds disagree with its leaves.
     fn span(&self) -> Span<'_> {
         collapsed(self.inner.span())
     }
@@ -405,8 +401,8 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
         self.inner.grandchild_count(at)
     }
 
-    /// Read the wrapped node's child count, skewed to exercise a backend
-    /// whose count disagrees with its listing.
+    /// Read the wrapped node's child count, skewed to exercise a backend whose
+    /// count disagrees with its listing.
     fn child_count(&self, at: &ErasedPrefix) -> usize {
         self.inner.child_count(at) + CHILDREN_SKEW.get()
     }
@@ -582,9 +578,9 @@ impl Measure for Materializing {
     }
 }
 
-/// `inner` with its first two items in swapped order when `swap` holds:
-/// the order-lying adaptor behind the walk's, the assembly's, and the
-/// listing's order controls.
+/// `inner` with its first two items in swapped order when `swap` holds: the
+/// order-lying adaptor behind the walk's, the assembly's, and the listing's
+/// order controls.
 fn swapped_head<T>(swap: bool, inner: impl Stream<Item = T>) -> impl Stream<Item = T> {
     stream! {
         let mut inner = pin!(inner);
@@ -616,16 +612,16 @@ fn repeated_head<T: Clone>(repeat: bool, inner: impl Stream<Item = T>) -> impl S
     }
 }
 
-/// A leaf prefix moved out of every subtree but the root's: its first
-/// path byte flipped at the top bit.
+/// A leaf prefix moved out of every subtree but the root's: its first path byte
+/// flipped at the top bit.
 fn escaped(prefix: Prefix<Z>) -> Prefix<Z> {
     let mut path = <[u8; 32]>::from(prefix);
     path[0] ^= 0x80;
     Prefix::from(path)
 }
 
-/// The prefix's neighbor at its own height, one radix bit over on its
-/// last byte; the root prefix has no neighbor and is returned as is.
+/// The prefix's neighbor at its own height, one radix bit over on its last
+/// byte; the root prefix has no neighbor and is returned as is.
 fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
     let depth = prefix.as_bytes().len();
     if depth == 0 {
@@ -637,8 +633,8 @@ fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
     Prefix::<H>::containing(&Path::from(Prefix::<Z>::from(path)))
 }
 
-/// The row store's operations keep their contracts, and reconciliation
-/// stays within the fixture's peak-increase budget.
+/// The row store's operations keep their contracts, and reconciliation stays
+/// within the fixture's peak-increase budget.
 #[test]
 fn materializing_backend_conforms() {
     let _serial = serialized();
@@ -649,12 +645,12 @@ fn materializing_backend_conforms() {
 /// peak, with the outgoing replies' edge at one slot.
 ///
 /// The edge's progress argument needs one slot; its further slots let a
-/// budgeted walk queue more reply chunks ahead of its encoder, and the
-/// rows those chunks' nodes keep alive raise this fixture's budgeted peak
-/// above the zero-budget run's, within the budget the check allows
+/// budgeted walk queue more reply chunks ahead of its encoder, and the rows
+/// those chunks' nodes keep alive raise this fixture's budgeted peak above the
+/// zero-budget run's, within the budget the check allows
 /// ([`materializing_backend_conforms`]). At one slot both runs peak alike,
-/// which is the witness this test needs: the census comparison must accept
-/// a budgeted peak no higher than the zero-budget run's.
+/// which is the witness this test needs: the census comparison must accept a
+/// budgeted peak no higher than the zero-budget run's.
 #[test]
 fn a_larger_budget_need_not_increase_the_peak() {
     let _serial = serialized();
@@ -681,19 +677,18 @@ fn a_larger_budget_need_not_increase_the_peak() {
     });
 }
 
-/// Row slack far past any row the reference backend builds: a full fan's
-/// child table is [`FAN`](crate::tree::mirror::streaming::FAN) ×
-/// [`ROW_ENTRY`] bytes, 6 KiB.
+/// Row slack far past any row the reference backend builds: a full fan's child
+/// table is [`FAN`](crate::tree::mirror::streaming::FAN) × [`ROW_ENTRY`] bytes,
+/// 6 KiB.
 const BULK_OVERHOLD: usize = 64 * 1024;
 
-/// A backend whose erased bounds report each subtree's floor as its
-/// ceiling drops unredacted messages, and the completeness check convicts
-/// the session.
+/// A backend whose erased bounds report each subtree's floor as its ceiling
+/// drops unredacted messages, and the completeness check convicts the session.
 ///
-/// The deletion filter reads a subtree mixing redacted and unseen leaves
-/// as wholly seen, and drops it whole. The typed bounds stay honest, so no
-/// seam that checks an aggregate against them can see the fault; only the
-/// session's verdicts do.
+/// The deletion filter reads a subtree mixing redacted and unseen leaves as
+/// wholly seen, and drops it whole. The typed bounds stay honest, so no seam
+/// that checks an aggregate against them can see the fault; only the session's
+/// verdicts do.
 #[test]
 #[should_panic(expected = "converged short")]
 fn bounds_collapsed_to_the_floor_fail_the_completeness_check() {
@@ -701,12 +696,12 @@ fn bounds_collapsed_to_the_floor_fail_the_completeness_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A backend whose erased bounds report each subtree's ceiling as its
-/// floor resurrects redacted messages, and the completeness check convicts
-/// the session.
+/// A backend whose erased bounds report each subtree's ceiling as its floor
+/// resurrects redacted messages, and the completeness check convicts the
+/// session.
 ///
-/// The deletion filter reads a subtree mixing redacted and unseen leaves
-/// as wholly unseen, and ships it whole.
+/// The deletion filter reads a subtree mixing redacted and unseen leaves as
+/// wholly unseen, and ships it whole.
 #[test]
 #[should_panic(expected = "resurrected redactions")]
 fn bounds_collapsed_to_the_ceiling_fail_the_completeness_check() {
@@ -714,8 +709,8 @@ fn bounds_collapsed_to_the_ceiling_fail_the_completeness_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A bulk walk that silently drops a leaf is caught by the walk seam's
-/// count against the walked node's exact `len` aggregate.
+/// A bulk walk that silently drops a leaf is caught by the walk seam's count
+/// against the walked node's exact `len` aggregate.
 #[test]
 #[should_panic(expected = "mis-sized leaf walk")]
 fn short_walk_fails_the_len_check() {
@@ -723,8 +718,8 @@ fn short_walk_fails_the_len_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Bulk assembly that silently drops a supplied leaf is caught by the
-/// assembly seam's exact `len` accounting of each leaf run.
+/// Bulk assembly that silently drops a supplied leaf is caught by the assembly
+/// seam's exact `len` accounting of each leaf run.
 #[test]
 #[should_panic(expected = "bulk-assembled len")]
 fn lossy_bulk_assembly_fails_the_len_check() {
@@ -732,13 +727,13 @@ fn lossy_bulk_assembly_fails_the_len_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A `parent` that answers a fan of real children with no parent is
-/// convicted by name at the presence check.
+/// A `parent` that answers a fan of real children with no parent is convicted
+/// by name at the presence check.
 ///
-/// The knob spends itself on the first interior `parent` call of the
-/// run, which is the default fold's over the charged decorator, where
-/// the check lives; this backend's own bulk assembly folds through its
-/// `parent` directly, where the same fault is felt only as a short run.
+/// The knob spends itself on the first interior `parent` call of the run, which
+/// is the default fold's over the charged decorator, where the check lives;
+/// this backend's own bulk assembly folds through its `parent` directly, where
+/// the same fault is felt only as a short run.
 #[test]
 #[should_panic(expected = "parent contract: fan")]
 fn an_interior_parent_answering_none_fails_the_presence_check() {
@@ -746,9 +741,9 @@ fn an_interior_parent_answering_none_fails_the_presence_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A `parent` that answers an empty group with a node is convicted by
-/// name at the presence check's other direction, on the empty group the
-/// run presents at rest.
+/// A `parent` that answers an empty group with a node is convicted by name at
+/// the presence check's other direction, on the empty group the run presents at
+/// rest.
 #[test]
 #[should_panic(expected = "parent contract: fan 0 yielded Some")]
 fn a_parent_conjured_from_an_empty_group_fails_the_presence_check() {
@@ -756,9 +751,9 @@ fn a_parent_conjured_from_an_empty_group_fails_the_presence_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A bulk walk that yields two leaves out of path order is convicted by
-/// name at the walk's order check: the count is unchanged, so nothing else
-/// would notice.
+/// A bulk walk that yields two leaves out of path order is convicted by name at
+/// the walk's order check: the count is unchanged, so nothing else would
+/// notice.
 #[test]
 #[should_panic(expected = "unordered leaf walk")]
 fn a_swapped_walk_fails_the_order_check() {
@@ -766,10 +761,9 @@ fn a_swapped_walk_fails_the_order_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A bulk walk that yields a leaf outside the walked prefix is convicted
-/// by name at the walk's containment check, which has content at the
-/// sub-root walk the run drives (every leaf is inside the root's empty
-/// prefix).
+/// A bulk walk that yields a leaf outside the walked prefix is convicted by
+/// name at the walk's containment check, which has content at the sub-root walk
+/// the run drives (every leaf is inside the root's empty prefix).
 #[test]
 #[should_panic(expected = "escaped leaf walk")]
 fn an_escaping_walk_fails_the_containment_check() {
@@ -777,10 +771,9 @@ fn an_escaping_walk_fails_the_containment_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Bulk assembly that yields two nodes out of run order is convicted by
-/// name at the assembly's order check, in the multi-run regime the run
-/// drives at a sub-root height (the root assembly has one node to
-/// order).
+/// Bulk assembly that yields two nodes out of run order is convicted by name at
+/// the assembly's order check, in the multi-run regime the run drives at a
+/// sub-root height (the root assembly has one node to order).
 #[test]
 #[should_panic(expected = "unordered assembly")]
 fn a_swapped_assembly_fails_the_order_check() {
@@ -788,12 +781,11 @@ fn a_swapped_assembly_fails_the_order_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Bulk assembly that folds a run and then swallows its node is
-/// convicted by name: the run it supplied never yielded a node.
+/// Bulk assembly that folds a run and then swallows its node is convicted by
+/// name: the run it supplied never yielded a node.
 ///
-/// The same fault at the root assembly costs the corpus its root, and
-/// the by-name report rides in that failure rather than being masked by
-/// it.
+/// The same fault at the root assembly costs the corpus its root, and the
+/// by-name report rides in that failure rather than being masked by it.
 #[test]
 #[should_panic(expected = "unassembled run")]
 fn a_swallowed_assembled_node_fails_the_run_check() {
@@ -801,15 +793,14 @@ fn a_swallowed_assembled_node_fails_the_run_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Bulk assembly that yields a node at a prefix other than its own run's
-/// is convicted by name.
+/// Bulk assembly that yields a node at a prefix other than its own run's is
+/// convicted by name.
 ///
-/// When no run supplied the re-tagged prefix, the re-tagged node itself
-/// arrives unsupplied. When the neighbor has a run (the case at this
-/// corpus, where nearly every one-byte prefix does), the re-tagged node
-/// consumes that run and is convicted as a `bulk-assembled len`
-/// mismatch, and the honest neighbor that follows finds its run gone:
-/// `unsupplied assembly` fires either way.
+/// When no run supplied the re-tagged prefix, the re-tagged node itself arrives
+/// unsupplied. When the neighbor has a run (the case at this corpus, where
+/// nearly every one-byte prefix does), the re-tagged node consumes that run and
+/// is convicted as a `bulk-assembled len` mismatch, and the honest neighbor
+/// that follows finds its run gone: `unsupplied assembly` fires either way.
 #[test]
 #[should_panic(expected = "unsupplied assembly")]
 fn a_re_tagged_assembled_node_fails_the_run_check() {
@@ -817,13 +808,13 @@ fn a_re_tagged_assembled_node_fails_the_run_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A loss both sides share is invisible to their agreement and caught
-/// by the completeness oracle: the reconciled root must hold the
-/// corpora's whole union.
+/// A loss both sides share is invisible to their agreement and caught by the
+/// completeness oracle: the reconciled root must hold the corpora's whole
+/// union.
 ///
-/// Driven at the run level with one shared message left out of both
-/// corpora, the fault a symmetric backend defect produces and the only
-/// shape the two-sided convergence check cannot see.
+/// Driven at the run level with one shared message left out of both corpora,
+/// the fault a symmetric backend defect produces and the only shape the
+/// two-sided convergence check cannot see.
 #[test]
 #[should_panic(expected = "converged short")]
 fn a_symmetric_loss_fails_the_completeness_check() {
@@ -831,8 +822,8 @@ fn a_symmetric_loss_fails_the_completeness_check() {
     pollster::block_on(run(Materializing, 0, 1));
 }
 
-/// A listing that allocates beyond the rows it yields is convicted by
-/// name at the listing's allocation check.
+/// A listing that allocates beyond the rows it yields is convicted by name at
+/// the listing's allocation check.
 ///
 /// Each child listed allocates one scratch byte beyond its row.
 #[test]
@@ -842,9 +833,8 @@ fn an_allocating_listing_fails_the_listing_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Drain one listing of `node`, viewed whole at `prefix`, through the
-/// charged in-memory backend, returning the contract violations it
-/// recorded.
+/// Drain one listing of `node`, viewed whole at `prefix`, through the charged
+/// in-memory backend, returning the contract violations it recorded.
 fn violations_listing<H>(prefix: Prefix<S<H>>, node: typed::Node<S<H>>) -> Vec<String>
 where
     H: Height,
@@ -861,12 +851,11 @@ where
 }
 
 /// Listing a compressed leaf that another handle shares allocates nothing
-/// beyond the row it yields, though the leaf's version and payload bytes
-/// have never been cloned.
+/// beyond the row it yields, though the leaf's version and payload bytes have
+/// never been cloned.
 ///
-/// The leaf sits one level below its parent's height, so its listing
-/// yields it with one path byte hidden; the retained handle is the one the
-/// replica keeps.
+/// The leaf sits one level below its parent's height, so its listing yields it
+/// with one path byte hidden; the retained handle is the one the replica keeps.
 #[test]
 fn listing_a_shared_fresh_compressed_leaf_allocates_nothing() {
     let _serial = serialized();
@@ -885,10 +874,10 @@ fn listing_a_shared_fresh_compressed_leaf_allocates_nothing() {
 /// A providing prune allocates nothing beyond its rows at any listing,
 /// including the listings its recursion makes below the node it starts at.
 ///
-/// The root holds a compressed child, mixed because the peer's version
-/// knows one of its two leaves and not the other, beside a third, unknown
-/// leaf. Providing the root lists the root and then, in the recursion, the
-/// compressed child, which the replica's root still shares.
+/// The root holds a compressed child, mixed because the peer's version knows
+/// one of its two leaves and not the other, beside a third, unknown leaf.
+/// Providing the root lists the root and then, in the recursion, the compressed
+/// child, which the replica's root still shares.
 #[test]
 fn a_providing_prune_lists_without_allocating() {
     use crate::tree::{
@@ -947,9 +936,9 @@ fn a_providing_prune_lists_without_allocating() {
 
 /// A deflated `version_bytes` answer is caught by the assembly seam's floor.
 ///
-/// The run's own leaf encodings and the node's two bounds are all in
-/// the aggregate, so an answer below them is a lie: deflation is the
-/// direction that breaches the memory envelope.
+/// The run's own leaf encodings and the node's two bounds are all in the
+/// aggregate, so an answer below them is a lie: deflation is the direction that
+/// breaches the memory envelope.
 #[test]
 #[should_panic(expected = "deflated version_bytes: bulk-assembled node")]
 fn deflated_version_bytes_fails_the_assembly_floor() {
@@ -966,12 +955,12 @@ fn miscounted_grandchildren_fails_the_listing_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A node whose `child_count` answer disagrees with the children listing
-/// it yields is convicted by name where the session lists its children.
+/// A node whose `child_count` answer disagrees with the children listing it
+/// yields is convicted by name where the session lists its children.
 ///
-/// Skewed by one, every node's answer overcounts, so the root's listing
-/// alone, which the suite makes before the session, yields one child
-/// fewer than its parent reports.
+/// Skewed by one, every node's answer overcounts, so the root's listing alone,
+/// which the suite makes before the session, yields one child fewer than its
+/// parent reports.
 #[test]
 #[should_panic(expected = "miscounted children")]
 fn miscounted_children_fail_the_listing_check() {
@@ -979,12 +968,11 @@ fn miscounted_children_fail_the_listing_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A node whose `child_radices` answer disagrees with the radices listing
-/// it yields is convicted by name where the session lists its children.
+/// A node whose `child_radices` answer disagrees with the radices listing it
+/// yields is convicted by name where the session lists its children.
 ///
-/// Dropped to nothing, every branch's answer misses every child, so the
-/// root's listing alone, which the suite makes before the session, shows
-/// it.
+/// Dropped to nothing, every branch's answer misses every child, so the root's
+/// listing alone, which the suite makes before the session, shows it.
 #[test]
 #[should_panic(expected = "misreported child radices")]
 fn misreported_radices_fail_the_listing_check() {
@@ -992,9 +980,9 @@ fn misreported_radices_fail_the_listing_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A listing that yields two children out of radix order is convicted by
-/// name at the listing's order check: the count and the radix set are
-/// unchanged, so neither of their checks would notice.
+/// A listing that yields two children out of radix order is convicted by name
+/// at the listing's order check: the count and the radix set are unchanged, so
+/// neither of their checks would notice.
 #[test]
 #[should_panic(expected = "unordered children")]
 fn a_swapped_listing_fails_the_order_check() {
@@ -1002,9 +990,9 @@ fn a_swapped_listing_fails_the_order_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A listing that yields one child twice is convicted by name at the
-/// listing's order check, as a radix listed after an equal one: the radix
-/// set absorbs the repeat.
+/// A listing that yields one child twice is convicted by name at the listing's
+/// order check, as a radix listed after an equal one: the radix set absorbs the
+/// repeat.
 #[test]
 #[should_panic(expected = "unordered children")]
 fn a_repeating_listing_fails_the_order_check() {
@@ -1012,9 +1000,9 @@ fn a_repeating_listing_fails_the_order_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A leaf whose `version_bytes` answer exceeds the walked node's
-/// aggregate is caught by the walk seam's membership check: every bound
-/// under a node is in the node's aggregate.
+/// A leaf whose `version_bytes` answer exceeds the walked node's aggregate is
+/// caught by the walk seam's membership check: every bound under a node is in
+/// the node's aggregate.
 #[test]
 #[should_panic(expected = "walked leaf encodes")]
 fn inflated_leaf_version_bytes_fails_the_walk_check() {
@@ -1022,9 +1010,9 @@ fn inflated_leaf_version_bytes_fails_the_walk_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A re-tag that grows the node's residency on the way back to a typed
-/// handle is convicted by name: the measurement after `assume` differs
-/// from the bytes the erased handle carried.
+/// A re-tag that grows the node's residency on the way back to a typed handle
+/// is convicted by name: the measurement after `assume` differs from the bytes
+/// the erased handle carried.
 #[test]
 #[should_panic(expected = "re-tagged node changed residency: erased")]
 fn a_residency_changing_assume_fails_the_re_tag_check() {
@@ -1032,9 +1020,9 @@ fn a_residency_changing_assume_fails_the_re_tag_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A re-tag that grows the node's residency on the way to an erased
-/// handle is convicted by name: the measurement after `erase` differs
-/// from the bytes the typed handle carried.
+/// A re-tag that grows the node's residency on the way to an erased handle is
+/// convicted by name: the measurement after `erase` differs from the bytes the
+/// typed handle carried.
 #[test]
 #[should_panic(expected = "re-tagged node changed residency: typed")]
 fn a_residency_changing_erase_fails_the_re_tag_check() {
@@ -1042,9 +1030,9 @@ fn a_residency_changing_erase_fails_the_re_tag_check() {
     pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A backend whose digests agree with each other but differ from the
-/// in-memory backend's converges with itself, and is caught by comparing
-/// the converged root's digest with the in-memory backend's.
+/// A backend whose digests agree with each other but differ from the in-memory
+/// backend's converges with itself, and is caught by comparing the converged
+/// root's digest with the in-memory backend's.
 ///
 /// Its replicas could not reconcile with in-memory ones: every comparison
 /// between the two would differ.

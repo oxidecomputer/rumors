@@ -23,9 +23,9 @@ use tokio::{
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
-/// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may
-/// interact with the set concurrently. Synchronization is internal:
-/// anything one clone learns, all do.
+/// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may interact
+/// with the set concurrently. Synchronization is internal: anything one clone
+/// learns, all do.
 ///
 /// Call [`snapshot`](Self::snapshot) to read a consistent view of the set.
 pub struct Rumors<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
@@ -45,12 +45,11 @@ pub struct Rumors<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
 /// the point when every handle has either been dropped or begun
 /// [`try_into_peer`](Rumors::try_into_peer), and the [`Peer`] may be reclaimed.
 ///
-/// Every handle gives up its view before its `alive` sender: a reuniter
-/// parks its view or drops it, and a dropped handle drops its fields in
-/// declaration order. So once the channel closes, the parked view is the
-/// generation's only view, and the reclaimed `Peer` owns its bookmark lock
-/// alone. That is what lets reunion release a lock held by a leaked session
-/// future
+/// Every handle gives up its view before its `alive` sender: a reuniter parks
+/// its view or drops it, and a dropped handle drops its fields in declaration
+/// order. So once the channel closes, the parked view is the generation's only
+/// view, and the reclaimed `Peer` owns its bookmark lock alone. That is what
+/// lets reunion release a lock held by a leaked session future
 /// ([`BookmarkHandle::release_abandoned_lock`](crate::bookmark::BookmarkHandle::release_abandoned_lock)).
 struct Reunion<T: Send + Sync + 'static, B: Bookmark> {
     /// One sender per live handle; channel closure signals quiescence.
@@ -60,8 +59,8 @@ struct Reunion<T: Send + Sync + 'static, B: Bookmark> {
     parked: Parked<T, B>,
 }
 
-/// Count another handle and share the parking place, without requiring
-/// `Clone` payloads or storage.
+/// Count another handle and share the parking place, without requiring `Clone`
+/// payloads or storage.
 impl<T: Send + Sync + 'static, B: Bookmark> Clone for Reunion<T, B> {
     /// Add a sender for the new handle and share the parking place.
     fn clone(&self) -> Self {
@@ -75,10 +74,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Clone for Reunion<T, B> {
 /// The view the reclaimed [`Peer`] is made from: the first reuniter of a
 /// generation parks its view here, and later reuniters drop theirs.
 ///
-/// This is also the exactly-once claim: among reuniters that observe
-/// quiescence concurrently, the one whose [`claim`](Self::claim) finds the
-/// view is handed the `Peer`; the rest resolve `None`. A cancelled reuniter
-/// leaves its parked view for the others.
+/// This is also the exactly-once claim: among reuniters that observe quiescence
+/// concurrently, the one whose [`claim`](Self::claim) finds the view is handed
+/// the `Peer`; the rest resolve `None`. A cancelled reuniter leaves its parked
+/// view for the others.
 struct Parked<T: Send + Sync + 'static, B: Bookmark>(Arc<Mutex<Option<Peer<T, B>>>>);
 
 /// Share the parking place, without requiring `Clone` payloads or storage.
@@ -97,8 +96,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Parked<T, B> {
     }
 
     /// Park `peer` if no view is parked yet; otherwise return it, for the
-    /// caller to drop outside the lock, which only ever guards moving a view
-    /// in or out.
+    /// caller to drop outside the lock, which only ever guards moving a view in
+    /// or out.
     fn park(&self, peer: Peer<T, B>) -> Option<Peer<T, B>> {
         let mut parked = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         if parked.is_some() {
@@ -114,7 +113,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Parked<T, B> {
     }
 }
 
-/// Share the replica, configuration, and storage while retaining a handle claim.
+/// Share the replica, configuration, and storage while retaining a handle
+/// claim.
 impl<T: Send + Sync + 'static, B: Bookmark> Clone for Rumors<T, B> {
     /// Create another handle to the same peer.
     fn clone(&self) -> Self {
@@ -184,13 +184,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
 
     /// Send a message, committing it immediately.
     ///
-    /// The message is serialized and admitted here, at the call:
-    /// admission runs the exact decode every receiver's wire ingress
-    /// runs, so a payload a receiver would reject or misread is the
-    /// typed [`EncodeError`] instead (its variants name the causes), and
-    /// nothing commits. To send many messages in one commit, use
-    /// [`send_all`](Self::send_all); to mix sends and redactions in one commit,
-    /// use [`batch`](Self::batch).
+    /// The message is serialized and admitted here, at the call: admission runs
+    /// the exact decode every receiver's wire ingress runs, so a payload a
+    /// receiver would reject or misread is the typed [`EncodeError`] instead
+    /// (its variants name the causes), and nothing commits. To send many
+    /// messages in one commit, use [`send_all`](Self::send_all); to mix sends
+    /// and redactions in one commit, use [`batch`](Self::batch).
     ///
     /// Returns the message's [`Version`]. This uniquely identifies this send
     /// throughout the network and can be passed directly to
@@ -199,39 +198,35 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// # Observe-then-send is domination
     ///
-    /// Every message this replica observed before a commit is in the
-    /// causal past of that commit's sends, which is the supersession
-    /// contract last-write-wins patterns lean on. The boundary: sends from
-    /// different threads or different batches carry **no** guaranteed
-    /// causal relationship to one another unless the application
-    /// synchronizes them itself.
+    /// Every message this replica observed before a commit is in the causal
+    /// past of that commit's sends, which is the supersession contract
+    /// last-write-wins patterns lean on. The boundary: sends from different
+    /// threads or different batches carry **no** guaranteed causal relationship
+    /// to one another unless the application synchronizes them itself.
     ///
     /// # Panics
     ///
-    /// If `message` fails to serialize: a violation of the payload
-    /// contract ([choosing a payload
-    /// type](crate#choosing-a-payload-type)).
+    /// If `message` fails to serialize: a violation of the payload contract
+    /// ([choosing a payload type](crate#choosing-a-payload-type)).
     pub fn send(&self, message: T) -> Result<Version, EncodeError> {
         self.peer.send(message)
     }
 
-    /// Redact a message: remove the live message stamped with `version`
-    /// from the set, here and, through gossip, everywhere, committing
-    /// immediately.
+    /// Redact a message: remove the live message stamped with `version` from
+    /// the set, here and, through gossip, everywhere, committing immediately.
     ///
-    /// Returns whether it removed a message: `true` if this replica held
-    /// the message live, `false` if it never received it or had already
-    /// redacted it. A redaction that returns `false` is a no-op, here and
-    /// everywhere else: it advances no history. So a message this replica
-    /// never received is live if it arrives later, and redacting it then
-    /// removes it. A message this replica already redacted stays redacted:
-    /// gossip honors that earlier redaction, so the message never becomes
-    /// live here again.
+    /// Returns whether it removed a message: `true` if this replica held the
+    /// message live, `false` if it never received it or had already redacted
+    /// it. A redaction that returns `false` is a no-op, here and everywhere
+    /// else: it advances no history. So a message this replica never received
+    /// is live if it arrives later, and redacting it then removes it. A message
+    /// this replica already redacted stays redacted: gossip honors that earlier
+    /// redaction, so the message never becomes live here again.
     ///
-    /// Redaction is infallible: no payload is created, so no depth
-    /// admission applies. To redact many versions in one commit, use
-    /// [`redact_all`](Self::redact_all); to mix redactions and sends in
-    /// one commit, use [`batch`](Self::batch).
+    /// Redaction is infallible: no payload is created, so no depth admission
+    /// applies. To redact many versions in one commit, use
+    /// [`redact_all`](Self::redact_all); to mix redactions and sends in one
+    /// commit, use [`batch`](Self::batch).
     ///
     /// ```
     /// use rumors::{EncodeError, Peer};
@@ -245,21 +240,20 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// # Deletion is honored
     ///
-    /// Once a redaction commits anywhere, no gossip schedule re-establishes
-    /// the redacted message from replicas that still hold it. Nothing
-    /// crosses the wire to represent a deletion; reconciliation infers
-    /// deletions from the causal frontiers the two sides exchange. A
-    /// message the counterparty's version shows it must already have seen,
-    /// yet it no longer holds, was deleted there, so the holder drops its
-    /// own copy instead of transmitting it. And because every send creates a
-    /// fresh version, re-sending byte-identical content after a redaction
-    /// is a *new* message: no resurrection, no suppression. For the same
-    /// reason, two identical sends are two messages, and redacting one
-    /// never touches the other.
+    /// Once a redaction commits anywhere, no gossip schedule re-establishes the
+    /// redacted message from replicas that still hold it. Nothing crosses the
+    /// wire to represent a deletion; reconciliation infers deletions from the
+    /// causal frontiers the two sides exchange. A message the counterparty's
+    /// version shows it must already have seen, yet it no longer holds, was
+    /// deleted there, so the holder drops its own copy instead of transmitting
+    /// it. And because every send creates a fresh version, re-sending
+    /// byte-identical content after a redaction is a *new* message: no
+    /// resurrection, no suppression. For the same reason, two identical sends
+    /// are two messages, and redacting one never touches the other.
     ///
     /// Use the [`Version`] returned by [`send`](Self::send), or one reported by
-    /// an observer or [`Snapshot`]. Batched sends do not return versions because
-    /// one call may insert several messages.
+    /// an observer or [`Snapshot`]. Batched sends do not return versions
+    /// because one call may insert several messages.
     pub fn redact(&self, version: &Version) -> bool {
         self.peer.redact(version)
     }
@@ -267,13 +261,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Send every message `messages` yields, as one all-or-nothing commit.
     ///
     /// Equivalent to a [`batch`](Self::batch) whose whole body is one
-    /// [`Batch::send_all`]: observers and concurrent gossip sessions see
-    /// all of them land at once, in at most one observer wakeup, and every
-    /// message is in the causal past of the same commit. Admission runs per
-    /// message, exactly as [`send`](Self::send) states; the first message
-    /// a receiver would reject or misread is the returned [`EncodeError`],
-    /// and then **nothing** commits, not even the messages admitted before
-    /// it. An empty iterator commits nothing and wakes no observer.
+    /// [`Batch::send_all`]: observers and concurrent gossip sessions see all of
+    /// them land at once, in at most one observer wakeup, and every message is
+    /// in the causal past of the same commit. Admission runs per message,
+    /// exactly as [`send`](Self::send) states; the first message a receiver
+    /// would reject or misread is the returned [`EncodeError`], and then
+    /// **nothing** commits, not even the messages admitted before it. An empty
+    /// iterator commits nothing and wakes no observer.
     ///
     /// # Examples
     ///
@@ -289,9 +283,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// # Panics
     ///
-    /// If any message fails to serialize: a violation of the payload
-    /// contract ([choosing a payload
-    /// type](crate#choosing-a-payload-type)), exactly as
+    /// If any message fails to serialize: a violation of the payload contract
+    /// ([choosing a payload type](crate#choosing-a-payload-type)), exactly as
     /// [`send`](Self::send) treats it.
     pub fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
     where
@@ -303,16 +296,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Redact every version `versions` yields, as one commit.
     ///
     /// Equivalent to a [`batch`](Self::batch) whose whole body is one
-    /// [`Batch::redact_all`]: observers and
-    /// concurrent gossip sessions see every redaction land at once, in at
-    /// most one observer wakeup. Like [`redact`](Self::redact) it is
-    /// infallible, and versions not currently held are skipped. An empty
-    /// iterator commits nothing and wakes no observer.
+    /// [`Batch::redact_all`]: observers and concurrent gossip sessions see
+    /// every redaction land at once, in at most one observer wakeup. Like
+    /// [`redact`](Self::redact) it is infallible, and versions not currently
+    /// held are skipped. An empty iterator commits nothing and wakes no
+    /// observer.
     ///
-    /// Returns how many messages it removed: the distinct versions this
-    /// replica held live. Each version it did not hold, or named twice,
-    /// adds nothing, exactly as [`redact`](Self::redact) returning `false`
-    /// does.
+    /// Returns how many messages it removed: the distinct versions this replica
+    /// held live. Each version it did not hold, or named twice, adds nothing,
+    /// exactly as [`redact`](Self::redact) returning `false` does.
     ///
     /// # Examples
     ///
@@ -343,23 +335,21 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Apply several changes in one all-or-nothing commit.
     ///
     /// Runs `f` with a [`Batch`] scope handle for queueing
-    /// [`send`](Batch::send)s and [`redact`](Batch::redact)s, and
-    /// commits everything queued **iff `f` returns `Ok`**: observers
-    /// and concurrent gossip sessions see it all land as one commit,
-    /// one tree traversal, and at most one observer wakeup. Any other
-    /// exit — a returned `Err` (how a caller abandons a batch) or a
-    /// panic — commits nothing.
+    /// [`send`](Batch::send)s and [`redact`](Batch::redact)s, and commits
+    /// everything queued **iff `f` returns `Ok`**: observers and concurrent
+    /// gossip sessions see it all land as one commit, one tree traversal, and
+    /// at most one observer wakeup. Any other exit — a returned `Err` (how a
+    /// caller abandons a batch) or a panic — commits nothing.
     ///
     /// On commit, returns [`Committed`]: the closure's value, and how many
     /// messages the batch's redactions removed, counted as
     /// [`redact_all`](Self::redact_all) counts them.
     ///
-    /// The closure is synchronous and the scope handle cannot leave it
-    /// (the examples below show both escape routes failing to compile),
-    /// so async cancellation cannot observe a half-built batch. The
-    /// closure may use the same `Rumors` handle — a
-    /// [`send`](Self::send), or a nested `batch` — and such nested
-    /// operations commit first, as their own separate commits.
+    /// The closure is synchronous and the scope handle cannot leave it (the
+    /// examples below show both escape routes failing to compile), so async
+    /// cancellation cannot observe a half-built batch. The closure may use the
+    /// same `Rumors` handle — a [`send`](Self::send), or a nested `batch` — and
+    /// such nested operations commit first, as their own separate commits.
     ///
     /// # Examples
     ///
@@ -427,8 +417,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.unordered_messages_since(since)
     }
 
-    /// Observe every message in this [`Rumors`], however it arrived, in
-    /// *causal order*.
+    /// Observe every message in this [`Rumors`], however it arrived, in *causal
+    /// order*.
     ///
     /// See [`CausalMessages`] for details.
     pub fn causal_messages(&self) -> CausalMessages<T> {
@@ -478,62 +468,60 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// Leaking a session future (with [`mem::forget`](std::mem::forget), say)
     /// instead of dropping it skips its cleanup. A session leaked while it
-    /// waits on this peer's [`Bookmark`] storage keeps that storage locked,
-    /// and every later session through this generation's handles waits
-    /// forever. Reclaiming the `Peer` releases that lock: the returned peer,
-    /// and the handles made from it, run sessions normally, as long as the
-    /// storage itself still serves them. Reclaiming cannot release a lock
-    /// inside the storage: a session leaked while a `FileBookmark` load or
-    /// store waits behind an earlier one, whose session was cancelled,
-    /// leaves every later operation on that bookmark waiting forever. A
-    /// session leaked while serving a joining peer also pauses this
-    /// replica's reclamation of old identity space, and reclaiming the
-    /// `Peer` resumes it.
+    /// waits on this peer's [`Bookmark`] storage keeps that storage locked, and
+    /// every later session through this generation's handles waits forever.
+    /// Reclaiming the `Peer` releases that lock: the returned peer, and the
+    /// handles made from it, run sessions normally, as long as the storage
+    /// itself still serves them. Reclaiming cannot release a lock inside the
+    /// storage: a session leaked while a `FileBookmark` load or store waits
+    /// behind an earlier one, whose session was cancelled, leaves every later
+    /// operation on that bookmark waiting forever. A session leaked while
+    /// serving a joining peer also pauses this replica's reclamation of old
+    /// identity space, and reclaiming the `Peer` resumes it.
     pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
         self.try_into_peer_inner().await
     }
 
-    /// Run one reconciliation session with one remote peer over one
-    /// connection.
+    /// Run one reconciliation session with one remote peer over one connection.
     ///
     /// `read` and `write` are the two halves of one reliable, ordered duplex
-    /// byte stream to the peer; see the [transport requirements](crate#transport).
-    /// The session takes them by value and returns them on success, so pass
-    /// `&mut read, &mut write` to keep a connection you hold elsewhere.
+    /// byte stream to the peer; see the [transport
+    /// requirements](crate#transport). The session takes them by value and
+    /// returns them on success, so pass `&mut read, &mut write` to keep a
+    /// connection you hold elsewhere.
     ///
-    /// `Ok` carries the session's [`Gossiped`]: the converged version and
-    /// the session's [`SessionStats`](crate::SessionStats). Its `led` is
-    /// always [`Led::Local`](crate::Led::Local): calling `gossip_once` is this
-    /// side's initiation, and a remote initiation already in flight merges
-    /// into the same session, exactly as racing
-    /// [`gossip`](Self::gossip) triggers do.
+    /// `Ok` carries the session's [`Gossiped`]: the converged version and the
+    /// session's [`SessionStats`](crate::SessionStats). Its `led` is always
+    /// [`Led::Local`](crate::Led::Local): calling `gossip_once` is this side's
+    /// initiation, and a remote initiation already in flight merges into the
+    /// same session, exactly as racing [`gossip`](Self::gossip) triggers do.
     ///
     /// On `Ok`, both replicas hold every message either one held when the
-    /// session began **and neither had deleted**, and the peer has
-    /// confirmed that it completed and committed the session too. The
-    /// returned halves rest exactly at the session boundary, ready to host
-    /// this pair's next session.
+    /// session began **and neither had deleted**, and the peer has confirmed
+    /// that it completed and committed the session too. The returned halves
+    /// rest exactly at the session boundary, ready to host this pair's next
+    /// session.
     ///
-    /// The configured [`Peer::session_deadline`] applies to this exchange.
-    /// The initiation policy does not: this call always starts a session.
+    /// The configured [`Peer::session_deadline`] applies to this exchange. The
+    /// initiation policy does not: this call always starts a session.
     ///
     /// On failure or cancellation, the connection's position is unknown:
-    /// discard it and reconnect. A later session on it gets no typed
-    /// warning. No partial reconciliation is published, but a completed
-    /// local commit is not undone: a failure in
-    /// [`Phase::Completion`](crate::error::Phase::Completion) leaves the
-    /// peer's commit unconfirmed. Accepting a retirement can also commit
-    /// content before a bookmark write fails; [`Error::Bookmark`] explains
-    /// how to recover. See [what a session promises](crate#what-a-session-promises).
+    /// discard it and reconnect. A later session on it gets no typed warning.
+    /// No partial reconciliation is published, but a completed local commit is
+    /// not undone: a failure in
+    /// [`Phase::Completion`](crate::error::Phase::Completion) leaves the peer's
+    /// commit unconfirmed. Accepting a retirement can also commit content
+    /// before a bookmark write fails; [`Error::Bookmark`] explains how to
+    /// recover. See [what a session promises](crate#what-a-session-promises).
     ///
     /// An established peer automatically serves bootstrappers and accepts
     /// retirements through this same call.
     ///
-    /// Sessions may run concurrently on separate connections, through the
-    /// same or different handles. Each publishes its reconciled content
-    /// atomically. Ownership of the halves, or the `&mut` borrow of them,
-    /// prevents overlapping sessions on one connection. A bookmarked peer
-    /// also serializes storage access; see [`Bookmark`].
+    /// Sessions may run concurrently on separate connections, through the same
+    /// or different handles. Each publishes its reconciled content atomically.
+    /// Ownership of the halves, or the `&mut` borrow of them, prevents
+    /// overlapping sessions on one connection. A bookmarked peer also
+    /// serializes storage access; see [`Bookmark`].
     pub async fn gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error<B>>
     where
         R: AsyncBufRead + Unpin + Send,
@@ -542,8 +530,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.gossip_once(read, write).await
     }
 
-    /// Keep one connection synchronized, yielding an outcome after each
-    /// gossip session.
+    /// Keep one connection synchronized, yielding an outcome after each gossip
+    /// session.
     ///
     /// `read` and `write` are the two halves of one connection, as for
     /// [`gossip_once`](Self::gossip_once). The driver owns them for its
@@ -565,28 +553,29 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// # Ending the driver
     ///
-    /// - An error, including deadline expiry, yields one final `Err` and ends the
-    ///   stream. Discard the connection and reconnect.
-    /// - The local policy ending stops the driver after any active session.
-    ///   The connection rests at a session boundary and can serve another
-    ///   driver. A shared signal can end the policies across all handles; see
+    /// - An error, including deadline expiry, yields one final `Err` and ends
+    ///   the stream. Discard the connection and reconnect.
+    /// - The local policy ending stops the driver after any active session. The
+    ///   connection rests at a session boundary and can serve another driver. A
+    ///   shared signal can end the policies across all handles; see
     ///   [`Peer::gossip_when`]'s graceful-shutdown example. Keep polling each
     ///   driver until it ends.
     /// - A remote hang-up between sessions ends the stream cleanly. Reconnect
     ///   to reach that peer again.
     ///
-    /// However it ends, the stream stays ended: it is a [`FusedStream`].
-    /// Once a poll has returned `None`,
-    /// [`is_terminated`](FusedStream::is_terminated) returns `true` and every
-    /// later poll returns `None`. After the final `Err`, the next poll is the
-    /// one that returns `None`; until then `is_terminated` returns `false`.
+    /// However it ends, the stream stays ended: it is a [`FusedStream`]. Once a
+    /// poll has returned `None`, [`is_terminated`](FusedStream::is_terminated)
+    /// returns `true` and every later poll returns `None`. After the final
+    /// `Err`, the next poll is the one that returns `None`; until then
+    /// `is_terminated` returns `false`.
     ///
     /// # Deadlines and cancellation
     ///
-    /// A configured deadline starts when the local policy initiates a session or
-    /// the first remote bytes arrive. It covers the entire exchange through confirmation of
-    /// completion, without being reset by traffic. When both the exchange and its
-    /// deadline are ready, the exchange's result takes precedence.
+    /// A configured deadline starts when the local policy initiates a session
+    /// or the first remote bytes arrive. It covers the entire exchange through
+    /// confirmation of completion, without being reset by traffic. When both
+    /// the exchange and its deadline are ready, the exchange's result takes
+    /// precedence.
     ///
     /// Dropping a `next()` future preserves the active session and its deadline
     /// inside the stream. Dropping the stream cancels any active session and
@@ -594,11 +583,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// between completed sessions is safe. To stop cleanly regardless of
     /// timing, end the policy stream and drain the driver.
     ///
-    /// Failure or cancellation publishes no partial reconciliation, but does not
-    /// undo a local commit already made. In particular, expiry while awaiting
-    /// completion can leave the remote's commit unconfirmed. Accepting a retirement
-    /// can also commit content before a bookmark write fails; [`Error::Bookmark`]
-    /// explains recovery. See [what a session promises](crate#what-a-session-promises).
+    /// Failure or cancellation publishes no partial reconciliation, but does
+    /// not undo a local commit already made. In particular, expiry while
+    /// awaiting completion can leave the remote's commit unconfirmed. Accepting
+    /// a retirement can also commit content before a bookmark write fails;
+    /// [`Error::Bookmark`] explains recovery. See [what a session
+    /// promises](crate#what-a-session-promises).
     ///
     /// Separate connections can run concurrently through the same or different
     /// handles. Each publishes its reconciled content atomically. A driver owns

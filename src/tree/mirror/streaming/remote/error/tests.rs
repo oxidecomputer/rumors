@@ -1,4 +1,5 @@
-//! Public classification preserves a failure's provenance, not just its I/O kind.
+//! Public classification preserves a failure's provenance, not just its I/O
+//! kind.
 
 use super::*;
 use crate::error::DataStream;
@@ -98,8 +99,8 @@ fn arb_walk_phase() -> impl Strategy<Value = Phase> {
     prop::sample::select(vec![Phase::Greeting, Phase::Reconciliation])
 }
 
-/// Generates a count no node can have, of any kind: a child or grandchild
-/// count out of range, or a listing that differs from its child count.
+/// Generates a count no node can have, of any kind: a child or grandchild count
+/// out of range, or a listing that differs from its child count.
 fn arb_count_error() -> impl Strategy<Value = CountError> {
     prop_oneof![
         (257..=usize::MAX).prop_map(CountError::Children),

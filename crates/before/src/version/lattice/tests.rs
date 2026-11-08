@@ -218,9 +218,8 @@ fn family_pool() -> Vec<Version> {
     ]
 }
 
-/// Every ordered pair drawn from the registered families emits
-/// byte-identically to the recursive oracle, validates as canonical, and
-/// re-derives pointwise.
+/// Every ordered pair drawn from the registered families emits byte-identically
+/// to the recursive oracle, validates as canonical, and re-derives pointwise.
 ///
 /// Each operand is also paired against the pair's join and meet — the shapes
 /// where long shared plateaus force ties and total collapses.
@@ -407,8 +406,9 @@ proptest! {
     }
 }
 
-/// Build the version whose height function takes `values[i]` on the `i`th cell of a
-/// uniform dyadic grid (test-only; recursive over the grid's `O(log)` depth).
+/// Build the version whose height function takes `values[i]` on the `i`th cell
+/// of a uniform dyadic grid (test-only; recursive over the grid's `O(log)`
+/// depth).
 fn grid_version(values: &[BigUint]) -> Version {
     fn build(values: &[BigUint]) -> crate::testing::oracles::tree::Version {
         match values {
@@ -435,12 +435,11 @@ fn redecode(version: &Version) -> Version {
     Version::decode(version.as_bytes()).expect("a version's bytes decode")
 }
 
-/// Checks every join and meet spelling of `a` and `b` against the flat
-/// model's join and meet of `ma` and `mb`.
+/// Checks every join and meet spelling of `a` and `b` against the flat model's
+/// join and meet of `ma` and `mb`.
 ///
-/// The spellings include both endpoints of both hull spellings, and the
-/// stored lengths of an operand and both results are checked against the
-/// model's.
+/// The spellings include both endpoints of both hull spellings, and the stored
+/// lengths of an operand and both results are checked against the model's.
 fn check_lattice_spellings(
     a: &Version,
     b: &Version,
@@ -514,8 +513,8 @@ enum Take {
     Shared,
     /// A separate decode of the member's bytes, in storage of its own.
     Separate,
-    /// A clone of the previous item, or a shared clone of the member when
-    /// there is none.
+    /// A clone of the previous item, or a shared clone of the member when there
+    /// is none.
     Repeat,
 }
 

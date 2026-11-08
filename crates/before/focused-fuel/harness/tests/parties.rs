@@ -1,18 +1,18 @@
-//! Party walks that resolve deep subtrees whole: `sync`'s fused join and
-//! fork, and `without`'s splice and block paths.
+//! Party walks that resolve deep subtrees whole: `sync`'s fused join and fork,
+//! and `without`'s splice and block paths.
 
 use focused_fuel_harness::{assert_at_most, assert_flat, measure, Probe};
 
 /// Party depths, a sixteenfold step apart.
 const DEPTHS: [u64; 2] = [256, 4_096];
 
-/// Synchronization costs no more than a separate join and fork, on a pair
-/// that delegates deep cells along a shared path, a pair resolved by one
-/// splice, and a pair of adjacent deep cells.
+/// Synchronization costs no more than a separate join and fork, on a pair that
+/// delegates deep cells along a shared path, a pair resolved by one splice, and
+/// a pair of adjacent deep cells.
 ///
 /// `Clock::sync` reaches the fused party walk, and joins two empty versions
-/// besides. Form: derived bound (F-bound) by the reading of `Party::join`
-/// then `Party::fork` on the same pair, at each depth.
+/// besides. Form: derived bound (F-bound) by the reading of `Party::join` then
+/// `Party::fork` on the same pair, at each depth.
 #[test]
 fn sync_costs_no_more_than_join_then_fork() {
     for depth in DEPTHS {
@@ -30,12 +30,11 @@ fn sync_costs_no_more_than_join_then_fork() {
     }
 }
 
-/// A spliced pair syncs in work linear in its operands: growing the deep
-/// cell's depth sixteenfold multiplies the fuel per level by at most 1.25.
+/// A spliced pair syncs in work linear in its operands: growing the deep cell's
+/// depth sixteenfold multiplies the fuel per level by at most 1.25.
 ///
-/// Form: flat per unit (F-lin) across a sixteenfold growth of the depth,
-/// taking the depth as the unit, which the operands' encoded bits are
-/// proportional to.
+/// Form: flat per unit (F-lin) across a sixteenfold growth of the depth, taking
+/// the depth as the unit, which the operands' encoded bits are proportional to.
 #[test]
 fn spliced_sync_is_linear_in_its_operands() {
     let [small, large] = DEPTHS;
@@ -46,16 +45,15 @@ fn spliced_sync_is_linear_in_its_operands() {
     );
 }
 
-/// Copying or discarding a covered deep subtree costs no more than carving
-/// a deep cell out of the seed, which builds its complement level by level,
-/// and costs work linear in its operands.
+/// Copying or discarding a covered deep subtree costs no more than carving a
+/// deep cell out of the seed, which builds its complement level by level, and
+/// costs work linear in its operands.
 ///
 /// The deep cell lies beside an overlap in the right half, so the public
-/// `without` passes its disjointness check and walks: the cell under an
-/// unowned cover survives whole, and under an owned cover vanishes whole.
-/// Forms: derived bound (F-bound) by the complement walk's reading at each
-/// depth, and flat per unit (F-lin) across a sixteenfold growth of the
-/// depth.
+/// `without` passes its disjointness check and walks: the cell under an unowned
+/// cover survives whole, and under an owned cover vanishes whole. Forms:
+/// derived bound (F-bound) by the complement walk's reading at each depth, and
+/// flat per unit (F-lin) across a sixteenfold growth of the depth.
 #[test]
 fn without_resolves_a_covered_subtree_whole() {
     for probe in [Probe::WithoutSplice, Probe::WithoutBlock] {

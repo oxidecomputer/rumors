@@ -1,15 +1,15 @@
 //! Test-only splitting of every reply a consumer takes at every reaction
 //! boundary.
 //!
-//! A reply may arrive in chunks, and every consumer must act on each chunk
-//! as it comes. Inside [`with_split_replies`], every request stream a walk
-//! stage or a proxy encoder takes ([`Requests::erase`](super::Requests::erase))
-//! hands on each chunk as one chunk per reaction, the most chunks a reply
-//! can take, so a session run there exercises every consumer's handling of
-//! chunks at every boundary. The split happens where the consumer takes a
-//! chunk, so no producer waits any longer for its chunks to be taken. The
-//! streams of a session built on this thread read the switch, so it covers
-//! both endpoints of a session driven here.
+//! A reply may arrive in chunks, and every consumer must act on each chunk as
+//! it comes. Inside [`with_split_replies`], every request stream a walk stage
+//! or a proxy encoder takes ([`Requests::erase`](super::Requests::erase)) hands
+//! on each chunk as one chunk per reaction, the most chunks a reply can take,
+//! so a session run there exercises every consumer's handling of chunks at
+//! every boundary. The split happens where the consumer takes a chunk, so no
+//! producer waits any longer for its chunks to be taken. The streams of a
+//! session built on this thread read the switch, so it covers both endpoints of
+//! a session driven here.
 
 use std::cell::Cell;
 use std::pin::Pin;
@@ -27,8 +27,8 @@ std::thread_local! {
     static ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Run `f` with every reply taken by a consumer built on this thread split
-/// at every reaction boundary.
+/// Run `f` with every reply taken by a consumer built on this thread split at
+/// every reaction boundary.
 pub(crate) fn with_split_replies<R>(f: impl FnOnce() -> R) -> R {
     /// Restore the enclosing setting even when `f` panics.
     struct Restore(bool);
@@ -45,8 +45,8 @@ pub(crate) fn with_split_replies<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
-/// `requests`, split at every reaction boundary when the switch is on as
-/// the consumer is built.
+/// `requests`, split at every reaction boundary when the switch is on as the
+/// consumer is built.
 pub(super) fn requests<E: Send + 'static>(
     requests: impl Stream<Item = Reply<E>> + Send + 'static,
 ) -> Pin<Box<dyn Stream<Item = Reply<E>> + Send>> {
@@ -57,10 +57,9 @@ pub(super) fn requests<E: Send + 'static>(
     }
 }
 
-/// `chunk` as one chunk per reaction, the last ending the reply if `chunk`
-/// does and carrying its charges, which belongs to
-/// the question a walk's chunk ends at; an empty chunk stays one empty
-/// chunk.
+/// `chunk` as one chunk per reaction, the last ending the reply if `chunk` does
+/// and carrying its charges, which belongs to the question a walk's chunk ends
+/// at; an empty chunk stays one empty chunk.
 fn reactions<E>(chunk: Reply<E>) -> Vec<Reply<E>> {
     let Reply {
         reactions,

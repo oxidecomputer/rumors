@@ -7,15 +7,15 @@
 //! the laws of one group in parallel.
 //!
 //! Every driver expands from the law-group roster
-//! (`crate::for_each_law_group!`): the per-law proptests over arbitrary
-//! normal forms, the organic-populations drive list, the per-law proptests
-//! over deep inputs in [`deep`], those over multi-scale pairs in
-//! [`multiscale`], which take the groups over one version, over two, and over
-//! ranks, and those over co-generated tick cases in [`co_generated`], which
-//! take the groups over one version and one party. So every registered group
-//! is driven here by construction. Each driver's doc comment states the
-//! meta-invariant; the individual laws' statements live with their predicates
-//! in [`crate::testing::laws`]. No assertion's right-hand side mentions the
+//! (`crate::for_each_law_group!`): the per-law proptests over arbitrary normal
+//! forms, the organic-populations drive list, the per-law proptests over deep
+//! inputs in [`deep`], those over multi-scale pairs in [`multiscale`], which
+//! take the groups over one version, over two, and over ranks, and those over
+//! co-generated tick cases in [`co_generated`], which take the groups over one
+//! version and one party. So every registered group is driven here by
+//! construction. Each driver's doc comment states the meta-invariant; the
+//! individual laws' statements live with their predicates in
+//! [`crate::testing::laws`]. No assertion's right-hand side mentions the
 //! oracle: the laws hold by the ITC algebra, so they catch a defect the impl
 //! and the recursive oracle would share.
 
@@ -30,15 +30,15 @@ use crate::testing::optrace::{run, step, world_strategy, Production};
 use crate::testing::oracles::tree;
 use crate::{Clock, Party, Rank, Version};
 
-/// Build a fresh impl `Version` from an oracle source tree. The oracle tree
-/// is only a carrier of canonical bits here.
+/// Build a fresh impl `Version` from an oracle source tree. The oracle tree is
+/// only a carrier of canonical bits here.
 fn ver(o: &tree::Version) -> Version {
     crate::testing::bridge::from_oracle_version(o)
 }
 
-/// Build a fresh impl `Party` from an oracle source tree. `Party` is
-/// `!Clone`, so every use that consumes or borrows a party rebuilds one from
-/// its (cheap, `Clone`) oracle source.
+/// Build a fresh impl `Party` from an oracle source tree. `Party` is `!Clone`,
+/// so every use that consumes or borrows a party rebuilds one from its (cheap,
+/// `Clone`) oracle source.
 fn party(o: &tree::Party) -> Party {
     crate::testing::bridge::from_oracle_party(o)
 }
@@ -55,8 +55,8 @@ macro_rules! assert_laws {
 /// Whether the law registered as `name` in `group` holds, given the inputs
 /// `check` feeds it.
 ///
-/// Taking the group first fixes the law's type before `check` is inferred, so
-/// a driver's check closure needs no annotation.
+/// Taking the group first fixes the law's type before `check` is inferred, so a
+/// driver's check closure needs no annotation.
 fn holds<F: Copy>(group: &[Law<F>], name: &str, check: impl FnOnce(F) -> bool) -> bool {
     let (_, law) = group
         .iter()
@@ -67,13 +67,13 @@ fn holds<F: Copy>(group: &[Law<F>], name: &str, check: impl FnOnce(F) -> bool) -
 
 /// Expands one property test per law in a group, inside a module of its own.
 ///
-/// `mod $module = $roster($group)` names the module and the group, whose
-/// roster macro supplies the law names; each test is named for its law.
-/// `divisor` divides the configured case count, as
-/// [`crate::testing::property::run`] does, `params` binds the strategies every
-/// test draws from, and `check` is a closure that feeds one law its inputs.
-/// Each test draws its own cases, so every law runs the full divided count,
-/// and nextest runs the laws of one group in parallel.
+/// `mod $module = $roster($group)` names the module and the group, whose roster
+/// macro supplies the law names; each test is named for its law. `divisor`
+/// divides the configured case count, as [`crate::testing::property::run`]
+/// does, `params` binds the strategies every test draws from, and `check` is a
+/// closure that feeds one law its inputs. Each test draws its own cases, so
+/// every law runs the full divided count, and nextest runs the laws of one
+/// group in parallel.
 macro_rules! law_proptests {
     (
         $(#[$doc:meta])*
@@ -134,11 +134,11 @@ macro_rules! law_proptests {
 /// roster's driver column, holding one proptest per law over the arbitrary
 /// normal-form generators for the group's input signature.
 ///
-/// The arms carry each signature's input regime (and its doc comment);
-/// the *list* of groups lives only in `crate::for_each_law_group!`, so a
-/// group added to the roster with a known signature is driven here with
-/// no further wiring, and one with a novel signature refuses to compile
-/// until an arm says how to feed it.
+/// The arms carry each signature's input regime (and its doc comment); the
+/// *list* of groups lives only in `crate::for_each_law_group!`, so a group
+/// added to the roster with a known signature is driven here with no further
+/// wiring, and one with a novel signature refuses to compile until an arm says
+/// how to feed it.
 macro_rules! group_drivers {
     (args: (); $(($group:ident, $driver:ident, $shape:tt)),* $(,)?) => {
         $( group_drivers!(@one $group, $driver, $shape); )*
@@ -371,31 +371,29 @@ crate::for_each_law_group!(group_drivers);
 
 // ───────────────────── organic op-trace populations ─────────────────────
 
-/// One organic population's picks, borrowed: the pools the
-/// roster-derived organic drive list selects each group's inputs from.
+/// One organic population's picks, borrowed: the pools the roster-derived
+/// organic drive list selects each group's inputs from.
 struct Organic<'a> {
     /// Three organically related versions from the trace.
     v: [&'a Version; 3],
     /// Three live parties from the same trace.
     p: [&'a Party; 3],
-    /// Ranks derived from the versions: two own ranks and a genuine
-    /// distance.
+    /// Ranks derived from the versions: two own ranks and a genuine distance.
     r: [&'a Rank; 3],
-    /// Two reachable clocks, replayed from the trace on the impl,
-    /// possibly the same pick, so the pair laws' equality arms stay
-    /// live on this population.
+    /// Two reachable clocks, replayed from the trace on the impl, possibly the
+    /// same pick, so the pair laws' equality arms stay live on this population.
     c: [&'a Clock; 2],
-    /// Pool-indexed lists at fold-boundary arities. Repeated picks are
-    /// repeated raw versions and *aliased* live parties/clocks, the
-    /// input classes the list laws' fold and refusal arms exist for.
+    /// Pool-indexed lists at fold-boundary arities. Repeated picks are repeated
+    /// raw versions and *aliased* live parties/clocks, the input classes the
+    /// list laws' fold and refusal arms exist for.
     versions: &'a [Version],
     parties: &'a [Party],
     clocks: &'a [Clock],
 }
 
-/// Expands the law-group roster into the organic drive list: one
-/// `assert_laws!` per group, keyed on the group's input signature,
-/// selecting that signature's inputs from an [`Organic`] environment.
+/// Expands the law-group roster into the organic drive list: one `assert_laws!`
+/// per group, keyed on the group's input signature, selecting that signature's
+/// inputs from an [`Organic`] environment.
 ///
 /// The group list lives only in `crate::for_each_law_group!`; a roster
 /// signature without an arm here refuses to compile.

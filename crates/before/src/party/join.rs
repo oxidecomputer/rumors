@@ -1,9 +1,9 @@
 //! The disjoint union behind [`Party::join`](crate::Party::join).
 //!
-//! Two cursors consume the operands together. An unowned child copies the
-//! other subtree; two branches descend together; an owned region meeting any
-//! owned region rejects the join. The output builder normalizes each branch as
-//! it closes.
+//! Two cursors consume the operands together. An unowned child copies the other
+//! subtree; two branches descend together; an owned region meeting any owned
+//! region rejects the join. The output builder normalizes each branch as it
+//! closes.
 
 mod frames;
 

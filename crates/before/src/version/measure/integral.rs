@@ -5,9 +5,9 @@
 //! `height * width`; dividing the result by `2^S` gives the rank. The same
 //! machinery integrates the absolute or signed difference of two versions.
 //!
-//! The difficulty is that consecutive heights are stored as differences. A
-//! very wide height followed by many tiny changes takes little input space,
-//! but multiplying the full height by every region's width would repeatedly
+//! The difficulty is that consecutive heights are stored as differences. A very
+//! wide height followed by many tiny changes takes little input space, but
+//! multiplying the full height by every region's width would repeatedly
 //! traverse that wide integer. [`Accumulator`] makes adding a small change
 //! cheap; the decomposition below also makes using the resulting height cheap.
 //!
@@ -19,20 +19,20 @@
 //!   addition at the end accounts for its entire integral.
 //! - Recent changes stay in `live`. Each region adds `live * width` directly.
 //! - Older changes stay in `parked`. Their widths accumulate over a *segment*,
-//!   the consecutive regions between two transfers from `live` to `parked`.
-//!   One product accounts for the parked height over that whole segment.
+//!   the consecutive regions between two transfers from `live` to `parked`. One
+//!   product accounts for the parked height over that whole segment.
 //! - A parked height that becomes too wide for subsequent changes moves to
-//!   `deferred`. Its contribution over the remaining regions is computed at
-//!   the end, together with the other deferred heights.
+//!   `deferred`. Its contribution over the remaining regions is computed at the
+//!   end, together with the other deferred heights.
 //!
 //! A **freeze** transfers `live` into `parked`. After each boundary, the driver
-//! compares the working width of `live` with the bit length of the widest
-//! delta just read. If `live` exceeds it by more than
-//! [`HEIGHT_FREEZE_ALLOWANCE_BITS`], it freezes before
-//! processing the next region. Thus a wide change can pay for one wide region
-//! addition, but later tiny changes cannot keep provoking that same wide work.
-//! Oscillations made of wide deltas remain live: their own input already pays
-//! for reading the wide value.
+//! compares the working width of `live` with the bit length of the widest delta
+//! just read. If `live` exceeds it by more than
+//! [`HEIGHT_FREEZE_ALLOWANCE_BITS`], it freezes before processing the next
+//! region. Thus a wide change can pay for one wide region addition, but later
+//! tiny changes cannot keep provoking that same wide work. Oscillations made of
+//! wide deltas remain live: their own input already pays for reading the wide
+//! value.
 //!
 //! At a freeze, the preceding segment is settled first. If its parked height is
 //! much wider than the incoming live changes, that parked height is then
@@ -42,31 +42,30 @@
 //! height must affect only subsequent regions. Deferral prevents a wide parked
 //! height from being multiplied again at every later narrow freeze.
 //!
-//! Parking keeps a run of narrow freezes in one accumulator. `parked` holds
-//! the sum of every frozen drift not yet deferred, so consecutive drifts add
-//! into one value and drifts of opposite sign cancel there: however many
-//! freezes fire, the integrator keeps one parked height. A deferred entry
-//! instead keeps its height and the width before it until
-//! [`Integrator::finish`], and the deferred reduction adds each group's
-//! summed heights and widths into its neighbor's at every level, reading an
-//! entry's contribution again at each level above it. Deferral is therefore
-//! kept for the case that needs it: a sum much wider than the changes now
-//! arriving.
+//! Parking keeps a run of narrow freezes in one accumulator. `parked` holds the
+//! sum of every frozen drift not yet deferred, so consecutive drifts add into
+//! one value and drifts of opposite sign cancel there: however many freezes
+//! fire, the integrator keeps one parked height. A deferred entry instead keeps
+//! its height and the width before it until [`Integrator::finish`], and the
+//! deferred reduction adds each group's summed heights and widths into its
+//! neighbor's at every level, reading an entry's contribution again at each
+//! level above it. Deferral is therefore kept for the case that needs it: a sum
+//! much wider than the changes now arriving.
 //!
 //! Input already read pays for each product a freeze makes. The product
 //! multiplies the sum the previous freeze kept. That freeze kept the sum only
 //! if it was at most the allowance wider than the drift being added, so the
 //! kept sum exceeds that drift's width by at most the allowance and the
 //! addition's carry; a freeze that defers keeps the drift alone. Each drift
-//! therefore pays for at most one product: its own width plus a constant,
-//! times one segment's width.
+//! therefore pays for at most one product: its own width plus a constant, times
+//! one segment's width.
 //!
 //! # Measure distances between boundaries
 //!
 //! A segment stores the sum of its regions' widths, never an absolute sweep
 //! position. Using absolute positions would be expensive: two nearby deep
-//! boundaries can have large binary coordinates while their distance is one
-//! bit at a large power-of-two scale.
+//! boundaries can have large binary coordinates while their distance is one bit
+//! at a large power-of-two scale.
 //!
 //! [`width::ScaledWidth`] retains that scale separately. [`width::SparseWidth`]
 //! compresses runs of ones using signed base-2^32 digits: `2^(32k) - 1` needs
@@ -74,10 +73,10 @@
 //! digits while keeping large gaps separate, so neither an absolute position
 //! nor an unwritten zero prefix becomes a dense multiplication operand.
 //!
-//! No segment widths are collected before the first freeze. There is no
-//! parked height to multiply by them, and a deferred height applies only to
-//! widths after its deferral. A sweep that never freezes therefore pays only
-//! for the opening height and its live changes.
+//! No segment widths are collected before the first freeze. There is no parked
+//! height to multiply by them, and a deferred height applies only to widths
+//! after its deferral. A sweep that never freezes therefore pays only for the
+//! opening height and its live changes.
 //!
 //! # Settle deferred heights once
 //!
@@ -108,55 +107,53 @@
 //! when the sign changes; then `|D'| <= |D' - D|`, so reading `D'` is bounded
 //! by those deltas too. [`Integrator::jump`] adds this correction.
 //!
-//! Each input delta therefore pays for the accumulator changes and width
-//! checks it causes, up to one logarithmic factor. `suanpan` charges each
-//! accumulator added at a nonzero shift its own width plus one logarithm of
-//! the receiver's width, and `total`'s greatest width is `O(n)`, as the last
-//! paragraph of this section shows. `interval` adds once per region, and
-//! each region is a leaf that takes input bits to encode, so its additions
-//! cost `O(n log n)` over a sweep. That fits within the `O(M(n))` bound below
-//! because `num-bigint`'s multiplication grows as a power of `n` above one,
-//! faster than `n log n`. No known lower bound gives `M(n) = Ω(n log n)` in
-//! general, so the fit rests on the backend.
+//! Each input delta therefore pays for the accumulator changes and width checks
+//! it causes, up to one logarithmic factor. `suanpan` charges each accumulator
+//! added at a nonzero shift its own width plus one logarithm of the receiver's
+//! width, and `total`'s greatest width is `O(n)`, as the last paragraph of this
+//! section shows. `interval` adds once per region, and each region is a leaf
+//! that takes input bits to encode, so its additions cost `O(n log n)` over a
+//! sweep. That fits within the `O(M(n))` bound below because `num-bigint`'s
+//! multiplication grows as a power of `n` above one, faster than `n log n`. No
+//! known lower bound gives `M(n) = Ω(n log n)` in general, so the fit rests on
+//! the backend.
 //!
 //! Freezes and deferrals move a wide value only after input established that
 //! width; relative segment widths are bounded by the tree structure traversed
 //! inside them. A width's absolute position is not bounded that way, so the
 //! segment and deferred widths each keep one buffer for the whole sweep, and
-//! growing it to a high position happens once; clearing either between
-//! segments keeps the buffer and costs amortized O(1). The trade is space:
-//! each kept buffer holds up to the scale's digits for the rest of the sweep,
-//! `O(n)` and inside the space bound below. The deferred reduction
-//! bounds repeated reads by its data-weighted depth. Its clustered integer
-//! products give the overall `O(M(n))` time and `O(n)` transient-space
-//! bounds in `n` input bits, where `M(n)` is the cost of multiplying `n`-bit
-//! integers with the backend in use, `num-bigint`, rather than a schoolbook
-//! `n²`. Public rustdoc states the bound without naming the backend, because
-//! the backend is not part of what callers are promised. Exact integration
-//! can itself encode an arbitrary integer product, so the multiplication cost
-//! is necessary. The measurement tests exercise that reduction as well as the
-//! wide heights, dense widths, and cancellation cases that require this
-//! machinery.
+//! growing it to a high position happens once; clearing either between segments
+//! keeps the buffer and costs amortized O(1). The trade is space: each kept
+//! buffer holds up to the scale's digits for the rest of the sweep, `O(n)` and
+//! inside the space bound below. The deferred reduction bounds repeated reads
+//! by its data-weighted depth. Its clustered integer products give the overall
+//! `O(M(n))` time and `O(n)` transient-space bounds in `n` input bits, where
+//! `M(n)` is the cost of multiplying `n`-bit integers with the backend in use,
+//! `num-bigint`, rather than a schoolbook `n²`. Public rustdoc states the bound
+//! without naming the backend, because the backend is not part of what callers
+//! are promised. Exact integration can itself encode an arbitrary integer
+//! product, so the multiplication cost is necessary. The measurement tests
+//! exercise that reduction as well as the wide heights, dense widths, and
+//! cancellation cases that require this machinery.
 //!
 //! The bound also rests on two of `suanpan`'s [cost rules](suanpan#costs).
-//! [`Integrator::interval`] adds `live` into `total` at the
-//! region's weight shift, `S - d` bits, so a region of a few input bits can
-//! raise `total`'s top about `(S - d) / 32` digits above where cancellation
-//! among earlier contributions left it, and a later contribution can cancel
-//! it again. If every such raise cost its distance, a sweep alternating deep
-//! and shallow regions, such as the board's `weight-comb` family, would take
-//! time quadratic in its input. It does not. Growing storage costs once, so a
-//! raise to a width `total` has reached before grows nothing; and a shifted
-//! update adds a logarithm, which pays for crossing the emptied range below
-//! the top, so each such addition costs its own width plus one logarithm.
-//! `total` is created once per sweep and never receives `clone_from` or a
-//! shift, so one storage serves the whole sweep, and its growth totals at
-//! most the greatest width it reaches, which can far exceed its final width
-//! once distance and lag cancel. That width
-//! is `O(n)`: every contribution's top lies within `S` plus the width of the
-//! height it contributes, apart from `O(log n)` bits of carries; a tree of
-//! depth `S` takes `Ω(S)` input bits to encode; and each height's width is
-//! bounded by the deltas that built it. A `suanpan` change that charged a
+//! [`Integrator::interval`] adds `live` into `total` at the region's weight
+//! shift, `S - d` bits, so a region of a few input bits can raise `total`'s top
+//! about `(S - d) / 32` digits above where cancellation among earlier
+//! contributions left it, and a later contribution can cancel it again. If
+//! every such raise cost its distance, a sweep alternating deep and shallow
+//! regions, such as the board's `weight-comb` family, would take time quadratic
+//! in its input. It does not. Growing storage costs once, so a raise to a width
+//! `total` has reached before grows nothing; and a shifted update adds a
+//! logarithm, which pays for crossing the emptied range below the top, so each
+//! such addition costs its own width plus one logarithm. `total` is created
+//! once per sweep and never receives `clone_from` or a shift, so one storage
+//! serves the whole sweep, and its growth totals at most the greatest width it
+//! reaches, which can far exceed its final width once distance and lag cancel.
+//! That width is `O(n)`: every contribution's top lies within `S` plus the
+//! width of the height it contributes, apart from `O(log n)` bits of carries; a
+//! tree of depth `S` takes `Ω(S)` input bits to encode; and each height's width
+//! is bounded by the deltas that built it. A `suanpan` change that charged a
 //! raise its distance would break the `O(M(n))` bound here.
 
 use core::cmp::Ordering;
@@ -199,13 +196,14 @@ thread_local! {
 
 /// Integrates consecutive regions whose widths sum to one whole domain.
 ///
-/// The driver opens at the first height, adds each region with [`Self::interval`],
-/// folds the next boundary's changes into the live change with
-/// [`Self::add_change`] or [`Self::fold_change`], and calls [`Self::boundary`]
-/// before adding another region. [`Self::finish`] accounts for the constant
-/// and deferred components and returns the exact numerator.
+/// The driver opens at the first height, adds each region with
+/// [`Self::interval`], folds the next boundary's changes into the live change
+/// with [`Self::add_change`] or [`Self::fold_change`], and calls
+/// [`Self::boundary`] before adding another region. [`Self::finish`] accounts
+/// for the constant and deferred components and returns the exact numerator.
 pub struct Integrator {
-    /// Contributions already integrated at the driver's common power-of-two scale.
+    /// Contributions already integrated at the driver's common power-of-two
+    /// scale.
     total: Accumulator,
     /// Changes since the last freeze, into which the driver folds each
     /// boundary's deltas.
@@ -224,7 +222,8 @@ pub struct Integrator {
     deferred: DeferredIntegral,
 }
 
-/// Advance the integral while charging each height component only over its lifetime.
+/// Advance the integral while charging each height component only over its
+/// lifetime.
 impl Integrator {
     /// Start with no height or integrated regions.
     pub fn new() -> Self {
@@ -239,12 +238,14 @@ impl Integrator {
         }
     }
 
-    /// Set an unsigned opening height before adding any regions or boundary changes.
+    /// Set an unsigned opening height before adding any regions or boundary
+    /// changes.
     pub fn open_height(&mut self, opening: &BigUint) {
         self.base.add_shifted_limbs(0, opening.iter_u64_digits());
     }
 
-    /// Set the opening difference before adding any regions or boundary changes.
+    /// Set the opening difference before adding any regions or boundary
+    /// changes.
     ///
     /// The difference folds from `side` as [`Side::fold`] folds a delta: as
     /// stored from [`Side::A`], and with the opposite sign from [`Side::B`].
@@ -268,7 +269,8 @@ impl Integrator {
         side.fold(&mut self.live, delta);
     }
 
-    /// Add the next region, whose width at the common scale is `2^weight_shift`.
+    /// Add the next region, whose width at the common scale is
+    /// `2^weight_shift`.
     pub fn interval(&mut self, weight_shift: u64) {
         // This cheap test may miss cancellation in buffered digits;
         // `add_shifted` compacts `live` and skips it if zero.
@@ -353,8 +355,8 @@ impl Integrator {
         self.segment_width.clear();
     }
 
-    /// Settle the completed segment and return its parked height, or `None`
-    /// if that height is zero.
+    /// Settle the completed segment and return its parked height, or `None` if
+    /// that height is zero.
     ///
     /// A following deferral reuses the value already needed for multiplication,
     /// rather than reading the parked accumulator twice at the same boundary.
@@ -379,7 +381,8 @@ impl Integrator {
         Some(parked)
     }
 
-    /// Settle the last parked segment without collecting an unused deferred width.
+    /// Settle the last parked segment without collecting an unused deferred
+    /// width.
     fn finish_segment(&mut self) {
         if self.parked.is_known_zero() {
             return;
@@ -393,9 +396,9 @@ impl Integrator {
 
     /// Return the exact signed numerator at scale `2^closing_shift`.
     ///
-    /// Live changes have already contributed at every region. The parked
-    /// height owes its final segment, deferred heights owe all widths after
-    /// their deferrals, and the base height owes the whole domain.
+    /// Live changes have already contributed at every region. The parked height
+    /// owes its final segment, deferred heights owe all widths after their
+    /// deferrals, and the base height owes the whole domain.
     pub fn finish(mut self, closing_shift: u64) -> Accumulator {
         self.finish_segment();
         if !self.deferred.is_empty() {

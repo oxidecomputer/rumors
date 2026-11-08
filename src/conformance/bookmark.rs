@@ -13,15 +13,15 @@
 //! # }
 //! ```
 //!
-//! Each focused check starts a deadline before constructing its instance.
-//! An expired deadline cancels the check and panics with its name. The caller
+//! Each focused check starts a deadline before constructing its instance. An
+//! expired deadline cancels the check and panics with its name. The caller
 //! supplies the runtime and clock; a deterministic stall detector can use
 //! [`std::future::pending`] for the deadline. A deadline cannot interrupt code
 //! that never returns from a poll.
 //!
 //! Run [`check_failed_store`] separately with a fixture configured to fail its
-//! second store, repeating it for the failure points your backend exposes.
-//! A failed or cancelled store may leave either complete record. It must never
+//! second store, repeating it for the failure points your backend exposes. A
+//! failed or cancelled store may leave either complete record. It must never
 //! leave a partial record or overwrite a later successful store.
 //!
 //! # Limits of these checks
@@ -45,7 +45,8 @@ use crate::Bookmark;
 /// Sizes that exercise growth, shrinkage, empty records, and buffer boundaries.
 const SIZES: &[usize] = &[4097, 17, 8192, 1, 0, 4096];
 
-/// Generate distinct contents that also exercise every byte value in long records.
+/// Generate distinct contents that also exercise every byte value in long
+/// records.
 fn contents(len: usize, tag: u8) -> Vec<u8> {
     (0..len).map(|i| (i as u8).wrapping_mul(31) ^ tag).collect()
 }
@@ -68,9 +69,9 @@ pub async fn check<B: Bookmark, D: Future<Output = ()>>(
 
 /// Check absent storage, exact replacements, and repeatable loads.
 ///
-/// Reading all, part, or none of a returned reader must not consume storage.
-/// A present empty record must remain distinguishable from an absent one.
-/// The deadline covers construction and all operations on this instance.
+/// Reading all, part, or none of a returned reader must not consume storage. A
+/// present empty record must remain distinguishable from an absent one. The
+/// deadline covers construction and all operations on this instance.
 ///
 /// # Panics
 ///
@@ -182,8 +183,8 @@ pub async fn check_cancelled_store<B: Bookmark, D: Future<Output = ()>>(
 ///
 /// # Panics
 ///
-/// If the second store succeeds, any other operation fails, a record is torn
-/// or lost, a subsequent store is rolled back, or the deadline expires.
+/// If the second store succeeds, any other operation fails, a record is torn or
+/// lost, a subsequent store is rolled back, or the deadline expires.
 pub async fn check_failed_store<B: Bookmark, D: Future<Output = ()>>(
     fresh: impl AsyncFnOnce() -> B,
     deadline: impl FnOnce() -> D,
@@ -231,7 +232,8 @@ async fn assert_stored(bookmark: &impl Bookmark, expected: &[u8]) {
     }
 }
 
-/// An unconfirmed replacement may leave either complete record, never a mixture.
+/// An unconfirmed replacement may leave either complete record, never a
+/// mixture.
 async fn assert_atomic(bookmark: &impl Bookmark, previous: &[u8], replacement: &[u8]) {
     for _ in 0..2 {
         let actual = load(bookmark).await;

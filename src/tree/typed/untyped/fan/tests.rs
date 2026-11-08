@@ -11,20 +11,19 @@ use super::{Fan, heap_slots};
 
 /// A fresh child handle with its own backing allocation.
 ///
-/// Each call yields a distinct `Arc`, so `Node::ptr_eq` distinguishes any
-/// two children a test creates: the differential comparisons below check
-/// *which* handle a fan holds, not merely that one is present.
+/// Each call yields a distinct `Arc`, so `Node::ptr_eq` distinguishes any two
+/// children a test creates: the differential comparisons below check *which*
+/// handle a fan holds, not merely that one is present.
 fn child() -> Node {
     Node::leaf(Version::new(), Message::new(()))
 }
 
-/// Check every observation of `fan` against the `oracle` holding clones of
-/// the same handles.
+/// Check every observation of `fan` against the `oracle` holding clones of the
+/// same handles.
 ///
-/// Compared: length, both iteration directions (radix sequence
-/// and per-child identity), the values-only walk both ways, point lookups
-/// across the whole alphabet, and the successor probe against the oracle's
-/// range query.
+/// Compared: length, both iteration directions (radix sequence and per-child
+/// identity), the values-only walk both ways, point lookups across the whole
+/// alphabet, and the successor probe against the oracle's range query.
 fn equivalent(fan: &Fan, oracle: &BTreeMap<u8, Node>) -> Result<(), TestCaseError> {
     prop_assert_eq!(fan.len(), oracle.len());
 
@@ -228,9 +227,9 @@ proptest! {
     }
 }
 
-/// A fan built by pushes alone holds at most [`heap_slots`] of its length
-/// at every length from empty to the full alphabet, so [`Fan::fit`] leaves
-/// it in place: the same buffer with the same capacity.
+/// A fan built by pushes alone holds at most [`heap_slots`] of its length at
+/// every length from empty to the full alphabet, so [`Fan::fit`] leaves it in
+/// place: the same buffer with the same capacity.
 #[test]
 fn fit_leaves_a_push_grown_fan_alone() {
     let mut fan = Fan::new();
@@ -255,8 +254,8 @@ fn fit_leaves_a_push_grown_fan_alone() {
     assert_eq!(fan.len(), 256, "the pushes reach the full alphabet");
 }
 
-/// `unit` builds the one-entry fan: the entry is retrievable at its radix,
-/// the length is one, and nothing else is present.
+/// `unit` builds the one-entry fan: the entry is retrievable at its radix, the
+/// length is one, and nothing else is present.
 #[test]
 fn unit_holds_exactly_one_child() {
     let node = child();
@@ -269,13 +268,12 @@ fn unit_holds_exactly_one_child() {
 
 /// The fan occupies 40 bytes on 64-bit targets.
 ///
-/// An entry is 16 bytes (`(u8, Node)` padded to the 8-byte handle
-/// alignment), so the inline form is 8 bytes of capacity plus
-/// `16 × FAN_INLINE` of storage — the packed overlay of inline and spilled
-/// forms that `smallvec`'s `union` feature provides (without it a
-/// discriminant adds 8 bytes). The pin keeps inline-capacity growth a
-/// deliberate decision — every node allocation pays for these bytes,
-/// leaves included.
+/// An entry is 16 bytes (`(u8, Node)` padded to the 8-byte handle alignment),
+/// so the inline form is 8 bytes of capacity plus `16 × FAN_INLINE` of storage
+/// — the packed overlay of inline and spilled forms that `smallvec`'s `union`
+/// feature provides (without it a discriminant adds 8 bytes). The pin keeps
+/// inline-capacity growth a deliberate decision — every node allocation pays
+/// for these bytes, leaves included.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn fan_is_forty_bytes() {

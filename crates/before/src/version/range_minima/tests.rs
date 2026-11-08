@@ -69,9 +69,9 @@ impl DistinctMinima {
 /// How one step of the nested-operations property chooses its value.
 ///
 /// Single terms reach every width, but a drop from one rarely stops near the
-/// next boundary out. The relative forms offset the absolute minimum of an
-/// open range, so a drop can stop just short of an outer minimum or exactly
-/// at it, and a wide boundary can absorb a far narrower decrease.
+/// next boundary out. The relative forms offset the absolute minimum of an open
+/// range, so a drop can stop just short of an outer minimum or exactly at it,
+/// and a wide boundary can absorb a far narrower decrease.
 #[derive(Clone, Debug)]
 enum StepValue {
     /// `coefficient << bits`, independent of earlier steps.
@@ -236,8 +236,8 @@ fn a_deferred_50_does_not_enlarge_the_propagated_2_pow_34_drop() {
     );
 }
 
-/// A height 50 below an anchor at `2^36` stays above the true minimum zero.
-/// The word-sized deferred distance survives that comparison unchanged.
+/// A height 50 below an anchor at `2^36` stays above the true minimum zero. The
+/// word-sized deferred distance survives that comparison unchanged.
 #[test]
 fn a_word_deferred_distance_survives_a_drop_of_fifty() {
     let distance = 1u64 << 36;
@@ -291,9 +291,9 @@ fn a_wide_deferred_distance_survives_a_drop_of_fifty() {
 
 /// Check `min_ticks`, and one tick by `party`, against the recursive oracle.
 ///
-/// Both operations track nested subtree minima with [`RangeMinima`]: `min_ticks`
-/// subtracts every internal node's minimum, and a tick raises an owned left
-/// child to its right sibling's minimum.
+/// Both operations track nested subtree minima with [`RangeMinima`]:
+/// `min_ticks` subtracts every internal node's minimum, and a tick raises an
+/// owned left child to its right sibling's minimum.
 fn assert_tick_and_min_ticks_match_oracle(version: &OracleVersion, party: &OracleParty) {
     let mut actual = from_oracle_version(version);
     assert_eq!(
@@ -333,10 +333,10 @@ fn left_half_and_deep_right(right_path: &[bool]) -> OracleParty {
 /// A drop of `2^200 + 2^64 - 1` crosses a `2^64` boundary and stops one short
 /// of the `2^200` boundary beyond it, so the outer minimum survives.
 ///
-/// The right subtree is `(1, (1 + 2^200, (1 + 2^200 + 2^64, 2)))`. The leaf
-/// `2` drops from the innermost minimum by an operand at least two digits
-/// wider than the crossed boundary, leaving `2^200 - 1` to compare with the
-/// next boundary. The right subtree's minimum therefore stays `1`. `min_ticks`
+/// The right subtree is `(1, (1 + 2^200, (1 + 2^200 + 2^64, 2)))`. The leaf `2`
+/// drops from the innermost minimum by an operand at least two digits wider
+/// than the crossed boundary, leaving `2^200 - 1` to compare with the next
+/// boundary. The right subtree's minimum therefore stays `1`. `min_ticks`
 /// subtracts it, and the tick raises the owned left leaf from `0` to it.
 #[test]
 fn a_wide_drop_stopping_one_short_of_an_outer_minimum_keeps_it() {
@@ -353,15 +353,15 @@ fn a_wide_drop_stopping_one_short_of_an_outer_minimum_keeps_it() {
     );
 }
 
-/// A `2^200` boundary lowered by `5` keeps exactly `2^200 - 5`, which the
-/// close then defers, so a later leaf at `10` still undercuts the minimum `15`.
+/// A `2^200` boundary lowered by `5` keeps exactly `2^200 - 5`, which the close
+/// then defers, so a later leaf at `10` still undercuts the minimum `15`.
 ///
 /// The right subtree is `((15, (15 + 2^200, 10 + 2^200)), 10)`. The leaf
 /// `10 + 2^200` lowers its subtree's minimum by an operand at least two digits
 /// narrower than the boundary. When that subtree closes, the remainder becomes
 /// the anchor's deferred distance. The right subtree's minimum is therefore
-/// `10`. `min_ticks` subtracts it, and the tick raises the owned left leaf
-/// from `0` to it.
+/// `10`. `min_ticks` subtracts it, and the tick raises the owned left leaf from
+/// `0` to it.
 #[test]
 fn a_wide_boundary_lowered_by_five_defers_its_exact_remainder() {
     use OracleVersion as V;

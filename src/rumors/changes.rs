@@ -10,9 +10,10 @@ use super::channel::Channel;
 
 /// Reports changes to a replica without returning its messages.
 ///
-/// Use this stream to trigger gossip, persist state, or refresh a display.
-/// To read the messages themselves, use [`UnorderedMessages`](crate::UnorderedMessages)
-/// or [`CausalMessages`](crate::CausalMessages).
+/// Use this stream to trigger gossip, persist state, or refresh a display. To
+/// read the messages themselves, use
+/// [`UnorderedMessages`](crate::UnorderedMessages) or
+/// [`CausalMessages`](crate::CausalMessages).
 ///
 /// # Notifications
 ///
@@ -20,7 +21,8 @@ use super::channel::Channel;
 /// polls coalesce all changes since the last notification into one `()`;
 /// notifications cannot be used to count commits. Changes include local
 /// insertions, redactions, and new state learned through gossip. Serving a
-/// bootstrap or accepting a retirement notifies only if the message set changes.
+/// bootstrap or accepting a retirement notifies only if the message set
+/// changes.
 ///
 /// The stream ends (`None`) once the [`Peer`](crate::Peer) and every
 /// [`Rumors`](crate::Rumors) handle for the replica have dropped and the final
@@ -50,11 +52,11 @@ impl<T: Send + Sync + 'static> std::fmt::Debug for Changes<T> {
 /// The outcome of [`Changes::try_next`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TryTick {
-    /// The set advanced since the last report (a fresh signal's first step
-    /// is always a tick).
+    /// The set advanced since the last report (a fresh signal's first step is
+    /// always a tick).
     Tick,
-    /// No advance since the last report; handles are still live, so more
-    /// may come. Ask again later.
+    /// No advance since the last report; handles are still live, so more may
+    /// come. Ask again later.
     Quiet,
     /// Every handle is gone and no further change is possible.
     Ended,
@@ -70,9 +72,9 @@ impl<T: Send + Sync + 'static> Changes<T> {
         }
     }
 
-    /// Take one non-blocking step: [`Tick`] if the set advanced since the
-    /// last report, [`Quiet`] (ask again later) if not, [`Ended`] if no
-    /// further change is possible.
+    /// Take one non-blocking step: [`Tick`] if the set advanced since the last
+    /// report, [`Quiet`] (ask again later) if not, [`Ended`] if no further
+    /// change is possible.
     ///
     /// [`Tick`]: TryTick::Tick
     /// [`Quiet`]: TryTick::Quiet

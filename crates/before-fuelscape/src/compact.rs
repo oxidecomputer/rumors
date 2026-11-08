@@ -1,33 +1,32 @@
 //! Compacting a dump into the rustdoc fuelscape widgets' committed data.
 //!
-//! The raw dump is the full measurement, and it is far too large to
-//! ship inside the `before` crate package — while the rustdoc fuelscape
-//! widgets need only per-column fuel histograms, three orders of
-//! magnitude smaller. This module derives that compact form: the
-//! `fuelscape-widget-data` documents committed under
-//! `crates/before/fuelscape/`, which `before`'s `build.rs` formats into
-//! the doc islands. Compaction is a pure function of (dump, roster), so
-//! the committed files are re-derivable and byte-comparable at any time
-//! (the `fuelscape-verify` recipe is that comparison).
+//! The raw dump is the full measurement, and it is far too large to ship inside
+//! the `before` crate package — while the rustdoc fuelscape widgets need only
+//! per-column fuel histograms, three orders of magnitude smaller. This module
+//! derives that compact form: the `fuelscape-widget-data` documents committed
+//! under `crates/before/fuelscape/`, which `before`'s `build.rs` formats into
+//! the doc islands. Compaction is a pure function of (dump, roster), so the
+//! committed files are re-derivable and byte-comparable at any time (the
+//! `fuelscape-verify` recipe is that comparison).
 //!
 //! # Layout
 //!
 //! A compact dataset is a directory of JSON files, in the dump's idiom:
 //!
-//! - `index.json` — the format banner, the measuring run's
-//!   [`RenderMeta`], and the operation names in the dump's order.
-//! - `<op>.json` — one document per operation: the same banner and meta,
-//!   and the operation's [`WidgetOp`] — identity, the doc-facing
-//!   complexity strings, the per-column fuel histograms, and the overlay
-//!   points carried through for later widget revisions.
+//! - `index.json` — the format banner, the measuring run's [`RenderMeta`], and
+//!   the operation names in the dump's order.
+//! - `<op>.json` — one document per operation: the same banner and meta, and
+//!   the operation's [`WidgetOp`] — identity, the doc-facing complexity
+//!   strings, the per-column fuel histograms, and the overlay points carried
+//!   through for later widget revisions.
 //!
 //! # Binning
 //!
-//! Each column's fuel values become a histogram over log₂(fuel) at
-//! [`RES`] octaves per bin: bin `k` covers `[2^(k·RES), 2^((k+1)·RES))`,
-//! `k0` is the lowest occupied bin, and `c` counts occupancy from `k0`
-//! upward. The widget derives quantiles and the density field from these
-//! counts alone; raw samples never leave the dump.
+//! Each column's fuel values become a histogram over log₂(fuel) at [`RES`]
+//! octaves per bin: bin `k` covers `[2^(k·RES), 2^((k+1)·RES))`, `k0` is the
+//! lowest occupied bin, and `c` counts occupancy from `k0` upward. The widget
+//! derives quantiles and the density field from these counts alone; raw samples
+//! never leave the dump.
 //!
 //! # Doc-facing strings
 //!
@@ -43,12 +42,11 @@
 //! # Strictness
 //!
 //! A compact dataset is environmental input to `before`'s doc build, so
-//! [`read`] rejects malformed data as errors, never panics: unknown
-//! fields, banner mismatches, meta drift between files, name
-//! disagreements, unsorted size axes, empty or non-canonical histograms
-//! (a leading or trailing zero bin means `k0` or the length lies), a
-//! non-positive bin resolution, empty complexity strings, and overlay
-//! points no log-scale plot could place.
+//! [`read`] rejects malformed data as errors, never panics: unknown fields,
+//! banner mismatches, meta drift between files, name disagreements, unsorted
+//! size axes, empty or non-canonical histograms (a leading or trailing zero bin
+//! means `k0` or the length lies), a non-positive bin resolution, empty
+//! complexity strings, and overlay points no log-scale plot could place.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -74,18 +72,17 @@ const OP_FORMAT: &str = "fuelscape-widget-data";
 
 /// The compact format version both banners carry.
 ///
-/// Version 3 moved the measurement commit from the index into each
-/// operation document, mirroring the dump format: a dataset accretes
-/// across measuring runs, so the index holds only the run parameters
-/// every document must share.
+/// Version 3 moved the measurement commit from the index into each operation
+/// document, mirroring the dump format: a dataset accretes across measuring
+/// runs, so the index holds only the run parameters every document must share.
 const FORMAT_VERSION: u32 = 3;
 
 /// Histogram resolution: octaves of fuel per bin.
 ///
-/// The one binning constant in the pipeline; the widget reads it from
-/// each document's `res` field rather than assuming it, so changing it
-/// here re-bins the committed data on the next compaction and the docs
-/// follow with no widget change.
+/// The one binning constant in the pipeline; the widget reads it from each
+/// document's `res` field rather than assuming it, so changing it here re-bins
+/// the committed data on the next compaction and the docs follow with no widget
+/// change.
 pub const RES: f64 = 0.01;
 
 /// The index document: run provenance plus the ordered operation list.
@@ -96,8 +93,8 @@ struct IndexDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The run parameters, identical in every file; each operation
-    /// document carries its own measurement commit.
+    /// The run parameters, identical in every file; each operation document
+    /// carries its own measurement commit.
     meta: RunParams,
     /// Operation names in the dump's order; one `<name>.json` per entry.
     ops: Vec<String>,
@@ -111,8 +108,8 @@ struct OpDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The measuring run's provenance: its commit, and the run
-    /// parameters (which must match the index's).
+    /// The measuring run's provenance: its commit, and the run parameters
+    /// (which must match the index's).
     meta: RenderMeta,
     /// The operation's compact render input.
     op: WidgetOp,
@@ -126,11 +123,11 @@ pub struct WidgetOp {
     pub op_name: String,
     /// The declared size measure of the measuring run, verbatim.
     pub size_measure: String,
-    /// The variant label distinguishing this operation's chart where
-    /// one doc site stacks several; empty for a site's only chart.
+    /// The variant label distinguishing this operation's chart where one doc
+    /// site stacks several; empty for a site's only chart.
     pub variant: String,
-    /// The rustdoc complexity contract, display text
-    /// (e.g. `O(|self| + |party|)`).
+    /// The rustdoc complexity contract, display text (e.g.
+    /// `O(|self| + |party|)`).
     pub contract: String,
     /// A concrete total-input bound in the widget's expression grammar, or
     /// empty when the contract does not state one.
@@ -143,13 +140,12 @@ pub struct WidgetOp {
     pub comparison: String,
     /// Octaves of fuel per histogram bin ([`RES`] at compaction time).
     pub res: f64,
-    /// The size axis: total encoded input bytes per column, strictly
-    /// ascending.
+    /// The size axis: total encoded input bytes per column, strictly ascending.
     pub sizes: Vec<usize>,
     /// One fuel histogram per entry of `sizes`.
     pub cols: Vec<WidgetCol>,
-    /// The committed adversarial-family points, carried through for
-    /// later widget revisions (the first widget release draws none).
+    /// The committed adversarial-family points, carried through for later
+    /// widget revisions (the first widget release draws none).
     pub overlay: Vec<OverlayData>,
 }
 
@@ -157,22 +153,21 @@ pub struct WidgetOp {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WidgetCol {
-    /// The lowest occupied bin: fuel `f` lands in bin
-    /// `floor(log2(f) / res)`.
+    /// The lowest occupied bin: fuel `f` lands in bin `floor(log2(f) / res)`.
     pub k0: i64,
-    /// Occupancy counts from `k0` upward; first and last entries are
-    /// nonzero (the histogram is tight at both ends).
+    /// Occupancy counts from `k0` upward; first and last entries are nonzero
+    /// (the histogram is tight at both ends).
     pub c: Vec<u32>,
 }
 
-/// Compact one atlas: bin its samples per column and stamp the
-/// doc-facing complexity strings.
+/// Compact one atlas: bin its samples per column and stamp the doc-facing
+/// complexity strings.
 ///
 /// # Errors
 ///
 /// A zero-fuel sample (the guest meters every call, so zero fuel is a
-/// measurement bug the log-scale histogram cannot even place), and an
-/// empty sample list.
+/// measurement bug the log-scale histogram cannot even place), and an empty
+/// sample list.
 pub fn compact(
     data: &AtlasData,
     variant: &str,
@@ -233,19 +228,18 @@ pub fn compact(
     })
 }
 
-/// Compact a whole dump into `out`: one document per operation, plus the
-/// index, all written atomically.
+/// Compact a whole dump into `out`: one document per operation, plus the index,
+/// all written atomically.
 ///
 /// Each operation's contract and compensation come from its
-/// [`ROSTER`](crate::ops::ROSTER) row, and the row's declared
-/// `size_measure` must equal the dump's recorded one (module doc,
-/// *Doc-facing strings*). Returns the operation names written, in the
-/// dump's order.
+/// [`ROSTER`](crate::ops::ROSTER) row, and the row's declared `size_measure`
+/// must equal the dump's recorded one (module doc, *Doc-facing strings*).
+/// Returns the operation names written, in the dump's order.
 ///
 /// # Errors
 ///
-/// Any dump-loading failure, a dump operation missing from the roster,
-/// a `size_measure` disagreement, and any I/O failure writing `out`.
+/// Any dump-loading failure, a dump operation missing from the roster, a
+/// `size_measure` disagreement, and any I/O failure writing `out`.
 pub fn compact_dump(dump_path: &Path, out: &Path) -> io::Result<Vec<String>> {
     let (params, atlases) = dump::read(dump_path)?;
     let mut ops = Vec::with_capacity(atlases.len());
@@ -313,16 +307,15 @@ pub fn write(dir: &Path, params: &RunParams, ops: &[(RenderMeta, WidgetOp)]) -> 
 }
 
 /// Load a whole compact dataset: the shared run parameters and every
-/// operation's widget data with its own measurement provenance, in the
-/// index's order.
+/// operation's widget data with its own measurement provenance, in the index's
+/// order.
 ///
-/// `path` names the dataset: its `index.json` or the directory holding
-/// it.
+/// `path` names the dataset: its `index.json` or the directory holding it.
 ///
 /// # Errors
 ///
-/// Any I/O failure, and every strictness rejection the module doc
-/// enumerates; the error message names the offending file and check.
+/// Any I/O failure, and every strictness rejection the module doc enumerates;
+/// the error message names the offending file and check.
 pub fn read(path: &Path) -> io::Result<(RunParams, Vec<(RenderMeta, WidgetOp)>)> {
     let index_path = if path.is_dir() {
         path.join(INDEX_FILE)
@@ -380,8 +373,8 @@ pub fn read(path: &Path) -> io::Result<(RunParams, Vec<(RenderMeta, WidgetOp)>)>
     Ok((index.meta, ops))
 }
 
-/// Reject a widget document violating any structural invariant the
-/// module doc enumerates.
+/// Reject a widget document violating any structural invariant the module doc
+/// enumerates.
 fn validate(path: &Path, op: &WidgetOp) -> io::Result<()> {
     let reject = |why: &str| Err(dump::malformed(path, why));
     if !(op.res.is_finite() && op.res > 0.0) {

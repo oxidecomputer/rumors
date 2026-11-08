@@ -2,9 +2,9 @@
 //!
 //! A clone normalizes its source in place and copies only the normalized
 //! digits, so it must hold the value in the value's own width, whatever
-//! cancellation the source carried. A copy of the stored form would carry
-//! that cancellation into every later read of the copy; the width bound here
-//! tells the two apart.
+//! cancellation the source carried. A copy of the stored form would carry that
+//! cancellation into every later read of the copy; the width bound here tells
+//! the two apart.
 
 use num_bigint::BigInt as IBig;
 use proptest::prelude::*;
@@ -17,8 +17,8 @@ fn holds_its_own_width(copy: &Accumulator, value: &IBig) -> bool {
     copy.stored_digit_count() <= own_digits(value) + 1
 }
 
-/// A generated history: an optional cancelled top, then shifted limb updates
-/// of either sign.
+/// A generated history: an optional cancelled top, then shifted limb updates of
+/// either sign.
 #[derive(Clone, Debug)]
 struct History {
     /// The position of a top that cancels across two digits, if any.
@@ -88,9 +88,9 @@ proptest! {
     }
 }
 
-/// A copy of the stored form, as a clone that skipped normalization would
-/// make, keeps the source's cancelled width and fails the width bound the
-/// clone property checks, while a clone of the same source passes it.
+/// A copy of the stored form, as a clone that skipped normalization would make,
+/// keeps the source's cancelled width and fails the width bound the clone
+/// property checks, while a clone of the same source passes it.
 #[test]
 fn stored_form_copies_fail_the_width_bound() {
     for position in [3u64, 30] {
@@ -110,8 +110,8 @@ fn stored_form_copies_fail_the_width_bound() {
     }
 }
 
-/// `clone_from` writes the copy into the receiver's existing buffer when it
-/// is large enough.
+/// `clone_from` writes the copy into the receiver's existing buffer when it is
+/// large enough.
 #[test]
 fn clone_from_reuses_the_receivers_buffer() {
     let mut receiver = Accumulator::new();
@@ -127,12 +127,11 @@ fn clone_from_reuses_the_receivers_buffer() {
 /// A clone's written set takes space for the copied value's width alone,
 /// however wide a set its source retains.
 ///
-/// Writes at digits 0, 10, 20, 29,000, and 30,000 give the source's written
-/// set a bitset covering the first 29,001 positions. Cancelling the two far
-/// writes leaves a value of 21 digits, and the source keeps that bitset, as
-/// it keeps its digit buffer. The crate promises O(`Q`) space for a copy, so
-/// the clone's set may hold at most twice the words that 21 positions need at
-/// one bit each.
+/// Writes at digits 0, 10, 20, 29,000, and 30,000 give the source's written set
+/// a bitset covering the first 29,001 positions. Cancelling the two far writes
+/// leaves a value of 21 digits, and the source keeps that bitset, as it keeps
+/// its digit buffer. The crate promises O(`Q`) space for a copy, so the clone's
+/// set may hold at most twice the words that 21 positions need at one bit each.
 #[test]
 fn clones_take_written_set_space_for_the_value_alone() {
     const FAR: u64 = 32 * 30_000;

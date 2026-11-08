@@ -3,8 +3,8 @@
 //!
 //! The guest gives each measured window a fresh heap (its `window` module).
 //! These tests run real board cells in the guest that the
-//! `amp-board-fuel-build` recipe builds, named by `BOARD_FUEL_GUEST_WASM`;
-//! the `amp-board-fuel` recipe runs them before it judges the board.
+//! `amp-board-fuel-build` recipe builds, named by `BOARD_FUEL_GUEST_WASM`; the
+//! `amp-board-fuel` recipe runs them before it judges the board.
 
 use before::testing::meter::board::{self, Sampling, DEFAULT_SCALE};
 use board_fuel_harness::FuelBoard;
@@ -34,8 +34,8 @@ const CELLS: [(&str, &str); 6] = [
 ];
 
 /// The spacer sizes in bytes: one small enough to fit in memory the ordinary
-/// heap already holds, and one far larger than a wasm page, which may make
-/// the ordinary heap grow linear memory and so move each window's base.
+/// heap already holds, and one far larger than a wasm page, which may make the
+/// ordinary heap grow linear memory and so move each window's base.
 const SPACERS: [u32; 2] = [24, 16 << 20];
 
 /// Reads the compiled guest that `BOARD_FUEL_GUEST_WASM` names.
@@ -50,12 +50,12 @@ fn guest() -> Vec<u8> {
 /// [`SPACERS`], held across each measured window, leaves the cell's capture
 /// byte-identical to the capture without one.
 ///
-/// A spacer changes only the heap state that the cell's preparation leaves
-/// for the body, so equal captures mean that on these cells, under these
-/// spacers, no reading moved, both samples' fuel included. Each plain capture
-/// must contain its cell's line, so an empty shard cannot pass by matching
-/// another empty shard; [`spacer_reaches_the_guest`] shows that the spacer
-/// is allocated at all.
+/// A spacer changes only the heap state that the cell's preparation leaves for
+/// the body, so equal captures mean that on these cells, under these spacers,
+/// no reading moved, both samples' fuel included. Each plain capture must
+/// contain its cell's line, so an empty shard cannot pass by matching another
+/// empty shard; [`spacer_reaches_the_guest`] shows that the spacer is allocated
+/// at all.
 #[test]
 fn spacer_moves_no_reading() {
     let fuel_board = FuelBoard::new(&guest(), 1).expect("the guest compiles");
@@ -87,8 +87,8 @@ fn spacer_moves_no_reading() {
     }
 }
 
-/// A spacer reaches the guest's allocation path: one of `u32::MAX` bytes,
-/// more than any wasm32 allocation can hold, traps the shard with `std`'s
+/// A spacer reaches the guest's allocation path: one of `u32::MAX` bytes, more
+/// than any wasm32 allocation can hold, traps the shard with `std`'s
 /// capacity-overflow panic.
 ///
 /// This is the liveness check for [`spacer_moves_no_reading`]: its equal

@@ -8,15 +8,14 @@
 //! A wider value, a larger shift, or a streamed operand moves the exact result
 //! into signed digits. The accumulator does not move back until cleared.
 //! Without that rule, alternating around the boundary could repeatedly pay to
-//! convert the same wide value in both directions. A clear keeps any
-//! allocated digit buffer so a later wide value can reuse it.
+//! convert the same wide value in both directions. A clear keeps any allocated
+//! digit buffer so a later wide value can reuse it.
 //!
 //! The stability query,
 //! [`cmp_zero_stable_under`](super::Accumulator::cmp_zero_stable_under), can
-//! inspect this exact value directly. For an adjustment `d` whole digits
-//! wide, its threshold, `3 * 2^(32 * d)`, exceeds the greatest adjustment
-//! that width can represent, including the extra range of redundant signed
-//! digits.
+//! inspect this exact value directly. For an adjustment `d` whole digits wide,
+//! its threshold, `3 * 2^(32 * d)`, exceeds the greatest adjustment that width
+//! can represent, including the extra range of redundant signed digits.
 
 use super::value::Value;
 
@@ -25,8 +24,8 @@ pub const SMALL_MAX: u128 = 1 << 96;
 
 /// Largest shift that leaves room to add two small values inside `i128`.
 ///
-/// `SMALL_MAX << 30` is `2^126`; adding another value of at most `2^96`
-/// remains below `i128::MAX`.
+/// `SMALL_MAX << 30` is `2^126`; adding another value of at most `2^96` remains
+/// below `i128::MAX`.
 pub const SMALL_SHIFT_MAX: u64 = 30;
 
 /// Operate on the small value and transfer it into digits when necessary.

@@ -13,20 +13,19 @@
 //! the operation under test does not.
 //!
 //! [`WindowAllocator`] therefore keeps two kinds of `dlmalloc` heap. The
-//! *ordinary heap* serves every allocation outside a window. A *window heap*
-//! is created when a window opens ([`enter`]) and retires when it closes
+//! *ordinary heap* serves every allocation outside a window. A *window heap* is
+//! created when a window opens ([`enter`]) and retires when it closes
 //! ([`exit`]). It is fresh and *primed*: before the window opens, one
-//! allocation and free set it up, growing its first memory and initializing
-//! its bins, so that one-time setup stays out of the reading. Inside a
-//! window:
+//! allocation and free set it up, growing its first memory and initializing its
+//! bins, so that one-time setup stays out of the reading. Inside a window:
 //!
 //! - every allocation comes from the window heap;
 //! - a block belongs to the window heap if it lies at or above the window's
 //!   *base*, the linear-memory size in pages when the window opened;
 //! - freeing a window-heap block returns it to the window heap;
 //! - freeing an older block does nothing: the block stays allocated;
-//! - reallocating an older block allocates the new block from the window
-//!   heap, copies the contents, and leaves the old block allocated.
+//! - reallocating an older block allocates the new block from the window heap,
+//!   copies the contents, and leaves the old block allocated.
 //!
 //! Ownership by address is sound because nothing but the window heap grows
 //! linear memory while a window is open: the ordinary heap receives no calls
@@ -35,30 +34,29 @@
 //! above the base, and every older block lies below it.
 //!
 //! One premise rests on `dlmalloc` 0.2.14's wasm backend rather than on this
-//! module. The first request from any heap that reaches the backend sets a
-//! flag that every heap shares, and the backend hands that request the
-//! linker's spare heap region, which lies below every base, if the region can
-//! hold it; once the flag is set, the backend only grows linear memory.
-//! [`enter`] makes the ordinary heap allocate before every window opens, and
-//! an empty heap's first allocation always reaches the backend, so the flag
-//! is set before any window heap asks for memory. A window-heap block below
-//! the base would otherwise be freed into the wrong heap, so every
-//! window-heap allocation checks its address and panics if the premise fails.
+//! module. The first request from any heap that reaches the backend sets a flag
+//! that every heap shares, and the backend hands that request the linker's
+//! spare heap region, which lies below every base, if the region can hold it;
+//! once the flag is set, the backend only grows linear memory. [`enter`] makes
+//! the ordinary heap allocate before every window opens, and an empty heap's
+//! first allocation always reaches the backend, so the flag is set before any
+//! window heap asks for memory. A window-heap block below the base would
+//! otherwise be freed into the wrong heap, so every window-heap allocation
+//! checks its address and panics if the premise fails.
 //!
-//! The fuel spent inside a window is thus the window heap's work for the
-//! body's own allocations; a copy of each older block the body reallocates,
-//! whose cost grows with the block's size; and a fixed cost on every
-//! allocator call, a few dozen instructions for the lock, the routing, and the
-//! ownership or base check. It depends only on the sequence of allocator calls
-//! the body makes.
+//! The fuel spent inside a window is thus the window heap's work for the body's
+//! own allocations; a copy of each older block the body reallocates, whose cost
+//! grows with the block's size; and a fixed cost on every allocator call, a few
+//! dozen instructions for the lock, the routing, and the ownership or base
+//! check. It depends only on the sequence of allocator calls the body makes.
 //!
 //! When a window closes, its heap retires: the pages it grew are recorded, and
 //! a later free of one of its blocks is dropped, because a retired heap never
-//! allocates again and returning a block to it would serve nothing. The
-//! retired memory stays allocated until the instance ends, and so does every
-//! older block the body freed or reallocated, such as an operand it consumed:
-//! the ordinary heap never reuses it. Neither costs the reading anything, and
-//! the memory comes back when the instance ends. The harness runs one cell per
+//! allocates again and returning a block to it would serve nothing. The retired
+//! memory stays allocated until the instance ends, and so does every older
+//! block the body freed or reallocated, such as an operand it consumed: the
+//! ordinary heap never reuses it. Neither costs the reading anything, and the
+//! memory comes back when the instance ends. The harness runs one cell per
 //! instance, and each of the cell's samples opens one window, so the memory an
 //! instance holds but no longer uses is at most what that cell's windows grew,
 //! plus the older blocks their bodies freed or reallocated.
@@ -74,8 +72,8 @@ use spin::mutex::{SpinMutex, SpinMutexGuard};
 /// The size of a wasm page in bytes, the unit in which linear memory grows.
 const PAGE_BYTES: usize = 64 * 1024;
 
-/// The most pages a wasm32 linear memory holds: its 4 GiB address space in
-/// 64 KiB pages.
+/// The most pages a wasm32 linear memory holds: its 4 GiB address space in 64
+/// KiB pages.
 ///
 /// Every address therefore lies on a page whose index is below this, and
 /// `memory_size` never returns more, so [`RetiredPages`] covers every page.
@@ -104,8 +102,8 @@ static HEAPS: SpinMutex<Heaps> = SpinMutex::new(Heaps {
 ///
 /// The lock is `spin`'s rather than `std`'s `Mutex` because fuel counts it on
 /// every allocator call inside a measured window. On this target `std`'s
-/// `Mutex` checks for re-entry with an assertion whose operand it keeps on
-/// the shadow stack, so every allocator call would also set up a stack frame.
+/// `Mutex` checks for re-entry with an assertion whose operand it keeps on the
+/// shadow stack, so every allocator call would also set up a stack frame.
 ///
 /// # Panics
 ///
@@ -131,9 +129,9 @@ struct Heaps {
 struct OrdinaryHeap {
     /// The ordinary heap itself.
     heap: Dlmalloc,
-    /// The pages that retired window heaps grew. Every block on them belongs
-    /// to a retired heap; every other block outside the open window belongs
-    /// to the ordinary heap.
+    /// The pages that retired window heaps grew. Every block on them belongs to
+    /// a retired heap; every other block outside the open window belongs to the
+    /// ordinary heap.
     retired: RetiredPages,
 }
 
@@ -142,8 +140,8 @@ struct Window {
     /// The window's heap, primed and otherwise empty when the window opened.
     heap: Dlmalloc,
     /// The linear-memory size in pages when the window opened. The window
-    /// heap's blocks lie on this page or above it; every older block lies
-    /// below it.
+    /// heap's blocks lie on this page or above it; every older block lies below
+    /// it.
     base: usize,
 }
 
@@ -200,9 +198,9 @@ impl Window {
         page_of(address) >= self.base
     }
 
-    /// Returns `block`, a pointer the window heap returned, after checking
-    /// that it lies at or above the base, as the module docs' ownership
-    /// argument requires.
+    /// Returns `block`, a pointer the window heap returned, after checking that
+    /// it lies at or above the base, as the module docs' ownership argument
+    /// requires.
     ///
     /// # Panics
     ///
@@ -243,9 +241,9 @@ impl Window {
 impl OrdinaryHeap {
     /// Makes one allocation from the ordinary heap and frees it.
     ///
-    /// An empty heap's first allocation always reaches `dlmalloc`'s backend,
-    /// so afterwards the ordinary heap has asked the backend for memory before
-    /// any window heap does (the module docs' premise).
+    /// An empty heap's first allocation always reaches `dlmalloc`'s backend, so
+    /// afterwards the ordinary heap has asked the backend for memory before any
+    /// window heap does (the module docs' premise).
     fn prime(&mut self) {
         // SAFETY: One byte at alignment one is a layout of nonzero size.
         let block = unsafe { self.heap.malloc(1, 1) };
@@ -278,8 +276,8 @@ impl OrdinaryHeap {
     ///
     /// # Safety
     ///
-    /// As for [`release`](Self::release), and `new_size` satisfies the
-    /// contract of [`GlobalAlloc::realloc`].
+    /// As for [`release`](Self::release), and `new_size` satisfies the contract
+    /// of [`GlobalAlloc::realloc`].
     unsafe fn reallocate(&mut self, block: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         if !self.retired.holds(block.addr()) {
             // SAFETY: As in `release`, the ordinary heap allocated `block`
@@ -437,8 +435,8 @@ pub fn enter() {
 
 /// Closes the measured window and retires its heap.
 ///
-/// The guest's `exit_window` hook calls this just after the final fuel read,
-/// so retiring the heap stays out of the reading.
+/// The guest's `exit_window` hook calls this just after the final fuel read, so
+/// retiring the heap stays out of the reading.
 ///
 /// # Panics
 ///

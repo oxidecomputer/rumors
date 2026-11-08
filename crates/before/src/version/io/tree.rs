@@ -1,8 +1,8 @@
 //! Structural reading of a canonical Version tree.
 //!
 //! This is the low-level reader shared by algorithms that must inspect tree
-//! topology rather than only visit constant-height regions. It contains the
-//! bit reader and exposes Version concepts: nodes, payloads, and source ranges.
+//! topology rather than only visit constant-height regions. It contains the bit
+//! reader and exposes Version concepts: nodes, payloads, and source ranges.
 
 use num_bigint::BigUint;
 

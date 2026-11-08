@@ -1,12 +1,12 @@
 //! Equality, ordering, and hashing by value.
 //!
 //! Two accumulators compare by the sign of their difference. When one is far
-//! wider, the stability query usually decides without reading the narrower
-//! one. Otherwise both are compared with zero, which compacts a cancelled top
-//! so that their working widths lie within two digits of their values' own,
-//! and decides at once when the signs differ; if their widths still do not
-//! decide, the comparison subtracts into a temporary. The same
-//! accumulator on both sides compares equal before either cell is borrowed.
+//! wider, the stability query usually decides without reading the narrower one.
+//! Otherwise both are compared with zero, which compacts a cancelled top so
+//! that their working widths lie within two digits of their values' own, and
+//! decides at once when the signs differ; if their widths still do not decide,
+//! the comparison subtracts into a temporary. The same accumulator on both
+//! sides compares equal before either cell is borrowed.
 //!
 //! An accumulator compares with a primitive integer, on its right, by sign and
 //! magnitude. A value of magnitude at least `2^128` exceeds every primitive, so
@@ -27,21 +27,21 @@ use super::Accumulator;
 /// side's stability query rather than subtracting at once.
 ///
 /// A refused stability query leaves the side it asked at most this many digits
-/// wider than the other. Past this lead each refusal therefore strictly
-/// narrows the side it asked, so [`compare_by_widths`]'s loop, which asks
-/// repeatedly there, ends. At exactly this lead a refusal need not narrow
-/// it: compacting a top digit can carry the same digit back. The query is
-/// asked there once, and a refusal falls back to subtraction.
+/// wider than the other. Past this lead each refusal therefore strictly narrows
+/// the side it asked, so [`compare_by_widths`]'s loop, which asks repeatedly
+/// there, ends. At exactly this lead a refusal need not narrow it: compacting a
+/// top digit can carry the same digit back. The query is asked there once, and
+/// a refusal falls back to subtraction.
 pub(super) const CLOSE_LEAD: usize = 2;
 
 /// Compare by value.
 ///
 /// # Complexity
 ///
-/// Amortized O(1 + `n`) time and O(1 + `n`) temporary space, where `n` is
-/// the narrower value's width in limbs. When the signs differ, or one value
-/// is far wider and its top decides the order, the comparison takes
-/// amortized O(1) time and reads nothing of the narrower one.
+/// Amortized O(1 + `n`) time and O(1 + `n`) temporary space, where `n` is the
+/// narrower value's width in limbs. When the signs differ, or one value is far
+/// wider and its top decides the order, the comparison takes amortized O(1)
+/// time and reads nothing of the narrower one.
 impl Ord for Accumulator {
     fn cmp(&self, other: &Accumulator) -> Ordering {
         if core::ptr::eq(self, other) {
@@ -104,9 +104,9 @@ fn compare(a: &mut Value, b: &mut Value) -> Ordering {
     difference.cmp_zero()
 }
 
-/// Return the order of `a` and `b` if the wider one's stability query
-/// decides it, asking that query while one leads by more than
-/// [`CLOSE_LEAD`] digits and once at exactly that lead.
+/// Return the order of `a` and `b` if the wider one's stability query decides
+/// it, asking that query while one leads by more than [`CLOSE_LEAD`] digits and
+/// once at exactly that lead.
 fn compare_by_widths(a: &mut Value, b: &mut Value) -> Option<Ordering> {
     loop {
         let (a_digits, b_digits) = (a.stored_digit_count(), b.stored_digit_count());

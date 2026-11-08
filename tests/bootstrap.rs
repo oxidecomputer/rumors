@@ -1,4 +1,5 @@
-//! Bootstrap transfers content and identity, and returns usable state on failure.
+//! Bootstrap transfers content and identity, and returns usable state on
+//! failure.
 
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
@@ -183,7 +184,8 @@ divided_proptest! {
     }
 }
 
-/// Two bootstrappers return their builders without stalling or leaving unread bytes.
+/// Two bootstrappers return their builders without stalling or leaving unread
+/// bytes.
 #[test]
 fn both_bootstrapping_return_their_builders() {
     let (a_out, b_out) = block_on(async {
@@ -271,8 +273,8 @@ divided_proptest! {
     }
 }
 
-/// A fresh durable store and a bookmark over it whose writes fail on
-/// `writes`' schedule (an empty schedule never fails).
+/// A fresh durable store and a bookmark over it whose writes fail on `writes`'
+/// schedule (an empty schedule never fails).
 fn durable_bookmark(writes: Vec<bool>) -> (DurableStore, FlakyInMemoryBookmark) {
     let store: DurableStore = Arc::new(Mutex::new(None));
     let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), writes)));
@@ -280,8 +282,8 @@ fn durable_bookmark(writes: Vec<bool>) -> (DurableStore, FlakyInMemoryBookmark) 
     (store, bookmark)
 }
 
-/// Drive a provider's `gossip` against a *bookmarked* join over an
-/// in-memory connection, returning the newcomer's [`Joined`] outcome.
+/// Drive a provider's `gossip` against a *bookmarked* join over an in-memory
+/// connection, returning the newcomer's [`Joined`] outcome.
 fn wire_join(
     provider: &Rumors<u64>,
     bootstrap: rumors::Bootstrap<u64, FlakyInMemoryBookmark>,
@@ -302,8 +304,8 @@ fn wire_join(
     })
 }
 
-/// The first peer of the network `network` names, holding three messages:
-/// the corpus the `Joined`-arm tests bootstrap from.
+/// The first peer of the network `network` names, holding three messages: the
+/// corpus the `Joined`-arm tests bootstrap from.
 fn populated_provider(network: NetworkSeed) -> Rumors<u64> {
     let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
     provider.send_all([1, 2, 3]).unwrap();

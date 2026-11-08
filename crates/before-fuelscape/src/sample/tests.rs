@@ -10,15 +10,15 @@ use super::{cell_rng, PartySampler, VersionSampler};
 
 /// The largest byte length the decoder cross-checks sweep exhaustively.
 ///
-/// `256^n` decodes per length; chosen by measured runtime to keep the
-/// pins at seconds under the dev profile. Together with the grammar-level
-/// census pin (which reaches 24 bits member-by-member) the accept set is
-/// covered into the low twenties of bits.
+/// `256^n` decodes per length; chosen by measured runtime to keep the pins at
+/// seconds under the dev profile. Together with the grammar-level census pin
+/// (which reaches 24 bits member-by-member) the accept set is covered into the
+/// low twenties of bits.
 const EXHAUSTIVE_BYTES: usize = 2;
 
 /// Every canonical version of at most [`EXHAUSTIVE_BYTES`] encoded bytes,
-/// listed from the grammar: enumerate the sibling-rule family per exact
-/// bit length, keep the nonnegative-height members, pack.
+/// listed from the grammar: enumerate the sibling-rule family per exact bit
+/// length, keep the nonnegative-height members, pack.
 fn version_ground_truth(bytes: usize) -> BTreeSet<Vec<u8>> {
     bit_window(bytes, MIN_VERSION_BITS)
         .flat_map(|n| {
@@ -62,10 +62,10 @@ fn accepted_byte_strings(len: usize, accept: impl Fn(&[u8]) -> bool) -> BTreeSet
 
 /// The version grammar's members are exactly the decoder's accept set.
 ///
-/// Not a subset, not a superset: for every byte length up to the
-/// exhaustive bound, the encoded members the grammar enumeration produces
-/// must equal, as a set, the byte strings `Version::decode` accepts out
-/// of all `256^n` candidates.
+/// Not a subset, not a superset: for every byte length up to the exhaustive
+/// bound, the encoded members the grammar enumeration produces must equal, as a
+/// set, the byte strings `Version::decode` accepts out of all `256^n`
+/// candidates.
 #[test]
 fn version_grammar_is_exactly_the_decoder_accept_set() {
     for len in 1..=EXHAUSTIVE_BYTES {
@@ -78,9 +78,9 @@ fn version_grammar_is_exactly_the_decoder_accept_set() {
     }
 }
 
-/// The party grammar's encoded members must equal, as a set, the byte
-/// strings `Party::decode` accepts out of all `256^n` candidates, for
-/// every byte length up to the exhaustive bound.
+/// The party grammar's encoded members must equal, as a set, the byte strings
+/// `Party::decode` accepts out of all `256^n` candidates, for every byte length
+/// up to the exhaustive bound.
 #[test]
 fn party_grammar_is_exactly_the_decoder_accept_set() {
     for len in 1..=EXHAUSTIVE_BYTES {
@@ -95,9 +95,9 @@ fn party_grammar_is_exactly_the_decoder_accept_set() {
 
 /// Return a six-standard-deviation chi-square bound for uniform samples.
 ///
-/// The statistic over `k` categories has mean `k - 1` and variance
-/// `2(k - 1)`. A fixed seed makes the test deterministic; the wide margin
-/// prevents ordinary sampling noise from causing failures.
+/// The statistic over `k` categories has mean `k - 1` and variance `2(k - 1)`.
+/// A fixed seed makes the test deterministic; the wide margin prevents ordinary
+/// sampling noise from causing failures.
 fn chi_square_threshold(categories: usize) -> f64 {
     let dof = (categories - 1) as f64;
     dof + 6.0 * (2.0 * dof).sqrt()
@@ -106,11 +106,10 @@ fn chi_square_threshold(categories: usize) -> f64 {
 /// The version sampler is uniform over an exact-size space, end to end.
 ///
 /// At a fixed byte size the sampler must (a) emit only members of the
-/// enumerated canonical space — any alien draw fails by name — and
-/// (b) hit them at frequencies a chi-square test cannot tell from
-/// uniform: counting-guided generation plus whole-sample rejection is
-/// exactly uniform, so a skew here means a weight, a window, or the
-/// rejection filter is wrong.
+/// enumerated canonical space — any alien draw fails by name — and (b) hit them
+/// at frequencies a chi-square test cannot tell from uniform: counting-guided
+/// generation plus whole-sample rejection is exactly uniform, so a skew here
+/// means a weight, a window, or the rejection filter is wrong.
 #[test]
 fn version_sampler_draws_uniformly_over_the_exact_size_space() {
     let size = 2; // 767 canonical members at exactly 2 bytes.
@@ -153,8 +152,8 @@ fn version_sampler_draws_uniformly_over_the_exact_size_space() {
 /// The party sampler is uniform over an exact-size space, end to end.
 ///
 /// At a fixed byte size the sampler must emit only enumerated members, at
-/// frequencies a chi-square test cannot tell from uniform — with no
-/// rejection anywhere, this pins the counting-guided walk alone.
+/// frequencies a chi-square test cannot tell from uniform — with no rejection
+/// anywhere, this pins the counting-guided walk alone.
 #[test]
 fn party_sampler_draws_uniformly_over_the_exact_size_space() {
     let size = 2;
@@ -196,10 +195,10 @@ fn party_sampler_draws_uniformly_over_the_exact_size_space() {
 
 /// Cell seeding replays exactly and decorrelates across sample indices.
 ///
-/// The same cell coordinates must replay the identical draw (the whole
-/// plan's reproducibility rests on it), and a different sample index must
-/// draw differently — a cheap liveness check that the seed expansion
-/// actually feeds the coordinates through.
+/// The same cell coordinates must replay the identical draw (the whole plan's
+/// reproducibility rests on it), and a different sample index must draw
+/// differently — a cheap liveness check that the seed expansion actually feeds
+/// the coordinates through.
 #[test]
 fn cell_seeding_is_deterministic_and_index_sensitive() {
     let sampler = VersionSampler::new(8);

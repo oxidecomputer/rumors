@@ -86,8 +86,8 @@ where
 }
 
 /// Reassemble an ascending child stream into its parent level, one complete
-/// radix group at a time: a group flushes when the prefix changes or the
-/// input ends.
+/// radix group at a time: a group flushes when the prefix changes or the input
+/// ends.
 fn fold_parents<B, H>(backend: B, children: impl NodeStream<B, H>) -> impl NodeStream<B, S<H>>
 where
     B: Backend<Node<Z>: Leaf>,

@@ -1,23 +1,23 @@
 //! The streaming mirror: fixed-memory reconciliation over lazy node streams.
 //!
 //! The streaming mirror reconciles two replicas under a fixed memory bound,
-//! descending the tree over lazily populated per-level streams. Two
-//! implementor roles recur through every layer below: *the walk* is the
-//! in-process participant, the protocol run directly over a backend's tree;
-//! *the proxy* is the wire-bound participant, the same protocol driven by
-//! frames on one connection.
+//! descending the tree over lazily populated per-level streams. Two implementor
+//! roles recur through every layer below: *the walk* is the in-process
+//! participant, the protocol run directly over a backend's tree; *the proxy* is
+//! the wire-bound participant, the same protocol driven by frames on one
+//! connection.
 //!
 //! Both implementors advance through one type-level phase schedule
-//! ([`protocol`]) over a backend's node handles ([`backend`]). The walk
-//! lives in [`materialized`], which also holds the deadlock-freedom
-//! argument; the proxy lives in [`remote`], with its codec, its state
-//! machine, its adapter, and the pipe that carries every logical stream
-//! over the connection. Each endpoint admits its work against its byte
-//! budget through its [`ledger`], which charges what each item holds to the
-//! place the item waits in. The implementors exchange the protocol's
-//! messages ([`message`], the greeting included) in a height-erased form
-//! ([`erased`]), which dispatches back into the height-typed backend. The
-//! remaining modules hold the supporting code these share.
+//! ([`protocol`]) over a backend's node handles ([`backend`]). The walk lives
+//! in [`materialized`], which also holds the deadlock-freedom argument; the
+//! proxy lives in [`remote`], with its codec, its state machine, its adapter,
+//! and the pipe that carries every logical stream over the connection. Each
+//! endpoint admits its work against its byte budget through its [`ledger`],
+//! which charges what each item holds to the place the item waits in. The
+//! implementors exchange the protocol's messages ([`message`], the greeting
+//! included) in a height-erased form ([`erased`]), which dispatches back into
+//! the height-typed backend. The remaining modules hold the supporting code
+//! these share.
 //!
 //! Start reading at [`materialized`]'s session-dataflow section, then
 //! [`remote`].
@@ -28,12 +28,12 @@
 //! Implementors backed by trees start with either
 //! [`materialized::Handshaking::start`] or [`remote::Handshaking::start`].
 //!
-//! On a wire connection, the peer-level driver first exchanges the shared
-//! fixed [`super::preamble`]. Network and intent therefore resolve
-//! before the atomic tree snapshot/party fork; this module begins with the
-//! subsequent greeting exchange, the one message each side sends before any
-//! frame flows. What the greeting carries — and why each field rides this
-//! early — is documented at its definition, [`message::Greeting`].
+//! On a wire connection, the peer-level driver first exchanges the shared fixed
+//! [`super::preamble`]. Network and intent therefore resolve before the atomic
+//! tree snapshot/party fork; this module begins with the subsequent greeting
+//! exchange, the one message each side sends before any frame flows. What the
+//! greeting carries — and why each field rides this early — is documented at
+//! its definition, [`message::Greeting`].
 
 // The height-indexed protocol schedule necessarily composes many associated types.
 #![allow(clippy::type_complexity)]

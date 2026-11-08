@@ -33,8 +33,8 @@ use crate::{
     },
 };
 
-/// The in-memory backend's erased node representation, which the walk's
-/// query queues carry.
+/// The in-memory backend's erased node representation, which the walk's query
+/// queues carry.
 type Erased = <Local as Backend>::Erased;
 
 /// A violation that the general reaction loop can produce from one reply.
@@ -100,8 +100,8 @@ fn arb_scripted_violation() -> impl Strategy<Value = ScriptedViolation> {
     ]
 }
 
-/// Build a node at any traversal height from one path-compressed leaf,
-/// viewed whole.
+/// Build a node at any traversal height from one path-compressed leaf, viewed
+/// whole.
 trait TestHeight: Height + Sized {
     fn node(version: &mut Version) -> typed::View<Self>;
 }
@@ -121,9 +121,9 @@ where
     }
 }
 
-/// Build one malformed reply script at query height `H`, with the version
-/// the scripted counterparty is taken to have declared: the join of every
-/// node the script builds, snapshotted after the last.
+/// Build one malformed reply script at query height `H`, with the version the
+/// scripted counterparty is taken to have declared: the join of every node the
+/// script builds, snapshotted after the last.
 fn violation_script<H>(
     injection: ScriptedViolation,
     parent: u8,
@@ -297,8 +297,8 @@ where
     (query, replies, declared)
 }
 
-/// Put the script's optional outstanding query into the walk's pairing
-/// queue, labeled at the script's height.
+/// Put the script's optional outstanding query into the walk's pairing queue,
+/// labeled at the script's height.
 fn query_receiver<H>(query: Option<Query<Erased>>) -> Receiver<Query<Erased>>
 where
     H: Height,
@@ -315,7 +315,8 @@ where
 /// Drive a walk's response pump until it surfaces the injected violation.
 ///
 /// Drain successful replies so backpressure cannot prevent the walk from
-/// reaching the fault. The executor must report it even if replies remain buffered.
+/// reaching the fault. The executor must report it even if replies remain
+/// buffered.
 fn reported_violation<H: Height>(
     work: Work<Local>,
     mut responses: BoxResponses<Local, H, Error<Infallible>>,
@@ -366,7 +367,8 @@ impl InjectHeight for Z {
 
 /// Exercise the walk which opens leaf requests.
 impl InjectHeight for S<Z> {
-    /// Inject the script into leaf-parent reconciliation and collect its failure.
+    /// Inject the script into leaf-parent reconciliation and collect its
+    /// failure.
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
@@ -488,11 +490,11 @@ proptest! {
     }
 }
 
-/// One deliberately malformed opening reply and the exact violation it
-/// must surface.
+/// One deliberately malformed opening reply and the exact violation it must
+/// surface.
 ///
-/// The opening reply is the root question and nothing else; each shape
-/// below breaks that grammar once.
+/// The opening reply is the root question and nothing else; each shape below
+/// breaks that grammar once.
 #[derive(Clone, Copy, Debug)]
 enum OpeningInjection {
     /// The reply stream ends before the opening reply.
@@ -503,8 +505,8 @@ enum OpeningInjection {
     UnfinishedReply,
     /// A `Match`, ahead of the root question or after it.
     Match { trailing: bool },
-    /// A supply ahead of the root question or after it, at a radix this
-    /// side holds or at a fresh one.
+    /// A supply ahead of the root question or after it, at a radix this side
+    /// holds or at a fresh one.
     Supply { trailing: bool, held: bool },
     /// A second `Query` after the root question.
     TrailingQuery,
@@ -539,8 +541,8 @@ fn arb_opening_injection() -> impl Strategy<Value = OpeningInjection> {
 /// Inject one malformed opening reply through the responder's opening leg,
 /// whose root fan holds one child per radix in `radixes`.
 ///
-/// The root question matches the held fan exactly, so a script whose
-/// fault lies past the question is answered without a dispute.
+/// The root question matches the held fan exactly, so a script whose fault lies
+/// past the question is answered without a dispute.
 fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Violation {
     let mut version = Version::new();
     let ours = radixes

@@ -61,8 +61,8 @@ impl Divergence {
     /// Give each prefix two shared leaves and independent additions per side.
     ///
     /// Leaf slots start at one, leaving radix zero available for a deeper
-    /// prefix. Zero-filled prefixes of different lengths therefore build
-    /// nested branches without overlapping any leaf addresses.
+    /// prefix. Zero-filled prefixes of different lengths therefore build nested
+    /// branches without overlapping any leaf addresses.
     fn new(prefixes: impl IntoIterator<Item = Vec<u8>>, novel: [usize; 2]) -> Self {
         let mut pair = Self {
             shared: Vec::new(),
@@ -81,7 +81,8 @@ impl Divergence {
         pair
     }
 
-    /// Build a pair and run a test while its chosen leaf addresses are installed.
+    /// Build a pair and run a test while its chosen leaf addresses are
+    /// installed.
     ///
     /// Preassign versions using `Tree::act`'s tick order. Each payload contains
     /// its address bytes, so a wrong leaf reconstruction also changes content.
@@ -129,7 +130,8 @@ impl Divergence {
         })
     }
 
-    /// Reconcile the pair and compare both results and payloads with `Tree::join`.
+    /// Reconcile the pair and compare both results and payloads with
+    /// `Tree::join`.
     fn check(&self, session: &Session, plans: [IoPlan; 2]) -> Observations {
         self.with_trees(|[left, right]| {
             let mut expected = left.clone();
@@ -346,8 +348,8 @@ fn leaf_path(prefix: &[u8], slot: usize) -> Path {
     bytes.into()
 }
 
-/// One endpoint's sent data frames, shared with a session observer: the
-/// stream identities of its reactions, and how many frames it sent in all.
+/// One endpoint's sent data frames, shared with a session observer: the stream
+/// identities of its reactions, and how many frames it sent in all.
 #[derive(Clone, Default)]
 struct SentFrames {
     /// The stream identity of each sent reaction, in order.
@@ -406,7 +408,8 @@ impl Observer for SentFrames {
 
 /// Select outgoing data streams for frame recording.
 impl SessionObserver for SentFrames {
-    /// Record outgoing data frames; control and incoming streams are irrelevant.
+    /// Record outgoing data frames; control and incoming streams are
+    /// irrelevant.
     fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
         match stream.id {
             StreamId::Data { .. } if stream.direction == Direction::Sent => {
@@ -430,8 +433,8 @@ struct SentStream {
 
 /// Decode sent frames to distinguish reactions from stream endings.
 impl StreamObserver for SentStream {
-    /// Count every frame, and record only reactions: stream endings alone
-    /// prove no descent.
+    /// Count every frame, and record only reactions: stream endings alone prove
+    /// no descent.
     fn message(&mut self, bytes: &[u8]) {
         let StreamId::Data {
             speaker: role,
@@ -450,9 +453,9 @@ impl StreamObserver for SentStream {
     }
 }
 
-/// The ledgers the suites run both endpoints on: the serial configuration,
-/// one unit of each kind and depth at a time, and an unlimited budget, at
-/// which no unit waits for admission.
+/// The ledgers the suites run both endpoints on: the serial configuration, one
+/// unit of each kind and depth at a time, and an unlimited budget, at which no
+/// unit waits for admission.
 const LEDGERS: [SessionLedger; 2] = [SessionLedger::Serial, SessionLedger::Budget(usize::MAX)];
 
 /// Either of [`LEDGERS`], for generators.
@@ -473,8 +476,8 @@ struct Session {
 }
 
 impl Session {
-    /// A session over pipes of `capacity` bytes on the ledger `budget`, at
-    /// the default target and wire pools.
+    /// A session over pipes of `capacity` bytes on the ledger `budget`, at the
+    /// default target and wire pools.
     fn new(capacity: usize, budget: SessionLedger) -> Self {
         Self {
             capacity,
@@ -497,7 +500,8 @@ struct Observations {
 
 /// Reconcile observed replicas over a controlled transport.
 impl Session {
-    /// Drive two observed proxies, checking liveness without an external runtime.
+    /// Drive two observed proxies, checking liveness without an external
+    /// runtime.
     fn run(&self, roots: [TreeRoot; 2], plans: [IoPlan; 2]) -> ([TreeRoot; 2], Observations) {
         let sent = [SentFrames::default(), SentFrames::default()];
         let (left_end, right_end) = memory_connection(self.capacity);
@@ -571,7 +575,8 @@ impl Session {
 
 /// Check that both wire roles reached the requested depth.
 impl Observations {
-    /// Check actual reactions on both sides down to the deepest disputed prefix.
+    /// Check actual reactions on both sides down to the deepest disputed
+    /// prefix.
     fn assert_reach(&self, depth: usize) {
         for sent in &self.sent {
             sent.assert_reach(u8::try_from(depth).unwrap());
@@ -586,12 +591,12 @@ fn root_prefix(child: usize, depth: usize) -> Vec<u8> {
     prefix
 }
 
-/// Run `f` with the decoders of every height held still for their first
-/// `polls` polls of their incoming lanes.
+/// Run `f` with the decoders of every height held still for their first `polls`
+/// polls of their incoming lanes.
 ///
-/// A held lane keeps every frame the demultiplexer routes to it, so supply
-/// runs pile up there, each holding its permit from the receive pool, while
-/// the rest of the session keeps running.
+/// A held lane keeps every frame the demultiplexer routes to it, so supply runs
+/// pile up there, each holding its permit from the receive pool, while the rest
+/// of the session keeps running.
 fn with_decoders_held<R>(polls: usize, f: impl FnOnce() -> R) -> R {
     fn hold_from<R>(height: usize, polls: usize, f: impl FnOnce() -> R) -> R {
         if height > RootHeight::HEIGHT {
@@ -607,17 +612,17 @@ fn with_decoders_held<R>(polls: usize, f: impl FnOnce() -> R) -> R {
 }
 
 /// Sessions whose receive pools run dry while every decoder is held still
-/// complete and converge, at one-run pools and targets of 256, 512 and
-/// 1,024 bytes.
+/// complete and converge, at one-run pools and targets of 256, 512 and 1,024
+/// bytes.
 ///
-/// Both sides supply many one-record runs on several logical streams. At
-/// these targets a pool holds a few one-record runs, so the runs routed
-/// to held lanes take every permit, and the frame reader waits for a permit
-/// with frames for every stream behind it. The pipe's argument says the wait
-/// ends anyway: each permit is held by a run already read, which its decoder
-/// finishes without waiting on any later frame, returning the permit before
-/// it waits for its next one. The count of receive-pool waits must grow in
-/// every session, so each session reaches the state it claims to test.
+/// Both sides supply many one-record runs on several logical streams. At these
+/// targets a pool holds a few one-record runs, so the runs routed to held lanes
+/// take every permit, and the frame reader waits for a permit with frames for
+/// every stream behind it. The pipe's argument says the wait ends anyway: each
+/// permit is held by a run already read, which its decoder finishes without
+/// waiting on any later frame, returning the permit before it waits for its
+/// next one. The count of receive-pool waits must grow in every session, so
+/// each session reaches the state it claims to test.
 #[test]
 fn sessions_complete_when_held_decoders_drain_the_receive_pool() {
     let pair = Divergence::new(
@@ -685,10 +690,9 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
     }
 }
 
-/// Every branching position and a chain branching at all positions converge
-/// in both orientations, in the serial configuration and at an unlimited
-/// budget, with
-/// writes visible only on flush.
+/// Every branching position and a chain branching at all positions converge in
+/// both orientations, in the serial configuration and at an unlimited budget,
+/// with writes visible only on flush.
 #[test]
 fn every_branching_depth_matches_join() {
     let shapes = (0..RootHeight::HEIGHT)

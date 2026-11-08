@@ -1,8 +1,9 @@
 //! Composable causal queries over [`Version`](crate::Version)s.
 //!
-//! A range over totally ordered values is an interval. [`Version`](crate::Version)s are only
-//! partially ordered, so a causal *query* generalizes the idea of an interval
-//! into an optional *floor* and *ceiling*, minus a set of *holes*.
+//! A range over totally ordered values is an interval.
+//! [`Version`](crate::Version)s are only partially ordered, so a causal *query*
+//! generalizes the idea of an interval into an optional *floor* and *ceiling*,
+//! minus a set of *holes*.
 //!
 //! Queries may be constructed by composing atomic queries, and resolved against
 //! [`Version`](crate::Version)s and [`Span`]s to answer questions of
@@ -17,8 +18,8 @@
 //! | [`after(p)`](after)   | `p <= v`      |
 //! | [`before(e)`](before) | `v <= e`      |
 //!
-//! Both atoms drop versions [`concurrent`](crate::Version::concurrent) to their bound
-//! (which we will write `∥` for brevity below).
+//! Both atoms drop versions [`concurrent`](crate::Version::concurrent) to their
+//! bound (which we will write `∥` for brevity below).
 //!
 //! Concurrency enters through negation; the complement of "comparable, on this
 //! side" is "comparable on the other side, or concurrent":
@@ -47,28 +48,29 @@
 //! A [`Span`] can answer more detailed questions than [`Query`]'s
 //! coarse-grained [`coverage`](Query::coverage) and
 //! [`contains`](Query::contains) (i.e. [`dominance`](crate::Span::dominance),
-//! [`precedence`](crate::Span::precedence), and [`place`](crate::Span::place)). However, it
-//! gains these additional *questions you can ask* in exchange for a reduction
-//! in *things you can ask them about*. While every [`Span`] `lo <= hi` is
-//! convertible [`into`](Into::into) the [`Query`] `after(lo) & before(hi)`, the
-//! converse is not true; a [`Query`] can articulate a large number of
-//! predicates on [`Version`](crate::Version)s which are not expressible as a [`Span`], because
-//! they do not take the form `lo <= v <= hi`.
+//! [`precedence`](crate::Span::precedence), and [`place`](crate::Span::place)).
+//! However, it gains these additional *questions you can ask* in exchange for a
+//! reduction in *things you can ask them about*. While every [`Span`]
+//! `lo <= hi` is convertible [`into`](Into::into) the [`Query`]
+//! `after(lo) & before(hi)`, the converse is not true; a [`Query`] can
+//! articulate a large number of predicates on [`Version`](crate::Version)s
+//! which are not expressible as a [`Span`], because they do not take the form
+//! `lo <= v <= hi`.
 //!
 //! Additionally, the expressive limitations (and thereby representational
 //! simplicity) of a [`Span`]s grant them a stable canonical wire format and a
 //! much wider variety of meaningful operations beyond merely the analogues of
-//! [`Query`]'s predicates over [`Version`](crate::Version)s. Over an arbitrary pair of
-//! [`Span`]s, we can compute the [`union`](crate::Span::union),
+//! [`Query`]'s predicates over [`Version`](crate::Version)s. Over an arbitrary
+//! pair of [`Span`]s, we can compute the [`union`](crate::Span::union),
 //! [`intersect`](crate::Span::intersect), [`join`](crate::Span::join), and
-//! [`meet`](crate::Span::meet); we can [`project`](crate::Span::project) them over a
-//! [`Party`](crate::Party), etc.
+//! [`meet`](crate::Span::meet); we can [`project`](crate::Span::project) them
+//! over a [`Party`](crate::Party), etc.
 //!
 //! So, in short:
 //!
 //! - Do you want a flexible and idiomatic language which can answer whether a
-//!   [`Query`] [`contains`](Query::contains) a [`Version`](crate::Version), or how much
-//!   [`coverage`](Query::coverage) it has of a [`Span`]?
+//!   [`Query`] [`contains`](Query::contains) a [`Version`](crate::Version), or
+//!   how much [`coverage`](Query::coverage) it has of a [`Span`]?
 //! - Or do you want a richer algebraic [`Span`] which can be serialized,
 //!   manipulated, and interrogated in a more fine-grained manner, but which
 //!   cannot express things like one-sided ranges or strict containment?
@@ -76,8 +78,8 @@
 //! # Polarity
 //!
 //! Exact coverage for unrestricted mixtures of exclusions can require testing
-//! combinations of exclusions. Queries avoid that cost by giving every hole
-//! one *polarity*:
+//! combinations of exclusions. Queries avoid that cost by giving every hole one
+//! *polarity*:
 //!
 //! - [`Neutral`] has no holes;
 //! - [`Down`] excludes sets with upper bounds;

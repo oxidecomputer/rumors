@@ -28,14 +28,14 @@ use std::sync::Arc;
 
 use crate::testing::oracles::tree::{self, Cost};
 
-/// Every feasible single-region inflation of `(id, e)`, each paired with its true
-/// `(expansions, depth)` cost.
+/// Every feasible single-region inflation of `(id, e)`, each paired with its
+/// true `(expansions, depth)` cost.
 ///
-/// The full search space `grow` optimizes over, enumerated
-/// without pruning. Empty iff the id owns nothing here (an empty region can never be
-/// inflated). Trees are raw (un-normalized), exactly as the paper's `grow` builds them;
-/// callers normalize before comparing to `event`'s output. Recursive over a bounded test
-/// tree (the impl's own traversals are iterative).
+/// The full search space `grow` optimizes over, enumerated without pruning.
+/// Empty iff the id owns nothing here (an empty region can never be inflated).
+/// Trees are raw (un-normalized), exactly as the paper's `grow` builds them;
+/// callers normalize before comparing to `event`'s output. Recursive over a
+/// bounded test tree (the impl's own traversals are iterative).
 pub(crate) fn all_inflations(id: &tree::Party, e: &tree::Version) -> Vec<(tree::Version, Cost)> {
     use tree::Party as P;
     use tree::Version as V;
@@ -104,8 +104,8 @@ pub(crate) fn min_inflation_cost(id: &tree::Party, e: &tree::Version) -> Option<
 /// with the root-ward (right-favoring) tie-break applied *locally* at each
 /// branch node.
 ///
-/// Returns the raw (un-normalized) tree and its cost, or `None` if
-/// the id owns nothing.
+/// Returns the raw (un-normalized) tree and its cost, or `None` if the id owns
+/// nothing.
 ///
 /// Independent of `grow`'s greedy DP in the way that matters: each child's
 /// weight is its *full-enumeration* minimum cost ([`min_inflation_cost`]), not

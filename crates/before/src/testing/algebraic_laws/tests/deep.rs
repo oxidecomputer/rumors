@@ -1,18 +1,18 @@
-//! The law drivers over deep inputs: every law group, fed versions and
-//! parties tens to hundreds of levels deep.
+//! The law drivers over deep inputs: every law group, fed versions and parties
+//! tens to hundreds of levels deep.
 //!
 //! The arbitrary drivers stop at depth four. These drivers expand the same
 //! roster (`crate::for_each_law_group!`) over the deep strategies in
 //! [`crate::testing::generators::leaf_list`] and
-//! [`crate::testing::generators::regions`]: versions to depth 300 with
-//! heights to 2,200 bits, related pairs that are equal, mirrored, refined, or
-//! tie exactly in rank, parties to depth 80, and families of up to ten
-//! parties that are pairwise disjoint or overlap in one party. The laws need
-//! no oracle, so depth costs them nothing but time.
+//! [`crate::testing::generators::regions`]: versions to depth 300 with heights
+//! to 2,200 bits, related pairs that are equal, mirrored, refined, or tie
+//! exactly in rank, parties to depth 80, and families of up to ten parties that
+//! are pairwise disjoint or overlap in one party. The laws need no oracle, so
+//! depth costs them nothing but time.
 //!
 //! A case holding a deep version costs many arbitrary cases, so each such
-//! driver runs the configured case count divided by a divisor that grows
-//! with the versions its inputs hold.
+//! driver runs the configured case count divided by a divisor that grows with
+//! the versions its inputs hold.
 
 use proptest::prelude::*;
 

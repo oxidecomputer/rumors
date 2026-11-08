@@ -1,4 +1,5 @@
-//! Smoke coverage for the amplification board (`before::testing::meter::board`).
+//! Smoke coverage for the amplification board
+//! (`before::testing::meter::board`).
 //!
 //! The tests drive every board cell, exercise shard merging, and pin the
 //! operation and family coverage maps. The binding verdicts belong to the
@@ -17,8 +18,8 @@ const SMOKE_SCALE: f64 = 0.02;
 /// ledger, and no fuel.
 ///
 /// The in-process sweep measures every cell on the test's own thread, and the
-/// ledger counts only that thread's allocator requests, so allocations the
-/// test harness makes on its own threads cannot enter a reading.
+/// ledger counts only that thread's allocator requests, so allocations the test
+/// harness makes on its own threads cannot enter a reading.
 fn native_meters() -> Meters {
     Meters {
         heap: Some(HeapMeter {
@@ -32,9 +33,9 @@ fn native_meters() -> Meters {
 /// A shard spawner that measures every slice in this process instead of
 /// spawning children.
 ///
-/// The runner's spawner launches one copy of the `amp_board` binary per
-/// slice; the protocol it feeds (emit, parse, reorder, re-judge) is the
-/// same either way, so the smoke suite drives it without processes.
+/// The runner's spawner launches one copy of the `amp_board` binary per slice;
+/// the protocol it feeds (emit, parse, reorder, re-judge) is the same either
+/// way, so the smoke suite drives it without processes.
 fn in_process_spawn(
     shards: usize,
     meters: &Meters,
@@ -50,9 +51,9 @@ fn in_process_spawn(
     }
 }
 
-/// Retaining an allocation-free operation's result adds no measured heap.
-/// Check both samples of every Version equality row in the existing sweep;
-/// boxing the result would make these otherwise allocation-free rows nonzero.
+/// Retaining an allocation-free operation's result adds no measured heap. Check
+/// both samples of every Version equality row in the existing sweep; boxing the
+/// result would make these otherwise allocation-free rows nonzero.
 #[test]
 fn retaining_results_does_not_allocate_measured_heap() {
     let captures = in_process_spawn(1, &native_meters())(Sampling::Scaled(SMOKE_SCALE))
@@ -81,29 +82,28 @@ fn retaining_results_does_not_allocate_measured_heap() {
     assert!(checked > 0, "the sweep must exercise Version equality");
 }
 
-/// The board's per-family cell expectations, derived from the registry:
-/// each board family's declared bundle reach, keyed by its registry
-/// name.
+/// The board's per-family cell expectations, derived from the registry: each
+/// board family's declared bundle reach, keyed by its registry name.
 ///
-/// The board's coverage is the product of its two axes (the board module
-/// doc's product section), so the expectation lives on the family axis: a
-/// row added to or dropped from the operation table moves every reach it
-/// touches, a shape whose bundle gains or loses a slot moves its own, and
-/// either drift fails against the registry's committed answer until the
-/// family specification is deliberately re-stated.
+/// The board's coverage is the product of its two axes (the board module doc's
+/// product section), so the expectation lives on the family axis: a row added
+/// to or dropped from the operation table moves every reach it touches, a shape
+/// whose bundle gains or loses a slot moves its own, and either drift fails
+/// against the registry's committed answer until the family specification is
+/// deliberately re-stated.
 fn expected_cells_per_family() -> BTreeMap<&'static str, usize> {
     FamilyId::board()
         .map(|family| (family.name(), family.spec().cells))
         .collect()
 }
 
-/// The board runs to completion at tiny sizes: every cell prepares,
-/// measures, and renders, and the matrix keeps covering the full
-/// operation sweep, family by family.
+/// The board runs to completion at tiny sizes: every cell prepares, measures,
+/// and renders, and the matrix keeps covering the full operation sweep, family
+/// by family.
 ///
-/// Each shape's cell count must match the bundle reach its registry
-/// variant declares. Colors are deliberately not asserted: the board is
-/// a dashboard, not a gate.
+/// Each shape's cell count must match the bundle reach its registry variant
+/// declares. Colors are deliberately not asserted: the board is a dashboard,
+/// not a gate.
 #[test]
 fn board_runs_to_completion() {
     let meters = native_meters();
@@ -145,16 +145,15 @@ fn board_runs_to_completion() {
     );
 }
 
-/// The shard protocol round-trips: a board dealt across three shards
-/// emits, parses, reorders, and re-judges into the same matrix as one
-/// undivided shard.
+/// The shard protocol round-trips: a board dealt across three shards emits,
+/// parses, reorders, and re-judges into the same matrix as one undivided shard.
 ///
-/// This is the merge's coverage (the wire form's field order, the
-/// ownership and count guards, and the board-order reconstruction), and
-/// byte-identity is how it asserts, since every judged quantity is a
-/// deterministic counter over state each shard owns privately. Three
-/// shards deal the operation × family grid unevenly, so the
-/// reconstruction cannot pass by coincidence of an even split.
+/// This is the merge's coverage (the wire form's field order, the ownership and
+/// count guards, and the board-order reconstruction), and byte-identity is how
+/// it asserts, since every judged quantity is a deterministic counter over
+/// state each shard owns privately. Three shards deal the operation × family
+/// grid unevenly, so the reconstruction cannot pass by coincidence of an even
+/// split.
 #[test]
 fn shard_protocol_round_trips() {
     let meters = native_meters();
@@ -193,14 +192,14 @@ fn shard_protocol_round_trips() {
     }
 }
 
-/// The worst-case map folds totally over the board's sweep at any scale:
-/// every operation row renders exactly one line per mapped currency
-/// (heap), so a row can neither drop out of the map nor render twice.
+/// The worst-case map folds totally over the board's sweep at any scale: every
+/// operation row renders exactly one line per mapped currency (heap), so a row
+/// can neither drop out of the map nor render twice.
 ///
 /// Rankings are deliberately not asserted: they are scale- and
-/// profile-dependent readings, and the release-profile entry-compare
-/// against the committed pin judges them, inside the board's acceptance
-/// verdict (`just amp-board-acceptance`).
+/// profile-dependent readings, and the release-profile entry-compare against
+/// the committed pin judges them, inside the board's acceptance verdict
+/// (`just amp-board-acceptance`).
 #[test]
 fn worst_map_covers_every_operation_row() {
     let meters = native_meters();
@@ -237,21 +236,20 @@ fn worst_map_covers_every_operation_row() {
     );
 }
 
-/// The merge refuses a silently shrunk grid: a genuine capture with one
-/// cell line deleted and the end count restated is refused naming the
-/// shorted family, for every family on the board.
+/// The merge refuses a silently shrunk grid: a genuine capture with one cell
+/// line deleted and the end count restated is refused naming the shorted
+/// family, for every family on the board.
 ///
 /// This is the completeness refusal's committed known-bad artifact: each
 /// tampered capture is well-formed shard output whose only defect is one
-/// missing cell, and the merge must refuse it rather than render the
-/// shrunk board. The sweep quantifies over the family axis (the axis the
-/// per-family refusal discriminates on; positions within one family short
-/// the same count) by dropping each family's first cell, plus the
-/// grid's last cell (the boundary the end-count restatement is easiest to
-/// forge at). Being a merge-layer check it fires at every scale,
-/// including the release acceptance ladder: the completeness the
-/// per-family smoke pin (`board_runs_to_completion`) can only attest at
-/// its own scale.
+/// missing cell, and the merge must refuse it rather than render the shrunk
+/// board. The sweep quantifies over the family axis (the axis the per-family
+/// refusal discriminates on; positions within one family short the same count)
+/// by dropping each family's first cell, plus the grid's last cell (the
+/// boundary the end-count restatement is easiest to forge at). Being a
+/// merge-layer check it fires at every scale, including the release acceptance
+/// ladder: the completeness the per-family smoke pin
+/// (`board_runs_to_completion`) can only attest at its own scale.
 #[test]
 fn merge_refuses_a_silently_shrunk_grid_for_every_family() {
     let meters = native_meters();

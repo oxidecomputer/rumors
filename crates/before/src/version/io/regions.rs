@@ -1,10 +1,10 @@
 //! Forward traversal of canonical version trees.
 //!
-//! [`VersionRegionReader`] owns a complete-stream traversal for operations that overlay
-//! several versions. [`VersionSubtreeReader`] supplies the same iterative descent and
-//! backtracking for a subtree read through a reader owned by its caller. Both
-//! retain one direction bit per open ancestor and use the bit reader's word-sized
-//! reads for topology runs and payloads.
+//! [`VersionRegionReader`] owns a complete-stream traversal for operations that
+//! overlay several versions. [`VersionSubtreeReader`] supplies the same
+//! iterative descent and backtracking for a subtree read through a reader owned
+//! by its caller. Both retain one direction bit per open ancestor and use the
+//! bit reader's word-sized reads for topology runs and payloads.
 //!
 //! The subtree reader can also summarize a range by its net height change and
 //! minimum. This lets ticking skip a region in one scan while preserving the
@@ -178,8 +178,8 @@ impl RegionReader for VersionRegionReader<'_> {
 /// is the caller's. The cursor is a per-call argument rather than owned state
 /// so the caller keeps it between calls: the consuming walks read their
 /// payloads through the same cursor the driver descends with, and their
-/// surrounding state (range-minimum stacks, output builders, height accumulators)
-/// borrows freely alongside.
+/// surrounding state (range-minimum stacks, output builders, height
+/// accumulators) borrows freely alongside.
 pub struct VersionSubtreeReader {
     /// Root-to-leaf branch directions for the current leaf, root first: `false`
     /// inside an ancestor's left child (its right subtree is still pending in
@@ -206,18 +206,18 @@ impl VersionSubtreeReader {
     /// backtrack), then descends to the leaf at the cursor.
     ///
     /// Between calls the caller must advance the cursor past exactly the
-    /// yielded leaf's payload code (`read_gamma` or `skip_gamma`): the driver reads
-    /// topology only, and the next descent starts at the following node's flag.
-    /// The backtrack is pure path bookkeeping (it reads no bits), so a caller
-    /// that stops mid-subtree (a position-bounded prefix pass) simply stops
-    /// calling.
+    /// yielded leaf's payload code (`read_gamma` or `skip_gamma`): the driver
+    /// reads topology only, and the next descent starts at the following node's
+    /// flag. The backtrack is pure path bookkeeping (it reads no bits), so a
+    /// caller that stops mid-subtree (a position-bounded prefix pass) simply
+    /// stops calling.
     ///
     /// # Panics
     ///
     /// The stream must be canonical. The violations this walk structurally
-    /// notices (truncation, malformation) panic; the rest walk silently
-    /// with an unspecified result (the contract of
-    /// [`Version::partial_cmp`], stated once there).
+    /// notices (truncation, malformation) panic; the rest walk silently with an
+    /// unspecified result (the contract of [`Version::partial_cmp`], stated
+    /// once there).
     pub fn descend(&mut self, cursor: &mut VersionTreeReader<'_>) -> Option<u64> {
         if self.started {
             loop {
@@ -258,8 +258,8 @@ impl Extremum {
 
     /// Track the minimum, restarting from zero when the height drops past it.
     ///
-    /// Restarting replaces the register in O(1), releasing any wide
-    /// allocation that described the old minimum.
+    /// Restarting replaces the register in O(1), releasing any wide allocation
+    /// that described the old minimum.
     pub fn min(register: Accumulator) -> Self {
         Extremum {
             register,

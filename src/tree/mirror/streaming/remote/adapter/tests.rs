@@ -1,7 +1,7 @@
 //! Behavioral specification for adapting wire frames into protocol replies.
 //!
-//! The suite checks valid and malformed replies, batching, bounded parking,
-//! and the reader/assembler occupancy limit across every protocol height.
+//! The suite checks valid and malformed replies, batching, bounded parking, and
+//! the reader/assembler occupancy limit across every protocol height.
 
 use std::{collections::BTreeMap, ops::Range};
 
@@ -52,21 +52,20 @@ fn hash(byte: u8) -> Hash {
     Hash::from([byte; MERKLE_HASH_LEN])
 }
 
-/// A declared set length no fixture here can exhaust, for tests whose
-/// subject is not the ingress supply charge.
+/// A declared set length no fixture here can exhaust, for tests whose subject
+/// is not the ingress supply charge.
 fn unbounded() -> SupplyLedger {
     SupplyLedger::new(u64::MAX)
 }
 
-/// Supply bounds no fixture leaf here breaks, for tests whose subject is
-/// not a supplied version.
+/// Supply bounds no fixture leaf here breaks, for tests whose subject is not a
+/// supplied version.
 ///
 /// The peer's version holds every tick a [`LeafCase`] can place, and it
-/// declares no limit on version size; the side it supplies has seen
-/// nothing.
+/// declares no limit on version size; the side it supplies has seen nothing.
 ///
-/// Every version contains the empty version, so a side at it has still
-/// seen a leaf at that version; [`LeafCase`] never builds one.
+/// Every version contains the empty version, so a side at it has still seen a
+/// leaf at that version; [`LeafCase`] never builds one.
 fn fixture_bounds() -> SupplyBounds {
     // A `LeafCase` ticks the seed party at most `u64::MAX` times and once
     // more, so one tick past `u64::MAX` contains every one.
@@ -176,10 +175,10 @@ struct LeafCase {
 impl LeafCase {
     /// Construct a leaf whose low 56 value bits and ticks select its version.
     ///
-    /// The version holds one tick beyond those the two select, so it is
-    /// never the empty version: every inserted leaf's version holds its
-    /// insert's tick, and a decoder rejects a leaf at the empty version as
-    /// one every side has seen.
+    /// The version holds one tick beyond those the two select, so it is never
+    /// the empty version: every inserted leaf's version holds its insert's
+    /// tick, and a decoder rejects a leaf at the empty version as one every
+    /// side has seen.
     fn new(value: u64, ticks: u8) -> Self {
         let mut version = uniform_version(value.wrapping_shl(8) | u64::from(ticks));
         Party::seed().tick(&mut version);

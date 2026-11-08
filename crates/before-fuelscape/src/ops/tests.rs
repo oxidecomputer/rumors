@@ -7,11 +7,11 @@ use super::{EXEMPTIONS, ROSTER};
 /// Panels plus exemptions tile the board's public-operation inventory.
 ///
 /// Every board operation is either claimed by some panel's `covers` list or
-/// carries a committed exemption reason, every claim and every exemption
-/// names a real operation, and no operation is both. The compiler-derived
-/// surface check separately pins the function entries to the public API and
-/// every trait implementation to its census. A renamed board entry fails here
-/// by name, including a stale exemption.
+/// carries a committed exemption reason, every claim and every exemption names
+/// a real operation, and no operation is both. The compiler-derived surface
+/// check separately pins the function entries to the public API and every trait
+/// implementation to its census. A renamed board entry fails here by name,
+/// including a stale exemption.
 #[test]
 fn panels_and_exemptions_tile_the_board_inventory() {
     let surface: BTreeSet<&str> = BOARD_PRICED
@@ -52,8 +52,8 @@ fn panels_and_exemptions_tile_the_board_inventory() {
 }
 
 /// Every panel claims at least one public operation, and panel names (the
-/// output file stems) are unique — a duplicated stem would silently
-/// overwrite a sibling's render.
+/// output file stems) are unique — a duplicated stem would silently overwrite a
+/// sibling's render.
 #[test]
 fn panels_claim_rows_and_have_unique_names() {
     let mut names = BTreeSet::new();
@@ -67,9 +67,9 @@ fn panels_claim_rows_and_have_unique_names() {
     }
 }
 
-/// Every exemption states a nonempty reason and names each operation at
-/// most once — the table is the reviewed artifact, so a blank or
-/// duplicated line is a bookkeeping bug.
+/// Every exemption states a nonempty reason and names each operation at most
+/// once — the table is the reviewed artifact, so a blank or duplicated line is
+/// a bookkeeping bug.
 #[test]
 fn exemptions_are_reasoned_and_unique() {
     let mut names = BTreeSet::new();

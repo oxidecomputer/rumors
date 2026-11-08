@@ -6,8 +6,8 @@ use crate::{Version, tree::arb::nth_party};
 /// Four representative versions distinguish equality, strict containment,
 /// strict dominance, and causal incomparability.
 ///
-/// The incomparable case protects the subtle boundary: a version on a
-/// disjoint party is no more contained than one strictly above the declaration.
+/// The incomparable case protects the subtle boundary: a version on a disjoint
+/// party is no more contained than one strictly above the declaration.
 #[test]
 fn contained_distinguishes_representative_causal_relations() {
     let party = nth_party(0);

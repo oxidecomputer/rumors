@@ -2,8 +2,8 @@
 //!
 //! Party algorithms work with nodes, paths, and complete subtrees rather than
 //! bit positions. Readers decode those objects without materializing a tree;
-//! writers emit them while applying the canonical collapses. The
-//! underlying bit stream is confined to this boundary.
+//! writers emit them while applying the canonical collapses. The underlying bit
+//! stream is confined to this boundary.
 
 #[cfg(test)]
 use crate::bits::BitsWriter;

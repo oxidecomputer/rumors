@@ -8,9 +8,9 @@ use crate::render::{
 
 use super::{read, DumpWriter};
 
-/// A synthetic atlas exercising the strings the format must carry
-/// faithfully: JSON metacharacters and the multibyte glyphs the roster's
-/// measure declarations and family labels actually use.
+/// A synthetic atlas exercising the strings the format must carry faithfully:
+/// JSON metacharacters and the multibyte glyphs the roster's measure
+/// declarations and family labels actually use.
 fn synthetic_atlas() -> AtlasData {
     AtlasData {
         op_name: "synthetic".into(),
@@ -55,10 +55,10 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
 /// measured atlases and rendering from their persisted dump produce
 /// byte-identical SVGs and gallery.
 ///
-/// The dump also round-trips every atlas losslessly (meta, order,
-/// samples, overlay). This is what makes `--dump` + `--render-from` a
-/// faithful substitute for re-measuring: a figure adjustment costs a
-/// replay, never a survey.
+/// The dump also round-trips every atlas losslessly (meta, order, samples,
+/// overlay). This is what makes `--dump` + `--render-from` a faithful
+/// substitute for re-measuring: a figure adjustment costs a replay, never a
+/// survey.
 #[test]
 fn dump_and_rerender_matches_direct_render_byte_for_byte() {
     let plan = Plan {
@@ -131,9 +131,9 @@ fn dump_and_rerender_matches_direct_render_byte_for_byte() {
 
 /// The dump format carries every string it stores faithfully.
 ///
-/// JSON metacharacters (quotes, backslashes) and the multibyte glyphs
-/// the roster's measure declarations and family labels use round-trip
-/// to equality, and the run's meta comes back exactly.
+/// JSON metacharacters (quotes, backslashes) and the multibyte glyphs the
+/// roster's measure declarations and family labels use round-trip to equality,
+/// and the run's meta comes back exactly.
 #[test]
 fn synthetic_atlas_round_trips_losslessly() {
     let meta = RenderMeta {
@@ -160,12 +160,12 @@ fn synthetic_atlas_round_trips_losslessly() {
     std::fs::remove_dir_all(&dir).expect("round-trip output cleans up");
 }
 
-/// The loader's grid verification is alive: a dump whose stored grid
-/// disagrees with its raw samples is rejected.
+/// The loader's grid verification is alive: a dump whose stored grid disagrees
+/// with its raw samples is rejected.
 ///
-/// Altering one sample's fuel through the JSON leaves the stored grid
-/// stale, and `read` must refuse it rather than silently render figures
-/// that contradict the persisted cells downstream documents read.
+/// Altering one sample's fuel through the JSON leaves the stored grid stale,
+/// and `read` must refuse it rather than silently render figures that
+/// contradict the persisted cells downstream documents read.
 #[test]
 fn read_rejects_a_dump_whose_grid_disagrees_with_its_samples() {
     let meta = RenderMeta {

@@ -7,7 +7,8 @@ use proptest::sample::Index;
 
 use super::*;
 
-/// Construct a network with disjoint identities of varying depth and nonempty writes.
+/// Construct a network with disjoint identities of varying depth and nonempty
+/// writes.
 fn network_record(forks: usize, ticks: u64) -> NetworkRecord {
     let (mut party, mut version) = Clock::seed().into_parts();
     let mut record = NetworkRecord::default();

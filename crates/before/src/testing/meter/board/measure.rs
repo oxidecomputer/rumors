@@ -18,20 +18,19 @@ use super::currency::{ByCurrency, Liveness};
 pub struct HeapMeter {
     /// Begin a fresh peak reading at the current live level.
     pub reset_peak: fn(),
-    /// Return the most that live bytes have risen above their level at the
-    /// last `reset_peak`, or zero if they never rose above it.
+    /// Return the most that live bytes have risen above their level at the last
+    /// `reset_peak`, or zero if they never rose above it.
     pub peak: fn() -> usize,
 }
 
 /// The fuel meter the board reads, supplied by a wasm guest that runs it.
 ///
 /// Fuel is the Wasmtime host's count of the instructions a guest instance has
-/// executed, so only a guest can read it, through an import its host
-/// provides. The board calls `enter` immediately before each cell's body and
-/// `exit` once the body has produced its result, while the result is still
-/// alive. Each returns the fuel consumed so far; the difference is the cell's
-/// fuel reading, and the span between the two reads is the cell's *measured
-/// window*.
+/// executed, so only a guest can read it, through an import its host provides.
+/// The board calls `enter` immediately before each cell's body and `exit` once
+/// the body has produced its result, while the result is still alive. Each
+/// returns the fuel consumed so far; the difference is the cell's fuel reading,
+/// and the span between the two reads is the cell's *measured window*.
 ///
 /// Besides reading fuel, the hooks open and close the window. A runner uses
 /// them to keep the reading a function of the body alone: what an allocator
@@ -41,14 +40,14 @@ pub struct HeapMeter {
 /// already done, and its `exit` retires it, so the allocator's share of a
 /// reading is its work for the body's own allocations.
 ///
-/// Because each hook reads fuel itself, the board makes one call at each end
-/// of the window, so a runner whose `enter` reads fuel as its last act, and
-/// whose `exit` reads it as its first, runs nothing between the two reads
-/// that a bare fuel reader would not.
+/// Because each hook reads fuel itself, the board makes one call at each end of
+/// the window, so a runner whose `enter` reads fuel as its last act, and whose
+/// `exit` reads it as its first, runs nothing between the two reads that a bare
+/// fuel reader would not.
 ///
 /// State outside the heap can carry between cells too, such as a lazily
-/// initialized static, so a runner also measures each cell in a fresh
-/// instance (the `shard` module's one-cell deal).
+/// initialized static, so a runner also measures each cell in a fresh instance
+/// (the `shard` module's one-cell deal).
 pub struct FuelMeter {
     /// Open the measured window, then return the fuel this instance has
     /// consumed so far.
@@ -61,8 +60,8 @@ pub struct FuelMeter {
 /// The meters a runner supplies to the board.
 ///
 /// Heap and fuel are read through state only the running binary owns. A
-/// currency whose meter is absent reads `None` in every sample, and the
-/// board neither judges nor renders it.
+/// currency whose meter is absent reads `None` in every sample, and the board
+/// neither judges nor renders it.
 pub struct Meters {
     /// The peak-heap meter, or `None` where the runner counts no allocations.
     pub heap: Option<HeapMeter>,
@@ -94,19 +93,19 @@ pub(super) struct Sample {
     ///
     /// `denom_bytes` everywhere except the flat-denominator shape's
     /// input-denominated cells, where it is the bundle's value content: the
-    /// byte denominator is intercept-dominated there, and a two-point
-    /// power-law fit against an intercept-dominated denominator manufactures
-    /// exponents out of exactly linear marginal work. A resource model may
-    /// replace this axis for one currency.
+    /// byte denominator is intercept-dominated there, and a two-point power-law
+    /// fit against an intercept-dominated denominator manufactures exponents
+    /// out of exactly linear marginal work. A resource model may replace this
+    /// axis for one currency.
     pub(super) exp_denom_bytes: usize,
     /// The cell's liveness declarations; each sample carries its own since
     /// floors scale with the sample's operands.
     pub(super) floors: ByCurrency<Liveness>,
     /// Resource models that differ from the global linear defaults.
     pub(super) models: ByCurrency<Option<Model>>,
-    /// Every currency's counter reading over the body; `None` where the
-    /// runner supplies no meter for it (an absent [`Meters`] field), which
-    /// exempts it from judgment.
+    /// Every currency's counter reading over the body; `None` where the runner
+    /// supplies no meter for it (an absent [`Meters`] field), which exempts it
+    /// from judgment.
     pub(super) readings: ByCurrency<Option<u64>>,
 }
 

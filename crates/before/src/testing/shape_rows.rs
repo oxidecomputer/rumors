@@ -1,32 +1,29 @@
-//! Shared row vocabulary for the shape-walk differentials: folds of the
-//! public item streams into absolute rows, the recursive oracle's own
-//! enumerations of the same rows, and exact tree reconstruction from
-//! rows.
+//! Shared row vocabulary for the shape-walk differentials: folds of the public
+//! item streams into absolute rows, the recursive oracle's own enumerations of
+//! the same rows, and exact tree reconstruction from rows.
 //!
-//! The folds are deliberately assertive: every fold checks the item
-//! stream's own invariants in passing (nonzero rise magnitudes, a
-//! never-negative running height, and widths that tile the unit interval
-//! exactly), so every descriptor and test that folds a walk also holds
-//! those invariants on its whole population. The reconstruction helpers
-//! close the loop for the function-space legs: rows rebuild into normal
-//! oracle trees (the normalizing constructors collapse any fragments a
-//! refinement introduced), which the existing function-space comparisons
-//! then scan.
+//! The folds are deliberately assertive: every fold checks the item stream's
+//! own invariants in passing (nonzero rise magnitudes, a never-negative running
+//! height, and widths that tile the unit interval exactly), so every descriptor
+//! and test that folds a walk also holds those invariants on its whole
+//! population. The reconstruction helpers close the loop for the function-space
+//! legs: rows rebuild into normal oracle trees (the normalizing constructors
+//! collapse any fragments a refinement introduced), which the existing
+//! function-space comparisons then scan.
 //!
-//! A version's rows are [`Leaf`]s. [`oracle_plateaus`] reads them off an
-//! oracle tree and [`version_from_rows`] closes them back into one through
-//! `close_rows`, the bottom-up closer that also checks tiling; on
-//! normal-form trees the two are inverse. The deep version strategies
+//! A version's rows are [`Leaf`]s. [`oracle_plateaus`] reads them off an oracle
+//! tree and [`version_from_rows`] closes them back into one through
+//! `close_rows`, the bottom-up closer that also checks tiling; on normal-form
+//! trees the two are inverse. The deep version strategies
 //! ([`crate::testing::generators::leaf_list`]) draw versions as such rows.
 //!
-//! The flat-tree models share two loops over row listings: [`collapse`],
-//! which brings any listing to its normal form, and [`refine`], which cuts
-//! several listings into their common refinement. [`collapse`] keeps a
-//! closing stack of its own rather than building on `close_rows`, because
-//! it rewrites the listing it closes. The flat model
-//! ([`crate::testing::oracles::flat`]) builds its lattice on both loops, and
-//! the independent encoder ([`crate::testing::oracles::codec`]) normalizes
-//! its trees with the first.
+//! The flat-tree models share two loops over row listings: [`collapse`], which
+//! brings any listing to its normal form, and [`refine`], which cuts several
+//! listings into their common refinement. [`collapse`] keeps a closing stack of
+//! its own rather than building on `close_rows`, because it rewrites the
+//! listing it closes. The flat model ([`crate::testing::oracles::flat`]) builds
+//! its lattice on both loops, and the independent encoder
+//! ([`crate::testing::oracles::codec`]) normalizes its trees with the first.
 
 use std::sync::Arc;
 
@@ -43,8 +40,8 @@ pub(crate) struct Leaf {
     pub(crate) height: BigUint,
 }
 
-/// Closes a row listing's leaves, given in stream order with their depths,
-/// into one tree, iteratively.
+/// Closes a row listing's leaves, given in stream order with their depths, into
+/// one tree, iteratively.
 ///
 /// A stack holds the subtrees still waiting for a sibling. While the incoming
 /// subtree and the top of the stack sit at one depth, they are siblings: they
@@ -72,9 +69,8 @@ fn close_rows<T>(leaves: impl IntoIterator<Item = (u64, T)>, node: impl Fn(T, T)
     }
 }
 
-/// Apply one rise to a running height, asserting the vocabulary's
-/// invariants in passing: magnitudes are nonzero and the height never
-/// goes negative.
+/// Apply one rise to a running height, asserting the vocabulary's invariants in
+/// passing: magnitudes are nonzero and the height never goes negative.
 pub(crate) fn apply_rise(height: &mut BigUint, rise: &Option<Rise>) {
     match rise {
         Some(Rise::Up(count)) => {
@@ -90,15 +86,15 @@ pub(crate) fn apply_rise(height: &mut BigUint, rise: &Option<Rise>) {
     }
 }
 
-/// Assert a depth sequence tiles the unit interval exactly: read as a
-/// preorder leaf listing, adjacent equal depths merge bottom-up and the
-/// whole sequence must close to the single depth-0 interval.
+/// Assert a depth sequence tiles the unit interval exactly: read as a preorder
+/// leaf listing, adjacent equal depths merge bottom-up and the whole sequence
+/// must close to the single depth-0 interval.
 pub(crate) fn assert_tiles(depths: impl IntoIterator<Item = u64>) {
     close_rows(depths.into_iter().map(|depth| (depth, ())), |(), ()| ());
 }
 
-/// A row of a flat tree's leaf listing: a leaf's depth and the value it
-/// holds, which [`collapse`] compares between siblings.
+/// A row of a flat tree's leaf listing: a leaf's depth and the value it holds,
+/// which [`collapse`] compares between siblings.
 pub(crate) trait Row {
     /// The value two sibling leaves must share to collapse.
     type Value: PartialEq;
@@ -150,12 +146,12 @@ impl<T: PartialEq> Row for (u64, T) {
 ///
 /// A stack holds the completed subtrees still waiting for a sibling, each as
 /// its depth and whether it is a single leaf, the last row written. When the
-/// incoming subtree and the stack's top sit at one depth they are siblings,
-/// and they close into their parent; two single leaves of one value collapse
-/// into one leaf there, which may collapse again with the next subtree down
-/// the stack. `on_collapse` hears each collapse: the rows so far, ending with
-/// the surviving left leaf, and whether the collapse cascaded from one just
-/// before it.
+/// incoming subtree and the stack's top sit at one depth they are siblings, and
+/// they close into their parent; two single leaves of one value collapse into
+/// one leaf there, which may collapse again with the next subtree down the
+/// stack. `on_collapse` hears each collapse: the rows so far, ending with the
+/// surviving left leaf, and whether the collapse cascaded from one just before
+/// it.
 ///
 /// # Panics
 ///
@@ -197,14 +193,13 @@ pub(crate) fn collapse<R: Row>(
     out
 }
 
-/// One cell of a common refinement: its depth, and for each input the index
-/// of the input's leaf that holds it.
+/// One cell of a common refinement: its depth, and for each input the index of
+/// the input's leaf that holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RefinedCell {
     /// The cell's depth; it is `2^-depth` wide.
     pub(crate) depth: u64,
-    /// For each input, in input order, the index of its leaf holding the
-    /// cell.
+    /// For each input, in input order, the index of its leaf holding the cell.
     pub(crate) leaves: Vec<usize>,
 }
 
@@ -214,10 +209,10 @@ pub(crate) struct RefinedCell {
 ///
 /// The traversal keeps each input's current leaf and the position where it
 /// ends. At each cell boundary, the inputs' current leaves all hold the
-/// boundary point, so they are nested dyadic intervals, and one of them
-/// starts there: the input whose leaf ended at the boundary advanced to it.
-/// The deepest of the nested leaves is therefore the next cell, whole.
-/// Zero inputs refine to the single cell `[0, 1)`.
+/// boundary point, so they are nested dyadic intervals, and one of them starts
+/// there: the input whose leaf ended at the boundary advanced to it. The
+/// deepest of the nested leaves is therefore the next cell, whole. Zero inputs
+/// refine to the single cell `[0, 1)`.
 ///
 /// # Panics
 ///
@@ -257,8 +252,8 @@ pub(crate) fn refine(inputs: &[Vec<u64>]) -> Vec<RefinedCell> {
     }
 }
 
-/// Fold a plateau stream into absolute [`Leaf`] rows, asserting
-/// canonicality and tiling in passing.
+/// Fold a plateau stream into absolute [`Leaf`] rows, asserting canonicality
+/// and tiling in passing.
 pub(crate) fn fold_heights(plateaus: impl IntoIterator<Item = Plateau>) -> Vec<Leaf> {
     let mut height = BigUint::ZERO;
     let rows: Vec<Leaf> = plateaus
@@ -305,8 +300,8 @@ pub(crate) fn fold_cells<const N: usize>(
     rows
 }
 
-/// Fold a clock overlay stream into `(depth, height, owned)` rows,
-/// asserting canonicality and tiling in passing.
+/// Fold a clock overlay stream into `(depth, height, owned)` rows, asserting
+/// canonicality and tiling in passing.
 pub(crate) fn fold_overlay(
     overlay: impl IntoIterator<Item = (Plateau, bool)>,
 ) -> Vec<(u64, BigUint, bool)> {
@@ -346,8 +341,7 @@ pub(crate) fn oracle_plateaus(tree: &tree::Version) -> Vec<Leaf> {
     out
 }
 
-/// The regions of an oracle id tree: ownership and depth per preorder
-/// leaf.
+/// The regions of an oracle id tree: ownership and depth per preorder leaf.
 ///
 /// Recurses once per tree level, as the oracle does, inside the envelope the
 /// tree's harness bounds.
@@ -366,9 +360,9 @@ pub(crate) fn oracle_regions(tree: &tree::Party) -> Vec<(bool, u64)> {
     out
 }
 
-/// The coarsest common refinement of oracle event trees, directly by
-/// recursion: split while any input is a node, emit a cell when all are
-/// leaves. `(depth, absolute height per input)` rows, left to right.
+/// The coarsest common refinement of oracle event trees, directly by recursion:
+/// split while any input is a node, emit a cell when all are leaves.
+/// `(depth, absolute height per input)` rows, left to right.
 ///
 /// Recurses as deep as the deepest input, an oracle tree inside the envelope
 /// its harness bounds.
@@ -410,12 +404,12 @@ pub(crate) fn oracle_cells(inputs: Vec<(BigUint, tree::Version)>) -> Vec<(u64, V
 /// An oracle id tree read as a 0/1-valued oracle event tree, so
 /// [`oracle_cells`] can drive the clock overlay's expected rows.
 ///
-/// Structure-preserving on canonical ids, and the result is normal form:
-/// every id node has an empty leaf below it (an all-full node would
-/// bottom out in the forbidden `(1, 1)`), so every mapped node's minimum
-/// is zero, and equal sibling leaves cannot occur (`(1, 1)` forbidden,
-/// `(0, 0)` unrepresentable). Recurses once per level of `tree`, an oracle
-/// tree inside the envelope its harness bounds.
+/// Structure-preserving on canonical ids, and the result is normal form: every
+/// id node has an empty leaf below it (an all-full node would bottom out in the
+/// forbidden `(1, 1)`), so every mapped node's minimum is zero, and equal
+/// sibling leaves cannot occur (`(1, 1)` forbidden, `(0, 0)` unrepresentable).
+/// Recurses once per level of `tree`, an oracle tree inside the envelope its
+/// harness bounds.
 pub(crate) fn party_as_steps(tree: &tree::Party) -> tree::Version {
     match tree {
         tree::Party::Leaf(owned) => tree::Version::Leaf(BigUint::from(u8::from(*owned))),
@@ -427,9 +421,9 @@ pub(crate) fn party_as_steps(tree: &tree::Party) -> tree::Version {
     }
 }
 
-/// Rebuild the oracle event tree a [`Leaf`] row listing describes, through
-/// the normalizing constructor: fragments a refinement introduced collapse
-/// back, so the result is the normal form of the rows' step function.
+/// Rebuild the oracle event tree a [`Leaf`] row listing describes, through the
+/// normalizing constructor: fragments a refinement introduced collapse back, so
+/// the result is the normal form of the rows' step function.
 ///
 /// Inverse to [`oracle_plateaus`] on normal-form trees. Iterative, so rows of
 /// any depth close.

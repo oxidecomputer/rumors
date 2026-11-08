@@ -9,8 +9,8 @@
 //!
 //! Two peers fork from a shared prefix and then each diverges along two axes:
 //!
-//! - `common`: messages inserted *before* the fork, so both peers already
-//!   agree on them. Reconciliation should short-circuit these by hash.
+//! - `common`: messages inserted *before* the fork, so both peers already agree
+//!   on them. Reconciliation should short-circuit these by hash.
 //! - `differing`: fresh messages each peer originates *after* the fork; the
 //!   other must learn all of them.
 //! - `redacted`: a slice of the shared prefix each peer forgets after the fork;
@@ -22,9 +22,9 @@
 //! Every axis sweeps powers of ten starting at zero, so the classic named
 //! divergence shapes fall out as corners of the cube:
 //!
-//! - disjoint    = `common = 0,  differing = n, redacted = 0`
+//! - disjoint = `common = 0,  differing = n, redacted = 0`
 //! - small-delta = `common = n,  differing = k, redacted = 0` (small `k`)
-//! - identical   = `common = n,  differing = 0, redacted = 0`
+//! - identical = `common = n,  differing = 0, redacted = 0`
 
 use std::iter;
 
@@ -35,8 +35,8 @@ use crate::common::seed::NetworkSeed;
 #[path = "grid/wire.rs"]
 pub mod wire;
 
-/// Live message counts for the single-set benchmarks (`batch_insert`,
-/// `iter`, `redact`, `range_delta`, …), spanning three orders of magnitude.
+/// Live message counts for the single-set benchmarks (`batch_insert`, `iter`,
+/// `redact`, `range_delta`, …), spanning three orders of magnitude.
 #[allow(unused)]
 pub const SIZES: &[usize] = &[100, 10_000, 1_000_000];
 
@@ -54,9 +54,9 @@ pub const DIFFERING: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// (see the module docs). Bounded per cell by `common / 2`.
 pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 
-/// Commit `n` unit payloads to `rumors` as one batch. `()` encodes as one
-/// CBOR null byte, so fixtures measure tree / clock / hashing work, not
-/// payload serialization.
+/// Commit `n` unit payloads to `rumors` as one batch. `()` encodes as one CBOR
+/// null byte, so fixtures measure tree / clock / hashing work, not payload
+/// serialization.
 pub fn send_units(rumors: &Rumors<()>, n: usize) {
     rumors
         .send_all(iter::repeat_n((), n))
@@ -91,9 +91,9 @@ impl Cell {
     /// `differing` messages plus the `redacted` deletions the *other* peer
     /// originated.
     ///
-    /// Throughput is charged against this, not the shared size:
-    /// reconciliation cost tracks the difference between the peers, not how
-    /// much they already agree on. Zero for the identical corner.
+    /// Throughput is charged against this, not the shared size: reconciliation
+    /// cost tracks the difference between the peers, not how much they already
+    /// agree on. Zero for the identical corner.
     pub fn divergence(&self) -> u64 {
         (self.differing + self.redacted) as u64
     }
@@ -141,17 +141,17 @@ pub fn cells() -> impl Iterator<Item = Cell> {
     })
 }
 
-/// The seed of every grid cell's network, fixed so that each cell's tree
-/// shape, and with it the work the grid measures, is the same on every run.
+/// The seed of every grid cell's network, fixed so that each cell's tree shape,
+/// and with it the work the grid measures, is the same on every run.
 const GRID_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0x36f7_bde7_e10e_5c65);
 
 /// Build the two peers for one grid cell.
 ///
-/// `left` founds the network `GRID_NETWORK_SEED` names; `right` is a genuine disjoint peer created
-/// from it via [`wire::bootstrap_fork`], so their parties are disjoint (the
-/// precondition for `gossip`). The shared prefix is inserted before the
-/// split; the `differing` messages and `redacted` deletions are applied
-/// independently to each side after it.
+/// `left` founds the network `GRID_NETWORK_SEED` names; `right` is a genuine
+/// disjoint peer created from it via [`wire::bootstrap_fork`], so their parties
+/// are disjoint (the precondition for `gossip`). The shared prefix is inserted
+/// before the split; the `differing` messages and `redacted` deletions are
+/// applied independently to each side after it.
 pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
     let Cell {
         common,

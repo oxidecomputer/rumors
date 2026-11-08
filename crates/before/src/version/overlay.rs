@@ -1,10 +1,9 @@
 //! Forward cursors over dyadic interval partitions.
 //!
 //! A [`Version`] partitions the unit interval into constant-height regions; a
-//! [`Party`](crate::Party) partitions it into
-//! constant-ownership regions. A leaf at depth `d` spans `2^-d`. Overlay
-//! operations walk these partitions together without materializing interval
-//! endpoints.
+//! [`Party`](crate::Party) partitions it into constant-ownership regions. A
+//! leaf at depth `d` spans `2^-d`. Overlay operations walk these partitions
+//! together without materializing interval endpoints.
 //!
 //! At every step, all current leaves contain the current position. Overlapping
 //! dyadic intervals nest, so the deepest leaf ends first. If advancing it flips
@@ -93,9 +92,9 @@ pub fn advance<A: RegionReader, B: RegionReader>(
 
 /// A fixed set of cursors advanced by one overlay.
 ///
-/// Each cursor occupies a numbered slot. Unlike [`RegionReader`], which
-/// returns a crossing for its caller to process, [`step`](Self::step) both
-/// advances one slot and applies that crossing to the operation's state.
+/// Each cursor occupies a numbered slot. Unlike [`RegionReader`], which returns
+/// a crossing for its caller to process, [`step`](Self::step) both advances one
+/// slot and applies that crossing to the operation's state.
 ///
 /// An absent or dropped slot reads depth zero and is never stepped: a depth-0
 /// plateau tiles the whole interval and is final, so a live, unexhausted cursor
@@ -112,12 +111,12 @@ pub trait CursorSet {
     /// (`'static`) so the driver can retain it while mutating the set.
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static;
 
-    /// The slot's current plateau depth: its interval has width `2^-depth`.
-    /// An absent or dropped slot reads zero.
+    /// The slot's current plateau depth: its interval has width `2^-depth`. An
+    /// absent or dropped slot reads zero.
     fn depth(&self, slot: usize) -> u64;
 
-    /// Step the slot past its plateau, folding its crossing into the walk's
-    /// own algebra; returns the flip level.
+    /// Step the slot past its plateau, folding its crossing into the walk's own
+    /// algebra; returns the flip level.
     fn step(&mut self, slot: usize) -> u64;
 }
 
@@ -221,17 +220,17 @@ pub fn advance_diff(
     })
 }
 
-/// A two-Version overlay, opened with both cursors at their first leaves and the
-/// running difference `D = height_a − height_b` seeded with the two absolute
-/// opening heights.
+/// A two-Version overlay, opened with both cursors at their first leaves and
+/// the running difference `D = height_a − height_b` seeded with the two
+/// absolute opening heights.
 ///
 /// The shared opening move of every two-Version walk, stated once so the
-/// seeding's orientation (`a` positive, `b` negative, the orientation [`Side::fold`]
-/// applies to every later crossing) has one home. The opening heights ride
-/// along for the clients that consume an absolute opening (the emission sweep's
-/// first output leaf, the masked walk's height integrators); the seeded
-/// difference already carries their values, so the comparison sweep and the
-/// pair integrals drop them unread.
+/// seeding's orientation (`a` positive, `b` negative, the orientation
+/// [`Side::fold`] applies to every later crossing) has one home. The opening
+/// heights ride along for the clients that consume an absolute opening (the
+/// emission sweep's first output leaf, the masked walk's height integrators);
+/// the seeded difference already carries their values, so the comparison sweep
+/// and the pair integrals drop them unread.
 pub struct OpenedPair<'a> {
     /// The left operand's cursor, at its first leaf.
     pub a: VersionRegionReader<'a>,

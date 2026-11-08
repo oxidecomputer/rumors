@@ -12,8 +12,8 @@ fn group_count(exp: u64) -> u64 {
     exp.div_ceil(FRACTION_GROUP_BITS)
 }
 
-/// The numerator bits group `group` carries, computed in `u128`: expansion
-/// bit `j = 8g + k` is numerator bit `exp - j` when `j <= exp`, and padding
+/// The numerator bits group `group` carries, computed in `u128`: expansion bit
+/// `j = 8g + k` is numerator bit `exp - j` when `j <= exp`, and padding
 /// otherwise. The oracle for [`fraction_group_bits`].
 fn widened_group_bits(exp: u64, group: u64) -> Vec<Option<u64>> {
     let width = u128::from(FRACTION_GROUP_BITS);
@@ -26,11 +26,11 @@ fn widened_group_bits(exp: u64, group: u64) -> Vec<Option<u64>> {
 }
 
 /// Every group of every exponent up to 64, and the first and last groups of
-/// every exponent near `u64::MAX`, carry the numerator bits widened
-/// arithmetic assigns them.
+/// every exponent near `u64::MAX`, carry the numerator bits widened arithmetic
+/// assigns them.
 ///
-/// The last group of an exponent of `2^64 - 7` or more is where the
-/// expansion position `8g + 8` reaches 2^64.
+/// The last group of an exponent of `2^64 - 7` or more is where the expansion
+/// position `8g + 8` reaches 2^64.
 #[test]
 fn fraction_groups_carry_their_bits_near_the_u64_limit() {
     for exp in 0..=64 {

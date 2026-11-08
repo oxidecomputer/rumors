@@ -62,12 +62,12 @@ fn oracle_clock_union(
 
 /// Compare `join_all` with both independent semantic models.
 ///
-/// All three implementations must agree on success. On failure, each model
-/// must conserve the complete region and the joined version. Production must
-/// also conserve multiplicity: every point is owned as many times across the
-/// final receiver and returned clocks as across the initial receiver and
-/// inputs, so no region is lost or comes back twice. Versions need no such
-/// count, because joining a version twice changes nothing.
+/// All three implementations must agree on success. On failure, each model must
+/// conserve the complete region and the joined version. Production must also
+/// conserve multiplicity: every point is owned as many times across the final
+/// receiver and returned clocks as across the initial receiver and inputs, so
+/// no region is lost or comes back twice. Versions need no such count, because
+/// joining a version twice changes nothing.
 fn assert_join_all_matches_all_models(mut acc: Clock, inputs: Vec<Clock>) {
     let lift = |c: &Clock| {
         let (p, v) = to_oracle_clock(c);
@@ -529,19 +529,19 @@ proptest! {
 // ───────────────────────────── robustness ─────────────────────────────
 
 /// Deep structures (an id spine `STACK_SAFETY_DEPTH` levels deep, and the deep
-/// event tree a tick builds over it) survive the clock operations driven
-/// below, the codec, and the `Debug` printer with no stack overflow.
+/// event tree a tick builds over it) survive the clock operations driven below,
+/// the codec, and the `Debug` printer with no stack overflow.
 ///
 /// Library walks keep depth on explicit heap and bit stacks, never the call
 /// stack. This test and the other `deep_*_stack_safety` tests check that for
 /// the operations they drive, at a depth where any walk keeping one call frame
-/// per level overflows the test thread's stack (`STACK_SAFETY_DEPTH` states
-/// the bound). Beyond the single-clock ops (tick, fork, join, partial_cmp,
-/// `|`, encode, decode, Debug), this drives the composite ops on deep
-/// structures: `sync` between two deep clocks, `send`/`recv` of a deep
-/// version, and version comparison and concurrency at depth. Impl-only: the
-/// recursive oracle cannot build or even drop a tree this deep (oracle
-/// agreement at bounded depth is the master differential harness's job).
+/// per level overflows the test thread's stack (`STACK_SAFETY_DEPTH` states the
+/// bound). Beyond the single-clock ops (tick, fork, join, partial_cmp, `|`,
+/// encode, decode, Debug), this drives the composite ops on deep structures:
+/// `sync` between two deep clocks, `send`/`recv` of a deep version, and version
+/// comparison and concurrency at depth. Impl-only: the recursive oracle cannot
+/// build or even drop a tree this deep (oracle agreement at bounded depth is
+/// the master differential harness's job).
 #[test]
 fn deep_tree_stack_safety() {
     let party = deep_left_spine_party(STACK_SAFETY_DEPTH);
@@ -781,8 +781,8 @@ fn deep_tree_shape_hull_and_fold_stack_safety() {
     }
 }
 
-/// Drives the identity entry points over `cell`, a party owning one leaf at
-/// the end of a unary spine `STACK_SAFETY_DEPTH` levels deep, and over its
+/// Drives the identity entry points over `cell`, a party owning one leaf at the
+/// end of a unary spine `STACK_SAFETY_DEPTH` levels deep, and over its
 /// complement, and checks that every split rejoins to the party it divided.
 ///
 /// The complement, the *comb*, owns one sibling subtree beside every level of
@@ -793,12 +793,12 @@ fn deep_tree_shape_hull_and_fold_stack_safety() {
 /// (`PartyReader::select_path`), and the removal of each share from the keeper
 /// (`Removal`). The board's `party_forks` cells drive them deep as well, but
 /// through the levels a wide fork count adds below an owned region; here the
-/// path also descends through every stored level of the spine. The other
-/// calls reach walks that the sibling tests drive, each through an entry point
-/// of its own (covering, `without`, the party codec and parser, the array
-/// splits, the clock's `ticks`, `forks`, and `*_all` folds, and the
-/// heterogeneous joins); for those, the test catches an entry point that
-/// recurses instead of delegating to an iterative walk.
+/// path also descends through every stored level of the spine. The other calls
+/// reach walks that the sibling tests drive, each through an entry point of its
+/// own (covering, `without`, the party codec and parser, the array splits, the
+/// clock's `ticks`, `forks`, and `*_all` folds, and the heterogeneous joins);
+/// for those, the test catches an entry point that recurses instead of
+/// delegating to an iterative walk.
 fn assert_identity_entry_points_survive(cell: Party) {
     use crate::Count;
 
@@ -919,8 +919,8 @@ fn deep_identity_stack_safety_on_a_right_spine() {
 ///
 /// The zigzag's stored path changes direction at every level, and its comb
 /// places a sibling subtree on alternating sides, so the inputs hold no run of
-/// two levels in one direction: the input region the straight spines, which
-/// run in one direction throughout, never reach.
+/// two levels in one direction: the input region the straight spines, which run
+/// in one direction throughout, never reach.
 #[test]
 fn deep_identity_stack_safety_on_a_zigzag_spine() {
     assert_identity_entry_points_survive(deep_zigzag_party(STACK_SAFETY_DEPTH));
@@ -939,16 +939,16 @@ fn deep_identity_stack_safety_on_a_zigzag_spine() {
 /// heights. Every query bound is a deep, nonempty version, and each asserted
 /// outcome requires at least one walk over operands in separate storage.
 ///
-/// Each call here delegates to a walk that a sibling test drives at this
-/// depth: span placement for `precedence` and version membership, the
-/// projected comparison for two `OwnVersion`s, the rank stream and version
-/// validator for `Ranked::decode`, the fused tick for `Version::ticks`, and the
-/// lattice kernels and comparisons for the rest. The test therefore catches an
-/// entry point that recurses instead of delegating to an iterative walk. It
-/// also reaches one state of the placement walk that no sibling test reaches:
-/// on the left spine the tip is the first region, so `precedence` refutes
-/// `a <= met` at once, drops the span's start, and sweeps its end alone
-/// through every remaining level.
+/// Each call here delegates to a walk that a sibling test drives at this depth:
+/// span placement for `precedence` and version membership, the projected
+/// comparison for two `OwnVersion`s, the rank stream and version validator for
+/// `Ranked::decode`, the fused tick for `Version::ticks`, and the lattice
+/// kernels and comparisons for the rest. The test therefore catches an entry
+/// point that recurses instead of delegating to an iterative walk. It also
+/// reaches one state of the placement walk that no sibling test reaches: on the
+/// left spine the tip is the first region, so `precedence` refutes `a <= met`
+/// at once, drops the span's start, and sweeps its end alone through every
+/// remaining level.
 #[test]
 fn deep_tree_remaining_surfaces_stack_safety() {
     use crate::causally::{self, Coverage};
@@ -1501,8 +1501,8 @@ fn fork_join_round_trip_orbit_is_byte_stationary() {
 ///
 /// Forking a child, ticking it once, and joining it back leaves the party
 /// byte-identical to the seed every round, and the version (a fixed two-leaf
-/// scaffold holding one counter at the child's leaf, `(0, 0, k)` exactly)
-/// reads exactly `7 + 2·⌊log2 k⌋` encoded bits after round k: the k accumulated
+/// scaffold holding one counter at the child's leaf, `(0, 0, k)` exactly) reads
+/// exactly `7 + 2·⌊log2 k⌋` encoded bits after round k: the k accumulated
 /// events cost one gamma code's width (2 bits per doubling), never a ratcheting
 /// tree [measured: exact at all 512 rounds].
 ///
@@ -1544,13 +1544,13 @@ fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
 ///
 /// Over a population held at 8 by one fork, one tick, one anonymous version
 /// exchange, and one retiring join per round on a fixed arithmetic schedule,
-/// the population's maximum id size plateaus in a fixed band (the octave
-/// maxima climb through a transient and then sit flat at 132–134 bits, tail
-/// octaves no higher than the plateau's first), and its maximum version size
-/// grows only with the counters' code widths: per-octave growth bounded by a
-/// constant that is itself shrinking (65 → 48 → 42 bits per doubling over the
-/// tail), logarithmic in the round count, never per round. Both trajectories
-/// are pinned exactly at octave resolution [measured: the two arrays below,
+/// the population's maximum id size plateaus in a fixed band (the octave maxima
+/// climb through a transient and then sit flat at 132–134 bits, tail octaves no
+/// higher than the plateau's first), and its maximum version size grows only
+/// with the counters' code widths: per-octave growth bounded by a constant that
+/// is itself shrinking (65 → 48 → 42 bits per doubling over the tail),
+/// logarithmic in the round count, never per round. Both trajectories are
+/// pinned exactly at octave resolution [measured: the two arrays below,
 /// 4096 rounds].
 ///
 /// Liveness floor: the population count is asserted every round and the pinned

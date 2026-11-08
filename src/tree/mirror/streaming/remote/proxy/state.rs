@@ -3,9 +3,9 @@
 //! Each proxy stage owns the one [`Derived`] queue needed to interpret the
 //! local reply it will receive at that height. Background tasks write local
 //! replies while decoding the remote replies which answer local questions.
-//! Decoded replies park until their stage takes them, so decoding never
-//! waits on the walk; as a stage takes a reply, the proxy publishes the
-//! scopes the reply's questions create before the stage receives it.
+//! Decoded replies park until their stage takes them, so decoding never waits
+//! on the walk; as a stage takes a reply, the proxy publishes the scopes the
+//! reply's questions create before the stage receives it.
 
 use crate::tree::mirror::streaming::message::Listed;
 use std::marker::PhantomData;
@@ -115,12 +115,12 @@ where
 {
     /// The session's pipe and the work accumulated so far.
     work: Work<B, R, W>,
-    /// The next local reply's scopes, erased: the typestate's `H` is what
-    /// pins this queue to the stage that consumes it at the right height,
-    /// and every scope's parent prefix carries the runtime witness.
+    /// The next local reply's scopes, erased: the typestate's `H` is what pins
+    /// this queue to the stage that consumes it at the right height, and every
+    /// scope's parent prefix carries the runtime witness.
     scopes: Receiver<Derived>,
-    /// The stage's height, phantom (`fn() -> H` for the auto-trait
-    /// shortcut; see [`typed::Node`](crate::tree::typed::Node)).
+    /// The stage's height, phantom (`fn() -> H` for the auto-trait shortcut;
+    /// see [`typed::Node`](crate::tree::typed::Node)).
     height: PhantomData<fn() -> H>,
 }
 
@@ -183,8 +183,8 @@ where
 
     /// Replay the remote initiator's opening.
     ///
-    /// [`Work::initiator`] reconstructs the opening question from the
-    /// greeting; no frame carries it.
+    /// [`Work::initiator`] reconstructs the opening question from the greeting;
+    /// no frame carries it.
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let mut work = self.open(Speaker::Initiator);
         let (responses, scopes) = work.initiator();

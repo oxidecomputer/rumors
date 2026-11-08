@@ -17,14 +17,14 @@ use futures::{StreamExt, future, future::BoxFuture, stream::FuturesUnordered};
 /// What one of a session's tasks does, for a test that holds tasks back.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TaskRole {
-    /// A walk stage, which takes the peer's replies, answers the questions
-    /// in them with replies at typed height `height`, and asks its own.
+    /// A walk stage, which takes the peer's replies, answers the questions in
+    /// them with replies at typed height `height`, and asks its own.
     Walk {
         /// The typed height of the replies the stage sends.
         height: usize,
     },
-    /// An assembler completing resolutions whose children sit at typed
-    /// height `height`.
+    /// An assembler completing resolutions whose children sit at typed height
+    /// `height`.
     Assembly {
         /// The typed height of the children it assembles.
         height: usize,
@@ -39,9 +39,8 @@ pub enum TaskRole {
     },
 }
 
-/// The process's task pacer: whether a task of the given role may run now.
-/// A pacer that answers no keeps the waker and wakes it once the task may
-/// run.
+/// The process's task pacer: whether a task of the given role may run now. A
+/// pacer that answers no keeps the waker and wakes it once the task may run.
 #[cfg(any(test, feature = "test-internals"))]
 pub type Pacer = fn(TaskRole, &Waker) -> bool;
 
@@ -49,20 +48,20 @@ pub type Pacer = fn(TaskRole, &Waker) -> bool;
 #[cfg(any(test, feature = "test-internals"))]
 static PACER: OnceLock<Pacer> = OnceLock::new();
 
-/// Install `pacer` as the process's task pacer, returning whether it is now
-/// the installed one.
+/// Install `pacer` as the process's task pacer, returning whether it is now the
+/// installed one.
 ///
-/// The first installation wins for the life of the process; a later call
-/// with the same function succeeds, and one with another function fails and
-/// changes nothing.
+/// The first installation wins for the life of the process; a later call with
+/// the same function succeeds, and one with another function fails and changes
+/// nothing.
 #[cfg(any(test, feature = "test-internals"))]
 pub fn pace_tasks(pacer: Pacer) -> bool {
     std::ptr::fn_addr_eq(*PACER.get_or_init(|| pacer), pacer)
 }
 
 impl TaskRole {
-    /// Run `task` as a task of this role, polling it only while the
-    /// installed pacer lets this role run.
+    /// Run `task` as a task of this role, polling it only while the installed
+    /// pacer lets this role run.
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) async fn paced<F: Future>(self, task: F) -> F::Output {
         let mut task = pin!(task);
@@ -73,8 +72,8 @@ impl TaskRole {
         .await
     }
 
-    /// Run `task` as a task of this role, polling it only while the
-    /// installed pacer lets this role run.
+    /// Run `task` as a task of this role, polling it only while the installed
+    /// pacer lets this role run.
     #[cfg(not(any(test, feature = "test-internals")))]
     #[inline(always)]
     pub(crate) fn paced<F: Future>(self, task: F) -> F {
@@ -87,8 +86,8 @@ mod tests;
 
 /// Run every task, cancelling the remainder as soon as any task fails.
 ///
-/// Completion order is deliberately unordered: an error from a later task
-/// must not wait behind an earlier parked task.
+/// Completion order is deliberately unordered: an error from a later task must
+/// not wait behind an earlier parked task.
 async fn try_run_all<E>(tasks: Vec<BoxFuture<'static, Result<(), E>>>) -> Result<(), E> {
     let mut tasks = tasks.into_iter().collect::<FuturesUnordered<_>>();
     while let Some(result) = tasks.next().await {
@@ -101,8 +100,8 @@ async fn try_run_all<E>(tasks: Vec<BoxFuture<'static, Result<(), E>>>) -> Result
 /// either fails. A failure drops all remaining work.
 ///
 /// Poll the task set first so a task error it reports wins over a terminal
-/// error caused by its closed channels. A fixed poll order also lets
-/// in-memory tests replay a cancellation point.
+/// error caused by its closed channels. A fixed poll order also lets in-memory
+/// tests replay a cancellation point.
 pub async fn complete<O, E>(
     tasks: Vec<BoxFuture<'static, Result<(), E>>>,
     finish: impl Future<Output = Result<O, E>>,

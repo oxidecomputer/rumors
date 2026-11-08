@@ -1,8 +1,8 @@
 //! Heap and allocation checks for arithmetic over adversarial version shapes.
 //!
-//! These families make one potential source of excess memory grow while
-//! keeping the others controlled: suspended minima, buried chunks, and the
-//! rank integrator's width buffers. Each check combines a semantic oracle, an
+//! These families make one potential source of excess memory grow while keeping
+//! the others controlled: suspended minima, buried chunks, and the rank
+//! integrator's width buffers. Each check combines a semantic oracle, an
 //! absolute ceiling, and a liveness floor. It then compares two sizes, so a
 //! live counter must show the operation's claimed per-input scaling.
 
@@ -10,8 +10,8 @@ use super::min_ticks_from_big;
 use before::testing::meter::registry::Shape;
 use num_bigint::BigUint;
 
-/// Slack numerator over the small-scale cost (denominator
-/// [`SLACK_DEN`]): the ×1.25 flatness convention.
+/// Slack numerator over the small-scale cost (denominator [`SLACK_DEN`]): the
+/// ×1.25 flatness convention.
 const SLACK_NUM: u64 = 5;
 
 /// Slack denominator for the flatness bound.

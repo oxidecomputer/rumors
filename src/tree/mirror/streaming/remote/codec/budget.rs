@@ -8,23 +8,21 @@
 //!
 //! Each endpoint advertises its target in the greeting, and the session uses
 //! the smaller target in both directions. The decoder applies the same limit
-//! before buffering a run: a frame may exceed it only when the frame
-//! contains one record. A decoded leaf is replica content from the moment
-//! it is built; the decode fan that carries it to assembly is fixed state,
-//! which the session's fixed allowance sets aside.
+//! before buffering a run: a frame may exceed it only when the frame contains
+//! one record. A decoded leaf is replica content from the moment it is built;
+//! the decode fan that carries it to assembly is fixed state, which the
+//! session's fixed allowance sets aside.
 //!
-//! Runs are the unit of wire buffering, which the session's wire pools
-//! bound per direction, whatever the number of logical streams
-//! ([`WirePool`](super::super::pipe::WirePool)): a run holds a permit for
-//! its bytes from before they exist until they are gone, and each pool
-//! holds [`WIRE_POOL_RUNS`](super::super::pipe::WIRE_POOL_RUNS) runs' worth
-//! at the endpoint's own target. A record
-//! larger than its direction's pool takes the whole pool. The
-//! multiplexer's buffer
+//! Runs are the unit of wire buffering, which the session's wire pools bound
+//! per direction, whatever the number of logical streams
+//! ([`WirePool`](super::super::pipe::WirePool)): a run holds a permit for its
+//! bytes from before they exist until they are gone, and each pool holds
+//! [`WIRE_POOL_RUNS`](super::super::pipe::WIRE_POOL_RUNS) runs' worth at the
+//! endpoint's own target. A record larger than its direction's pool takes the
+//! whole pool. The multiplexer's buffer
 //! ([`WRITE_BUFFER_BYTES`](super::super::pipe::WRITE_BUFFER_BYTES)) holds
-//! copies of the bytes written since it was last written out, never more
-//! than its capacity in all.
-//! Applications configure the target with
+//! copies of the bytes written since it was last written out, never more than
+//! its capacity in all. Applications configure the target with
 //! [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!
 //! The wire stores run length in a `u32`. [`RunBudget::from_bytes`] therefore
@@ -43,10 +41,10 @@ use crate::tree::mirror::streaming::message::Grandchildren;
 /// The exact wire size of one full-fan query frame: the largest frame that
 /// carries one comparison rather than supplied records.
 ///
-/// This includes the frame opener, the listing-map head, and every radix,
-/// hash, and grandchild count, each count at its widest. Radix keys have
-/// different CBOR head sizes, so the calculation visits each key rather than
-/// multiplying one entry size.
+/// This includes the frame opener, the listing-map head, and every radix, hash,
+/// and grandchild count, each count at its widest. Radix keys have different
+/// CBOR head sizes, so the calculation visits each key rather than multiplying
+/// one entry size.
 pub(crate) const FULL_FAN_QUERY_FRAME_LEN: usize = {
     let mut total = FRAME_OPENER_LEN + cbor::head_len(widen(MAX_QUERY_CHILDREN));
     let mut radix = 0usize;
@@ -95,9 +93,9 @@ impl RunBudget {
         self.bytes
     }
 
-    /// The most run-body bytes a frame within this budget carries: the
-    /// budget less [`SUPPLY_FRAME_OVERHEAD`], or zero for a budget smaller
-    /// than the overhead.
+    /// The most run-body bytes a frame within this budget carries: the budget
+    /// less [`SUPPLY_FRAME_OVERHEAD`], or zero for a budget smaller than the
+    /// overhead.
     pub fn body(self) -> usize {
         self.bytes.saturating_sub(SUPPLY_FRAME_OVERHEAD)
     }

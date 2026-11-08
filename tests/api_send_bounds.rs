@@ -1,12 +1,12 @@
-//! Static assertions that every async public method on the `rumors`
-//! handle types returns a `Send` future, and that the handle types
-//! themselves are `Send + Sync`.
+//! Static assertions that every async public method on the `rumors` handle
+//! types returns a `Send` future, and that the handle types themselves are
+//! `Send + Sync`.
 //!
-//! The motivating use case is `tokio::spawn(...)` on a multi-threaded
-//! runtime, which requires its argument to be `Send`. Each test compiles
-//! iff the relevant future (or type) is `Send` — the body just drops the
-//! future without awaiting — so a regression to a `!Send` return fails
-//! this crate's compilation.
+//! The motivating use case is `tokio::spawn(...)` on a multi-threaded runtime,
+//! which requires its argument to be `Send`. Each test compiles iff the
+//! relevant future (or type) is `Send` — the body just drops the future without
+//! awaiting — so a regression to a `!Send` return fails this crate's
+//! compilation.
 
 use futures::StreamExt;
 use rumors::{
@@ -87,8 +87,8 @@ fn handle_types_are_send_sync() {
 }
 
 /// Public wrappers inherit only the bounds required by their stored fields:
-/// session outcomes format without inspecting payloads, bookmark handles,
-/// or the connection halves they return.
+/// session outcomes format without inspecting payloads, bookmark handles, or
+/// the connection halves they return.
 #[test]
 fn wrapper_traits_do_not_inspect_payloads_bookmarks_or_halves() {
     require_error::<Error<SilentBookmark>>();
@@ -143,8 +143,8 @@ fn retire_future_is_send() {
     drop(fut);
 }
 
-/// `Rumors::try_into_peer`'s future is `Send`: the reunite wait can run in
-/// a spawned task.
+/// `Rumors::try_into_peer`'s future is `Send`: the reunite wait can run in a
+/// spawned task.
 #[test]
 fn try_into_peer_future_is_send() {
     let alice = NETWORK.peer::<String>().sync_memory_budget(0);
@@ -154,8 +154,8 @@ fn try_into_peer_future_is_send() {
     drop(fut);
 }
 
-/// The observer's item future is `Send`, for spawned and
-/// `select!`-driven consumers.
+/// The observer's item future is `Send`, for spawned and `select!`-driven
+/// consumers.
 #[test]
 fn observer_futures_are_send() {
     let alice = NETWORK.peer::<String>().sync_memory_budget(0).into_rumors();
@@ -167,7 +167,8 @@ fn observer_futures_are_send() {
     drop(fut);
 }
 
-/// Custom peer policies retain Send for the continuous driver and one-shot future.
+/// Custom peer policies retain Send for the continuous driver and one-shot
+/// future.
 #[test]
 fn configured_gossip_is_send() {
     let rumors = NETWORK

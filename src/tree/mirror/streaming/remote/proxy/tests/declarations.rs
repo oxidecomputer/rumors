@@ -1,9 +1,9 @@
 //! Full-stack checks for the greeting's session-size declarations.
 //!
 //! `set_len`, `max_version_bytes`, and `target_message_size` determine role
-//! election, the receiver's ingress checks, and the session's run target.
-//! These tests rewrite one received declaration
-//! and check how the production session responds when the traffic disagrees.
+//! election, the receiver's ingress checks, and the session's run target. These
+//! tests rewrite one received declaration and check how the production session
+//! responds when the traffic disagrees.
 
 use std::convert::Infallible;
 
@@ -36,26 +36,26 @@ fn receiver_error<'a>(
     })
 }
 
-/// A divergent pair whose live set sizes differ strictly: one message
-/// against four, on distinct parties, so the smaller side wins the
-/// initiator election under their actual declarations.
+/// A divergent pair whose live set sizes differ strictly: one message against
+/// four, on distinct parties, so the smaller side wins the initiator election
+/// under their actual declarations.
 fn uneven_pair() -> (TreeRoot, TreeRoot) {
     let (large, small) = harness::disjoint_pair(4, 1);
     (small, large)
 }
 
-/// Messages the bulk side of [`batched_uneven_pair`] originates: one more
-/// than the root fan, so at least one root child holds two or more leaves
-/// by pigeonhole.
+/// Messages the bulk side of [`batched_uneven_pair`] originates: one more than
+/// the root fan, so at least one root child holds two or more leaves by
+/// pigeonhole.
 const BULK_MESSAGES: usize = FAN + 1;
 
 /// A divergent pair of one message against [`BULK_MESSAGES`], on distinct
 /// parties.
 ///
-/// The small side wins the initiator election, and the bulk side's
-/// exclusive root children — at least one of which spans multiple leaves
-/// — reach it as whole supplied subtrees, so the traffic toward the small
-/// side includes a batched multi-record run.
+/// The small side wins the initiator election, and the bulk side's exclusive
+/// root children — at least one of which spans multiple leaves — reach it as
+/// whole supplied subtrees, so the traffic toward the small side includes a
+/// batched multi-record run.
 fn batched_uneven_pair() -> (TreeRoot, TreeRoot) {
     let (large, small) = harness::disjoint_pair(BULK_MESSAGES, 1);
     (small, large)
@@ -63,14 +63,13 @@ fn batched_uneven_pair() -> (TreeRoot, TreeRoot) {
 
 /// A peer batching supply runs past the session minimum fails the session.
 ///
-/// The receiver hears the bulk peer's `target_message_size` as zero,
-/// so it negotiates a zero session run budget while the peer keeps
-/// batching at the true exchanged minimum: the first multi-record run to
-/// arrive is a frame no encoder honoring the receiver's minimum can
-/// produce, and ingress rejects it as `OverbatchedRun` before buffering
-/// its body — the greeting-declared budget premise enforced on the remote
-/// decode path, completing the declaration matrix beside `set_len` and
-/// `max_version_bytes`. Both endpoints terminate.
+/// The receiver hears the bulk peer's `target_message_size` as zero, so it
+/// negotiates a zero session run budget while the peer keeps batching at the
+/// true exchanged minimum: the first multi-record run to arrive is a frame no
+/// encoder honoring the receiver's minimum can produce, and ingress rejects it
+/// as `OverbatchedRun` before buffering its body — the greeting-declared budget
+/// premise enforced on the remote decode path, completing the declaration
+/// matrix beside `set_len` and `max_version_bytes`. Both endpoints terminate.
 #[test]
 fn understated_target_message_size_fails_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -129,10 +128,10 @@ fn overstated_target_message_size_still_converges() {
 
 /// A supplied version over the declared `max_version_bytes` fails the session.
 ///
-/// The receiving side reports `OversizedVersion` at the first offending
-/// record — the declared aggregate covers every version the peer's tree
-/// materializes, so an arriving version over it shows the declaration
-/// false — and both endpoints terminate.
+/// The receiving side reports `OversizedVersion` at the first offending record
+/// — the declared aggregate covers every version the peer's tree materializes,
+/// so an arriving version over it shows the declaration false — and both
+/// endpoints terminate.
 #[test]
 fn understated_version_bytes_fail_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -158,13 +157,13 @@ fn understated_version_bytes_fail_the_session() {
 
 /// A supply stream past the declared `set_len` fails the session.
 ///
-/// The declared set length bounds the records the peer can supply. The
-/// wire decoder therefore reports `OverdrawnSupply` at the first excess
-/// record, before the payload reaches the backend. The sender may already
-/// have completed; this test constrains only the receiver's diagnosis.
+/// The declared set length bounds the records the peer can supply. The wire
+/// decoder therefore reports `OverdrawnSupply` at the first excess record,
+/// before the payload reaches the backend. The sender may already have
+/// completed; this test constrains only the receiver's diagnosis.
 ///
-/// Reducing the smaller side's declaration preserves its initiator role, so
-/// its supplies answering the responder's requests reach this check.
+/// Reducing the smaller side's declaration preserves its initiator role, so its
+/// supplies answering the responder's requests reach this check.
 #[test]
 fn understated_set_len_fails_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -199,8 +198,8 @@ fn understated_set_len_fails_the_session() {
 /// responder's opening reply supplies all of its exclusive root children at
 /// once, so the overrun surfaces at the third record, mid-reply. The wire
 /// decoder must reject that record before the decoded subtree reaches the
-/// backend. A declaration of two still exceeds the initiator's one message,
-/// so the election is unchanged.
+/// backend. A declaration of two still exceeds the initiator's one message, so
+/// the election is unchanged.
 #[test]
 fn set_len_overrun_within_one_reply_fails_at_ingress() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -230,9 +229,8 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
 /// A peer that declares `max_version_bytes` as `u64::MAX` still converges on
 /// the union.
 ///
-/// The declaration is an upper bound, so overstating it rejects no
-/// conforming version, and the session accepts the extreme value. Roles are
-/// unaffected.
+/// The declaration is an upper bound, so overstating it rejects no conforming
+/// version, and the session accepts the extreme value. Roles are unaffected.
 #[test]
 fn overstated_version_bytes_still_converge() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -256,8 +254,8 @@ fn overstated_version_bytes_still_converge() {
 
 /// An overstated `set_len` heard from the larger side still converges.
 ///
-/// The roles stay complementary, so the changed declaration affects only
-/// the receiving side's derived capacities.
+/// The roles stay complementary, so the changed declaration affects only the
+/// receiving side's derived capacities.
 #[test]
 fn overstated_set_len_from_the_bulk_side_still_converges() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -283,11 +281,11 @@ fn overstated_set_len_from_the_bulk_side_still_converges() {
 /// A responder's root reply over the grandchild count its greeting declared
 /// fails the session at the initiator's decoder.
 ///
-/// The initiator hears the bulk responder's root count as one, so it
-/// expects a reply of at most its own root children plus one reaction. The
-/// responder's reply holds its four exclusive root children beside the
-/// initiator's one, so the decoder rejects the reply at the reaction that
-/// overruns, before it parks.
+/// The initiator hears the bulk responder's root count as one, so it expects a
+/// reply of at most its own root children plus one reaction. The responder's
+/// reply holds its four exclusive root children beside the initiator's one, so
+/// the decoder rejects the reply at the reaction that overruns, before it
+/// parks.
 #[test]
 fn understated_root_grandchildren_fail_the_opening_reply() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -336,8 +334,8 @@ fn overstated_root_grandchildren_complete_the_session() {
     }
 }
 
-/// Messages each side of [`listing_pair`] holds: enough that every root
-/// child either side holds has several children on each side.
+/// Messages each side of [`listing_pair`] holds: enough that every root child
+/// either side holds has several children on each side.
 const LISTED_MESSAGES: usize = 2_000;
 
 /// A divergent pair of [`LISTED_MESSAGES`] messages against one fewer, on
@@ -349,14 +347,13 @@ fn listing_pair() -> (TreeRoot, TreeRoot) {
 }
 
 /// An initiator's reply about a root child over the grandchild count its
-/// greeting listed for that child fails the session at the responder's
-/// decoder.
+/// greeting listed for that child fails the session at the responder's decoder.
 ///
-/// The responder hears every count in the initiator's root listing as one,
-/// so each question it asks about a disputed root child expects at most
-/// one listing entry. With about eight messages under each root child on
-/// each side, the initiator's replies list its children of every disputed
-/// grandchild, so the first such reply overruns its listing bound.
+/// The responder hears every count in the initiator's root listing as one, so
+/// each question it asks about a disputed root child expects at most one
+/// listing entry. With about eight messages under each root child on each side,
+/// the initiator's replies list its children of every disputed grandchild, so
+/// the first such reply overruns its listing bound.
 #[test]
 fn understated_listing_grandchildren_fail_a_reply() {
     for receiver in [IoSide::Left, IoSide::Right] {

@@ -3,9 +3,9 @@
 //! The engine prices operators with the fuel board's table
 //! (`board_fuel_harness::costs`), so a byte moved by `memory.copy` or
 //! `memory.fill` costs one, as an element moved by a loop does. Fuel is a
-//! deterministic function of the guest module, the cost table, and the
-//! program; every program runs in a new instance, so no state another run
-//! left reaches it.
+//! deterministic function of the guest module, the cost table, and the program;
+//! every program runs in a new instance, so no state another run left reaches
+//! it.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -26,8 +26,8 @@ const FUEL_TANK: u64 = u64::MAX / 2;
 /// One program's run: the fuel readings and the observation words.
 #[derive(Clone, Debug)]
 pub struct Run {
-    /// The instance's consumed fuel before the first step and after each
-    /// step instance: one more reading than the program has step instances.
+    /// The instance's consumed fuel before the first step and after each step
+    /// instance: one more reading than the program has step instances.
     pub fuel: Vec<u64>,
     /// One observation word per step instance.
     pub observations: Vec<u64>,

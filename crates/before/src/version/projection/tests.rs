@@ -1,10 +1,11 @@
 //! Contract pins for the masked comparison co-walk.
 //!
-//! The verdict mass lives elsewhere: the projection laws in [`crate::testing::laws`]
-//! pin every entry point against the materialized form over generated,
-//! organic, and fuzzed populations (the module doc's testing section). What
-//! lives here is the Panics contract's negative space: the silent sweep over
-//! the canonicality violations the walk does not structurally notice.
+//! The verdict mass lives elsewhere: the projection laws in
+//! [`crate::testing::laws`] pin every entry point against the materialized form
+//! over generated, organic, and fuzzed populations (the module doc's testing
+//! section). What lives here is the Panics contract's negative space: the
+//! silent sweep over the canonicality violations the walk does not structurally
+//! notice.
 
 use core::cmp::Ordering;
 
@@ -26,11 +27,11 @@ use super::Comparison;
 /// silently.
 ///
 /// A collapsible-sibling-pair stream, which the validator rejects as
-/// [`Decode::NotCanonical`], flows through both comparison questions
-/// without panicking. The verdict is unspecified by contract, so the pin
-/// asserts only that the calls return; what it protects is the Panics
-/// sections' split between the structurally-noticed violations (truncation,
-/// malformation), which panic, and the rest, which do not.
+/// [`Decode::NotCanonical`], flows through both comparison questions without
+/// panicking. The verdict is unspecified by contract, so the pin asserts only
+/// that the calls return; what it protects is the Panics sections' split
+/// between the structurally-noticed violations (truncation, malformation),
+/// which panic, and the rest, which do not.
 #[test]
 fn collapsible_sibling_pair_sweeps_without_panicking() {
     // (5, 5): internal root, first leaf absolute gamma(5), then the zero

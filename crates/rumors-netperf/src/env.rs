@@ -1,18 +1,18 @@
-//! The environment a run measures in: the host, its kernel and TCP
-//! limits, and the build of this tool. A run records it once, in
-//! `environment.json`, and the calibration cache keys on its fingerprint.
+//! The environment a run measures in: the host, its kernel and TCP limits, and
+//! the build of this tool. A run records it once, in `environment.json`, and
+//! the calibration cache keys on its fingerprint.
 //!
 //! # Which build ran
 //!
 //! A build is identified by a SHA-256 of its executable
-//! ([`Build::executable`]), which covers everything compiled into the
-//! tool: the library, the tool's own code, its dependencies, the compiler,
-//! and the build's settings. Resuming a run and reusing a calibration both
-//! compare it, so neither accepts a different build, even one that differs
-//! from the run's only in the library or in uncommitted edits. The source
-//! revision ([`Build::revision`]) says, for the people who read the
-//! results, which commit the build came from; two builds of one revision
-//! can differ, and only the digest tells them apart.
+//! ([`Build::executable`]), which covers everything compiled into the tool: the
+//! library, the tool's own code, its dependencies, the compiler, and the
+//! build's settings. Resuming a run and reusing a calibration both compare it,
+//! so neither accepts a different build, even one that differs from the run's
+//! only in the library or in uncommitted edits. The source revision
+//! ([`Build::revision`]) says, for the people who read the results, which
+//! commit the build came from; two builds of one revision can differ, and only
+//! the digest tells them apart.
 
 use std::fmt;
 use std::fs::{self, File};
@@ -27,27 +27,26 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use sha3::{Digest, Sha3_256};
 
-/// This build of the tool: its executable's digest, and what the build
-/// fixed at compile time.
+/// This build of the tool: its executable's digest, and what the build fixed at
+/// compile time.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Build {
     /// The tool's version.
     pub version: String,
-    /// The source revision the build came from, for people to read: the
-    /// commit, with `-dirty` when a tracked file differed from it; the
-    /// commit a tree without git names in its `COMMIT` file, marked as
-    /// such; or `unknown`.
+    /// The source revision the build came from, for people to read: the commit,
+    /// with `-dirty` when a tracked file differed from it; the commit a tree
+    /// without git names in its `COMMIT` file, marked as such; or `unknown`.
     pub revision: String,
     /// The compiler that built it.
     pub rustc: String,
     /// The target it was built for.
     pub target: String,
-    /// Whether the build is optimized: `release`, or `debug` for a build
-    /// with debug assertions, which the tool refuses to measure with.
+    /// Whether the build is optimized: `release`, or `debug` for a build with
+    /// debug assertions, which the tool refuses to measure with.
     pub profile: String,
-    /// The SHA-256 of the executable, in hexadecimal: the build's identity,
-    /// as [the module docs](self#which-build-ran) describe. A record
-    /// written by a tool that kept no digest has none.
+    /// The SHA-256 of the executable, in hexadecimal: the build's identity, as
+    /// [the module docs](self#which-build-ran) describe. A record written by a
+    /// tool that kept no digest has none.
     #[serde(default)]
     pub executable: Option<String>,
 }
@@ -79,8 +78,8 @@ impl Build {
 }
 
 impl fmt::Display for Build {
-    /// The build in one line: version, revision, profile, target, compiler,
-    /// and the executable's digest.
+    /// The build in one line: version, revision, profile, target, compiler, and
+    /// the executable's digest.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -97,14 +96,14 @@ impl fmt::Display for Build {
 
 /// The file of the running executable.
 ///
-/// Linux names the image the process runs `/proc/self/exe`, which still
-/// opens that image after a rebuild replaces the file at its path.
-/// illumos names it `/proc/self/path/a.out`, which opens the image only
-/// while its file is in place: once a rebuild replaces the file, opening
-/// it fails, so the digest is an error, never another build's. Elsewhere
-/// the path is the best name there is, and a replacement between the
-/// process's start and this read goes unseen. Only the first read counts,
-/// since [`executable_digest`] keeps its result for the process's life.
+/// Linux names the image the process runs `/proc/self/exe`, which still opens
+/// that image after a rebuild replaces the file at its path. illumos names it
+/// `/proc/self/path/a.out`, which opens the image only while its file is in
+/// place: once a rebuild replaces the file, opening it fails, so the digest is
+/// an error, never another build's. Elsewhere the path is the best name there
+/// is, and a replacement between the process's start and this read goes unseen.
+/// Only the first read counts, since [`executable_digest`] keeps its result for
+/// the process's life.
 fn running_executable() -> io::Result<PathBuf> {
     if cfg!(target_os = "linux") {
         Ok(PathBuf::from("/proc/self/exe"))
@@ -146,19 +145,19 @@ pub fn executable_digest() -> io::Result<String> {
 /// The TCP limits that bound how much a connection can keep in flight.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct TcpLimits {
-    /// The platform's settings that bound the window, by their own names,
-    /// with their values as the platform prints them.
+    /// The platform's settings that bound the window, by their own names, with
+    /// their values as the platform prints them.
     pub settings: Vec<(String, String)>,
     /// The largest receive buffer autotuning may grow to, in bytes.
     pub max_receive_buffer: Option<u64>,
     /// The largest send buffer autotuning may grow to, in bytes.
     pub max_send_buffer: Option<u64>,
-    /// The share of a buffer that holds payload rather than bookkeeping,
-    /// as this tool estimates it for the platform.
+    /// The share of a buffer that holds payload rather than bookkeeping, as
+    /// this tool estimates it for the platform.
     pub payload_share: f64,
-    /// The largest window a connection can use, in bytes: the smaller
-    /// buffer times the payload share. A link whose bandwidth-delay product
-    /// exceeds it cannot be kept busy by one connection.
+    /// The largest window a connection can use, in bytes: the smaller buffer
+    /// times the payload share. A link whose bandwidth-delay product exceeds it
+    /// cannot be kept busy by one connection.
     pub usable_window: Option<u64>,
 }
 
@@ -173,8 +172,8 @@ pub struct Difference {
     pub theirs: String,
 }
 
-/// The identity's name for the host's name: the one part in which the
-/// shards of one run, each on a host of its own, may differ.
+/// The identity's name for the host's name: the one part in which the shards of
+/// one run, each on a host of its own, may differ.
 pub(crate) const HOST_NAME: &str = "host name";
 
 /// Everything a run records about where it ran.
@@ -198,8 +197,8 @@ pub struct Environment {
     pub memory_bytes: Option<u64>,
     /// The TCP limits.
     pub tcp: TcpLimits,
-    /// The congestion control algorithm new connections use, where the
-    /// platform reports it.
+    /// The congestion control algorithm new connections use, where the platform
+    /// reports it.
     pub congestion_control: Option<String>,
     /// The load averages over one, five, and fifteen minutes when the run
     /// started.
@@ -235,13 +234,13 @@ impl Environment {
         })
     }
 
-    /// Everything that identifies the environment a measurement holds for,
-    /// each part named: the host, its kernel, its processors and memory,
-    /// its TCP settings and congestion control, and the build.
+    /// Everything that identifies the environment a measurement holds for, each
+    /// part named: the host, its kernel, its processors and memory, its TCP
+    /// settings and congestion control, and the build.
     ///
     /// The build's part is its one-line description, which names the
-    /// executable's digest beside the revision. The load is left out, since
-    /// it changes from run to run on any host, and so are the TCP limits'
+    /// executable's digest beside the revision. The load is left out, since it
+    /// changes from run to run on any host, and so are the TCP limits'
     /// quantities computed from the settings, which the identity names whole.
     pub(crate) fn identity(&self) -> [(&'static str, String); 10] {
         [
@@ -261,8 +260,8 @@ impl Environment {
         ]
     }
 
-    /// A digest of everything that could change a calibration's verdict:
-    /// the parts [`Environment::differences`] compares.
+    /// A digest of everything that could change a calibration's verdict: the
+    /// parts [`Environment::differences`] compares.
     pub fn fingerprint(&self) -> String {
         let mut hasher = Sha3_256::new();
         for (_, part) in self.identity() {
@@ -272,8 +271,8 @@ impl Environment {
         hex(&hasher.finalize()[..8])
     }
 
-    /// Each part of the environment's identity in which `self` differs
-    /// from `other`, with both values.
+    /// Each part of the environment's identity in which `self` differs from
+    /// `other`, with both values.
     ///
     /// It is empty exactly when the two have the same
     /// [`Environment::fingerprint`], up to a collision of the digest.
@@ -288,8 +287,8 @@ impl Environment {
 
     /// Each part of the environment's identity but the host's name in which
     /// `self` differs from `other`: what makes the sessions measured in one
-    /// measure something other than those measured in the other, wherever
-    /// each ran.
+    /// measure something other than those measured in the other, wherever each
+    /// ran.
     pub fn differences_beyond_host(&self, other: &Environment) -> Vec<Difference> {
         let mut differences = self.differences(other);
         differences.retain(|difference| difference.part != HOST_NAME);
@@ -386,12 +385,12 @@ pub fn load_average() -> Option<[f64; 3]> {
     ])
 }
 
-/// The share of a Linux socket buffer that holds payload: the kernel
-/// reserves `1 / 2^tcp_adv_win_scale` of the space for bookkeeping.
+/// The share of a Linux socket buffer that holds payload: the kernel reserves
+/// `1 / 2^tcp_adv_win_scale` of the space for bookkeeping.
 ///
-/// Kernels without that setting measure the ratio per connection and start
-/// at a half, which this tool assumes, since it is the smallest such
-/// kernels use before they have measured.
+/// Kernels without that setting measure the ratio per connection and start at a
+/// half, which this tool assumes, since it is the smallest such kernels use
+/// before they have measured.
 fn linux_payload_share() -> f64 {
     match read_trimmed("/proc/sys/net/ipv4/tcp_adv_win_scale").and_then(|v| v.parse::<i32>().ok()) {
         Some(scale) if scale > 0 => 1.0 - 0.5f64.powi(scale),

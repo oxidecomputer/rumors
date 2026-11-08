@@ -65,7 +65,8 @@ impl ScheduleCell {
         }
     }
 
-    /// Run `f` with `delays` active, restoring any enclosing schedule afterward.
+    /// Run `f` with `delays` active, restoring any enclosing schedule
+    /// afterward.
     pub(crate) fn with<R>(self, delays: Vec<u8>, f: impl FnOnce() -> R) -> R {
         /// Restore an enclosing schedule after return or panic.
         struct Restore {

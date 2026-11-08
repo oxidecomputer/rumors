@@ -1,9 +1,9 @@
 //! Byte storage with scheduled read and write failures.
 //!
 //! Storage and fault schedules outlive each peer, so a restarted peer reloads
-//! the same durable record. A failed write preserves the previous bytes.
-//! Tests inspect records through `persisted_record`; the store itself treats
-//! them as opaque.
+//! the same durable record. A failed write preserves the previous bytes. Tests
+//! inspect records through `persisted_record`; the store itself treats them as
+//! opaque.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -111,10 +111,10 @@ impl std::error::Error for FlakyError {}
 /// One peer's bookmark fail schedule, consumed in call order.
 ///
 /// `reads` and `writes` are independent queues of "fail this one?" decisions;
-/// each bookmark load/store pops the next. An
-/// exhausted queue defaults to success, so shrinking a schedule toward empty
-/// shrinks monotonically toward fault-free — the minimal counterexample is the
-/// shortest prefix of failures that still reproduces a bug.
+/// each bookmark load/store pops the next. An exhausted queue defaults to
+/// success, so shrinking a schedule toward empty shrinks monotonically toward
+/// fault-free — the minimal counterexample is the shortest prefix of failures
+/// that still reproduces a bug.
 ///
 /// `enabled` is the master switch the heal phase flips off: a fault-free heal
 /// is what makes the convergence and disjointness assertions reachable.
@@ -135,8 +135,8 @@ impl FaultFeed {
         }
     }
 
-    /// Stop injecting faults: every later read and write succeeds. Irreversible,
-    /// and called on every feed before the heal phase.
+    /// Stop injecting faults: every later read and write succeeds.
+    /// Irreversible, and called on every feed before the heal phase.
     pub fn disable(&mut self) {
         self.enabled = false;
     }
@@ -144,8 +144,8 @@ impl FaultFeed {
     /// Whether a scheduled failure remains: the feed is enabled and a `true`
     /// decision is still queued for a read or a write.
     ///
-    /// An exhausted or all-`false` queue never fails, so a session over such
-    /// a feed cannot legitimately report a bookmark error.
+    /// An exhausted or all-`false` queue never fails, so a session over such a
+    /// feed cannot legitimately report a bookmark error.
     pub fn may_fail(&self) -> bool {
         self.enabled && (self.reads.contains(&true) || self.writes.contains(&true))
     }

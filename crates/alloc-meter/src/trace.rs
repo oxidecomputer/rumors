@@ -1,10 +1,10 @@
 //! Allocation lifetimes over a traced region of one thread's work.
 //!
-//! A [`Stats`](crate::Stats) reading counts bytes, but it cannot say which
-//! of the bytes a region allocated are still live when the region ends. A
-//! *trace* records every allocator request the calling thread makes while
-//! it runs, in order, with each block's address and size, so that a later
-//! analysis can follow every block from its allocation to its free:
+//! A [`Stats`](crate::Stats) reading counts bytes, but it cannot say which of
+//! the bytes a region allocated are still live when the region ends. A *trace*
+//! records every allocator request the calling thread makes while it runs, in
+//! order, with each block's address and size, so that a later analysis can
+//! follow every block from its allocation to its free:
 //!
 //! ```
 //! let (trace, kept) = alloc_meter::trace(16, || {
@@ -20,8 +20,8 @@
 //!
 //! # Classifying a block
 //!
-//! [`Trace::lifetimes`] sorts every block the region allocated into one of
-//! two classes:
+//! [`Trace::lifetimes`] sorts every block the region allocated into one of two
+//! classes:
 //!
 //! - A *transient* block was allocated and freed inside the region.
 //! - A *surviving* block was allocated inside the region and was still live
@@ -33,42 +33,42 @@
 //! [`Trace::survivors`] lists the surviving blocks themselves, so a caller can
 //! check what owns them.
 //!
-//! The analysis reports, per [`Label`], the highest number of transient
-//! bytes live at once over the region, the *transient peak*. Time is the
-//! order of allocator requests. A reallocation counts as allocating the new
-//! block and then freeing the old one, so the peak covers both blocks at
-//! once, as [`Stats::peak_bytes`](crate::Stats::peak_bytes) does.
+//! The analysis reports, per [`Label`], the highest number of transient bytes
+//! live at once over the region, the *transient peak*. Time is the order of
+//! allocator requests. A reallocation counts as allocating the new block and
+//! then freeing the old one, so the peak covers both blocks at once, as
+//! [`Stats::peak_bytes`](crate::Stats::peak_bytes) does.
 //!
 //! # Labels
 //!
-//! [`labelled`] runs a closure with a label, and every block allocated
-//! inside it carries that label. A block's bytes count toward the label it
-//! was allocated under, whichever label is current when it is freed, so a
-//! caller interleaving several independent computations on one thread can
-//! attribute each block to the computation that allocated it.
+//! [`labelled`] runs a closure with a label, and every block allocated inside
+//! it carries that label. A block's bytes count toward the label it was
+//! allocated under, whichever label is current when it is freed, so a caller
+//! interleaving several independent computations on one thread can attribute
+//! each block to the computation that allocated it.
 //!
-//! A label's transient peak is the highest its own bytes reach, so the peaks
-//! of two labels need not occur together and their sum can exceed the peak
-//! of both labels' bytes together. [`Trace::lifetimes_grouped`] classifies
-//! the trace as though each label were replaced by the group a function
-//! maps it to, so a caller who encodes several facts in one label (which
-//! computation allocated a block, and what for) reads the peak of each group
-//! as well as of each label.
+//! A label's transient peak is the highest its own bytes reach, so the peaks of
+//! two labels need not occur together and their sum can exceed the peak of both
+//! labels' bytes together. [`Trace::lifetimes_grouped`] classifies the trace as
+//! though each label were replaced by the group a function maps it to, so a
+//! caller who encodes several facts in one label (which computation allocated a
+//! block, and what for) reads the peak of each group as well as of each label.
 //!
 //! # Limits
 //!
 //! - A trace records into a buffer of the capacity [`trace`] is given,
 //!   allocated before the region begins, because the allocator must not
-//!   allocate while it records. A request that finds the buffer full is
-//!   counted in [`Trace::dropped`] instead, and [`Trace::lifetimes`] then
-//!   refuses to classify, since a lost free would turn a transient block
-//!   into a surviving one.
+//!   allocate while it records. A request that finds the buffer full is counted
+//!   in [`Trace::dropped`] instead, and [`Trace::lifetimes`] then refuses to
+//!   classify, since a lost free would turn a transient block into a surviving
+//!   one.
 //! - A trace sees only the calling thread, like the ledger, and for the same
-//!   reasons (see [the crate docs](crate#why-each-thread-keeps-its-own-ledger)).
-//!   A block the region allocates and another thread frees looks like a
-//!   surviving block, unless the region later receives a new block at the
-//!   same address; the analysis then ends the first block's lifetime there,
-//!   and counts it in [`Lifetimes::reused_while_live`].
+//!   reasons (see [the crate
+//!   docs](crate#why-each-thread-keeps-its-own-ledger)). A block the region
+//!   allocates and another thread frees looks like a surviving block, unless
+//!   the region later receives a new block at the same address; the analysis
+//!   then ends the first block's lifetime there, and counts it in
+//!   [`Lifetimes::reused_while_live`].
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -76,8 +76,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 #[cfg(test)]
 mod tests;
 
-/// The attribution a block carries: the label current when it was
-/// allocated (see [the module docs](self#labels)).
+/// The attribution a block carries: the label current when it was allocated
+/// (see [the module docs](self#labels)).
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Label(pub u32);
 
@@ -95,9 +95,9 @@ pub enum EventKind {
     /// A block was freed by a deallocation, or by a reallocation inside
     /// [`untraced`], whose new block the trace omits.
     Freed,
-    /// The old block of a traced reallocation was freed. The event that
-    /// follows it is always the new block's [`Allocated`](Self::Allocated),
-    /// and the transient peak counts the two blocks live together.
+    /// The old block of a traced reallocation was freed. The event that follows
+    /// it is always the new block's [`Allocated`](Self::Allocated), and the
+    /// transient peak counts the two blocks live together.
     Resized,
 }
 
@@ -116,14 +116,14 @@ pub struct Event {
 
 /// The calling thread's tracing state, read on every allocator request.
 ///
-/// A `Copy` value in a `Cell` with a const initializer needs no destructor,
-/// so reaching it never allocates, as [`crate::LEDGER`]'s comment explains.
+/// A `Copy` value in a `Cell` with a const initializer needs no destructor, so
+/// reaching it never allocates, as [`crate::LEDGER`]'s comment explains.
 #[derive(Clone, Copy, Debug)]
 struct Mode {
     /// Whether a [`trace`] is running on this thread.
     tracing: bool,
-    /// How many [`untraced`] calls enclose the current request; allocations
-    /// are omitted while it is nonzero.
+    /// How many [`untraced`] calls enclose the current request; allocations are
+    /// omitted while it is nonzero.
     untraced: u32,
     /// The label current for new blocks.
     label: Label,
@@ -138,8 +138,8 @@ impl Mode {
     };
 }
 
-/// A trace's preallocated event buffer, with the count of events it had no
-/// room for.
+/// A trace's preallocated event buffer, with the count of events it had no room
+/// for.
 #[derive(Debug)]
 struct Buffer {
     /// Recorded events, never grown while tracing.
@@ -170,8 +170,8 @@ thread_local! {
 /// Records one event when a trace is running on this thread.
 ///
 /// Called from inside the allocator, so it must neither allocate nor panic.
-/// Every access is fallible rather than panicking, and the push happens
-/// only while the buffer has spare capacity, so it never grows the vector.
+/// Every access is fallible rather than panicking, and the push happens only
+/// while the buffer has spare capacity, so it never grows the vector.
 fn record(kind: EventKind, address: usize, size: usize) {
     let Ok(mode) = MODE.try_with(Cell::get) else {
         return;
@@ -217,9 +217,9 @@ pub(crate) fn freed(address: usize, size: usize) {
 ///
 /// The old block's free comes first, so that an analysis matching frees to
 /// allocations by address pairs it with the old block even when the system
-/// resizes in place. Inside [`untraced`] the new block is omitted, and the
-/// old block's free is recorded as a plain [`EventKind::Freed`], so that
-/// every [`EventKind::Resized`] is followed by its new block.
+/// resizes in place. Inside [`untraced`] the new block is omitted, and the old
+/// block's free is recorded as a plain [`EventKind::Freed`], so that every
+/// [`EventKind::Resized`] is followed by its new block.
 pub(crate) fn reallocated(
     old_address: usize,
     old_size: usize,
@@ -265,9 +265,9 @@ impl Trace {
         self.dropped
     }
 
-    /// Classifies every block the region allocated as transient or
-    /// surviving, and finds each label's transient peak (see
-    /// [the module docs](self#classifying-a-block)).
+    /// Classifies every block the region allocated as transient or surviving,
+    /// and finds each label's transient peak (see [the module
+    /// docs](self#classifying-a-block)).
     ///
     /// # Errors
     ///
@@ -277,13 +277,13 @@ impl Trace {
         self.lifetimes_grouped(|label| label)
     }
 
-    /// Classifies every block as [`lifetimes`](Self::lifetimes) does, with
-    /// each event's label replaced by `group(label)` (see
-    /// [the module docs](self#labels)).
+    /// Classifies every block as [`lifetimes`](Self::lifetimes) does, with each
+    /// event's label replaced by `group(label)` (see [the module
+    /// docs](self#labels)).
     ///
     /// Each group's transient peak is the highest number of transient bytes
-    /// live at once across every label in the group, which can be less than
-    /// the sum of those labels' own peaks.
+    /// live at once across every label in the group, which can be less than the
+    /// sum of those labels' own peaks.
     ///
     /// # Errors
     ///
@@ -297,8 +297,8 @@ impl Trace {
         Ok(Lifetimes::of_grouped(events, &resolve(events, group)))
     }
 
-    /// Returns the allocation event of every surviving block, in request
-    /// order: the blocks the region allocated that were live when it ended.
+    /// Returns the allocation event of every surviving block, in request order:
+    /// the blocks the region allocated that were live when it ended.
     ///
     /// A caller can check what owns the survivors by tracing the work that
     /// should free them and matching its frees against these blocks.
@@ -318,33 +318,32 @@ impl Trace {
             .collect())
     }
 
-    /// Returns the peak transient level of each group of labels, and of
-    /// every group together, within each segment of the trace that `starts`
-    /// marks.
+    /// Returns the peak transient level of each group of labels, and of every
+    /// group together, within each segment of the trace that `starts` marks.
     ///
     /// An event's *level* for a group is the bytes of the group's transient
     /// blocks live during it, counted as the classification counts them: a
-    /// block a reallocation moves stays live through the allocation of its
-    /// new block, and a block whose address is reused stays live through the
-    /// reusing allocation (see [`Lifetimes::reused_while_live`]). `group`
-    /// maps each label to the index of its group, below `groups`, or to
-    /// `None` to leave the label's blocks out.
+    /// block a reallocation moves stays live through the allocation of its new
+    /// block, and a block whose address is reused stays live through the
+    /// reusing allocation (see [`Lifetimes::reused_while_live`]). `group` maps
+    /// each label to the index of its group, below `groups`, or to `None` to
+    /// leave the label's blocks out.
     ///
     /// The segments partition the events in order: the first runs from the
     /// trace's start to `starts[0]`, segment `k` from `starts[k - 1]` to
     /// `starts[k]`, and the last from the last start to the trace's end, so
-    /// there is one more segment than starts. A segment holding no event,
-    /// such as one between equal starts or one beginning at or beyond the
-    /// trace's end, peaks at zero. A caller holding the trace's [`position`]
-    /// at moments of its own, such as the changes of an account it keeps
-    /// beside the trace, passes those positions as the starts. The account
-    /// then holds one value through each segment, and each group's peak
-    /// within the segment is the most its level reached against that value.
+    /// there is one more segment than starts. A segment holding no event, such
+    /// as one between equal starts or one beginning at or beyond the trace's
+    /// end, peaks at zero. A caller holding the trace's [`position`] at moments
+    /// of its own, such as the changes of an account it keeps beside the trace,
+    /// passes those positions as the starts. The account then holds one value
+    /// through each segment, and each group's peak within the segment is the
+    /// most its level reached against that value.
     ///
     /// # Panics
     ///
-    /// Panics if `starts` decreases anywhere, or if `group` maps a label to
-    /// an index of `groups` or above.
+    /// Panics if `starts` decreases anywhere, or if `group` maps a label to an
+    /// index of `groups` or above.
     ///
     /// # Errors
     ///
@@ -368,8 +367,8 @@ impl Trace {
         Ok(SegmentPeaks::of(events, starts, groups, &resolved))
     }
 
-    /// Returns the events when the trace recorded every request, or the
-    /// refusal to classify an incomplete one.
+    /// Returns the events when the trace recorded every request, or the refusal
+    /// to classify an incomplete one.
     fn complete(&self) -> Result<&[Event], Incomplete> {
         if self.dropped > 0 {
             return Err(Incomplete {
@@ -386,8 +385,8 @@ impl Trace {
 pub struct Incomplete {
     /// Events the trace recorded, which is its buffer's capacity.
     pub recorded: usize,
-    /// Events it had no room for: a trace given `recorded + dropped`
-    /// capacity would have held them all.
+    /// Events it had no room for: a trace given `recorded + dropped` capacity
+    /// would have held them all.
     pub dropped: usize,
 }
 
@@ -411,8 +410,8 @@ pub struct LabelLifetimes {
 pub struct Lifetimes {
     /// Each label that allocated at least one block, with its blocks.
     labels: BTreeMap<Label, LabelLifetimes>,
-    /// Allocations whose address was already held by a live traced block,
-    /// which must have been freed where the trace could not see.
+    /// Allocations whose address was already held by a live traced block, which
+    /// must have been freed where the trace could not see.
     pub reused_while_live: usize,
 }
 
@@ -429,16 +428,15 @@ impl Lifetimes {
         Self::of_grouped(events, &resolve(events, |label| label))
     }
 
-    /// Classifies the blocks of an event sequence in request order, with
-    /// each event's label replaced by its group in `groups`, which
-    /// [`resolve`] built from the same events.
+    /// Classifies the blocks of an event sequence in request order, with each
+    /// event's label replaced by its group in `groups`, which [`resolve`] built
+    /// from the same events.
     ///
     /// The first pass finds which blocks are transient ([`transience`]). The
     /// second replays the events, pairing them the same way, and holds each
     /// transient block's bytes live under its allocation's group from its
     /// allocation to the event that ends it. A [`Resized`](EventKind::Resized)
-    /// free takes effect only after the next event, the new block's
-    /// allocation.
+    /// free takes effect only after the next event, the new block's allocation.
     fn of_grouped(events: &[Event], groups: &Resolved<Label>) -> Self {
         let group = |label| groups.of(label);
         let (transient, reused_while_live) = transience(events);
@@ -482,14 +480,14 @@ impl Lifetimes {
     }
 }
 
-/// Each distinct label of an event sequence, sorted, with the value a
-/// caller's function maps it to.
+/// Each distinct label of an event sequence, sorted, with the value a caller's
+/// function maps it to.
 ///
 /// The analyses that take a caller's function over labels call it once per
 /// distinct label here and replay the events through [`Resolved::of`]. The
 /// replay is then not generic over the function, so it is compiled with this
-/// crate rather than with each caller. A profile's `opt-level` for this
-/// crate therefore optimizes every replay, even for a caller built without
+/// crate rather than with each caller. A profile's `opt-level` for this crate
+/// therefore optimizes every replay, even for a caller built without
 /// optimization, as a test binary in the dev profile is.
 #[derive(Debug)]
 struct Resolved<T>(Vec<(Label, T)>);
@@ -509,8 +507,7 @@ impl<T: Copy> Resolved<T> {
     }
 }
 
-/// Maps each distinct label of `events` through `f`, calling it once per
-/// label.
+/// Maps each distinct label of `events` through `f`, calling it once per label.
 fn resolve<T>(events: &[Event], f: impl Fn(Label) -> T) -> Resolved<T> {
     Resolved(
         distinct_labels(events)
@@ -541,26 +538,25 @@ fn distinct_labels(events: &[Event]) -> Vec<Label> {
 pub struct SegmentPeaks {
     /// The number of groups.
     groups: usize,
-    /// Each segment's peaks in order, one row per segment: each group's
-    /// peak, then the peak of every group together.
+    /// Each segment's peaks in order, one row per segment: each group's peak,
+    /// then the peak of every group together.
     rows: Vec<usize>,
 }
 
 impl SegmentPeaks {
-    /// Returns the number of segments: one more than the starts that
-    /// marked them.
+    /// Returns the number of segments: one more than the starts that marked
+    /// them.
     pub fn len(&self) -> usize {
         self.rows.len() / (self.groups + 1)
     }
 
-    /// Returns whether there are no segments, which never holds: even no
-    /// starts mark one segment, the whole trace.
+    /// Returns whether there are no segments, which never holds: even no starts
+    /// mark one segment, the whole trace.
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
 
-    /// Returns the peak level of each group within `segment`, by group
-    /// index.
+    /// Returns the peak level of each group within `segment`, by group index.
     ///
     /// # Panics
     ///
@@ -569,8 +565,8 @@ impl SegmentPeaks {
         &self.row(segment)[..self.groups]
     }
 
-    /// Returns the peak level of every group together within `segment`,
-    /// which can be less than the sum of the groups' own peaks there.
+    /// Returns the peak level of every group together within `segment`, which
+    /// can be less than the sum of the groups' own peaks there.
     ///
     /// # Panics
     ///
@@ -585,14 +581,14 @@ impl SegmentPeaks {
         &self.rows[segment * width..][..width]
     }
 
-    /// Computes each segment's peaks over `events` by replaying them once,
-    /// with each label's group, among `groups`, looked up in `resolved`.
+    /// Computes each segment's peaks over `events` by replaying them once, with
+    /// each label's group, among `groups`, looked up in `resolved`.
     ///
-    /// The replay pairs events with the blocks they end as the
-    /// classification does, and keeps each group's level and their total.
-    /// A level rises only at the allocation of an included transient block,
-    /// so a segment's peaks are its levels at its first event, raised at
-    /// each such allocation within it.
+    /// The replay pairs events with the blocks they end as the classification
+    /// does, and keeps each group's level and their total. A level rises only
+    /// at the allocation of an included transient block, so a segment's peaks
+    /// are its levels at its first event, raised at each such allocation within
+    /// it.
     fn of(
         events: &[Event],
         starts: &[usize],
@@ -671,15 +667,15 @@ impl SegmentPeaks {
     }
 }
 
-/// Matches events to the traced blocks whose lifetimes they end, replaying
-/// them in request order.
+/// Matches events to the traced blocks whose lifetimes they end, replaying them
+/// in request order.
 ///
-/// A free ends the most recent traced allocation at its address that no
-/// earlier event has ended. A free with no such allocation belongs to a
-/// block from before the region or from inside [`untraced`], and ends
-/// nothing. An allocation at an address a live traced block still holds
-/// ends that block: it was freed where the trace could not see, and the new
-/// allocation is the latest its lifetime can have ended.
+/// A free ends the most recent traced allocation at its address that no earlier
+/// event has ended. A free with no such allocation belongs to a block from
+/// before the region or from inside [`untraced`], and ends nothing. An
+/// allocation at an address a live traced block still holds ends that block: it
+/// was freed where the trace could not see, and the new allocation is the
+/// latest its lifetime can have ended.
 #[derive(Debug, Default)]
 struct Pairing {
     /// Each live traced block's address, with its allocation's event index.
@@ -712,8 +708,8 @@ fn transience(events: &[Event]) -> (Vec<bool>, usize) {
     (transient, reused)
 }
 
-/// Removes a transient block's `size` bytes from the live level of `label`,
-/// the group of the label it was allocated under.
+/// Removes a transient block's `size` bytes from the live level of `label`, the
+/// group of the label it was allocated under.
 fn release(held: &mut BTreeMap<Label, usize>, label: Label, size: usize) {
     let level = held
         .get_mut(&label)
@@ -721,24 +717,24 @@ fn release(held: &mut BTreeMap<Label, usize>, label: Label, size: usize) {
     *level -= size;
 }
 
-/// Runs `f` and returns the trace of every allocator request the calling
-/// thread made while it ran, with `f`'s result.
+/// Runs `f` and returns the trace of every allocator request the calling thread
+/// made while it ran, with `f`'s result.
 ///
-/// `capacity` is the number of events the trace can hold, reserved before
-/// `f` runs; each allocation or free is one event and each reallocation two.
-/// On a system that overcommits memory, a reservation is address space,
-/// committed only as events fill it; a system that does not, such as
-/// illumos, reserves backing store for the whole capacity at once, so size
-/// the capacity near what `f` needs. The trace counts events it has no room
-/// for (see [`Trace::dropped`]).
+/// `capacity` is the number of events the trace can hold, reserved before `f`
+/// runs; each allocation or free is one event and each reallocation two. On a
+/// system that overcommits memory, a reservation is address space, committed
+/// only as events fill it; a system that does not, such as illumos, reserves
+/// backing store for the whole capacity at once, so size the capacity near what
+/// `f` needs. The trace counts events it has no room for (see
+/// [`Trace::dropped`]).
 ///
 /// The trace is independent of the ledger: requests inside it reach
 /// [`measure`](crate::measure) and [`reading`](crate::reading) as usual.
 ///
 /// # Panics
 ///
-/// Panics if a trace is already running on this thread; traces do not nest.
-/// A panic in `f` propagates, after tracing stops.
+/// Panics if a trace is already running on this thread; traces do not nest. A
+/// panic in `f` propagates, after tracing stops.
 pub fn trace<T>(capacity: usize, f: impl FnOnce() -> T) -> (Trace, T) {
     let mode = MODE.get();
     assert!(!mode.tracing, "a trace is already running on this thread");
@@ -767,14 +763,13 @@ pub fn trace<T>(capacity: usize, f: impl FnOnce() -> T) -> (Trace, T) {
     )
 }
 
-/// Returns the index the next event of the trace running on this thread
-/// will take, its events recorded and dropped so far, or `None` when no
-/// trace is running.
+/// Returns the index the next event of the trace running on this thread will
+/// take, its events recorded and dropped so far, or `None` when no trace is
+/// running.
 ///
-/// Code inside a traced region can note the position at moments of its
-/// own, and line them up afterwards with [`Trace::segment_peaks`]. It
-/// neither allocates nor panics, so the allocator's own bookkeeping is
-/// undisturbed.
+/// Code inside a traced region can note the position at moments of its own, and
+/// line them up afterwards with [`Trace::segment_peaks`]. It neither allocates
+/// nor panics, so the allocator's own bookkeeping is undisturbed.
 pub fn position() -> Option<usize> {
     let mode = MODE.try_with(Cell::get).ok()?;
     if !mode.tracing {
@@ -791,11 +786,11 @@ pub fn position() -> Option<usize> {
         .flatten()
 }
 
-/// Runs `f` with `label` current, so every block allocated inside it,
-/// outside any nested `labelled` call, carries `label`.
+/// Runs `f` with `label` current, so every block allocated inside it, outside
+/// any nested `labelled` call, carries `label`.
 ///
-/// Labels nest: the innermost call's label applies. Outside a [`trace`]
-/// the label is recorded nowhere, and the call only runs `f`.
+/// Labels nest: the innermost call's label applies. Outside a [`trace`] the
+/// label is recorded nowhere, and the call only runs `f`.
 pub fn labelled<T>(label: Label, f: impl FnOnce() -> T) -> T {
     let mode = MODE.get();
     let _restore = Restore(mode);
@@ -805,12 +800,12 @@ pub fn labelled<T>(label: Label, f: impl FnOnce() -> T) -> T {
 
 /// Runs `f` with its allocations omitted from any running [`trace`].
 ///
-/// Frees inside `f` are still recorded, so a traced block that `f` frees
-/// still ends its lifetime there. A block allocated inside `f` is invisible
-/// to the analysis wherever it is later freed, because its free matches no
-/// traced allocation. The omission suits buffers that a measurement's
-/// harness owns, such as a simulated link's, which belong to neither the
-/// measured work nor its result.
+/// Frees inside `f` are still recorded, so a traced block that `f` frees still
+/// ends its lifetime there. A block allocated inside `f` is invisible to the
+/// analysis wherever it is later freed, because its free matches no traced
+/// allocation. The omission suits buffers that a measurement's harness owns,
+/// such as a simulated link's, which belong to neither the measured work nor
+/// its result.
 pub fn untraced<T>(f: impl FnOnce() -> T) -> T {
     let mode = MODE.get();
     let _restore = Restore(mode);

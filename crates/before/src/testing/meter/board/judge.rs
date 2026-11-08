@@ -1,6 +1,6 @@
 //! The judgment: score a cell's measured samples against the exponent trend
-//! bound, the ceilings, the declared models, and the committed liveness
-//! floors, per currency.
+//! bound, the ceilings, the declared models, and the committed liveness floors,
+//! per currency.
 //!
 //! A currency the run did not measure reads `None` in every sample and is
 //! skipped by every check, so one judgment serves the native board (heap) and
@@ -56,8 +56,7 @@ fn below_floor(liveness: Liveness, count: u64) -> bool {
     }
 }
 
-/// One currency's fitted exponent trend and whether the exponent leg is
-/// judged.
+/// One currency's fitted exponent trend and whether the exponent leg is judged.
 #[derive(Clone, Copy)]
 struct Fit {
     /// The fitted slope over the points the judgment uses, `None` where the
@@ -158,13 +157,13 @@ fn fit_exponents(samples: &[&Sample]) -> ByCurrency<Fit> {
     ByCurrency::from_fn(|currency| fit_currency(currency, samples))
 }
 
-/// The board-wide proportional ceiling of `currency`, the outer bound of
-/// every cell that declares no model ceiling; `None` for fuel.
+/// The board-wide proportional ceiling of `currency`, the outer bound of every
+/// cell that declares no model ceiling; `None` for fuel.
 ///
-/// Fuel has no board-wide ceiling: an instruction count carries every
-/// constant factor of the code that runs, so cells differ in fuel per byte by
-/// orders of magnitude, and one ceiling would bind only the costliest of
-/// them. Its per-cell ceilings are its only proportional bound.
+/// Fuel has no board-wide ceiling: an instruction count carries every constant
+/// factor of the code that runs, so cells differ in fuel per byte by orders of
+/// magnitude, and one ceiling would bind only the costliest of them. Its
+/// per-cell ceilings are its only proportional bound.
 pub(super) fn board_ceiling(currency: Currency) -> Option<f64> {
     match currency {
         Currency::Heap => Some(MAX_HEAP_BYTES_PER_INPUT_BYTE),
@@ -172,8 +171,8 @@ pub(super) fn board_ceiling(currency: Currency) -> Option<f64> {
     }
 }
 
-/// The additive term in every proportional ceiling of `currency`: the
-/// reading a sample may carry beyond the ceiling times its units.
+/// The additive term in every proportional ceiling of `currency`: the reading a
+/// sample may carry beyond the ceiling times its units.
 pub(super) fn currency_intercept(currency: Currency) -> f64 {
     match currency {
         Currency::Heap => HEAP_INTERCEPT_BYTES as f64,
@@ -192,8 +191,8 @@ pub(super) struct Score {
     pub(super) per_unit: Option<f64>,
 }
 
-/// One evaluated cell: both samples of its window, per-currency scores, and
-/// the verdict.
+/// One evaluated cell: both samples of its window, per-currency scores, and the
+/// verdict.
 pub(super) struct CellResult {
     /// The operation row.
     pub(super) op: &'static str,
@@ -209,19 +208,17 @@ pub(super) struct CellResult {
     pub(super) red: Vec<&'static str>,
 }
 
-/// Score one window (a cell's two samples, two sizes, at one sampling
-/// scale) against the ceilings, the declared models, and the liveness
-/// floors.
+/// Score one window (a cell's two samples, two sizes, at one sampling scale)
+/// against the ceilings, the declared models, and the liveness floors.
 ///
 /// The exponent legs are judged at the supplied fits: the trend over every
-/// point the run measured, which for a single-scale run is exactly this
-/// window and for the acceptance judgment spans the whole ladder.
+/// point the run measured, which for a single-scale run is exactly this window
+/// and for the acceptance judgment spans the whole ladder.
 ///
-/// By default, exponents and constants use the cell's byte denominators.
-/// A resource model replaces either unit axis
-/// for one currency. The loops run over the currency axis itself
-/// ([`ByCurrency::each`]), so adding a currency fails to compile until every
-/// cell judges it.
+/// By default, exponents and constants use the cell's byte denominators. A
+/// resource model replaces either unit axis for one currency. The loops run
+/// over the currency axis itself ([`ByCurrency::each`]), so adding a currency
+/// fails to compile until every cell judges it.
 fn judge_window(
     calibration: &Calibration,
     op: &'static str,
@@ -360,10 +357,10 @@ pub(super) fn constant_units(sample: &Sample, currency: Currency) -> u64 {
 /// Check a pair of samples outside the growth ladder against ceilings and
 /// liveness, without fitting growth across them.
 ///
-/// The ladder judges two such pairs: the small inputs, where allocation
-/// minima and inline-storage thresholds dominate, and the knobs just past a
-/// power of two, which sit at a different point of every doubling period
-/// than the growth samples.
+/// The ladder judges two such pairs: the small inputs, where allocation minima
+/// and inline-storage thresholds dominate, and the knobs just past a power of
+/// two, which sit at a different point of every doubling period than the growth
+/// samples.
 pub(super) fn evaluate_without_fit(
     calibration: &Calibration,
     op: &'static str,
@@ -379,9 +376,9 @@ pub(super) fn evaluate_without_fit(
     judge_window(calibration, op, family, s1, s2, fits)
 }
 
-/// Score one window at a single sampling scale: the exponent legs are the
-/// trend over the window's own two points (all this run measured), the
-/// ceilings, models, and floors exactly [`judge_window`]'s.
+/// Score one window at a single sampling scale: the exponent legs are the trend
+/// over the window's own two points (all this run measured), the ceilings,
+/// models, and floors exactly [`judge_window`]'s.
 pub(super) fn evaluate(
     calibration: &Calibration,
     op: &'static str,
@@ -399,9 +396,8 @@ pub(super) fn evaluate(
 /// sampling scale), with every constant, declared-model band, and liveness
 /// floor still judged per window.
 ///
-/// Returns the two windows' results in ladder order; an exponent-leg red
-/// binds both windows (the trend is one judgment), so it renders on both
-/// matrices.
+/// Returns the two windows' results in ladder order; an exponent-leg red binds
+/// both windows (the trend is one judgment), so it renders on both matrices.
 pub(super) fn evaluate_acceptance(
     calibration: &Calibration,
     op: &'static str,

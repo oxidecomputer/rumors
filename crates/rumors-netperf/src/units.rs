@@ -1,5 +1,5 @@
-//! The quantities a user writes on the command line and in grid files:
-//! link rates, round-trip times, byte sizes, and message counts.
+//! The quantities a user writes on the command line and in grid files: link
+//! rates, round-trip times, byte sizes, and message counts.
 //!
 //! Each parses from the same text in both places, so `--rate 100Mbit` and
 //! `rate = ["100Mbit"]` mean one thing, and each prints back in a form that
@@ -17,8 +17,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub enum Rate {
     /// Shaped to this many bits per second.
     Bits(u64),
-    /// Not rate-limited: the link adds delay only, and the kernel's own
-    /// speed sets the pace.
+    /// Not rate-limited: the link adds delay only, and the kernel's own speed
+    /// sets the pace.
     Uncapped,
 }
 
@@ -196,8 +196,8 @@ impl FromStr for Rtt {
 }
 
 impl fmt::Display for Rtt {
-    /// Prints whole milliseconds as `Nms` and anything finer in
-    /// microseconds, so the text parses back exactly.
+    /// Prints whole milliseconds as `Nms` and anything finer in microseconds,
+    /// so the text parses back exactly.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let micros = self.0.as_micros();
         if micros.is_multiple_of(1_000) {
@@ -234,9 +234,9 @@ pub fn parse_bytes(text: &str) -> Result<u64> {
     })
 }
 
-/// The whole number `number × multiplier`, exact when `number` is an
-/// integer and through floating point otherwise, where the product must
-/// still come out whole.
+/// The whole number `number × multiplier`, exact when `number` is an integer
+/// and through floating point otherwise, where the product must still come out
+/// whole.
 fn scaled(number: &str, multiplier: u64) -> Result<u64> {
     let number = number.trim();
     if let Ok(integer) = number.parse::<u64>() {
@@ -257,8 +257,8 @@ fn scaled(number: &str, multiplier: u64) -> Result<u64> {
     Ok(product as u64)
 }
 
-/// Prints a byte count in the largest binary unit that divides it exactly,
-/// so the text parses back to the same count.
+/// Prints a byte count in the largest binary unit that divides it exactly, so
+/// the text parses back to the same count.
 pub fn format_bytes(bytes: u64) -> String {
     for (suffix, multiplier) in [("GiB", 1u64 << 30), ("MiB", 1 << 20), ("KiB", 1 << 10)] {
         if bytes >= multiplier && bytes.is_multiple_of(multiplier) {
@@ -268,8 +268,8 @@ pub fn format_bytes(bytes: u64) -> String {
     bytes.to_string()
 }
 
-/// Prints a byte count rounded to three significant figures in a binary
-/// unit, for reading rather than for parsing back.
+/// Prints a byte count rounded to three significant figures in a binary unit,
+/// for reading rather than for parsing back.
 pub fn human_bytes(bytes: f64) -> String {
     let units = ["B", "KiB", "MiB", "GiB", "TiB"];
     let mut value = bytes;
@@ -298,8 +298,8 @@ pub fn human_seconds(seconds: f64) -> String {
     }
 }
 
-/// Parses a message count: a plain integer, or a number in scientific
-/// notation such as `1e6`, which must still be a whole number.
+/// Parses a message count: a plain integer, or a number in scientific notation
+/// such as `1e6`, which must still be a whole number.
 pub fn parse_count(text: &str) -> Result<u64> {
     let trimmed = text.trim().replace('_', "");
     if let Ok(count) = trimmed.parse::<u64>() {
@@ -314,8 +314,8 @@ pub fn parse_count(text: &str) -> Result<u64> {
     Ok(value as u64)
 }
 
-/// Implements serde for a type through its text form, accepting a TOML or
-/// JSON integer as well where the type reads plain numbers.
+/// Implements serde for a type through its text form, accepting a TOML or JSON
+/// integer as well where the type reads plain numbers.
 macro_rules! serde_via_text {
     ($type:ty) => {
         impl Serialize for $type {

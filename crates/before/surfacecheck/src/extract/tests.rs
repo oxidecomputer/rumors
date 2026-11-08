@@ -16,8 +16,7 @@ fn primitive(name: &str) -> Type {
     Type::Primitive(name.to_owned())
 }
 
-/// A path with angle-bracketed type arguments and associated-type
-/// equalities.
+/// A path with angle-bracketed type arguments and associated-type equalities.
 fn path(name: &str, args: Vec<Type>, equalities: Vec<(&str, Type)>) -> Path {
     Path {
         path: name.to_owned(),
@@ -41,8 +40,8 @@ fn mentions(ty: &Type) -> bool {
     mentions_usize([Node::Type(ty)], None)
 }
 
-/// The scan finds `usize` bare, as a generic argument, inside a tuple, behind
-/// a reference to a slice, and as an `impl Trait`'s associated type, and finds
+/// The scan finds `usize` bare, as a generic argument, inside a tuple, behind a
+/// reference to a slice, and as an `impl Trait`'s associated type, and finds
 /// nothing in the same positions holding `u64`.
 #[test]
 fn usize_scan_reaches_each_nested_position() {
@@ -73,8 +72,8 @@ fn usize_scan_reaches_each_nested_position() {
 }
 
 /// Inside an impl, `Self` stands for the implementing type, so a `Self` in a
-/// signature mentions `usize` exactly when the implementing type does; with
-/// no implementing type known, it mentions nothing.
+/// signature mentions `usize` exactly when the implementing type does; with no
+/// implementing type known, it mentions nothing.
 #[test]
 fn self_reads_as_the_implementing_type() {
     let result_of_self = Type::ResolvedPath(path(
@@ -154,12 +153,11 @@ fn function(id: u32, name: &str) -> Item {
 /// The traversal terminates on a module graph with cycles, and records every
 /// spelling whose path passes through no module twice.
 ///
-/// Module `a` re-exports itself by name as `again`, which lengthens the path
-/// on every lap, and its child `c` splices `a` back in with
-/// `pub use super::*`; modules `g` and `h` splice each other in by glob. The
-/// root also re-exports `a` as `alias`, a second path to `a` that passes
-/// through it once, so `a`'s functions are rows at both paths, and at no
-/// cyclic spelling.
+/// Module `a` re-exports itself by name as `again`, which lengthens the path on
+/// every lap, and its child `c` splices `a` back in with `pub use super::*`;
+/// modules `g` and `h` splice each other in by glob. The root also re-exports
+/// `a` as `alias`, a second path to `a` that passes through it once, so `a`'s
+/// functions are rows at both paths, and at no cyclic spelling.
 #[test]
 fn walk_terminates_on_module_cycles() {
     let items = [

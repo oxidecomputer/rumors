@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 
 /// Every allowed public re-export of a dependency (`pub use`,
 /// `pub extern crate`, or a `pub type` alias of a foreign type), as
-/// `(file, line-content)`, empty at this tip: `before` re-exports no
-/// foreign surface.
+/// `(file, line-content)`, empty at this tip: `before` re-exports no foreign
+/// surface.
 const FOREIGN_REEXPORT_ROSTER: &[(&str, &str)] = &[];
 
 /// The dependency crate names of `before`, read mechanically from
-/// `[dependencies]` in its Cargo.toml (keys normalized `-` to `_`, the
-/// spelling a `use` path must write).
+/// `[dependencies]` in its Cargo.toml (keys normalized `-` to `_`, the spelling
+/// a `use` path must write).
 fn dependency_names(manifest: &str) -> Vec<String> {
     let mut names = Vec::new();
     let mut in_deps = false;
