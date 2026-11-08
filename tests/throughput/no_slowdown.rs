@@ -39,8 +39,8 @@
 //! For each pair, of several sizes and overlaps, on a LAN and on a
 //! long-haul link, the suite runs the session twice on the link model,
 //! whose clock counts byte-times and advances only when both peers wait,
-//! so a session's timeline is an exact function of its pair, link, and
-//! budgets:
+//! so on one platform a session's timeline is an exact function of its pair,
+//! link, and budgets:
 //!
 //! - the oracle, with an unlimited budget, which reads the no-cost point
 //!   from the ledgers and must have kept every unit from waiting;

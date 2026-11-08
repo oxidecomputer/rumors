@@ -7,8 +7,11 @@
 //! profiles, and the analytic lower estimate otherwise.
 //!
 //! Every session is deterministic: the link model's clock counts
-//! byte-times and advances only when both peers wait, so each point is an
-//! exact function of its pair, link, and budget, unmoved by machine load.
+//! byte-times and advances only when both peers wait, so on one platform
+//! each point is an exact function of its pair, link, and budget, unmoved
+//! by machine load. Across platforms the points can differ slightly: the
+//! same sessions measured on Linux and on illumos differ in their heap
+//! figures and admission counts, and occasionally in duration.
 //!
 //! - `simulate` runs the grid and appends one JSON document per session to
 //!   its output file. For each pair and link it first runs the session

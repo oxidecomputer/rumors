@@ -82,8 +82,9 @@
 //!
 //! # The measurement
 //!
-//! Each pair runs on the link model, whose clock counts byte-times, so a
-//! session's timeline is an exact function of its pair, link, and budget.
+//! Each pair runs on the link model, whose clock counts byte-times, so on
+//! one platform a session's timeline is an exact function of its pair, link,
+//! and budget.
 //! For each pair and link, the test runs the unlimited session on the link,
 //! which reads `N*`, `W` and `T∞`, and on its latency-only form, which
 //! reads `h`. Then it runs the session at each budget of a fixed ladder,

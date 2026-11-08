@@ -548,7 +548,9 @@ netperf *args:
 
 # The curves come from deterministic sessions of the library's own session
 # code over the test kit's link model, so every point reproduces exactly on
-# any machine. The default grid runs 10^5 and 10^6 messages per replica,
+# the same platform; across platforms (Linux and illumos, say), heap figures,
+# admission counts and occasionally durations differ slightly. The default
+# grid runs 10^5 and 10^6 messages per replica,
 # three overlaps, and three links, about a thousand sessions; at 10^6 a
 # session takes minutes and gigabytes, so choose `--jobs` for the machine's
 # memory. Options pass through to `simulate`, e.g.
