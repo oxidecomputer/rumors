@@ -6,8 +6,8 @@
 //! - the vector contains exactly `live.div_ceil(8)` bytes;
 //! - unused bits in the final byte are zero.
 //!
-//! Consequently, equal buffers have equal bytes and finalization only
-//! needs to append the marker.
+//! Consequently, equal buffers have equal bytes and finalization only needs to
+//! append the marker.
 //!
 //! Lengths and bit positions use `u64` to avoid overflow on 32-bit platforms;
 //! byte indexes use `usize`, since there can never be more than `usize::MAX`
@@ -52,10 +52,10 @@ impl BitsWriter {
     /// An empty buffer with room for `bits` bits before reallocation.
     ///
     /// Test and meter fixtures use this to build inputs of known size; domain
-    /// writers start from [`new`](Self::new) and grow. The hint is ignored
-    /// when its byte count does not fit [`usize`]; otherwise allocation has
-    /// the same failure behavior as [`Vec::with_capacity`]. A positive hint
-    /// includes room for the stream's marker byte.
+    /// writers start from [`new`](Self::new) and grow. The hint is ignored when
+    /// its byte count does not fit [`usize`]; otherwise allocation has the same
+    /// failure behavior as [`Vec::with_capacity`]. A positive hint includes
+    /// room for the stream's marker byte.
     #[cfg(any(test, feature = "meter"))]
     pub(crate) fn with_capacity(bits: u64) -> Self {
         let bytes = if bits == 0 {
@@ -288,8 +288,8 @@ impl BitsWriter {
         self.mask_tail();
     }
 
-    /// Seal the completed stream into immutable canonical storage sized
-    /// exactly to its encoding.
+    /// Seal the completed stream into immutable canonical storage sized exactly
+    /// to its encoding.
     ///
     /// The buffer grows as the stream is written and usually ends with spare
     /// capacity. Sealing releases it, so a result keeps only its encoded bytes
@@ -310,8 +310,8 @@ impl BitsWriter {
         );
     }
 
-    /// Re-establish the zeroed-dead-bits invariant on the final partial
-    /// byte, after a truncation exposed formerly live bits as dead.
+    /// Re-establish the zeroed-dead-bits invariant on the final partial byte,
+    /// after a truncation exposed formerly live bits as dead.
     fn mask_tail(&mut self) {
         let within = (self.live % 8) as u32;
         if within != 0 {
@@ -319,15 +319,15 @@ impl BitsWriter {
         }
     }
 
-    /// Whether the final partial byte's dead bits are zero: the invariant,
-    /// as a probe for the debug asserts.
+    /// Whether the final partial byte's dead bits are zero: the invariant, as a
+    /// probe for the debug asserts.
     fn tail_is_zeroed(&self) -> bool {
         let within = (self.live % 8) as u32;
         within == 0 || self.bytes.last().is_some_and(|b| b & (0xFF >> within) == 0)
     }
 
-    /// Append whole bytes: a `memcpy` when the live length is
-    /// byte-aligned, a two-shift merge per byte otherwise.
+    /// Append whole bytes: a `memcpy` when the live length is byte-aligned, a
+    /// two-shift merge per byte otherwise.
     fn extend_bytes(&mut self, body: &[u8]) {
         let within = (self.live % 8) as u32;
         if within == 0 {
@@ -368,8 +368,8 @@ impl BitsWriter {
     }
 }
 
-/// Renders the live bits most-significant-first as `0`/`1`, the test
-/// suites' failure-message spelling.
+/// Renders the live bits most-significant-first as `0`/`1`, the test suites'
+/// failure-message spelling.
 impl core::fmt::Debug for BitsWriter {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str("BitsWriter[")?;
@@ -380,8 +380,8 @@ impl core::fmt::Debug for BitsWriter {
     }
 }
 
-/// Collect bits into a buffer, oldest first: the test generators'
-/// construction form.
+/// Collect bits into a buffer, oldest first: the test generators' construction
+/// form.
 impl FromIterator<bool> for BitsWriter {
     fn from_iter<I: IntoIterator<Item = bool>>(iter: I) -> Self {
         let mut out = BitsWriter::new();

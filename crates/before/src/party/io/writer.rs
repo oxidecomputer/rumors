@@ -1,21 +1,21 @@
 //! Builds canonical parties without an intermediate tree.
 //!
-//! A party is a preorder stream of two-bit node tags. The first tag bit
-//! says whether the left child is present and the second says the same for the
-//! right child. `00` is an owned terminal; an unowned region emits no bits at
-//! all. Canonical form also replaces two empty children with an empty region
-//! and two terminal children with one terminal.
+//! A party is a preorder stream of two-bit node tags. The first tag bit says
+//! whether the left child is present and the second says the same for the right
+//! child. `00` is an owned terminal; an unowned region emits no bits at all.
+//! Canonical form also replaces two empty children with an empty region and two
+//! terminal children with one terminal.
 //!
 //! Operations in this crate often discover an output from left to right. They
 //! cannot know a node's final tag until both children have been processed, and
 //! they must apply the two collapses above as the node closes. [`PartyWriter`]
 //! provides that local open/close operation. [`PartyRegionWriter`] adds the
-//! traversal state needed when the input describes consecutive regions by
-//! depth rather than by explicit tree nodes.
+//! traversal state needed when the input describes consecutive regions by depth
+//! rather than by explicit tree nodes.
 //!
 //! Both builders retain only a few bits per open ancestor. In particular, they
-//! do not allocate a machine-word frame at every level: each input ancestor
-//! may cost only two bits, so full frames would greatly amplify memory use.
+//! do not allocate a machine-word frame at every level: each input ancestor may
+//! cost only two bits, so full frames would greatly amplify memory use.
 
 mod positions;
 
@@ -34,8 +34,8 @@ mod tests;
 /// [`branch`](Self::branch) begins a branch whose shape is already known.
 /// [`open_branch`](Self::open_branch) instead reserves a branch whose children
 /// may collapse while they are built; [`close_branch`](Self::close_branch)
-/// normalizes it once both children are known. A branch and its descendants
-/// are always the newest output, so either collapse only truncates that suffix.
+/// normalizes it once both children are known. A branch and its descendants are
+/// always the newest output, so either collapse only truncates that suffix.
 pub struct PartyWriter {
     /// The output prefix, including reserved tags for unfinished ancestors.
     out: BitsWriter,
@@ -113,14 +113,15 @@ impl PartyWriter {
 
     /// Reserve a branch before writing its left and right children.
     ///
-    /// Pass the returned token to [`close_branch`](Self::close_branch) after both
-    /// children have been written. Opens and closes must be properly nested.
+    /// Pass the returned token to [`close_branch`](Self::close_branch) after
+    /// both children have been written. Opens and closes must be properly
+    /// nested.
     pub fn open_branch(&mut self) -> OpenBranch {
         OpenBranch(self.out.reserve(TAG_BITS))
     }
 
-    /// Copy one canonical source subtree into the output, advancing `src`
-    /// past it and reporting what it was.
+    /// Copy one canonical source subtree into the output, advancing `src` past
+    /// it and reporting what it was.
     ///
     /// A scan locates the subtree's end, then its bits are copied unchanged.
     pub fn copy_next_subtree(&mut self, src: &mut PartyReader) -> RegionKind {
@@ -222,21 +223,21 @@ impl PartyWriter {
 /// Builds a party from consecutive dyadic regions.
 ///
 /// Each input gives a depth and says whether that region is owned. A region at
-/// depth `d` has width `2^-d`; the inputs proceed from left to right and exactly
-/// cover the root. Those depths determine when the traversal descends into a
-/// left child, crosses to its right sibling, and finishes an ancestor.
+/// depth `d` has width `2^-d`; the inputs proceed from left to right and
+/// exactly cover the root. Those depths determine when the traversal descends
+/// into a left child, crosses to its right sibling, and finishes an ancestor.
 ///
 /// The builder opens nodes while descending to the next depth. After emitting
-/// the region, [`close_up`](Self::close_up) either crosses from a completed left
-/// child to its right sibling or closes completed ancestors until another
+/// the region, [`close_up`](Self::close_up) either crosses from a completed
+/// left child to its right sibling or closes completed ancestors until another
 /// sibling remains. Unowned regions emit no bits. Already-canonical branch
 /// subtrees can be spliced as one region with [`subtree`](Self::subtree).
 /// [`PartyWriter`] applies canonical collapses as ancestors close.
 ///
 /// The traversal path and child summaries use bit stacks. Reserved output
 /// positions use [`Positions`], which compresses the adjacent positions created
-/// by an uninterrupted descent. Thus even a very deep description retains
-/// only bit-proportional state rather than one machine-word frame per level.
+/// by an uninterrupted descent. Thus even a very deep description retains only
+/// bit-proportional state rather than one machine-word frame per level.
 pub struct PartyRegionWriter {
     /// Output tags and canonical normalization.
     out: PartyWriter,

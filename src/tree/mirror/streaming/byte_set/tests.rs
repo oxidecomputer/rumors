@@ -1,5 +1,5 @@
-//! Byte sets against an ordered set of bytes as the oracle, and their
-//! encoding against its schema.
+//! Byte sets against an ordered set of bytes as the oracle, and their encoding
+//! against its schema.
 
 use std::collections::BTreeSet;
 
@@ -7,9 +7,8 @@ use proptest::prelude::*;
 
 use super::{BITMAP_LEN, ByteSet, ByteSetError, MAX_ENCODED_LEN};
 
-/// Any set, from empty to full, with every size likely enough to reach
-/// both spellings: a uniform count of elements, then that many distinct
-/// values.
+/// Any set, from empty to full, with every size likely enough to reach both
+/// spellings: a uniform count of elements, then that many distinct values.
 fn any_set() -> impl Strategy<Value = BTreeSet<u8>> {
     (0..=256usize).prop_flat_map(|len| {
         proptest::sample::subsequence((0..=u8::MAX).collect::<Vec<_>>(), len)
@@ -17,9 +16,9 @@ fn any_set() -> impl Strategy<Value = BTreeSet<u8>> {
     })
 }
 
-/// The schema's encoding of `set`, written from the module docs' table
-/// rather than from the implementation: the ascending elements below 32 of
-/// them, the bitmap (value `v` at bit `v % 8` of byte `v / 8`) from 32 on.
+/// The schema's encoding of `set`, written from the module docs' table rather
+/// than from the implementation: the ascending elements below 32 of them, the
+/// bitmap (value `v` at bit `v % 8` of byte `v / 8`) from 32 on.
 fn schema(set: &BTreeSet<u8>) -> Vec<u8> {
     if set.len() < 32 {
         set.iter().copied().collect()
@@ -186,8 +185,8 @@ proptest! {
     }
 }
 
-/// A set encodes as a list exactly below 32 elements and as the bitmap from
-/// 32 on, round-trips, and has its other spelling rejected.
+/// A set encodes as a list exactly below 32 elements and as the bitmap from 32
+/// on, round-trips, and has its other spelling rejected.
 ///
 /// The sets are every one of 30 to 33 elements that is a run of consecutive
 /// values, or of values nine apart (each in the bitmap's next byte, one bit
@@ -226,8 +225,8 @@ fn the_spelling_switches_exactly_at_32_elements() {
     }
 }
 
-/// The empty set is the empty byte string, and the full set is the bitmap
-/// of all ones: the two ends of the size range, each in its spelling.
+/// The empty set is the empty byte string, and the full set is the bitmap of
+/// all ones: the two ends of the size range, each in its spelling.
 #[test]
 fn the_empty_and_full_sets_take_their_spellings() {
     assert_eq!(ByteSet::EMPTY.encoded().as_bytes(), &[] as &[u8]);

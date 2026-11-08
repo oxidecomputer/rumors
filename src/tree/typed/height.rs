@@ -12,9 +12,9 @@ use std::{
 
 /// One level above `H`.
 ///
-/// `PhantomData<fn() -> T>` keeps this marker independent of `T`'s auto
-/// traits. Function pointers are always `Send + Sync`, so checking those
-/// traits does not recurse through the height chain.
+/// `PhantomData<fn() -> T>` keeps this marker independent of `T`'s auto traits.
+/// Function pointers are always `Send + Sync`, so checking those traits does
+/// not recurse through the height chain.
 pub struct S<T>(
     /// The predecessor, recorded only in the type.
     PhantomData<fn() -> T>,
@@ -87,11 +87,11 @@ impl<T> Ord for S<T> {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Z;
 
-/// A type-level height: how many levels sit between a node at this height
-/// and the leaves.
+/// A type-level height: how many levels sit between a node at this height and
+/// the leaves.
 ///
-/// Traversals specialize each step for its height and stop at [`Z`]. The
-/// bound describes a type; it does not require constructing a marker value.
+/// Traversals specialize each step for its height and stop at [`Z`]. The bound
+/// describes a type; it does not require constructing a marker value.
 pub trait Height: Sized + sealed::Sealed + 'static {
     /// This height as a plain number (`Z` is 0; [`Root`] is 32).
     const HEIGHT: usize;
@@ -115,7 +115,8 @@ pub type UnderRoot = <Root as Pred>::Pred;
 /// The height two levels under the root, i.e. 30.
 pub type UnderUnderRoot = <UnderRoot as Pred>::Pred;
 
-/// Define numbered aliases and their numeric heights together, starting at zero.
+/// Define numbered aliases and their numeric heights together, starting at
+/// zero.
 macro_rules! heights {
     (@emit $t:ty, $n:expr;) => {};
     (@emit $t:ty, $n:expr; $name:ident $($rest:ident)*) => {
@@ -133,8 +134,8 @@ macro_rules! heights {
     };
 }
 
-/// The height of the root: 32 levels above the leaves, one per byte of a
-/// leaf's 32-byte version-derived path.
+/// The height of the root: 32 levels above the leaves, one per byte of a leaf's
+/// 32-byte version-derived path.
 pub type Root = H32;
 
 // The erased traversal's dispatch tables paste these names with seq_macro.

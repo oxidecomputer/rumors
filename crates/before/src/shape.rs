@@ -1,9 +1,9 @@
-//! The shape of a [`Version`], [`Party`], or [`Clock`]: its step function
-//! over the unit id interval, walked as canonical constant intervals.
+//! The shape of a [`Version`], [`Party`], or [`Clock`]: its step function over
+//! the unit id interval, walked as canonical constant intervals.
 //!
-//! A [`Version`] *is* a step function from the unit interval `[0, 1)` of
-//! ids to event counts, and a [`Party`] is a 0/1-valued function over the
-//! same interval (which ids it owns). Shape iterators expose these functions
+//! A [`Version`] *is* a step function from the unit interval `[0, 1)` of ids to
+//! event counts, and a [`Party`] is a 0/1-valued function over the same
+//! interval (which ids it owns). Shape iterators expose these functions
 //! directly as dyadic constant intervals. A [`Clock`]'s shape combines heights
 //! with ownership, while [`combine`] aligns several [`Version`]s so that each
 //! yielded interval is constant in every input.
@@ -13,20 +13,19 @@
 //!
 //! # Intervals and heights
 //!
-//! Every interval in this vocabulary is *dyadic*: it has width
-//! `2^-depth`, and each item carries its own `depth`. Positions are never
-//! materialized as numbers: an item stream lists its intervals left to
-//! right, and consecutive widths tile the unit interval exactly, so a
-//! consumer that wants coordinates accumulates them (widths sum to
-//! exactly 1 over any complete walk).
+//! Every interval in this vocabulary is *dyadic*: it has width `2^-depth`, and
+//! each item carries its own `depth`. Positions are never materialized as
+//! numbers: an item stream lists its intervals left to right, and consecutive
+//! widths tile the unit interval exactly, so a consumer that wants coordinates
+//! accumulates them (widths sum to exactly 1 over any complete walk).
 //!
 //! [`Version`] heights travel as *rises*, the signed change entering each
-//! plateau, rather than absolute values: heights are event counts with
-//! no ceiling, so a delta stream is what keeps the walk linear in the
-//! value's size rather than in the magnitudes it reaches. The
-//! walk starts at height 0 on the interval's left edge, so the first
-//! plateau's rise is its absolute height and a running sum reconstructs
-//! every later one; the running height is never negative.
+//! plateau, rather than absolute values: heights are event counts with no
+//! ceiling, so a delta stream is what keeps the walk linear in the value's size
+//! rather than in the magnitudes it reaches. The walk starts at height 0 on the
+//! interval's left edge, so the first plateau's rise is its absolute height and
+//! a running sum reconstructs every later one; the running height is never
+//! negative.
 //!
 //! ```
 //! use before::shape::Rise;
@@ -57,10 +56,10 @@
 //!
 //! # The shape is an exact rendering of the value
 //!
-//! A value and its item sequence determine each other exactly: two
-//! versions are equal iff their plateau sequences are equal, two parties
-//! iff their region sequences are. These iterators are therefore also an
-//! independently-checked witness of the crate's own semantics.
+//! A value and its item sequence determine each other exactly: two versions are
+//! equal iff their plateau sequences are equal, two parties iff their region
+//! sequences are. These iterators are therefore also an independently-checked
+//! witness of the crate's own semantics.
 
 use core::iter::FusedIterator;
 
@@ -70,8 +69,8 @@ use crate::{Clock, Count, Party, Version};
 #[cfg(test)]
 mod tests;
 
-/// One plateau of a version's shape: the height change entering it, and
-/// the dyadic interval it spans.
+/// One plateau of a version's shape: the height change entering it, and the
+/// dyadic interval it spans.
 ///
 /// A plateau is one interval in the version's canonical dyadic partition on
 /// which its height is constant. Adjacent plateaus may have the same height
@@ -82,10 +81,10 @@ mod tests;
 pub struct Plateau {
     /// The height change entering this plateau; `None` continues level.
     ///
-    /// The first plateau's rise is its absolute height (`None` if the
-    /// shape starts at 0): the walk begins at height 0 on the interval's
-    /// left edge. `None` occurs mid-stream too: two equal-height
-    /// plateaus separated by a subtree boundary are a real shape.
+    /// The first plateau's rise is its absolute height (`None` if the shape
+    /// starts at 0): the walk begins at height 0 on the interval's left edge.
+    /// `None` occurs mid-stream too: two equal-height plateaus separated by a
+    /// subtree boundary are a real shape.
     pub rise: Option<Rise>,
     /// The plateau spans a dyadic interval of width `2^-depth`.
     pub depth: u64,
@@ -95,9 +94,9 @@ pub struct Plateau {
 ///
 /// The variant gives the direction and its [`Count`] gives the magnitude.
 ///
-/// Magnitudes are always nonzero: the level step is spelled once, as
-/// `None` in [`Plateau::rise`], not as a zero rise, so every `Rise` a
-/// walk yields moves the height.
+/// Magnitudes are always nonzero: the level step is spelled once, as `None` in
+/// [`Plateau::rise`], not as a zero rise, so every `Rise` a walk yields moves
+/// the height.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Rise {
     /// The height increases by the contained (nonzero) count.
@@ -122,21 +121,21 @@ pub struct Region {
 pub struct Cell<const N: usize> {
     /// The cell spans a dyadic interval of width `2^-depth`.
     pub depth: u64,
-    /// One entry per input, in [`combine`] argument order: the rise
-    /// entering this cell from that input.
+    /// One entry per input, in [`combine`] argument order: the rise entering
+    /// this cell from that input.
     ///
-    /// `None` continues level, including on every fragment after the
-    /// first when a cell subdivides an input's plateau: an input's rise
-    /// appears exactly once, on the first cell of the plateau it enters.
+    /// `None` continues level, including on every fragment after the first when
+    /// a cell subdivides an input's plateau: an input's rise appears exactly
+    /// once, on the first cell of the plateau it enters.
     pub rises: [Option<Rise>; N],
 }
 
-/// An iterator over the plateaus of a version's shape, yielded left to
-/// right; see [`Version::shape`].
+/// An iterator over the plateaus of a version's shape, yielded left to right;
+/// see [`Version::shape`].
 ///
-/// The walk borrows the version and streams its stored form in place.
-/// It is [fused](FusedIterator) but not exact-size: the plateau count is
-/// not known without a full scan.
+/// The walk borrows the version and streams its stored form in place. It is
+/// [fused](FusedIterator) but not exact-size: the plateau count is not known
+/// without a full scan.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Plateaus<'a> {
     walk: VersionWalk<'a>,
@@ -183,12 +182,12 @@ impl Iterator for Plateaus<'_> {
 
 impl FusedIterator for Plateaus<'_> {}
 
-/// An iterator over the regions of a party's shape, yielded left to
-/// right; see [`Party::shape`].
+/// An iterator over the regions of a party's shape, yielded left to right; see
+/// [`Party::shape`].
 ///
-/// The walk borrows the party and streams its stored form in place. It
-/// is [fused](FusedIterator) but not exact-size: the region count is not
-/// known without a full scan.
+/// The walk borrows the party and streams its stored form in place. It is
+/// [fused](FusedIterator) but not exact-size: the region count is not known
+/// without a full scan.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Regions<'a> {
     walk: PartyWalk<'a>,
@@ -239,12 +238,12 @@ impl FusedIterator for Regions<'_> {}
 /// ownership; see [`Clock::shape`].
 ///
 /// Items are `(Plateau, bool)`: one interval on which both the version height
-/// and party ownership are constant. If an ownership boundary divides a
-/// version plateau, the first resulting item carries its rise and later items
-/// continue at the same height (`rise: None`).
+/// and party ownership are constant. If an ownership boundary divides a version
+/// plateau, the first resulting item carries its rise and later items continue
+/// at the same height (`rise: None`).
 ///
-/// The walk borrows the clock and streams both stored forms in place. It
-/// is [fused](FusedIterator) but not exact-size.
+/// The walk borrows the clock and streams both stored forms in place. It is
+/// [fused](FusedIterator) but not exact-size.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Overlay<'a> {
     version: VersionWalk<'a>,
@@ -293,17 +292,16 @@ impl Iterator for Overlay<'_> {
 
 impl FusedIterator for Overlay<'_> {}
 
-/// Walk `N` versions as one iterator over the coarsest common
-/// refinement of their shapes' plateau intervals.
+/// Walk `N` versions as one iterator over the coarsest common refinement of
+/// their shapes' plateau intervals.
 ///
-/// Each yielded [`Cell`] is the largest dyadic interval every input's
-/// current plateau spans (dyadic intervals nest or are disjoint, so the
-/// common refinement's cells are themselves dyadic and each is some
-/// input's own plateau interval), with the rise entering it from each
-/// input.
+/// Each yielded [`Cell`] is the largest dyadic interval every input's current
+/// plateau spans (dyadic intervals nest or are disjoint, so the common
+/// refinement's cells are themselves dyadic and each is some input's own
+/// plateau interval), with the rise entering it from each input.
 ///
-/// `N = 0` yields the trivial refinement: one all-interval cell of depth
-/// 0 with no entries.
+/// `N = 0` yields the trivial refinement: one all-interval cell of depth 0 with
+/// no entries.
 ///
 /// # Complexity
 ///
@@ -343,11 +341,11 @@ pub fn combine<'a, const N: usize>(versions: [&'a Version; N]) -> Cells<'a, N> {
     }
 }
 
-/// An iterator over the cells of [`combine`]d version shapes, yielded
-/// left to right.
+/// An iterator over the cells of [`combine`]d version shapes, yielded left to
+/// right.
 ///
-/// The walk borrows the versions and streams every stored form in place.
-/// It is [fused](FusedIterator) but not exact-size.
+/// The walk borrows the versions and streams every stored form in place. It is
+/// [fused](FusedIterator) but not exact-size.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct Cells<'a, const N: usize> {
     walks: [VersionWalk<'a>; N],

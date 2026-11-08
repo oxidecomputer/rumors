@@ -1,23 +1,22 @@
 //! Regression pin for the stale-floor family of bugs.
 //!
-//! The hazard: any snapshot that shares its originator's live *party*
-//! while serving a *tree* frozen at snapshot time would hand a
-//! bootstrapping newcomer a fork of the live party paired with a stale
-//! version floor — and the newcomer's first sends, causally dominated by
-//! versions the originator had already published, would be
-//! indistinguishable from redacted messages and silently destroyed by the
-//! next gossip round.
+//! The hazard: any snapshot that shares its originator's live *party* while
+//! serving a *tree* frozen at snapshot time would hand a bootstrapping newcomer
+//! a fork of the live party paired with a stale version floor — and the
+//! newcomer's first sends, causally dominated by versions the originator had
+//! already published, would be indistinguishable from redacted messages and
+//! silently destroyed by the next gossip round.
 //!
 //! The shared-state rumor set makes that desynchronization unrepresentable:
 //! there is no snapshot type that can serve a bootstrap, and
 //! `Rumors::gossip_once` snapshots the served tree and forks the party in one
 //! critical section, so the newcomer's floor always matches its region.
-//! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Rumors`] clones
-//! share one synchronized state rather than freezing one.)
+//! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Rumors`] clones share
+//! one synchronized state rather than freezing one.)
 //!
-//! This test pins the sound invariant positively, in the shape the hazard
-//! would break: messages sent by a newcomer bootstrapped from a peer that
-//! ticked heavily beforehand must survive reconciliation in both directions.
+//! This test pins the sound invariant positively, in the shape the hazard would
+//! break: messages sent by a newcomer bootstrapped from a peer that ticked
+//! heavily beforehand must survive reconciliation in both directions.
 
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;

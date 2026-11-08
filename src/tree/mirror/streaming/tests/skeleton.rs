@@ -1,7 +1,7 @@
 //! A session's dispute skeleton, its per-party views, and its decoders.
 //!
-//! This module defines the dispute skeleton ([`Skel`]), each party's view of
-//! it ([`view_enc`] and [`local_eq`]), and the one-dispute-ahead-of-six-supplies
+//! This module defines the dispute skeleton ([`Skel`]), each party's view of it
+//! ([`view_enc`] and [`local_eq`]), and the one-dispute-ahead-of-six-supplies
 //! shape ([`dispute_before_supplies`]). Two independent decoders extract a
 //! skeleton from a session:
 //!
@@ -36,8 +36,8 @@ pub(super) const ROOT_H: usize = RootHeight::HEIGHT;
 pub(super) enum Kind {
     /// Two-sided dispute: both parties hold the scope with differing hashes.
     D,
-    /// One-sided request: the scope's answerer lacks it and asks for the
-    /// whole subtree.
+    /// One-sided request: the scope's answerer lacks it and asks for the whole
+    /// subtree.
     R,
 }
 
@@ -82,8 +82,8 @@ impl Skel {
             .count()
     }
 
-    /// The largest per-scope dispute count: the most disputed children any
-    /// one scope has.
+    /// The largest per-scope dispute count: the most disputed children any one
+    /// scope has.
     pub fn max_d_count(&self) -> usize {
         (0..self.scopes.len())
             .map(|i| self.d_count(i))
@@ -125,13 +125,13 @@ pub(super) fn asks(p: Party, height: usize) -> bool {
 }
 
 /// The role the client (the driver's first argument) will play against
-/// `server`: a mirror of `streaming.rs::descend`'s election (the smaller
-/// set initiates, canonical version bytes break ties).
+/// `server`: a mirror of `streaming.rs::descend`'s election (the smaller set
+/// initiates, canonical version bytes break ties).
 ///
 /// # Panics
 ///
-/// If the advertised versions are equal: such a session short-circuits
-/// without descending, so it has no skeleton to talk about.
+/// If the advertised versions are equal: such a session short-circuits without
+/// descending, so it has no skeleton to talk about.
 pub(super) fn client_role(client: &TreeRoot, server: &TreeRoot) -> Party {
     if left_initiates(client, server) {
         Party::I
@@ -155,8 +155,8 @@ const TOKEN_CUT: u8 = 4;
 /// its own serialization, and a close bracket — held by `p` in both roles,
 /// content recursed; an R child emits the cut token when `p` is the scope's
 /// asker (a held cut: p's tree has the subtree, the skeleton does not) and
-/// NOTHING when `p` is the answerer (a child the answerer lacks — invisible
-/// at session start). `leaf_reqs` is never emitted (erased from both views).
+/// NOTHING when `p` is the answerer (a child the answerer lacks — invisible at
+/// session start). `leaf_reqs` is never emitted (erased from both views).
 pub(super) fn view_enc(p: Party, sk: &Skel) -> Vec<u8> {
     fn go(p: Party, sk: &Skel, i: usize, out: &mut Vec<u8>) {
         let scope = &sk.scopes[i];
@@ -183,8 +183,8 @@ pub(super) fn view_enc(p: Party, sk: &Skel) -> Vec<u8> {
 
 /// Are two skeletons indistinguishable to party `p` at session start?
 ///
-/// They are when their root heights are equal and their p-views
-/// ([`view_enc`]) are equal.
+/// They are when their root heights are equal and their p-views ([`view_enc`])
+/// are equal.
 pub(super) fn local_eq(p: Party, a: &Skel, b: &Skel) -> bool {
     a.root_h == b.root_h && view_enc(p, a) == view_enc(p, b)
 }
@@ -194,11 +194,11 @@ pub(super) fn local_eq(p: Party, a: &Skel, b: &Skel) -> bool {
 /// Assemble a [`Skel`] from classified scope prefixes, returning it with the
 /// BFS id → byte-prefix table.
 ///
-/// Validates the encoding's structural laws: the root exists and is
-/// disputed, every scope's parent is a disputed scope (R scopes are
-/// childless), and leaf requests sit under height-1 disputed scopes only.
-/// BFS ids follow from sorting by (depth, prefix bytes): within a level,
-/// lexicographic prefix order is exactly (parent BFS order, radix order).
+/// Validates the encoding's structural laws: the root exists and is disputed,
+/// every scope's parent is a disputed scope (R scopes are childless), and leaf
+/// requests sit under height-1 disputed scopes only. BFS ids follow from
+/// sorting by (depth, prefix bytes): within a level, lexicographic prefix order
+/// is exactly (parent BFS order, radix order).
 fn assemble(
     d: &BTreeSet<Vec<u8>>,
     r: &BTreeSet<Vec<u8>>,
@@ -286,18 +286,17 @@ pub(super) struct Decoded {
     pub initiator: usize,
 }
 
-/// Decode a completed two-endpoint session's dispute skeleton from its
-/// progress trace, cross-checking the skeleton's count and parity laws.
+/// Decode a completed two-endpoint session's dispute skeleton from its progress
+/// trace, cross-checking the skeleton's count and parity laws.
 ///
-/// Classification: a scope is `D` iff its answerer published a `Resolution`
-/// for it; `R` iff its supplier published a `Ready` at an internal prefix;
-/// a `Ready` at a full 32-byte path is a supplied leaf request. On the way
-/// out, every event is audited against these count and parity laws:
-/// `Resolution` pending counts are `d + r` (height ≥ 2) or `leaf_reqs`
-/// (height 1) and come from the scope's answerer; `ParentResolution` pending
-/// counts are `d` and come from the asker; suppliers, requesters, and
-/// dependent-work issuers land on the endpoint the height parity ([`asks`])
-/// assigns them.
+/// Classification: a scope is `D` iff its answerer published a `Resolution` for
+/// it; `R` iff its supplier published a `Ready` at an internal prefix; a
+/// `Ready` at a full 32-byte path is a supplied leaf request. On the way out,
+/// every event is audited against these count and parity laws: `Resolution`
+/// pending counts are `d + r` (height ≥ 2) or `leaf_reqs` (height 1) and come
+/// from the scope's answerer; `ParentResolution` pending counts are `d` and
+/// come from the asker; suppliers, requesters, and dependent-work issuers land
+/// on the endpoint the height parity ([`asks`]) assigns them.
 pub(super) fn decode(trace: &Trace) -> Decoded {
     let events = trace.events();
     let works: BTreeSet<usize> = events.iter().map(|event| event.work).collect();
@@ -471,11 +470,11 @@ enum Question {
 ///
 /// The reconstruction replays the protocol's positional pairing. Each reply
 /// answers the oldest unanswered question on its stream. `Match` and `Query`
-/// consume the asker's radices in order, passing over the radices the
-/// reply's match covers, while `Supply` carries its own radix.
-/// A nonempty query announces a deeper dispute; an empty one requests a whole
-/// subtree, or a leaf at leaf height. The transcript's causal order keeps each
-/// question ahead of its answer.
+/// consume the asker's radices in order, passing over the radices the reply's
+/// match covers, while `Supply` carries its own radix. A nonempty query
+/// announces a deeper dispute; an empty one requests a whole subtree, or a leaf
+/// at leaf height. The transcript's causal order keeps each question ahead of
+/// its answer.
 pub(super) fn announced(transcript: &Transcript) -> Announced {
     let entries = transcript.sent();
     let works: BTreeSet<usize> = entries.iter().map(|sent| sent.work).collect();
@@ -653,8 +652,8 @@ pub(super) fn trace_channels(
     channels
 }
 
-/// A transcript's per-stream projection: the ordered payload-erased replies
-/// for each endpoint and stream height.
+/// A transcript's per-stream projection: the ordered payload-erased replies for
+/// each endpoint and stream height.
 ///
 /// Cross-stream interleaving remains scheduler freedom, as for
 /// [`trace_channels`].
@@ -675,12 +674,12 @@ pub(super) fn transcript_streams(
 
 /// One dispute ahead of six whole-subtree supplies, at a chosen root height.
 ///
-/// The shape: root fan 7 — the first radix child deep-disputed, a
-/// single-child chain descending every level to a height-1 scope carrying one
-/// leaf request, with six whole-subtree provisions behind it. At
-/// `root_h = 6` this equals a hand-written literal
-/// (`generator_matches_the_literal_at_height_six`); at `root_h = 32` it is the
-/// same shape at the protocol's real depth, which is what a session realizes.
+/// The shape: root fan 7 — the first radix child deep-disputed, a single-child
+/// chain descending every level to a height-1 scope carrying one leaf request,
+/// with six whole-subtree provisions behind it. At `root_h = 6` this equals a
+/// hand-written literal (`generator_matches_the_literal_at_height_six`); at
+/// `root_h = 32` it is the same shape at the protocol's real depth, which is
+/// what a session realizes.
 pub(super) fn dispute_before_supplies(root_h: usize) -> Skel {
     assert!(root_h >= 3, "the chain needs depth of at least 2");
     let mut scopes = vec![

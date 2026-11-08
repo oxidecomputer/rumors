@@ -1,41 +1,38 @@
 //! Formats the committed fuelscape widget datasets into rustdoc islands.
 //!
-//! Inputs, all committed: `fuelscape/` (the `fuelscape-widget-data`
-//! documents the `before-fuelscape` compactor derives from a measuring
-//! dump; that crate owns the format, the binning, and the two-ways
-//! verification against the dump) and `docs/` (the widget's stylesheet
-//! and script).
+//! Inputs, all committed: `fuelscape/` (the `fuelscape-widget-data` documents
+//! the `before-fuelscape` compactor derives from a measuring dump; that crate
+//! owns the format, the binning, and the two-ways verification against the
+//! dump) and `docs/` (the widget's stylesheet and script).
 //!
-//! Outputs: `$OUT_DIR/fuelscapes/<op>.html` — one single-line
-//! `<details>` island per operation, pulled into a `# Complexity`
-//! section via
+//! Outputs: `$OUT_DIR/fuelscapes/<op>.html` — one single-line `<details>`
+//! island per operation, pulled into a `# Complexity` section via
 //! `#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/<op>.html")))]`
-//! — `$OUT_DIR/fuelscapes/index`, the emitted operation names one per
-//! line, which the doc-attachment totality test compares against the
-//! sources' include sites — and `$OUT_DIR/fuelscape-assets.html`, the
-//! stylesheet and script as one inline fragment, pulled into the docs
-//! of every item whose rendered page holds an island, so that any
-//! rustdoc render (a bare `cargo doc`, docs.rs) carries the widget with
-//! its charts. `tools/fuelscape-assets` holds the rendered pages to that
-//! placement: the fragment exactly once on every page with an island,
-//! and on no other.
+//! — `$OUT_DIR/fuelscapes/index`, the emitted operation names one per line,
+//! which the doc-attachment totality test compares against the sources' include
+//! sites — and `$OUT_DIR/fuelscape-assets.html`, the stylesheet and script as
+//! one inline fragment, pulled into the docs of every item whose rendered page
+//! holds an island, so that any rustdoc render (a bare `cargo doc`, docs.rs)
+//! carries the widget with its charts. `tools/fuelscape-assets` holds the
+//! rendered pages to that placement: the fragment exactly once on every page
+//! with an island, and on no other.
 //!
-//! Islands and fragment alike are attached under `cfg(doc)`, so they
-//! exist only in rustdoc's own view of this crate: never in the compiled
-//! metadata that IDE hovers read, and never in the copy a dependent's
-//! re-export inlines, whose pages could not carry the assets. The claim
-//! must still reach those readers, so every island site also states it
-//! as a literal, `#[cfg_attr(not(doc), doc = "...")]`, readable in the
-//! source and rendered by IDE hovers, which expand no `include_str!` in
-//! a doc attribute. `$OUT_DIR/fuelscape-contracts/<op>.md` is the contract
-//! text for each literal, the island's summary as Markdown, and the
-//! doc-attachment totality test holds every site's literal to it.
+//! Islands and fragment alike are attached under `cfg(doc)`, so they exist only
+//! in rustdoc's own view of this crate: never in the compiled metadata that IDE
+//! hovers read, and never in the copy a dependent's re-export inlines, whose
+//! pages could not carry the assets. The claim must still reach those readers,
+//! so every island site also states it as a literal,
+//! `#[cfg_attr(not(doc), doc = "...")]`, readable in the source and rendered by
+//! IDE hovers, which expand no `include_str!` in a doc attribute.
+//! `$OUT_DIR/fuelscape-contracts/<op>.md` is the contract text for each
+//! literal, the island's summary as Markdown, and the doc-attachment totality
+//! test holds every site's literal to it.
 //!
-//! This script is a pure formatter: it re-bins nothing, computes no
-//! statistics, and holds no constants the widget or compactor also
-//! hold. Every failure here is a defect in the committed repository
-//! (malformed data, a stale derived header), so it panics naming the
-//! file and check rather than reporting errors to a caller.
+//! This script is a pure formatter: it re-bins nothing, computes no statistics,
+//! and holds no constants the widget or compactor also hold. Every failure here
+//! is a defect in the committed repository (malformed data, a stale derived
+//! header), so it panics naming the file and check rather than reporting errors
+//! to a caller.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -123,24 +120,23 @@ fn main() {
 /// How a derived figure's monochrome ink adapts to the reader's theme.
 enum Ink {
     /// `currentColor`: inherits the page's theme ink live. Right for the
-    /// rustdoc-inlined copy; useless inside an `<img>`, where there is
-    /// no page to inherit from and it resolves to black.
+    /// rustdoc-inlined copy; useless inside an `<img>`, where there is no page
+    /// to inherit from and it resolves to black.
     CurrentColor,
-    /// A scoped stylesheet keyed on `prefers-color-scheme`: right for
-    /// the README's copy, which GitHub renders as an `<img>`.
+    /// A scoped stylesheet keyed on `prefers-color-scheme`: right for the
+    /// README's copy, which GitHub renders as an `<img>`.
     MediaQuery,
 }
 
-/// Adapts the space-consumption figure for inline embedding in the
-/// rustdoc: theme-reactive monochrome and a transparent background.
+/// Adapts the space-consumption figure for inline embedding in the rustdoc:
+/// theme-reactive monochrome and a transparent background.
 ///
 /// The figure is matplotlib output, kept pristine in `results/` (it is a
-/// measurement artifact); this derives the doc-facing form at build
-/// time. Inline SVG inherits page CSS, so `currentColor` follows the
-/// reader's theme live — unpainted elements (all the text glyphs)
-/// inherit it from the root, and the explicit black strokes are
-/// rewritten to it. The three series colors weak on one theme's
-/// background move to tones legible on both.
+/// measurement artifact); this derives the doc-facing form at build time.
+/// Inline SVG inherits page CSS, so `currentColor` follows the reader's theme
+/// live — unpainted elements (all the text glyphs) inherit it from the root,
+/// and the explicit black strokes are rewritten to it. The three series colors
+/// weak on one theme's background move to tones legible on both.
 fn theme_svg(svg: &str, ink: Ink) -> String {
     let start = svg.find("<svg").expect("figure has an svg root");
     let meta_start = svg.find("<metadata>").expect("matplotlib emits metadata");
@@ -192,14 +188,14 @@ fn theme_svg(svg: &str, ink: Ink) -> String {
     lines.join("\n")
 }
 
-/// The committed README figure must equal its derivation from the
-/// measurement artifact.
+/// The committed README figure must equal its derivation from the measurement
+/// artifact.
 ///
-/// The README references the figure by URL, so it must be a committed
-/// file; committed-but-derived means it can rot, and this check is what
-/// prevents that — the header-freshness idiom. Regenerate with
-/// `just doc-figure` (which sets `BEFORE_REGEN_DOC_FIGURE=1`; only that
-/// explicit opt-in writes into the source tree).
+/// The README references the figure by URL, so it must be a committed file;
+/// committed-but-derived means it can rot, and this check is what prevents that
+/// — the header-freshness idiom. Regenerate with `just doc-figure` (which sets
+/// `BEFORE_REGEN_DOC_FIGURE=1`; only that explicit opt-in writes into the
+/// source tree).
 fn check_readme_figure_fresh(figure: &str) {
     println!("cargo:rerun-if-env-changed=BEFORE_REGEN_DOC_FIGURE");
     let path = "docs/itc_space_consumption_readme.svg";
@@ -269,8 +265,8 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
 /// The island's summary as plain Markdown, word for word what the island shows.
 ///
 /// The contract text for the literal each island site carries under
-/// `cfg(not(doc))`, what a reader sees wherever the island cannot render.
-/// The totality test compares the literals against these files.
+/// `cfg(not(doc))`, what a reader sees wherever the island cannot render. The
+/// totality test compares the literals against these files.
 fn contract_paragraph(op: &serde_json::Value) -> String {
     let contract = op["contract"].as_str().expect("validated");
     let claim = op["claim"].as_str().expect("validated");
@@ -288,11 +284,11 @@ fn contract_paragraph(op: &serde_json::Value) -> String {
 /// Renders a contract string's backticked spans as `<code>`, escaping
 /// everything.
 ///
-/// The roster writes contracts in the doc comments' own idiom, and this
-/// is the one place that idiom meets HTML. Complexity typesetting
-/// (italic math singles, mono identifiers, superscripts) happens
-/// client-side in fuelscape.js, in one implementation shared with the
-/// doc-prose spans it must match.
+/// The roster writes contracts in the doc comments' own idiom, and this is the
+/// one place that idiom meets HTML. Complexity typesetting (italic math
+/// singles, mono identifiers, superscripts) happens client-side in
+/// fuelscape.js, in one implementation shared with the doc-prose spans it must
+/// match.
 fn code_spans(contract: &str) -> String {
     let mut out = String::new();
     for (i, part) in contract.split('`').enumerate() {
@@ -328,8 +324,8 @@ fn check_banner(file: &str, doc: &serde_json::Value, expected: &str) {
 }
 
 /// The structural checks the compactor's strict reader also enforces,
-/// re-checked here because the committed files, not that reader, are
-/// this script's input.
+/// re-checked here because the committed files, not that reader, are this
+/// script's input.
 fn validate(file: &str, op: &serde_json::Value) {
     let contract = op["contract"].as_str().unwrap_or("");
     let claim = op["claim"].as_str().unwrap_or("");
@@ -380,13 +376,13 @@ fn validate(file: &str, op: &serde_json::Value) {
 
 /// Writes the widget's stylesheet and script as one inline doc fragment.
 ///
-/// The fragment opens with a blank line. rustdoc joins an item's doc
-/// fragments with single newlines, and a `<style>` line that directly
-/// follows another HTML block (an island's `<details>`) would continue
-/// that block, which ends at the first blank line, handing the rest of
-/// the script to the Markdown pass. Opening on a blank line makes
-/// `<style>` and `<script>` begin HTML blocks of their own, the kind
-/// that run to their closing tag and tolerate blank lines inside.
+/// The fragment opens with a blank line. rustdoc joins an item's doc fragments
+/// with single newlines, and a `<style>` line that directly follows another
+/// HTML block (an island's `<details>`) would continue that block, which ends
+/// at the first blank line, handing the rest of the script to the Markdown
+/// pass. Opening on a blank line makes `<style>` and `<script>` begin HTML
+/// blocks of their own, the kind that run to their closing tag and tolerate
+/// blank lines inside.
 fn write_assets(out_dir: &Path) {
     let css = std::fs::read_to_string("docs/fuelscape.css").expect("docs/fuelscape.css");
     let js = std::fs::read_to_string("docs/fuelscape.js").expect("docs/fuelscape.js");

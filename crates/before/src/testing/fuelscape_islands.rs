@@ -3,38 +3,36 @@
 //! exemption.
 //!
 //! `build.rs` formats one island per committed widget dataset into
-//! `$OUT_DIR/fuelscapes/` and writes their names to `index`; the doc
-//! comments pull islands in by `include_str!` path. A dangling include
-//! is already a compile error, so the direction this suite must hold is
-//! the other one: an island nothing includes renders nowhere, silently.
-//! Membership is enforced, never remembered: the exemption reasons are
-//! the reviewed artifact, in the ops-roster [`EXEMPTIONS`] idiom.
+//! `$OUT_DIR/fuelscapes/` and writes their names to `index`; the doc comments
+//! pull islands in by `include_str!` path. A dangling include is already a
+//! compile error, so the direction this suite must hold is the other one: an
+//! island nothing includes renders nowhere, silently. Membership is enforced,
+//! never remembered: the exemption reasons are the reviewed artifact, in the
+//! ops-roster [`EXEMPTIONS`] idiom.
 //!
 //! Every island site also states its claim as a literal for the readers
-//! rustdoc's own pages never reach: the island is attached under
-//! `cfg(doc)` and the literal under `cfg(not(doc))`, so a site carrying
-//! one without the other leaves a `# Complexity` heading empty for one
-//! audience, silently, and a literal that drifts from the dataset states
-//! a claim nothing measured. The suite holds the line after every island
-//! include to its contract text (`$OUT_DIR/fuelscape-contracts/`), and
-//! every claim-shaped literal anywhere in the sources to some contract
-//! text, so a literal that no island include anchors still states a
-//! measured claim.
+//! rustdoc's own pages never reach: the island is attached under `cfg(doc)` and
+//! the literal under `cfg(not(doc))`, so a site carrying one without the other
+//! leaves a `# Complexity` heading empty for one audience, silently, and a
+//! literal that drifts from the dataset states a claim nothing measured. The
+//! suite holds the line after every island include to its contract text
+//! (`$OUT_DIR/fuelscape-contracts/`), and every claim-shaped literal anywhere
+//! in the sources to some contract text, so a literal that no island include
+//! anchors still states a measured claim.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// Operations whose islands deliberately appear in no doc comment, each
-/// with its reviewed reason.
+/// Operations whose islands deliberately appear in no doc comment, each with
+/// its reviewed reason.
 ///
-/// Currently empty: every measured operation's island reaches the
-/// rendered docs (the conjunction cells carry theirs through their
-/// generating macro).
+/// Currently empty: every measured operation's island reaches the rendered docs
+/// (the conjunction cells carry theirs through their generating macro).
 const EXEMPTIONS: &[(&str, &str)] = &[];
 
-/// Every emitted island is included by some doc comment or exempted with
-/// a reason, and every exemption names an emitted island (a stale
-/// exemption is as dead as a stale island).
+/// Every emitted island is included by some doc comment or exempted with a
+/// reason, and every exemption names an emitted island (a stale exemption is as
+/// dead as a stale island).
 #[test]
 fn every_island_is_included_or_exempted() {
     let emitted = std::fs::read_to_string(concat!(env!("OUT_DIR"), "/fuelscapes/index"))
@@ -131,8 +129,8 @@ fn every_island_is_included_or_exempted() {
     }
 }
 
-/// The island-shaped names that `source` includes from `dir`, each read
-/// between the directory and `ext`.
+/// The island-shaped names that `source` includes from `dir`, each read between
+/// the directory and `ext`.
 fn include_sites(source: &str, dir: &str, ext: &str) -> BTreeSet<String> {
     let mut ops = BTreeSet::new();
     for site in source.split(dir).skip(1) {
@@ -155,9 +153,9 @@ fn island_shaped(op: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
 }
 
-/// The `doc` value of a `#[cfg_attr(not(doc), doc = ...)]` attribute
-/// opening at the first of `lines`, however rustfmt wrapped it, or None
-/// when no such attribute opens there.
+/// The `doc` value of a `#[cfg_attr(not(doc), doc = ...)]` attribute opening at
+/// the first of `lines`, however rustfmt wrapped it, or None when no such
+/// attribute opens there.
 fn not_doc_literal(lines: &[&str]) -> Option<String> {
     let mut block = String::new();
     for line in lines.iter().take(8) {
@@ -174,8 +172,8 @@ fn not_doc_literal(lines: &[&str]) -> Option<String> {
     (cfg.trim().trim_end_matches(',') == "not(doc)").then(|| value.trim().to_string())
 }
 
-/// The `<op>` an island include line names, or None for a line that
-/// includes no island.
+/// The `<op>` an island include line names, or None for a line that includes no
+/// island.
 fn island_include(line: &str) -> Option<&str> {
     let (_, rest) = line.split_once("/fuelscapes/")?;
     let (op, _) = rest.split_once(".html")?;

@@ -96,10 +96,9 @@ const CENSUS_BYTES: usize = 3;
 
 /// Largest live bit length covered by the decoder census.
 ///
-/// A byte length `L` carries live bit lengths in `[8(L-1), 8L-1]` (the
-/// decode padding rule — the marker claims one bit of the final byte),
-/// so lengths `1..=CENSUS_BYTES` partition `0..=8 * CENSUS_BYTES - 1`
-/// exactly.
+/// A byte length `L` carries live bit lengths in `[8(L-1), 8L-1]` (the decode
+/// padding rule — the marker claims one bit of the final byte), so lengths
+/// `1..=CENSUS_BYTES` partition `0..=8 * CENSUS_BYTES - 1` exactly.
 const CENSUS_BITS: usize = 8 * CENSUS_BYTES - 1;
 
 /// Count every accepted byte string by its decoded live bit length.
@@ -177,8 +176,8 @@ fn party_decoder_census_matches_count_table() {
 }
 
 /// A canonical encoding of exactly `n` bytes carries a live bit length in
-/// `[8(n-1), 8n-1]` — the marker claims one bit, and decode bounds the
-/// padding to one byte — floored at the grammar's minimum subtree size.
+/// `[8(n-1), 8n-1]` — the marker claims one bit, and decode bounds the padding
+/// to one byte — floored at the grammar's minimum subtree size.
 #[test]
 fn bit_window_matches_decode_padding_rule() {
     assert_eq!(bit_window(1, MIN_VERSION_BITS), 2..=7);

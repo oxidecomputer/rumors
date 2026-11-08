@@ -1,10 +1,10 @@
-//! Probes of directed comparisons, which may stop once their requested
-//! ordering is impossible, against the full relation.
+//! Probes of directed comparisons, which may stop once their requested ordering
+//! is impossible, against the full relation.
 //!
 //! The operand `later` is the comb `C(1024, teeth)`, whose first leaf sits at
-//! `2^1024 − 1`, so every directed question about it against the empty
-//! version is answered at the first elementary interval, while the comb's
-//! tail grows with the probe's tooth count.
+//! `2^1024 − 1`, so every directed question about it against the empty version
+//! is answered at the first elementary interval, while the comb's tail grows
+//! with the probe's tooth count.
 
 use std::cmp::Ordering;
 
@@ -71,8 +71,7 @@ pub fn projected_le(teeth: usize) -> u64 {
     )
 }
 
-/// Measures `projection.partial_cmp(empty)`, the spine viewed through the
-/// seed.
+/// Measures `projection.partial_cmp(empty)`, the spine viewed through the seed.
 pub fn projected_compare(teeth: usize) -> u64 {
     let (later, empty, seed) = (later(teeth), Version::new(), Party::seed());
     let projection = &later / &seed;

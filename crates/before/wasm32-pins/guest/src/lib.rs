@@ -7,13 +7,12 @@
 //! accidentally performed by the 64-bit harness.
 //!
 //! Checks return a typed failure without trapping. Product checks therefore
-//! trap only when the exercised operation panics, as `suanpan` documents for
-//! an unaddressable digit landing, or when the guest exhausts its memory.
-//! Both end in the same wasm trap, so the guest records a panic's message for
-//! the host to read afterwards; the `panic_record` module states when a panic
-//! goes unrecorded. Harness checks trap deliberately in each way, so the
-//! native driver proves it tells a pass, a panic, and an abort without a
-//! panic apart.
+//! trap only when the exercised operation panics, as `suanpan` documents for an
+//! unaddressable digit landing, or when the guest exhausts its memory. Both end
+//! in the same wasm trap, so the guest records a panic's message for the host
+//! to read afterwards; the `panic_record` module states when a panic goes
+//! unrecorded. Harness checks trap deliberately in each way, so the native
+//! driver proves it tells a pass, a panic, and an abort without a panic apart.
 
 mod checks;
 mod panic_record;

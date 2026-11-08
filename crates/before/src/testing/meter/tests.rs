@@ -548,14 +548,14 @@ proptest! {
 }
 
 /// One hole region's closed-form bit length: `4·lead + 2(m − 1) +
-/// Σ_{v=1}^{m} 2·bitlen(v + 1)` (the wrapper and staircase structure plus
-/// each descending step's gamma-coded leaf).
+/// Σ_{v=1}^{m} 2·bitlen(v + 1)` (the wrapper and staircase structure plus each
+/// descending step's gamma-coded leaf).
 fn hole_region_bits(lead: usize, m: usize) -> usize {
     4 * lead + 2 * (m - 1) + (1..=m).map(|v| 2 * bitlen(v + 1)).sum::<usize>()
 }
 
-/// The summed region bits of one hole pair's `k` units, leads alternating
-/// 2, 3 across units (even `k`, so exactly half each).
+/// The summed region bits of one hole pair's `k` units, leads alternating 2, 3
+/// across units (even `k`, so exactly half each).
 fn hole_regions_bits(k: usize, m: usize) -> usize {
     (k / 2) * (hole_region_bits(2, m) + hole_region_bits(3, m))
 }
@@ -1189,9 +1189,9 @@ proptest! {
     }
 }
 
-/// The plateaus of a version whose leaves, left to right, sit at these
-/// absolute heights and depths: one plateau per leaf, each entered by its
-/// height's change from the leaf before, the first from 0.
+/// The plateaus of a version whose leaves, left to right, sit at these absolute
+/// heights and depths: one plateau per leaf, each entered by its height's
+/// change from the leaf before, the first from 0.
 fn plateaus_of(leaves: &[(BigUint, u64)]) -> Vec<Plateau> {
     let mut previous = BigUint::ZERO;
     leaves

@@ -14,9 +14,9 @@ fn pattern(len: usize, seed: u8) -> Vec<u8> {
         .collect()
 }
 
-/// An in-memory reader yielding at most a scheduled number of bytes per
-/// read call, cycling its schedule, so every partial-read seam of the
-/// chunked payload loop is exercised.
+/// An in-memory reader yielding at most a scheduled number of bytes per read
+/// call, cycling its schedule, so every partial-read seam of the chunked
+/// payload loop is exercised.
 struct ChunkedRead {
     data: Vec<u8>,
     at: usize,
@@ -161,9 +161,9 @@ proptest! {
     }
 }
 
-/// Truncation cuts landing one byte short of, exactly on, and one byte
-/// past each payload chunk boundary all surface as `UnexpectedEof`:
-/// chunking never changes how a mid-payload close classifies.
+/// Truncation cuts landing one byte short of, exactly on, and one byte past
+/// each payload chunk boundary all surface as `UnexpectedEof`: chunking never
+/// changes how a mid-payload close classifies.
 #[test]
 fn truncation_at_chunk_boundaries_is_unexpected_eof() {
     let len = 2 * PAYLOAD_CHUNK_LEN + 5;
@@ -179,8 +179,8 @@ fn truncation_at_chunk_boundaries_is_unexpected_eof() {
     }
 }
 
-/// A payload read consumes exactly the declared byte count: the following
-/// bytes stay unconsumed in the reader, whatever the payload chunking.
+/// A payload read consumes exactly the declared byte count: the following bytes
+/// stay unconsumed in the reader, whatever the payload chunking.
 #[test]
 fn payload_read_never_consumes_beyond_the_declared_length() {
     let len = PAYLOAD_CHUNK_LEN + 3;
@@ -195,9 +195,9 @@ fn payload_read_never_consumes_beyond_the_declared_length() {
     assert_eq!(cursor, trailing.as_slice());
 }
 
-/// A resumed payload read consumes exactly the bytes still owed: spare
-/// capacity on the caller's buffer never draws in the following bytes,
-/// which stay unconsumed in the reader.
+/// A resumed payload read consumes exactly the bytes still owed: spare capacity
+/// on the caller's buffer never draws in the following bytes, which stay
+/// unconsumed in the reader.
 #[test]
 fn resumed_read_never_consumes_beyond_the_declared_length() {
     let len = 9;
@@ -213,8 +213,8 @@ fn resumed_read_never_consumes_beyond_the_declared_length() {
     assert_eq!(cursor, trailing.as_slice());
 }
 
-/// A prefix longer than the declared length is a caller error: reported
-/// as `InvalidData`, with nothing read from the transport.
+/// A prefix longer than the declared length is a caller error: reported as
+/// `InvalidData`, with nothing read from the transport.
 #[test]
 fn a_prefix_longer_than_the_declared_length_is_invalid_data() {
     let mut cursor: &[u8] = b"unused";
@@ -223,12 +223,11 @@ fn a_prefix_longer_than_the_declared_length_is_invalid_data() {
     assert_eq!(cursor, b"unused");
 }
 
-/// The most a `len`-byte [`read_payload`] holds at once, by its growth
-/// policy.
+/// The most a `len`-byte [`read_payload`] holds at once, by its growth policy.
 ///
 /// Its first reservation is `len` itself when that is at most one
-/// [`PAYLOAD_CHUNK_LEN`] granule, and otherwise one granule, doubled each
-/// time it fills and clamped to `len`, so its peak is the moment its last
+/// [`PAYLOAD_CHUNK_LEN`] granule, and otherwise one granule, doubled each time
+/// it fills and clamped to `len`, so its peak is the moment its last
 /// reallocation holds the `len`-byte block beside the one it outgrew.
 fn payload_read_peak(len: usize) -> usize {
     if len <= PAYLOAD_CHUNK_LEN {
@@ -244,14 +243,14 @@ fn payload_read_peak(len: usize) -> usize {
 /// The granules within which [`payload_read_peak`]'s tests probe lengths.
 const PEAK_GRANULES: usize = 8;
 
-/// Read a whole `len`-byte payload through [`read_payload`], polled once,
-/// and require it to hold exactly [`payload_read_peak`] at its peak: its
-/// length alone within one granule, and less than twice its length beyond.
+/// Read a whole `len`-byte payload through [`read_payload`], polled once, and
+/// require it to hold exactly [`payload_read_peak`] at its peak: its length
+/// alone within one granule, and less than twice its length beyond.
 ///
 /// # Panics
 ///
-/// Panics if the read does not complete in one poll, returns other bytes,
-/// or peaks elsewhere.
+/// Panics if the read does not complete in one poll, returns other bytes, or
+/// peaks elsewhere.
 fn assert_payload_read_peak(len: usize) {
     let payload = pattern(len, 7);
     let mut source = payload.as_slice();
@@ -275,16 +274,17 @@ fn assert_payload_read_peak(len: usize) {
     );
 }
 
-/// A whole payload read peaks as its growth policy says at every length
-/// within a byte of a granule boundary, up to [`PEAK_GRANULES`] granules.
+/// A whole payload read peaks as its growth policy says at every length within
+/// a byte of a granule boundary, up to [`PEAK_GRANULES`] granules.
 ///
-/// At one byte short of each boundary, exactly on it, and one byte past
-/// it, the read holds exactly its length when that is at most one granule,
-/// and otherwise its length beside the buffer it last outgrew.
+/// At one byte short of each boundary, exactly on it, and one byte past it, the
+/// read holds exactly its length when that is at most one granule, and
+/// otherwise its length beside the buffer it last outgrew.
 ///
-/// The boundaries are where the growth policy changes what it reserves, so
-/// the test exhausts them; [`a_payload_read_holds_its_length_beside_the_buffer_it_outgrew`]
-/// samples the lengths between.
+/// The boundaries are where the growth policy changes what it reserves, so the
+/// test exhausts them;
+/// [`a_payload_read_holds_its_length_beside_the_buffer_it_outgrew`] samples the
+/// lengths between.
 #[test]
 fn a_payload_read_peaks_by_its_policy_at_every_granule_boundary() {
     for granules in 1..=PEAK_GRANULES {

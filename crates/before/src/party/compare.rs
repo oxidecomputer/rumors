@@ -1,7 +1,7 @@
 //! Structural comparisons between two parties.
 //!
-//! The walks align the parties over the same regions of the ownership tree.
-//! A region absent from one party needs no stored node on that side. When a
+//! The walks align the parties over the same regions of the ownership tree. A
+//! region absent from one party needs no stored node on that side. When a
 //! uniform region decides the comparison, the other party's complete subtree
 //! can be skipped. Otherwise, two branches are descended together. Each stored
 //! node is therefore visited at most once.
@@ -14,8 +14,8 @@ use crate::party::io::{PartyBranch, PartyNode, PartyReader};
 impl PartyReader<'_> {
     /// Whether two canonical party subtrees share no owned region.
     ///
-    /// Runs in `O(|self| + |other|)`: both cursors advance without backtracking,
-    /// and an unowned region lets the other subtree be skipped.
+    /// Runs in `O(|self| + |other|)`: both cursors advance without
+    /// backtracking, and an unowned region lets the other subtree be skipped.
     ///
     // Takes the cursors by value: a cursor is single-use, and the walk consumes
     // both. (`is_*`-by-value is unusual, hence the allow.)
@@ -30,8 +30,8 @@ impl PartyReader<'_> {
     /// `other` owns is also owned by `self` (`self ⊇ other`).
     ///
     /// `O(|self| + |other|)`: both cursors advance without backtracking, and a
-    /// subtree is skipped when the other operand already decides the result, as in
-    /// [`is_disjoint`](PartyReader::is_disjoint).
+    /// subtree is skipped when the other operand already decides the result, as
+    /// in [`is_disjoint`](PartyReader::is_disjoint).
     ///
     // Single-use by-value cursors, as with `is_disjoint`.
     #[allow(clippy::wrong_self_convention)]

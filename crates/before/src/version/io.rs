@@ -36,8 +36,8 @@ impl Version {
     /// Validates the byte-aligned Version at the head of `bytes` and splits it
     /// off into storage of its own.
     ///
-    /// Returns the version and the bytes after it, which start the next
-    /// encoded field. The two share no allocation.
+    /// Returns the version and the bytes after it, which start the next encoded
+    /// field. The two share no allocation.
     pub(crate) fn decode_head(mut bytes: Vec<u8>) -> Result<(Self, Vec<u8>), crate::error::Decode> {
         let end = validate::prefix(BitsReader::from_bytes(&bytes)?)?;
         let len = Bits::padded_len(&bytes, end)?;

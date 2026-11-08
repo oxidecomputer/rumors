@@ -17,8 +17,8 @@ use untyped::fan::{self, Fan};
 /// The typed node with a height of 32; the root of the tree.
 pub type Root = Node<height::Root>;
 
-/// The radix-indexed children of a branch one level above height `H`: a
-/// typed shell over the untyped radix fan, so inserts and removals stay
+/// The radix-indexed children of a branch one level above height `H`: a typed
+/// shell over the untyped radix fan, so inserts and removals stay
 /// height-correct at compile time.
 pub struct Children<H: Height> {
     /// The height shared by every child.
@@ -54,8 +54,8 @@ impl<H: Height> SortedRun<H> {
     ///
     /// # Panics
     ///
-    /// Panics if `path` does not ascend strictly from the previous leaf's,
-    /// and in debug builds if it falls outside the subtree's prefix. Session
+    /// Panics if `path` does not ascend strictly from the previous leaf's, and
+    /// in debug builds if it falls outside the subtree's prefix. Session
     /// decoding establishes both.
     pub(crate) fn push(&mut self, path: Prefix<Z>, leaf: Node<Z>) {
         debug_assert!(
@@ -157,8 +157,8 @@ impl<H: Height> IntoIterator for Children<H> {
 
 /// A storage node viewed at height `H`.
 ///
-/// Constructors and traversals preserve this height. The function marker
-/// avoids recursive auto-trait bounds on `H`; see [`S`].
+/// Constructors and traversals preserve this height. The function marker avoids
+/// recursive auto-trait bounds on `H`; see [`S`].
 #[repr(transparent)]
 pub struct Node<H: Height> {
     /// The height at which this storage node is being viewed.
@@ -200,9 +200,8 @@ impl<H: Height> Node<H> {
     /// node's own top ([`untyped::Node::height`]).
     ///
     /// Internal tree code tags nodes whose height its own traversal
-    /// establishes. The streaming mirror's erasure seam re-tags views
-    /// instead, and checks them in debug builds
-    /// ([`View::placed`](super::View::placed)).
+    /// establishes. The streaming mirror's erasure seam re-tags views instead,
+    /// and checks them in debug builds ([`View::placed`](super::View::placed)).
     pub(crate) fn from_untyped(inner: untyped::Node) -> Self {
         Self {
             height: PhantomData,
@@ -245,22 +244,21 @@ impl<H: Height> Node<H> {
     /// The largest canonical encoding among every version bound in this
     /// subtree, recomputed by direct walk with no aggregate memo.
     ///
-    /// The independent oracle [`version_bytes`](Self::version_bytes) is
-    /// pinned against; see the
-    /// [untyped walk](untyped::Node::max_bound_bytes).
+    /// The independent oracle [`version_bytes`](Self::version_bytes) is pinned
+    /// against; see the [untyped walk](untyped::Node::max_bound_bytes).
     #[cfg(test)]
     pub fn max_bound_bytes(&self) -> usize {
         self.inner.max_bound_bytes()
     }
 
-    /// The memoized digest of this subtree under `key`, the hash key of
-    /// the network whose tree holds it; see [`untyped::Node::hash`].
+    /// The memoized digest of this subtree under `key`, the hash key of the
+    /// network whose tree holds it; see [`untyped::Node::hash`].
     pub fn hash(&self, key: &HashKey) -> Hash {
         self.inner.hash(key)
     }
 
-    /// Whether `self` and `other`, at this height in trees of the network
-    /// whose hash key is `key`, hold the same version set; see
+    /// Whether `self` and `other`, at this height in trees of the network whose
+    /// hash key is `key`, hold the same version set; see
     /// [`untyped::Node::same`].
     pub fn same(&self, other: &Self, key: &HashKey) -> bool {
         self.inner.same(&other.inner, key)
@@ -339,8 +337,8 @@ impl Node<height::Root> {
 
     /// Start an owned walk over leaves whose versions satisfy `query`.
     ///
-    /// The lifetime-free counterpart of [`range`](Self::range), holdable
-    /// across awaits (see [`untyped::RangeOwned`]).
+    /// The lifetime-free counterpart of [`range`](Self::range), holdable across
+    /// awaits (see [`untyped::RangeOwned`]).
     pub fn range_owned<P: causally::Polarity>(
         node: Option<&Self>,
         query: causally::Query<'static, P>,
@@ -351,8 +349,8 @@ impl Node<height::Root> {
     /// Lazily iterate the live leaves of the (possibly absent) root `node`
     /// whose versions the causal `query` admits.
     ///
-    /// Subtrees wholly outside the query are pruned by their memoized
-    /// version bounds without being entered (see [`untyped::Range`]).
+    /// Subtrees wholly outside the query are pruned by their memoized version
+    /// bounds without being entered (see [`untyped::Range`]).
     pub fn range<'a, P: causally::Polarity>(
         node: Option<&'a Self>,
         query: causally::Query<'a, P>,

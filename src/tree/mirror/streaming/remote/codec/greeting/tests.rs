@@ -22,8 +22,8 @@ fn sample(listing: Vec<Listed>) -> Greeting {
     }
 }
 
-/// Generate integers across every canonical CBOR head width, including
-/// exact width transitions.
+/// Generate integers across every canonical CBOR head width, including exact
+/// width transitions.
 fn arb_uint() -> impl Strategy<Value = u64> {
     prop_oneof![
         4 => any::<u64>(),
@@ -119,13 +119,12 @@ fn greeting_keys_are_in_deterministic_order() {
 
 /// Every numeric field rejects a value of any other type, naming the field.
 ///
-/// The numeric fields are read off the encoded sample itself, so a field
-/// added later is covered without editing this test. The decoder reads
-/// each count, size, and limit as an unsigned integer; a
-/// negative integer or a text string in its place must surface as
-/// [`GreetingStructureError::Unsigned`] for exactly that field, so a peer
-/// that omits a value's type, such as a malformed grandchild count, is
-/// rejected before any field is used.
+/// The numeric fields are read off the encoded sample itself, so a field added
+/// later is covered without editing this test. The decoder reads each count,
+/// size, and limit as an unsigned integer; a negative integer or a text string
+/// in its place must surface as [`GreetingStructureError::Unsigned`] for
+/// exactly that field, so a peer that omits a value's type, such as a malformed
+/// grandchild count, is rejected before any field is used.
 #[test]
 fn numeric_fields_reject_other_types() {
     use ciborium::Value;
@@ -242,13 +241,12 @@ proptest::proptest! {
     }
 }
 
-/// A listing whose content ends inside a hash is rejected as the typed
-/// listing issue.
+/// A listing whose content ends inside a hash is rejected as the typed listing
+/// issue.
 ///
-/// The map declares its listing entries up front; content that runs out
-/// inside an entry's digest bytes must surface
-/// [`GreetingError::Listing`] with the listing's own truncation, never a
-/// panic and never a partial listing.
+/// The map declares its listing entries up front; content that runs out inside
+/// an entry's digest bytes must surface [`GreetingError::Listing`] with the
+/// listing's own truncation, never a panic and never a partial listing.
 #[test]
 fn truncated_listing_hash_is_a_typed_listing_issue() {
     let greeting = sample(vec![listed(4, Hash::from([7; MERKLE_HASH_LEN]))]);
@@ -270,8 +268,8 @@ fn truncated_listing_hash_is_a_typed_listing_issue() {
 /// A version atom whose bytes are not one canonical version encoding is
 /// rejected as the typed version defect.
 ///
-/// The atom's tag and byte string parse, so the failure is the content's
-/// own: [`GreetingError::Version`] carrying the decoder's verdict.
+/// The atom's tag and byte string parse, so the failure is the content's own:
+/// [`GreetingError::Version`] carrying the decoder's verdict.
 #[test]
 fn undecodable_version_atom_is_a_typed_version_defect() {
     let greeting = sample(Vec::new());
@@ -300,12 +298,12 @@ fn undecodable_version_atom_is_a_typed_version_defect() {
     ));
 }
 
-/// A widened spelling of a greeting value head is rejected as the
-/// codec's own shortest-form violation.
+/// A widened spelling of a greeting value head is rejected as the codec's own
+/// shortest-form violation.
 ///
-/// The greeting is deterministic-encoding CBOR, so a head wider than
-/// its value requires is a spelling the encoder never writes, even
-/// though the value it carries is the right one.
+/// The greeting is deterministic-encoding CBOR, so a head wider than its value
+/// requires is a spelling the encoder never writes, even though the value it
+/// carries is the right one.
 #[test]
 fn widened_value_spelling_is_rejected() {
     // Build the malformed map directly: copy the canonical map bytes

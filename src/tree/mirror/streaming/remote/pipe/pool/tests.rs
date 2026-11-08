@@ -22,9 +22,9 @@ fn permit_limit() -> u64 {
     (u32::MAX as u64).min(Semaphore::MAX_PERMITS as u64)
 }
 
-/// A permit stands for the least power of two of bytes at which the
-/// largest pool any target can size counts within both one acquisition's
-/// `u32` and a semaphore's capacity.
+/// A permit stands for the least power of two of bytes at which the largest
+/// pool any target can size counts within both one acquisition's `u32` and a
+/// semaphore's capacity.
 #[test]
 fn a_permit_is_the_least_granule_that_counts_every_pool() {
     let bytes = PERMIT_BYTES as u64;
@@ -78,8 +78,8 @@ proptest! {
     }
 }
 
-/// The two pools of a session stand for the sum of a send pool and a
-/// receive pool at the session's target, each priced at its own node.
+/// The two pools of a session stand for the sum of a send pool and a receive
+/// pool at the session's target, each priced at its own node.
 #[test]
 fn a_session_sets_both_pools_aside() {
     for target in [0, 1, PERMIT_BYTES, 1 << 20, usize::MAX] {
@@ -95,9 +95,9 @@ fn a_session_sets_both_pools_aside() {
     }
 }
 
-/// A run larger than the pool waits for the whole pool, and a smaller run
-/// that arrives after it waits behind it, even while enough of the pool is
-/// free for the smaller one: waiting runs never divide the pool.
+/// A run larger than the pool waits for the whole pool, and a smaller run that
+/// arrives after it waits behind it, even while enough of the pool is free for
+/// the smaller one: waiting runs never divide the pool.
 #[test]
 fn acquisitions_are_served_whole_in_order() {
     let pool = WirePool::sending(SUPPLY_FRAME_OVERHEAD + 4096, 1);

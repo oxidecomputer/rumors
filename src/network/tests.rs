@@ -1,5 +1,5 @@
-//! Tests for network secrets and for the key schedule that derives their
-//! keys and public identifiers.
+//! Tests for network secrets and for the key schedule that derives their keys
+//! and public identifiers.
 
 use hmac::{Hmac, KeyInit, Mac};
 use proptest::prelude::*;
@@ -8,8 +8,8 @@ use sha2::Sha256;
 use super::{NETWORK_BYTES, NetworkKeys, NetworkSecret};
 use crate::tree::MERKLE_HASH_LEN;
 
-/// HMAC-SHA-256 of `message` under `key`, through the `hmac` crate's
-/// one-shot interface.
+/// HMAC-SHA-256 of `message` under `key`, through the `hmac` crate's one-shot
+/// interface.
 fn hmac(key: &[u8], message: &[u8]) -> [u8; 32] {
     <Hmac<Sha256>>::new_from_slice(key)
         .expect("HMAC accepts a key of any length")
@@ -19,14 +19,14 @@ fn hmac(key: &[u8], message: &[u8]) -> [u8; 32] {
         .into()
 }
 
-/// The key schedule's three outputs for `secret`: the path key, the tree
-/// hash key and the network identifier, in that order.
+/// The key schedule's three outputs for `secret`: the path key, the tree hash
+/// key and the network identifier, in that order.
 ///
 /// They are transcribed from RFC 5869 rather than built through the `hkdf`
-/// crate or the module's labels: the extract step is HMAC-SHA-256 keyed by
-/// the default salt of 32 zero bytes over the secret, and each output fits
-/// one expand block, HMAC-SHA-256 keyed by that pseudorandom key over the
-/// info label and the block counter `0x01`.
+/// crate or the module's labels: the extract step is HMAC-SHA-256 keyed by the
+/// default salt of 32 zero bytes over the secret, and each output fits one
+/// expand block, HMAC-SHA-256 keyed by that pseudorandom key over the info
+/// label and the block counter `0x01`.
 fn transcribed_schedule(secret: &[u8; NETWORK_BYTES]) -> ([u8; 32], [u8; 32], [u8; NETWORK_BYTES]) {
     let prk = hmac(&[0; 32], secret);
     let id = hmac(&prk, b"rumors network id\x01");
@@ -123,9 +123,9 @@ proptest! {
 
 /// Zeroizing a secret, which is what dropping one runs, clears every byte.
 ///
-/// The drop itself cannot be observed: reading a value's memory after it
-/// drops takes `unsafe`, which the crate forbids. So this exercises the
-/// clearing the `Drop` impl calls, on a live value.
+/// The drop itself cannot be observed: reading a value's memory after it drops
+/// takes `unsafe`, which the crate forbids. So this exercises the clearing the
+/// `Drop` impl calls, on a live value.
 #[test]
 fn zeroizing_clears_every_byte_of_the_secret() {
     use zeroize::Zeroize;

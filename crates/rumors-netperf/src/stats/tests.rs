@@ -29,9 +29,9 @@ proptest! {
 
 /// The declared coverage is the realized one.
 ///
-/// Over 20,000 draws of seven exponential samples, whose population median
-/// is ln 2, the interval covers ln 2 as often as declared, within 1.5
-/// percentage points (about seven standard errors).
+/// Over 20,000 draws of seven exponential samples, whose population median is
+/// ln 2, the interval covers ln 2 as often as declared, within 1.5 percentage
+/// points (about seven standard errors).
 #[test]
 fn declared_coverage_is_realized() {
     let mut rng = StdRng::seed_from_u64(5);

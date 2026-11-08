@@ -1,5 +1,5 @@
-//! The deletion-honoring filter: prune a subtree down to what a
-//! counterparty at a given version is missing.
+//! The deletion-honoring filter: prune a subtree down to what a counterparty at
+//! a given version is missing.
 //!
 //! Redaction leaves no tombstone in the tree. A subtree whose version ceiling
 //! is contained in the counterparty's version holds nothing it hasn't already

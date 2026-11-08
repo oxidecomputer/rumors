@@ -26,8 +26,8 @@ pub fn read(path: &Path) -> Result<Vec<Record>, Box<dyn std::error::Error>> {
     read_lines(path)
 }
 
-/// Reads every JSON document in `path`, one per line, or none if it does
-/// not exist.
+/// Reads every JSON document in `path`, one per line, or none if it does not
+/// exist.
 pub fn read_lines<T: DeserializeOwned>(path: &Path) -> Result<Vec<T>, Box<dyn std::error::Error>> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -43,14 +43,13 @@ pub fn read_lines<T: DeserializeOwned>(path: &Path) -> Result<Vec<T>, Box<dyn st
 }
 
 /// Runs `pair` at the memory budget `budget` (`None` for unlimited), every
-/// message encoding in `message_bytes` bytes, and returns its record's
-/// JSON document, a detailed one if `detail` ([`Record::of`]).
+/// message encoding in `message_bytes` bytes, and returns its record's JSON
+/// document, a detailed one if `detail` ([`Record::of`]).
 ///
-/// The budget applies as given, through the test path, which sets the
-/// ledger budget the memory budget leaves beside the floor and session
-/// allowances: the
-/// ladder's rungs are never below the public minimum, and an explicit
-/// budget below it probes the regime the public setter rules out.
+/// The budget applies as given, through the test path, which sets the ledger
+/// budget the memory budget leaves beside the floor and session allowances: the
+/// ladder's rungs are never below the public minimum, and an explicit budget
+/// below it probes the regime the public setter rules out.
 pub fn session(pair: Pair, budget: Option<u64>, message_bytes: usize, detail: bool) -> String {
     let started = Instant::now();
     let budget_choice = match budget {
@@ -92,14 +91,14 @@ pub fn append(out: &Mutex<File>, path: &Path, line: &str) -> Result<(), String> 
         .map_err(|error| format!("appending a session to {}: {error}", path.display()))
 }
 
-/// Runs every pair's unlimited session and, with a ladder, its budgets,
-/// every message encoding in `message_bytes` bytes, appending each to
-/// `out`, detailed if `detail`, and skipping those it already holds.
+/// Runs every pair's unlimited session and, with a ladder, its budgets, every
+/// message encoding in `message_bytes` bytes, appending each to `out`, detailed
+/// if `detail`, and skipping those it already holds.
 ///
 /// # Errors
 ///
-/// If `out` holds sessions of another message size: a file's sessions are
-/// keyed by pair and budget alone, so it holds one message size.
+/// If `out` holds sessions of another message size: a file's sessions are keyed
+/// by pair and budget alone, so it holds one message size.
 pub fn run(
     out: &Path,
     pairs: &[Pair],

@@ -1,8 +1,8 @@
 //! Identity donations either decode completely or fail without accepting a
 //! partial identity.
 //!
-//! Wire cuts are transport failures; invalid complete items
-//! are protocol violations. A successful receive leaves later bytes untouched.
+//! Wire cuts are transport failures; invalid complete items are protocol
+//! violations. A successful receive leaves later bytes untouched.
 
 use before::Party;
 use before::error::Decode;
@@ -15,8 +15,8 @@ use crate::observe::SessionHandle;
 use crate::tree::arb::nth_party;
 use crate::tree::mirror::cbor::{self, MAJOR_BSTR};
 
-/// Wrap one item content exactly as [`send`] does: the party-atom tag,
-/// then a byte string of the content.
+/// Wrap one item content exactly as [`send`] does: the party-atom tag, then a
+/// byte string of the content.
 fn frame(body: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::new();
     cbor::write_tag(&mut bytes, crate::tags::PARTY_TAG);
@@ -55,9 +55,9 @@ fn defect(result: Result<Party, Error>) -> HandOffDefect {
 /// A donated party survives its wire trip intact.
 ///
 /// [`send`] and [`receive`] are each other's inverses: the received party
-/// equals the donated one (compared against an identically constructed
-/// value, since a live [`Party`] is deliberately `!Clone`), pinning the
-/// success arm of the same ingress the rejection tests below feed.
+/// equals the donated one (compared against an identically constructed value,
+/// since a live [`Party`] is deliberately `!Clone`), pinning the success arm of
+/// the same ingress the rejection tests below feed.
 #[test]
 fn a_donated_party_round_trips() {
     pollster::block_on(async {
@@ -72,12 +72,11 @@ fn a_donated_party_round_trips() {
     });
 }
 
-/// A peer that closes before or inside the item's heads is a typed
-/// truncation.
+/// A peer that closes before or inside the item's heads is a typed truncation.
 ///
-/// Every strict prefix of the tag and byte-string heads — the close at
-/// each boundary included — must resolve to [`Error::Transport`],
-/// never a hang on bytes that cannot arrive.
+/// Every strict prefix of the tag and byte-string heads — the close at each
+/// boundary included — must resolve to [`Error::Transport`], never a hang on
+/// bytes that cannot arrive.
 #[test]
 fn truncated_frame_header_is_a_typed_truncation() {
     let heads = frame(&[0]);
@@ -92,9 +91,9 @@ fn truncated_frame_header_is_a_typed_truncation() {
 
 /// An item that is not the party-atom tag is a typed protocol violation.
 ///
-/// The tag is the hand-off's identity on the wire; a different tag (or a
-/// bare byte string) must surface as
-/// [`HandOffDefect::NotPartyTagged`], never decode.
+/// The tag is the hand-off's identity on the wire; a different tag (or a bare
+/// byte string) must surface as [`HandOffDefect::NotPartyTagged`], never
+/// decode.
 #[test]
 fn wrong_tag_is_a_typed_error() {
     let mut wrong = Vec::new();
@@ -113,8 +112,8 @@ fn wrong_tag_is_a_typed_error() {
     ));
 }
 
-/// A party-atom tag wrapping anything but a byte string is a typed
-/// protocol violation.
+/// A party-atom tag wrapping anything but a byte string is a typed protocol
+/// violation.
 ///
 /// The tag's content is defined as a byte string of the party's canonical
 /// encoding; any other major type must surface as
@@ -132,9 +131,9 @@ fn wrapped_non_byte_string_is_a_typed_error() {
 
 /// A non-canonical head inside the hand-off is a typed protocol violation.
 ///
-/// The wire is deterministic-encoding CBOR: a widened (non-shortest-form)
-/// head spells a value the canonical wire never produces, and must
-/// surface as [`HandOffDefect::HeadMalformed`] naming the head's fault.
+/// The wire is deterministic-encoding CBOR: a widened (non-shortest-form) head
+/// spells a value the canonical wire never produces, and must surface as
+/// [`HandOffDefect::HeadMalformed`] naming the head's fault.
 #[test]
 fn malformed_head_is_a_typed_error() {
     // A two-byte spelling of tag 0: canonical is the one-byte head.
@@ -147,9 +146,9 @@ fn malformed_head_is_a_typed_error() {
 
 /// A frame declaring more bytes than the peer sends is a typed truncation.
 ///
-/// The over-declared length makes the exact body read run off the end of
-/// the stream; the lie must surface as [`Error::Transport`], never
-/// as a partially filled body handed to the party decoder.
+/// The over-declared length makes the exact body read run off the end of the
+/// stream; the lie must surface as [`Error::Transport`], never as a partially
+/// filled body handed to the party decoder.
 #[test]
 fn over_declared_frame_is_a_typed_truncation() {
     let mut bytes = Vec::new();
@@ -165,12 +164,12 @@ fn over_declared_frame_is_a_typed_truncation() {
 
 /// A zero-length frame body cannot carry an identity and is a typed defect.
 ///
-/// The anonymous (empty) id has no reader-path encoding — every canonical
-/// party carries at least one tag — so an empty body fails the decoder's
-/// first bit read. The body arrived whole (exactly the zero bytes its head
-/// declared), so this is the content's own fault:
-/// [`HandOffDefect::Undecodable`] with the decoder's truncation, never
-/// [`Error::Transport`], which is reserved for a stream that stops.
+/// The anonymous (empty) id has no reader-path encoding — every canonical party
+/// carries at least one tag — so an empty body fails the decoder's first bit
+/// read. The body arrived whole (exactly the zero bytes its head declared), so
+/// this is the content's own fault: [`HandOffDefect::Undecodable`] with the
+/// decoder's truncation, never [`Error::Transport`], which is reserved for a
+/// stream that stops.
 #[test]
 fn empty_frame_body_is_a_typed_error() {
     assert!(matches!(
@@ -181,10 +180,10 @@ fn empty_frame_body_is_a_typed_error() {
 
 /// A party encoding cut short inside an honestly sized frame is rejected.
 ///
-/// The frame's header matches its body, but the body is a strict prefix of
-/// a canonical party encoding; the decoder runs out of bits and must
-/// surface [`HandOffDefect::Undecodable`], never accept a smaller identity
-/// (which would break party linearity).
+/// The frame's header matches its body, but the body is a strict prefix of a
+/// canonical party encoding; the decoder runs out of bits and must surface
+/// [`HandOffDefect::Undecodable`], never accept a smaller identity (which would
+/// break party linearity).
 #[test]
 fn under_declared_frame_is_a_typed_error() {
     let mut body = nth_party(3).as_bytes().to_vec();
@@ -215,9 +214,9 @@ fn trailing_frame_bytes_are_rejected() {
 /// Receiving one donation consumes exactly its frame, leaving later bytes
 /// untouched.
 ///
-/// The donation is followed on the same control stream by the epilogue
-/// marker (and possibly a next session's preamble); the exact-read framing
-/// contract requires those bytes to remain unread after a clean receive.
+/// The donation is followed on the same control stream by the epilogue marker
+/// (and possibly a next session's preamble); the exact-read framing contract
+/// requires those bytes to remain unread after a clean receive.
 #[test]
 fn bytes_after_the_frame_stay_untouched() {
     pollster::block_on(async {
@@ -262,8 +261,8 @@ proptest! {
     }
 }
 
-/// Preparing a donation releases the identity borrow before any I/O, while
-/// the future retains the complete frame after the original party is dropped.
+/// Preparing a donation releases the identity borrow before any I/O, while the
+/// future retains the complete frame after the original party is dropped.
 #[test]
 fn donation_future_owns_its_frame() {
     let party = nth_party(2);

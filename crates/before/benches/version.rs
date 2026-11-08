@@ -1,8 +1,8 @@
 //! `Version` benchmarks: the optimized implementation against the naive
 //! recursive oracle, on the same randomized event trees (see `common`).
 //!
-//! Includes the repeated-tick comparison (impl vs oracle over `k` ticks),
-//! plus the impl-only byte codec.
+//! Includes the repeated-tick comparison (impl vs oracle over `k` ticks), plus
+//! the impl-only byte codec.
 
 use before::{Party, Version};
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
@@ -17,9 +17,9 @@ fn rng(salt: u64) -> ChaChaRng {
     ChaChaRng::seed_from_u64(SEED.wrapping_add(salt))
 }
 
-/// A randomized version paired with the party that owns its id-space, the operand `tick`
-/// needs. Returns the impl version's bytes (for fresh `decode`s) and the impl party, plus
-/// the oracle version and party.
+/// A randomized version paired with the party that owns its id-space, the
+/// operand `tick` needs. Returns the impl version's bytes (for fresh `decode`s)
+/// and the impl party, plus the oracle version and party.
 fn version_and_party(
     r: &mut ChaChaRng,
     n: usize,
@@ -35,8 +35,9 @@ fn version_and_party(
     (iversion.encode(), iparty, oversion, oparty)
 }
 
-/// `tick`: advance the owning party's component by one event. Destructive, so the version
-/// is rebuilt fresh per iteration; the party is read-only and built once.
+/// `tick`: advance the owning party's component by one event. Destructive, so
+/// the version is rebuilt fresh per iteration; the party is read-only and built
+/// once.
 fn bench_tick(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/tick");
     let mut r = rng(1);
@@ -68,11 +69,11 @@ fn bench_tick(c: &mut Criterion) {
 
 /// Repeated mutation: applying `k` ticks, fused and per-tick.
 ///
-/// The fused series is one `ticks(k)` call (two walks at most, whatever
-/// `k`); the per-tick series applies each tick through the fill splice,
-/// paying the unpack/repack per call; the oracle re-normalizes each
-/// tick. Tree size is fixed; `k` is the axis, so the fused series must
-/// read flat where the iterated series scale with `k`.
+/// The fused series is one `ticks(k)` call (two walks at most, whatever `k`);
+/// the per-tick series applies each tick through the fill splice, paying the
+/// unpack/repack per call; the oracle re-normalizes each tick. Tree size is
+/// fixed; `k` is the axis, so the fused series must read flat where the
+/// iterated series scale with `k`.
 fn bench_k_ticks(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/k_ticks");
     let mut r = rng(2);
@@ -117,8 +118,8 @@ fn bench_k_ticks(c: &mut Criterion) {
     g.finish();
 }
 
-/// `|` (merge / least-upper-bound) of two histories. Both operands are consumed, so both
-/// are rebuilt fresh per iteration.
+/// `|` (merge / least-upper-bound) of two histories. Both operands are
+/// consumed, so both are rebuilt fresh per iteration.
 fn bench_merge(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/merge");
     let mut r = rng(3);
@@ -151,11 +152,11 @@ fn bench_merge(c: &mut Criterion) {
     g.finish();
 }
 
-/// `partial_cmp` (the causal order) over the three outcomes the comparison
-/// can take, each exercising a different traversal.
+/// `partial_cmp` (the causal order) over the three outcomes the comparison can
+/// take, each exercising a different traversal.
 ///
-/// The outcomes: `concurrent` (two independent histories), `ordered`
-/// (one strictly precedes the other), and `equal` (a version against its own clone).
+/// The outcomes: `concurrent` (two independent histories), `ordered` (one
+/// strictly precedes the other), and `equal` (a version against its own clone).
 fn bench_partial_cmp(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/partial_cmp");
     let mut r = rng(4);
@@ -216,16 +217,15 @@ fn bench_codec(c: &mut Criterion) {
     g.finish();
 }
 
-/// The ownership-hole regime: a party owning a vanishing custody
-/// fraction of a fully-received version (`common::hole_pair`), the
-/// small-custody-peer shape the ownership-gated walks serve.
+/// The ownership-hole regime: a party owning a vanishing custody fraction of a
+/// fully-received version (`common::hole_pair`), the small-custody-peer shape
+/// the ownership-gated walks serve.
 ///
 /// Consumers on the same pair: `tick`, the projection
-/// (`OwnVersion::to_version`), masked equality of equal projections
-/// in distinct buffers (a full co-walk, no early exit), and the
-/// asymmetric masked equality against the flat materialization. No
-/// oracle row: the regime's anchor is the same pair on the plain
-/// walks above.
+/// (`OwnVersion::to_version`), masked equality of equal projections in distinct
+/// buffers (a full co-walk, no early exit), and the asymmetric masked equality
+/// against the flat materialization. No oracle row: the regime's anchor is the
+/// same pair on the plain walks above.
 fn bench_hole(c: &mut Criterion) {
     let mut g = c.benchmark_group("version/hole");
     let mut r = rng(1);

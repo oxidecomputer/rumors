@@ -1,10 +1,9 @@
 //! The contract of [`assemble`], the session's reassembly primitive.
 //!
-//! It must fill `Pending` slots from the level stream strictly in order,
-//! honor `Ready(None)` as deletion, resolve the empty resolution to `None`
-//! through [`Backend::parent`], chain across two instances, and pass
-//! errors through unchanged. Counterparty-fault classification lives in
-//! [`violations`].
+//! It must fill `Pending` slots from the level stream strictly in order, honor
+//! `Ready(None)` as deletion, resolve the empty resolution to `None` through
+//! [`Backend::parent`], chain across two instances, and pass errors through
+//! unchanged. Counterparty-fault classification lives in [`violations`].
 
 use crate::network::NetworkKeys;
 use crate::tree::mirror::streaming::message::LaterMatches;
@@ -41,8 +40,8 @@ use crate::{
     },
 };
 
-/// The in-memory backend's erased node representation, which resolutions
-/// and level returns carry.
+/// The in-memory backend's erased node representation, which resolutions and
+/// level returns carry.
 type Erased = <Local as Backend>::Erased;
 
 /// Erase one typed leaf the way the walk's payloads carry it.
@@ -56,8 +55,8 @@ fn leaf(version: &mut Version) -> typed::View<Z> {
     typed::View::leaf(version.clone(), Message::new(()))
 }
 
-/// The height-`Z` key with `parent` as its first byte and `radix` as its
-/// last, zeros between.
+/// The height-`Z` key with `parent` as its first byte and `radix` as its last,
+/// zeros between.
 fn key(parent: u8, radix: u8) -> Prefix<Z> {
     let mut bytes = [0u8; 32];
     bytes[0] = parent;
@@ -195,8 +194,8 @@ fn fills_pendings_in_order() {
     );
 }
 
-/// A `Ready(None)` slot is a deletion: it reaches `Backend::parent` as a
-/// `None` entry, and the parent assembles from the survivors alone.
+/// A `Ready(None)` slot is a deletion: it reaches `Backend::parent` as a `None`
+/// entry, and the parent assembles from the survivors alone.
 #[test]
 fn ready_none_is_deletion() {
     let mut version = Version::new();
@@ -240,8 +239,8 @@ fn empty_resolution_assembles_to_none() {
     assert!(matches!(output.as_slice(), [Ok(None)]));
 }
 
-/// An all-deleted resolution cascades: every slot `Ready(None)` assembles to
-/// a `None` return, deleting the scope one level up.
+/// An all-deleted resolution cascades: every slot `Ready(None)` assembles to a
+/// `None` return, deleting the scope one level up.
 #[test]
 fn all_deleted_resolution_assembles_to_none() {
     let resolution = Resolution {
@@ -306,8 +305,8 @@ fn chains_two_instances() {
     );
 }
 
-/// An error arriving on the resolutions stream ends the output with that
-/// error: nothing downstream sees a partial scope.
+/// An error arriving on the resolutions stream ends the output with that error:
+/// nothing downstream sees a partial scope.
 #[test]
 fn resolution_error_passes_through() {
     let output = assembled(vec![Err(Error::Violation(Violation::UnaskedReply))], vec![]);
@@ -317,8 +316,8 @@ fn resolution_error_passes_through() {
     ));
 }
 
-/// An error arriving on the level stream surfaces through the `Pending`
-/// slot that pulled it.
+/// An error arriving on the level stream surfaces through the `Pending` slot
+/// that pulled it.
 #[test]
 fn level_error_passes_through() {
     let resolution = Resolution {
@@ -407,8 +406,8 @@ proptest! {
     }
 }
 
-/// Which sides of an answer's scope hold the child at one radix, and
-/// whether both sides' copies agree.
+/// Which sides of an answer's scope hold the child at one radix, and whether
+/// both sides' copies agree.
 #[derive(Clone, Copy, Debug)]
 enum Holder {
     /// Neither side.
@@ -419,14 +418,14 @@ enum Holder {
     Theirs,
     /// Both sides, with equal digests: a match.
     Agreeing,
-    /// Both sides, with different digests: a dispute among internal
-    /// children, and a match among leaves, whose equal paths agree.
+    /// Both sides, with different digests: a dispute among internal children,
+    /// and a match among leaves, whose equal paths agree.
     Differing,
 }
 
 /// A scope's holders, one per radix, with at most four children that ask a
-/// question of an internal answer, so that the reactions leading a question
-/// run long, and a match ahead of them often covers later children.
+/// question of an internal answer, so that the reactions leading a question run
+/// long, and a match ahead of them often covers later children.
 fn arb_scope() -> impl Strategy<Value = Vec<Holder>> {
     let unasked = prop_oneof![
         1 => Just(Holder::Neither),
@@ -447,8 +446,8 @@ fn arb_scope() -> impl Strategy<Value = Vec<Holder>> {
 }
 
 /// Check that no question among `chunks` is led by more than
-/// [`answer::Held::LEADING_MAX`]: by at most one covered set, and by at
-/// most a fan of reactions less one, or less two beside a set.
+/// [`answer::Held::LEADING_MAX`]: by at most one covered set, and by at most a
+/// fan of reactions less one, or less two beside a set.
 fn check_leads<E, Q>(mut chunks: answer::Chunks<E, Q>) -> Result<(), TestCaseError> {
     let most = answer::Held::LEADING_MAX;
     while let Some(part) = chunks.next_part() {
@@ -531,9 +530,9 @@ proptest! {
 /// A finished resolver returns its question's own charge, leaving the
 /// resolution its slots' charge alone while it waits for assembly.
 ///
-/// The question's queue slot is gone once its stage received it, and the
-/// buffer of this side's children is gone once the resolver has walked it
-/// into the resolution's slots, which the slots' charge covers.
+/// The question's queue slot is gone once its stage received it, and the buffer
+/// of this side's children is gone once the resolver has walked it into the
+/// resolution's slots, which the slots' charge covers.
 #[test]
 fn finished_resolution_keeps_no_charge_for_its_question() {
     let ledger = Ledger::default();
@@ -581,12 +580,12 @@ fn prefix_at(height: usize, byte: u8) -> ErasedPrefix {
     (height..32).fold(Prefix::new().erase(), |prefix, _| prefix.push(byte))
 }
 
-/// One reply a question about a node at `height` can receive, within the
-/// bound its question reserved for.
+/// One reply a question about a node at `height` can receive, within the bound
+/// its question reserved for.
 ///
-/// That is the listing the question sent, the peer's grandchild count of
-/// the node, and for each listed child, in order, a match or a query
-/// listing that many children.
+/// That is the listing the question sent, the peer's grandchild count of the
+/// node, and for each listed child, in order, a match or a query listing that
+/// many children.
 ///
 /// About a leaf's parent, every query requests its leaf and lists nothing.
 fn arb_reply_to_question() -> impl Strategy<Value = (usize, usize, usize, Vec<Option<usize>>)> {
@@ -722,29 +721,28 @@ proptest! {
     }
 }
 
-/// One answer processing a reply builds about a child the reply queries:
-/// the entries the query lists and the children this side holds beyond
-/// them.
+/// One answer processing a reply builds about a child the reply queries: the
+/// entries the query lists and the children this side holds beyond them.
 type ChildAnswer = (usize, usize);
 
-/// The answers processing a fully disputed reply builds one level down,
-/// one for each query the reply carries, each listing at least one entry.
+/// The answers processing a fully disputed reply builds one level down, one for
+/// each query the reply carries, each listing at least one entry.
 fn arb_child_answers() -> impl Strategy<Value = Vec<ChildAnswer>> {
     proptest::collection::vec((1..=FAN, 0..=FAN), 1..=6)
 }
 
-/// The listing entries the queries behind `answers` carry together: the
-/// listing a reply's bound must allow for processing to build them.
+/// The listing entries the queries behind `answers` carry together: the listing
+/// a reply's bound must allow for processing to build them.
 fn listing(answers: &[ChildAnswer]) -> usize {
     answers.iter().map(|&(entries, ..)| entries).sum()
 }
 
-/// What processing admits one level down for `answers`: each answer's grant
-/// as the walk prices it.
+/// What processing admits one level down for `answers`: each answer's grant as
+/// the walk prices it.
 ///
-/// Each answers the children its query lists and those this side holds
-/// beyond them, at most a fan, sharing none of the listed children, which
-/// prices no covered set: the least such an answer costs.
+/// Each answers the children its query lists and those this side holds beyond
+/// them, at most a fan, sharing none of the listed children, which prices no
+/// covered set: the least such an answer costs.
 fn answers_cost(answers: &[ChildAnswer]) -> usize {
     answers
         .iter()
@@ -793,10 +791,9 @@ proptest! {
     }
 }
 
-/// The floor allowance of a walk over the in-memory backend is the "about
-/// 26.5 MiB" the memory budget's documentation sets aside out of every
-/// budget, on the 64-bit targets the documentation's figures are measured
-/// on.
+/// The floor allowance of a walk over the in-memory backend is the "about 26.5
+/// MiB" the memory budget's documentation sets aside out of every budget, on
+/// the 64-bit targets the documentation's figures are measured on.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn the_floor_allowance_is_the_documented_figure() {

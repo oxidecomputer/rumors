@@ -1,9 +1,8 @@
 //! The default budget pipelines an ordinary disputed frontier.
 //!
-//! The fixture uses ordinary hashed paths. With the default budget, a
-//! session keeps the questions of a whole frontier in flight at once, so
-//! its round trips follow the tree's depth rather than the number of
-//! disputes.
+//! The fixture uses ordinary hashed paths. With the default budget, a session
+//! keeps the questions of a whole frontier in flight at once, so its round
+//! trips follow the tree's depth rather than the number of disputes.
 
 use std::time::Duration;
 
@@ -20,8 +19,8 @@ use rumors_testkit::divided_proptest;
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
 
-/// Messages each peer originates after the fork: enough divergence to
-/// dispute nearly all 256 root-child scopes.
+/// Messages each peer originates after the fork: enough divergence to dispute
+/// nearly all 256 root-child scopes.
 const DIVERGENT_PER_SIDE: usize = 512;
 
 /// One-way link delay, in whole milliseconds (the timer wheel's grain).
@@ -29,16 +28,16 @@ const DELAY: Duration = Duration::from_millis(10);
 
 /// The most one-way hops the default-budget session may take.
 ///
-/// The session measures 7: a few levels of descent, each a round trip,
-/// with every level's questions in flight together. The ceiling leaves room
-/// for modest changes in fixed protocol cost. A session that asked these
-/// hundreds of disputes one question at a time would take a round trip for
-/// each; the test prints that count for the same fixture in the serial
-/// configuration, one unit of each kind and depth at a time.
+/// The session measures 7: a few levels of descent, each a round trip, with
+/// every level's questions in flight together. The ceiling leaves room for
+/// modest changes in fixed protocol cost. A session that asked these hundreds
+/// of disputes one question at a time would take a round trip for each; the
+/// test prints that count for the same fixture in the serial configuration, one
+/// unit of each kind and depth at a time.
 const HOP_CEILING: u32 = 24;
 
-/// Per-direction in-flight window: far above this session's transfers, so
-/// only round-trip structure is measured (see the module docs).
+/// Per-direction in-flight window: far above this session's transfers, so only
+/// round-trip structure is measured (see the module docs).
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
 divided_proptest! {
@@ -63,8 +62,8 @@ divided_proptest! {
     }
 }
 
-/// Two peers of the network `network` names, with shared history and
-/// concurrent additions, both on `budget`.
+/// Two peers of the network `network` names, with shared history and concurrent
+/// additions, both on `budget`.
 fn diverged_pair(network: NetworkSeed, budget: BudgetChoice) -> (Rumors<u64>, Rumors<u64>) {
     let left = budget.apply(network.peer()).into_rumors();
     // Fixed, so the hop ceiling is judged on the same corpus every run.

@@ -8,16 +8,16 @@
 //! which their public construction paths bound by input size.
 //!
 //! A shape with a large fixed-size intercept may provide a separate content
-//! axis for the growth fit. Constants remain charged to input bytes,
-//! so this prevents a misleading exponent without relaxing the byte ceiling.
+//! axis for the growth fit. Constants remain charged to input bytes, so this
+//! prevents a misleading exponent without relaxing the byte ceiling.
 //!
 //! # Resource models
 //!
 //! Every currency has two checks: growth against `trend` units and the largest
 //! reading against `constant` units. The default units implement the board's
 //! linear contract. A cell may instead state the units of a more precise bound,
-//! such as `D log k`, and may replace that currency's proportional ceiling.
-//! The judge treats all such models alike and always retains the global growth
+//! such as `D log k`, and may replace that currency's proportional ceiling. The
+//! judge treats all such models alike and always retains the global growth
 //! ceiling. The rendered row discloses every override.
 
 use std::any::Any;
@@ -165,8 +165,8 @@ impl Cell {
         self
     }
 
-    /// Package an I/O-denominated body: the output side of `n_io`
-    /// is read back from the actual result.
+    /// Package an I/O-denominated body: the output side of `n_io` is read back
+    /// from the actual result.
     pub(super) fn io<R: Any>(
         input_bytes: usize,
         floors: Floors,

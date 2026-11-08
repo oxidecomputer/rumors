@@ -2,11 +2,11 @@
 //!
 //! Message counts are checked against recorded sends and redactions, including
 //! both peers shedding messages in one session. Byte counts are checked against
-//! the frames captured on one reused connection.
-//! Point tests cover catch-up, one-sided redaction, no-op sessions, and the
-//! continuous gossip driver's results. Budget waits are checked here at an
-//! unlimited budget, where none can occur, and against the ledger's own
-//! count in the session-budget suite, where the budget binds.
+//! the frames captured on one reused connection. Point tests cover catch-up,
+//! one-sided redaction, no-op sessions, and the continuous gossip driver's
+//! results. Budget waits are checked here at an unlimited budget, where none
+//! can occur, and against the ledger's own count in the session-budget suite,
+//! where the budget binds.
 
 use rumors_testkit::common;
 
@@ -27,8 +27,8 @@ use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
 
-/// One session's frames in a captured direction: their total bytes and
-/// their count, parsed without the Rumors codec.
+/// One session's frames in a captured direction: their total bytes and their
+/// count, parsed without the Rumors codec.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Frames {
     /// Bytes of every frame.
@@ -37,12 +37,11 @@ struct Frames {
     count: u64,
 }
 
-/// Split one direction's captured bytes into sessions and tally each
-/// session's frames.
+/// Split one direction's captured bytes into sessions and tally each session's
+/// frames.
 ///
 /// Every session opens with its preamble, a tagged item, and a frame is an
-/// untagged array, so a generic CBOR parse finds both without the Rumors
-/// codec.
+/// untagged array, so a generic CBOR parse finds both without the Rumors codec.
 fn frames_per_session(bytes: &[u8]) -> Vec<Frames> {
     let mut sessions = Vec::new();
     let mut rest = bytes;

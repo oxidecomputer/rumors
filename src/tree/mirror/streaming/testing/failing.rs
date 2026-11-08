@@ -1,8 +1,8 @@
 //! A composable test backend which injects one source failure after N
 //! operations, or misreports a count of the nodes at one height.
 //!
-//! The misreported count is a child count or a grandchild count, as a
-//! backend reading corrupted storage would give.
+//! The misreported count is a child count or a grandchild count, as a backend
+//! reading corrupted storage would give.
 
 use std::{
     fmt,
@@ -73,9 +73,9 @@ struct State {
 /// A count a [`Failing`] backend misreports for the nodes at one height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Miscount {
-    /// The typed height of the nodes whose count is misreported: every
-    /// node the backend lists as a child at this height, and the root,
-    /// wrapped by [`Failing::root`], at the root's height.
+    /// The typed height of the nodes whose count is misreported: every node the
+    /// backend lists as a child at this height, and the root, wrapped by
+    /// [`Failing::root`], at the root's height.
     pub height: usize,
     /// The count those nodes report.
     pub report: Misreport,
@@ -123,8 +123,8 @@ impl<B> Failing<B> {
         Self::with(inner, None, Some(miscount))
     }
 
-    /// Wrap `inner` with a countdown of `remaining` operations and an
-    /// optional misreported count.
+    /// Wrap `inner` with a countdown of `remaining` operations and an optional
+    /// misreported count.
     fn with(inner: B, remaining: Option<usize>, miscount: Option<Miscount>) -> Self {
         Self {
             inner,
@@ -143,14 +143,14 @@ impl<B> Failing<B> {
         self.lock().miscounts_read
     }
 
-    /// Wrap the root node a session starts from, misreporting its count if
-    /// this wrapper misreports at the root's height.
+    /// Wrap the root node a session starts from, misreporting its count if this
+    /// wrapper misreports at the root's height.
     pub fn root<N>(&self, root: N) -> FailingNode<N> {
         FailingNode(root, self.miscount_at(Root::HEIGHT))
     }
 
-    /// The count to report for a node at `height`, if this wrapper
-    /// misreports there.
+    /// The count to report for a node at `height`, if this wrapper misreports
+    /// there.
     fn miscount_at(&self, height: usize) -> Option<Miscounted> {
         let miscount = self.lock().miscount?;
         (miscount.height == height).then(|| Miscounted {
@@ -169,8 +169,8 @@ impl<B> Failing<B> {
     /// Return how many leaves this wrapper's traversals have yielded.
     ///
     /// That is the leaves a consumer of [`Backend::leaves`] has read so far,
-    /// since the default enumeration explodes each node through `children`
-    /// and yields each leaf as its parent's traversal does.
+    /// since the default enumeration explodes each node through `children` and
+    /// yields each leaf as its parent's traversal does.
     pub fn leaves_yielded(&self) -> usize {
         self.lock().leaves_yielded
     }
@@ -201,8 +201,8 @@ impl<B> Failing<B> {
 #[derive(Clone, Debug)]
 pub struct FailingNode<N>(N, Option<Miscounted>);
 
-/// The count a [`FailingNode`] misreports, and the backend state that
-/// counts each read of it.
+/// The count a [`FailingNode`] misreports, and the backend state that counts
+/// each read of it.
 #[derive(Clone, Debug)]
 struct Miscounted {
     /// The count replaced and the value reported.
@@ -212,8 +212,8 @@ struct Miscounted {
 }
 
 impl Miscounted {
-    /// The misreported grandchild count, if this misreports it, counting
-    /// the read.
+    /// The misreported grandchild count, if this misreports it, counting the
+    /// read.
     fn grandchild_count(&self) -> Option<usize> {
         match self.report {
             Misreport::Grandchildren(count) => Some(self.read(count)),
@@ -221,8 +221,7 @@ impl Miscounted {
         }
     }
 
-    /// The misreported child count, if this misreports it, counting the
-    /// read.
+    /// The misreported child count, if this misreports it, counting the read.
     fn children(&self) -> Option<usize> {
         match self.report {
             Misreport::Children(count) => Some(self.read(count)),
@@ -252,7 +251,8 @@ impl<N> FailingNode<N> {
     }
 }
 
-/// Preserve typed-node observations while testing failures in backend operations.
+/// Preserve typed-node observations while testing failures in backend
+/// operations.
 impl<N> Node for FailingNode<N>
 where
     N: Node + Clone + Send + 'static,
@@ -293,8 +293,8 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
         self.0.hash(at, key)
     }
 
-    /// Read the wrapped node's summary, with the misreported count, if
-    /// any, in place of the wrapped one, as the count queries report it.
+    /// Read the wrapped node's summary, with the misreported count, if any, in
+    /// place of the wrapped one, as the count queries report it.
     fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
         let mut summary = self.0.summary(at, key);
         if let Some(miscounted) = &self.1 {
@@ -361,8 +361,8 @@ where
 ///
 /// This implementation intentionally retains the default `leaves` and
 /// `assemble` methods. They traverse every level through `children` and
-/// `parent`; forwarding the wrapped backend's bulk overrides would bypass
-/// those failure checkpoints.
+/// `parent`; forwarding the wrapped backend's bulk overrides would bypass those
+/// failure checkpoints.
 impl<B> Backend for Failing<B>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -439,7 +439,8 @@ mod tests {
     use super::*;
     use crate::tree::mirror::streaming::Local;
 
-    /// Nested wrappers retain independent countdowns and distinguish their errors.
+    /// Nested wrappers retain independent countdowns and distinguish their
+    /// errors.
     #[test]
     fn failing_backends_compose() {
         let inner = Failing::after(Local, 0);

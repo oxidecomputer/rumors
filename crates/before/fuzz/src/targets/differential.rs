@@ -2,8 +2,8 @@
 //!
 //! Canonical round trips cannot detect two decoders that reject the same bytes
 //! for different reasons. This target compares acceptance, decoded values,
-//! bytes consumed, and rejection classes across raw, borsh, and postcard
-//! paths. It also checks the fused `Span` and `Ranked` decoders against their
+//! bytes consumed, and rejection classes across raw, borsh, and postcard paths.
+//! It also checks the fused `Span` and `Ranked` decoders against their
 //! component-wise spellings.
 
 use std::io::{Error, ErrorKind};
@@ -47,7 +47,8 @@ enum Composite {
 }
 
 impl Composite {
-    /// Whether the decoder can reject a complete prefix after reading its trees.
+    /// Whether the decoder can reject a complete prefix after reading its
+    /// trees.
     fn checks_components(self) -> bool {
         matches!(self, Self::Ranked | Self::Span)
     }
@@ -157,7 +158,8 @@ fn composed_ranked(data: &[u8]) -> Result<Ranked<'static>, (Stage, Rejection)> {
     }
 }
 
-/// Check the fused ranked-key decoder against component decoding and validation.
+/// Check the fused ranked-key decoder against component decoding and
+/// validation.
 fn ranked(data: &[u8]) {
     let fused = Ranked::decode(data);
     match composed_ranked(data) {
@@ -234,7 +236,8 @@ fn borsh_vs_raw<T>(
     }
 }
 
-/// Check postcard's byte-carrying serde decoder against framing plus raw decode.
+/// Check postcard's byte-carrying serde decoder against framing plus raw
+/// decode.
 fn postcard_vs_raw<T>(
     data: &[u8],
     decode: impl Fn(&[u8]) -> Result<T, Decode>,

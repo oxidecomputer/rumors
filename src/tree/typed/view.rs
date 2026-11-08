@@ -15,25 +15,24 @@ use super::untyped;
 /// A stored node viewed at height `H`, possibly from inside its compressed
 /// path.
 ///
-/// The streaming session's in-memory handles: listing one's children
-/// yields views, so a compressed path is walked one level at a time without
-/// building a node per level. Converting from a [`Node`] views it whole;
+/// The streaming session's in-memory handles: listing one's children yields
+/// views, so a compressed path is walked one level at a time without building a
+/// node per level. Converting from a [`Node`] views it whole;
 /// [`into_node`](Self::into_node) builds the node a view represents.
 ///
-/// A view holds the stored node alone, the size of a [`Node`]. The number
-/// of path bytes it hides follows from its height: the stored node knows
-/// the height of its own top ([`untyped::Node::height`]), and the view
-/// hides one byte per level between that top and `H`
-/// ([`untyped::View::at_height`]).
+/// A view holds the stored node alone, the size of a [`Node`]. The number of
+/// path bytes it hides follows from its height: the stored node knows the
+/// height of its own top ([`untyped::Node::height`]), and the view hides one
+/// byte per level between that top and `H` ([`untyped::View::at_height`]).
 ///
 /// # The height invariant
 ///
 /// `H` lies between the stored node's body and its top. Every constructor
-/// establishes it: a whole node sits at its own top, a listed child one
-/// level below its parent, a reassembled node at its own top, a walked
-/// leaf at its body, and a handle re-tagged at a runtime coordinate sits
-/// where the walk's bookkeeping placed it, which debug builds check against
-/// the node's path ([`placed`](Self::placed)).
+/// establishes it: a whole node sits at its own top, a listed child one level
+/// below its parent, a reassembled node at its own top, a walked leaf at its
+/// body, and a handle re-tagged at a runtime coordinate sits where the walk's
+/// bookkeeping placed it, which debug builds check against the node's path
+/// ([`placed`](Self::placed)).
 pub struct View<H: Height> {
     /// The height at which the view sits.
     height: PhantomData<fn() -> H>,
@@ -43,25 +42,25 @@ pub struct View<H: Height> {
 
 /// A [`View`] with its height forgotten: the stored node alone.
 ///
-/// Which level of the node it views is no longer known from it, so it
-/// answers nothing that depends on the level by itself. The holder keeps
-/// the coordinate it sits at, the prefix from the root, and passes it to
-/// every such query ([`at`](Self::at)) and to the re-tag that restores the
-/// view ([`View::placed`]); in debug builds, both check the coordinate
-/// against the node's own path. The version bounds and the leaf count
-/// describe the leaves alone, and the stored node answers them directly.
+/// Which level of the node it views is no longer known from it, so it answers
+/// nothing that depends on the level by itself. The holder keeps the coordinate
+/// it sits at, the prefix from the root, and passes it to every such query
+/// ([`at`](Self::at)) and to the re-tag that restores the view
+/// ([`View::placed`]); in debug builds, both check the coordinate against the
+/// node's own path. The version bounds and the leaf count describe the leaves
+/// alone, and the stored node answers them directly.
 ///
-/// A distinct type rather than the stored node itself, whose own queries
-/// answer for the whole node: its hash or child count read where a
-/// peeled view's is meant would be another level's.
+/// A distinct type rather than the stored node itself, whose own queries answer
+/// for the whole node: its hash or child count read where a peeled view's is
+/// meant would be another level's.
 #[derive(Clone)]
 pub struct ErasedView {
     /// The stored node.
     node: untyped::Node,
 }
 
-/// A view and an erased one each cost one stored node's handle: the height
-/// is a type, and the bytes hidden are derived from it.
+/// A view and an erased one each cost one stored node's handle: the height is a
+/// type, and the bytes hidden are derived from it.
 const _: () = assert!(
     size_of::<View<Z>>() == size_of::<untyped::Node>()
         && size_of::<ErasedView>() == size_of::<untyped::Node>()
@@ -76,8 +75,8 @@ impl fmt::Debug for ErasedView {
 }
 
 impl ErasedView {
-    /// The untyped view at the coordinate `at`, borrowing the stored node:
-    /// the view at `at`'s height ([`untyped::View::at_height`]).
+    /// The untyped view at the coordinate `at`, borrowing the stored node: the
+    /// view at `at`'s height ([`untyped::View::at_height`]).
     ///
     /// Debug builds first check `at` against the node's own path bytes
     /// ([`untyped::View::placed`]); release builds trust it, as
@@ -140,8 +139,8 @@ impl<H: Height> From<Node<H>> for View<H> {
 impl<H: Height> View<H> {
     /// Tag an untyped view that sits at height `H`, keeping its stored node.
     ///
-    /// The typed operations derive the views they tag from typed inputs,
-    /// so the height agrees by construction; debug builds check it.
+    /// The typed operations derive the views they tag from typed inputs, so the
+    /// height agrees by construction; debug builds check it.
     fn from_view(view: untyped::View) -> Self {
         debug_assert_eq!(
             view.height(),
@@ -154,28 +153,28 @@ impl<H: Height> View<H> {
         }
     }
 
-    /// Tag the erased view's stored node at the coordinate `at`, checking
-    /// the coordinate against the node's own path bytes in debug builds.
+    /// Tag the erased view's stored node at the coordinate `at`, checking the
+    /// coordinate against the node's own path bytes in debug builds.
     ///
     /// This is how a height-erased handle regains its height: the streaming
     /// session keeps erased handles beside the prefixes they sit at
     /// ([`Backend::assume`](crate::tree::mirror::streaming::Backend::assume)).
-    /// The height decides how many path bytes the view hides, so a wrong
-    /// one would select other prefix bytes, and with them other children
-    /// and hashes; the check rejects every coordinate whose height lies
-    /// outside the node's levels or whose bytes disagree with the path
-    /// bytes the view hides ([`untyped::View::placed`] gives the argument).
+    /// The height decides how many path bytes the view hides, so a wrong one
+    /// would select other prefix bytes, and with them other children and
+    /// hashes; the check rejects every coordinate whose height lies outside the
+    /// node's levels or whose bytes disagree with the path bytes the view hides
+    /// ([`untyped::View::placed`] gives the argument).
     ///
     /// A coordinate travels with its handle through the session's own
-    /// bookkeeping and never comes from a peer, so a coordinate that fails
-    /// the check is a programmer error. Release builds trust the walk's
-    /// coordinates and tag the node unchecked.
+    /// bookkeeping and never comes from a peer, so a coordinate that fails the
+    /// check is a programmer error. Release builds trust the walk's coordinates
+    /// and tag the node unchecked.
     ///
     /// # Panics
     ///
-    /// In debug builds, if the check fails. A release build tags a node at
-    /// any height, and a view at a height outside the node's levels panics
-    /// at its first read, where no view of the node sits.
+    /// In debug builds, if the check fails. A release build tags a node at any
+    /// height, and a view at a height outside the node's levels panics at its
+    /// first read, where no view of the node sits.
     pub(crate) fn placed(at: &Prefix<H>, erased: ErasedView) -> Self {
         let ErasedView { node } = erased;
         debug_assert!(
@@ -222,8 +221,8 @@ impl<H: Height> View<H> {
         self.node.len()
     }
 
-    /// The number of children this view's children have, a child at the
-    /// leaves counting one ([`untyped::View::grandchild_count`]).
+    /// The number of children this view's children have, a child at the leaves
+    /// counting one ([`untyped::View::grandchild_count`]).
     pub fn grandchild_count(&self) -> usize {
         self.untyped().grandchild_count()
     }
@@ -239,14 +238,14 @@ impl<H: Height> View<H> {
         self.untyped().hash(key)
     }
 
-    /// Walk every leaf beneath this view at `prefix`, in ascending path
-    /// order, each as a view at height zero.
+    /// Walk every leaf beneath this view at `prefix`, in ascending path order,
+    /// each as a view at height zero.
     ///
     /// The walk starts at the stored node and skips compressed spans
     /// ([`untyped::View::leaves`]); descent state is bounded by the tree's
     /// depth. Each leaf is the stored leaf with its whole path hidden
-    /// ([`untyped::Leaf::into_view`]), so the walk allocates nothing per
-    /// leaf: one shared handle each.
+    /// ([`untyped::Leaf::into_view`]), so the walk allocates nothing per leaf:
+    /// one shared handle each.
     pub(crate) fn leaves(
         self,
         prefix: &Prefix<H>,
@@ -271,8 +270,8 @@ where
             .map(|(radix, child)| (radix, View::from_view(child)))
     }
 
-    /// Assemble a subtree from its children, reusing `original`, the view
-    /// they were listed from, when they are exactly its children
+    /// Assemble a subtree from its children, reusing `original`, the view they
+    /// were listed from, when they are exactly its children
     /// ([`untyped::View::rebuild`]).
     pub(crate) fn rebuild(original: Option<Self>, children: Vec<(u8, View<H>)>) -> Option<Self> {
         let children = children

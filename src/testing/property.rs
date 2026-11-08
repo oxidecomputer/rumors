@@ -1,6 +1,5 @@
 //! Property-test support shared by this crate's unit tests and the test kit:
-//! reproducible network seeds, and case counts scaled to each property's
-//! cost.
+//! reproducible network seeds, and case counts scaled to each property's cost.
 //!
 //! # Network seeds
 //!
@@ -8,13 +7,13 @@
 //! system's random source, so anything that depends on the secret differs on
 //! every run, and a failure that depends on it cannot be replayed. Tests and
 //! fixtures therefore create networks only through a [`NetworkSeed`], which
-//! derives the secret from a ChaCha stream whose output for a given seed is
-//! the same on every platform.
+//! derives the secret from a ChaCha stream whose output for a given seed is the
+//! same on every platform.
 //!
 //! One draw stays outside every seed: a bootstrap, in tests as everywhere,
-//! draws the ephemeral P-256 key of its key exchange from the operating
-//! system. A failure that depends on the value of that key cannot be
-//! replayed from a seed, and the tests accept that.
+//! draws the ephemeral P-256 key of its key exchange from the operating system.
+//! A failure that depends on the value of that key cannot be replayed from a
+//! seed, and the tests accept that.
 //!
 //! A test takes its seed in one of two ways, by what it asserts:
 //!
@@ -22,8 +21,8 @@
 //!   party conservation, deadlines) draws the seed from [`network_seed`] as a
 //!   proptest input. A failing case prints its `NetworkSeed`, and proptest
 //!   persists a regression seed that replays the same secret.
-//! - A check of exact numbers (wire snapshots, byte counts, budget peaks,
-//!   call counts) holds only for one secret, so it names one fixed seed as a
+//! - A check of exact numbers (wire snapshots, byte counts, budget peaks, call
+//!   counts) holds only for one secret, so it names one fixed seed as a
 //!   constant built with [`NetworkSeed::new`].
 //!
 //! Appending `seed in network_seed()` as a proptest's *last* argument leaves
@@ -66,9 +65,9 @@ pub use crate::divided_proptest;
 /// The seed of one test network's secret.
 ///
 /// Create each network once from its seed, and let other members join it by
-/// bootstrapping. Two peers created from one seed share the network's
-/// identity *and* its whole party, so letting them gossip breaks the linearity
-/// of parties. A test that needs two independent networks draws two seeds.
+/// bootstrapping. Two peers created from one seed share the network's identity
+/// *and* its whole party, so letting them gossip breaks the linearity of
+/// parties. A test that needs two independent networks draws two seeds.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct NetworkSeed(u64);
 
@@ -106,8 +105,8 @@ impl fmt::Debug for NetworkSeed {
 
 /// Every network seed, uniformly.
 ///
-/// The strategy does not shrink toward a smaller seed: no seed is simpler
-/// than another, so a shrunk failure keeps the seed it failed under.
+/// The strategy does not shrink toward a smaller seed: no seed is simpler than
+/// another, so a shrunk failure keeps the seed it failed under.
 pub fn network_seed() -> impl Strategy<Value = NetworkSeed> + Clone {
     any::<u64>().no_shrink().prop_map(NetworkSeed)
 }
@@ -137,8 +136,8 @@ pub const SESSION_DIVISOR: u32 = 16;
 /// sessions on a runtime with timers or sockets.
 pub const FLEET_DIVISOR: u32 = 64;
 
-/// The case count for a property whose cases each cost about `divisor`
-/// ordinary cases: `configured` divided by `divisor`, rounded up.
+/// The case count for a property whose cases each cost about `divisor` ordinary
+/// cases: `configured` divided by `divisor`, rounded up.
 ///
 /// # Panics
 ///
@@ -147,23 +146,21 @@ pub fn divided_cases(configured: u32, divisor: u32) -> u32 {
     configured.div_ceil(divisor)
 }
 
-/// Runs `test` on [`divided_cases`] of the configured case count, drawing
-/// each case from `strategy`, under `config`, or under the default
-/// configuration if `config` is `None`.
+/// Runs `test` on [`divided_cases`] of the configured case count, drawing each
+/// case from `strategy`, under `config`, or under the default configuration if
+/// `config` is `None`.
 ///
-/// The run is the one `proptest!` performs, but for the case count:
-/// persisted failures replay first, and a new failure shrinks and persists.
-/// `config`'s case count is divided, so build a configuration from
-/// `Config::default()`, which has read `PROPTEST_CASES`, and set only the
-/// fields the test needs. `test_name` and `source_file` play their
-/// `proptest!` roles. Pass the test's `module_path!()`-qualified name and its
-/// own `file!()`, which locates the persisted failures, as
-/// [`divided_proptest!`] does.
+/// The run is the one `proptest!` performs, but for the case count: persisted
+/// failures replay first, and a new failure shrinks and persists. `config`'s
+/// case count is divided, so build a configuration from `Config::default()`,
+/// which has read `PROPTEST_CASES`, and set only the fields the test needs.
+/// `test_name` and `source_file` play their `proptest!` roles. Pass the test's
+/// `module_path!()`-qualified name and its own `file!()`, which locates the
+/// persisted failures, as [`divided_proptest!`] does.
 ///
 /// # Panics
 ///
-/// Panics with proptest's report when a case fails, and if `divisor` is
-/// zero.
+/// Panics with proptest's report when a case fails, and if `divisor` is zero.
 pub fn run<S: Strategy>(
     config: Option<Config>,
     divisor: u32,
@@ -183,19 +180,19 @@ pub fn run<S: Strategy>(
 }
 
 /// Declares property tests that run
-/// [`divided_cases`](crate::testing::property::divided_cases) of the
-/// configured case count, in `proptest!`'s syntax with `#![divisor(...)]` in
-/// place of `#![proptest_config(...)]`.
+/// [`divided_cases`](crate::testing::property::divided_cases) of the configured
+/// case count, in `proptest!`'s syntax with `#![divisor(...)]` in place of
+/// `#![proptest_config(...)]`.
 ///
-/// A `#![proptest_config(...)]` may follow the divisor, for a test that
-/// needs other settings, such as a shrink time; its case count is divided
-/// like the default's ([`run`](crate::testing::property::run)).
+/// A `#![proptest_config(...)]` may follow the divisor, for a test that needs
+/// other settings, such as a shrink time; its case count is divided like the
+/// default's ([`run`](crate::testing::property::run)).
 ///
-/// A test draws its arguments as one tuple strategy, which consumes the
-/// random stream exactly as `proptest!`'s argument list does, so seeds
-/// persisted by `proptest!` replay the same inputs. A test body asserts by
-/// panicking (`assert!`, `assert_eq!`), and proptest reports the panic as the
-/// case's failure.
+/// A test draws its arguments as one tuple strategy, which consumes the random
+/// stream exactly as `proptest!`'s argument list does, so seeds persisted by
+/// `proptest!` replay the same inputs. A test body asserts by panicking
+/// (`assert!`, `assert_eq!`), and proptest reports the panic as the case's
+/// failure.
 ///
 /// The macro is exported from the crate root, as every `macro_rules!` macro
 /// used across crates must be, and re-exported from

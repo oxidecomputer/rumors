@@ -2,24 +2,24 @@
 //! makes depend only on the sizes requested.
 //!
 //! `dlmalloc` grows a block in place when the memory after it is free, and
-//! moves it, copying its contents, otherwise. Whether the memory after a
-//! block is free depends on where earlier blocks landed, which the sizes of
-//! a program's operands change in no proportional way: the same program can
-//! grow a buffer in place at one scale and copy it at the next. `suanpan`'s
-//! third cost rule allows those copies, less than twice a buffer's final
-//! length over its growth, but a reading that includes them at one scale and
-//! omits them at another grows faster than the program's sizes, and the
-//! harness compares readings across scales.
+//! moves it, copying its contents, otherwise. Whether the memory after a block
+//! is free depends on where earlier blocks landed, which the sizes of a
+//! program's operands change in no proportional way: the same program can grow
+//! a buffer in place at one scale and copy it at the next. `suanpan`'s third
+//! cost rule allows those copies, less than twice a buffer's final length over
+//! its growth, but a reading that includes them at one scale and omits them at
+//! another grows faster than the program's sizes, and the harness compares
+//! readings across scales.
 //!
 //! [`MovingAllocator`] therefore serves allocations and frees from the fuel
 //! board's [`WindowAllocator`] and reallocates by allocating the new block,
 //! copying the old contents, and freeing the old block, as [`GlobalAlloc`]'s
-//! provided method does. Every reallocation copies, so a buffer's copies are
-//! a function of the sequence of capacities it requests. It also counts the
-//! bytes it copies ([`copied`]), so the harness can tell a reading's copies
-//! from the rest of its work: whether a buffer's last doubling falls inside
-//! a program or just past it depends on where its length lies among the
-//! capacities, which scaling does not preserve exactly.
+//! provided method does. Every reallocation copies, so a buffer's copies are a
+//! function of the sequence of capacities it requests. It also counts the bytes
+//! it copies ([`copied`]), so the harness can tell a reading's copies from the
+//! rest of its work: whether a buffer's last doubling falls inside a program or
+//! just past it depends on where its length lies among the capacities, which
+//! scaling does not preserve exactly.
 
 use std::alloc::{GlobalAlloc, Layout};
 use std::ptr;

@@ -155,9 +155,8 @@ impl core::str::FromStr for Version {
 
 /// Hashes exactly as its byte view, [`as_bytes`](Version::as_bytes), does.
 ///
-/// Under any hasher, a version and its canonical bytes feed the same data,
-/// so they hash equally. This is consistent with `Eq`, which compares those
-/// bytes.
+/// Under any hasher, a version and its canonical bytes feed the same data, so
+/// they hash equally. This is consistent with `Eq`, which compares those bytes.
 ///
 /// # Complexity
 ///
@@ -561,8 +560,8 @@ impl Version {
             .expect("the fold is seeded with the receiver: never empty")
     }
 
-    /// The meet (greatest lower bound) of this version and `other`: the
-    /// history the two share.
+    /// The meet (greatest lower bound) of this version and `other`: the history
+    /// the two share.
     ///
     /// Identical to the operator form `self & other`.
     ///
@@ -598,8 +597,8 @@ impl Version {
     /// one-at-a-time, as it is more efficient in the worst case.
     ///
     /// Unlike the join, the meet has no iterator-only form (no `Sum`
-    /// counterpart): the empty meet would be the version dominating all
-    /// others, but no such [`Version`] exists, since every version can
+    /// counterpart): the empty meet would be the version dominating all others,
+    /// but no such [`Version`] exists, since every version can
     /// [`tick`](Self::tick) higher without bound. The receiver is the
     /// guaranteed first operand that keeps the fold total.
     ///
@@ -778,8 +777,8 @@ impl Version {
         }
     }
 
-    /// The part of this [`Version`] wholly owned by a [`Party`], as a
-    /// lazy [`OwnVersion`] view.
+    /// The part of this [`Version`] wholly owned by a [`Party`], as a lazy
+    /// [`OwnVersion`] view.
     ///
     /// Identical to the operator form `&self / party`.
     ///
@@ -812,8 +811,8 @@ impl Version {
 
     /// The version's shape.
     ///
-    /// The iterator yields its step function over the interval `[0, 1)`
-    /// as an iterator of [`Plateau`](crate::shape::Plateau)s, left to right.
+    /// The iterator yields its step function over the interval `[0, 1)` as an
+    /// iterator of [`Plateau`](crate::shape::Plateau)s, left to right.
     ///
     /// # Complexity
     ///
@@ -919,10 +918,10 @@ impl Version {
     /// join the greater, so a comparison allows both buffers to be shared
     /// without building either endpoint. Equal endpoints share one buffer too.
     ///
-    /// Concurrent inputs require new endpoints. The comparison stops as soon
-    /// as it sees a region supporting each direction of order; a second,
-    /// complete walk then builds the meet and join together, decoding each
-    /// input once for both outputs.
+    /// Concurrent inputs require new endpoints. The comparison stops as soon as
+    /// it sees a region supporting each direction of order; a second, complete
+    /// walk then builds the meet and join together, decoding each input once
+    /// for both outputs.
     pub(crate) fn hull(&self, other: &Version) -> (Version, Version) {
         if self == other {
             return (self.clone(), self.clone());
@@ -1027,9 +1026,8 @@ impl Version {
     /// Encodes this [`Version`]'s [`Rank`] to an arbitrary writer.
     ///
     /// This writes the same bytes as `self.rank().encode_to(writer)` and
-    /// `self.ranked().encode_rank_to(writer)`.
-    /// The encoded output is written incrementally rather than buffered in
-    /// full.
+    /// `self.ranked().encode_rank_to(writer)`. The encoded output is written
+    /// incrementally rather than buffered in full.
     ///
     /// # Errors
     ///
@@ -1066,8 +1064,8 @@ impl Version {
     ///   incomplete;
     /// - [`Decode::TrailingBits`] if the padding is malformed or followed by
     ///   more bytes;
-    /// - [`Decode::NotCanonical`] if the tree is not in normal form or a
-    ///   leaf's height is negative;
+    /// - [`Decode::NotCanonical`] if the tree is not in normal form or a leaf's
+    ///   height is negative;
     /// - [`Decode::TooLarge`] if the input holds 2^61 bytes or more;
     /// - [`Decode::Io`] if the reader fails.
     ///
@@ -1094,9 +1092,9 @@ impl Version {
         Version::decode_bytes(buf)
     }
 
-    /// The exact length in bits of [`encode`](Self::encode) before its
-    /// padding (the marker bit and zero-pad to the byte boundary), so
-    /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
+    /// The exact length in bits of [`encode`](Self::encode) before its padding
+    /// (the marker bit and zero-pad to the byte boundary), so `encode().len()`
+    /// is `(encoded_bits() + 1).div_ceil(8)`.
     ///
     /// This method is available under the `meter` feature for exact
     /// representation measurements. Applications ordinarily want
@@ -1150,12 +1148,11 @@ impl Version {
 /// Whether two fold inputs contribute one shared stored buffer.
 ///
 /// Join and meet are idempotent, so a run of clones contributes only one
-/// operand. A clone shares its source's buffer, so comparing buffer address
-/// and length (`ptr_eq`) identifies it in `O(1)` without reading either
-/// stream. Equal addresses prove shared storage, and so equal values, only
-/// while both buffers are alive, because a new buffer can reuse a freed one's
-/// address; [`dedup_runs`](crate::fold::dedup_runs) compares only items it
-/// still holds.
+/// operand. A clone shares its source's buffer, so comparing buffer address and
+/// length (`ptr_eq`) identifies it in `O(1)` without reading either stream.
+/// Equal addresses prove shared storage, and so equal values, only while both
+/// buffers are alive, because a new buffer can reuse a freed one's address;
+/// [`dedup_runs`](crate::fold::dedup_runs) compares only items it still holds.
 fn same_buffer<B: Borrow<Version>>(a: &B, b: &B) -> bool {
     a.borrow().ptr_eq(b.borrow())
 }
@@ -1175,11 +1172,10 @@ enum Group<B> {
 
 /// One input to a receiver-seeded fold.
 ///
-/// The receiver rides by borrow, the caller's items in their own form
-/// (owned or borrowed through [`Borrow`], never cloned on entry).
+/// The receiver rides by borrow, the caller's items in their own form (owned or
+/// borrowed through [`Borrow`], never cloned on entry).
 enum FoldInput<'r, B> {
-    /// The receiver: the guaranteed first element that keeps the fold
-    /// total.
+    /// The receiver: the guaranteed first element that keeps the fold total.
     Receiver(&'r Version),
     /// One of the caller's items.
     Item(B),
@@ -1205,8 +1201,8 @@ impl<B: Borrow<Version>> Borrow<Version> for FoldInput<'_, B> {
 
 /// One entry in [`Version::span_all`]'s balanced fold.
 ///
-/// Intermediate entries carry both endpoints so one reduction computes the
-/// meet and join together.
+/// Intermediate entries carry both endpoints so one reduction computes the meet
+/// and join together.
 enum Hull<'r, B> {
     /// An input the fold has not yet combined.
     Input(FoldInput<'r, B>),
@@ -1511,8 +1507,7 @@ impl Version {
 // strategy: every cell reads both operands in place and constructs the endpoints
 // owned, exactly as the named method does.
 
-/// Generates the span (`^`) matrix over owned and borrowed `Version`
-/// operands.
+/// Generates the span (`^`) matrix over owned and borrowed `Version` operands.
 ///
 /// Every cell delegates to [`Version::span`]; `Borrow::borrow` coerces an owned
 /// or borrowed operand uniformly to `&Version`, so one arm covers all four
@@ -1560,9 +1555,8 @@ span_matrix! {
 // Projection may nevertheless raise `min_ticks`, because carving one broad
 // event into disjoint peaks can require more events to explain.
 
-/// `&v / &p`: the part of the [`Version`] `v` contributed within
-/// the region owned by [`Party`] `p` (zero everywhere else), as a lazy
-/// [`OwnVersion`].
+/// `&v / &p`: the part of the [`Version`] `v` contributed within the region
+/// owned by [`Party`] `p` (zero everywhere else), as a lazy [`OwnVersion`].
 ///
 /// [`Version::project`] is the named spelling of the same view.
 ///

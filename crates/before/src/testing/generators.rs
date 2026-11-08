@@ -1,12 +1,12 @@
 //! Property-test inputs for arbitrary valid trees, selected deep shapes, and
 //! dyadic rationals for exact ranks.
 //!
-//! Arbitrary values are normalized by the recursive oracle before conversion
-//! to the production representation. Deep shapes have a scale proportional to
+//! Arbitrary values are normalized by the recursive oracle before conversion to
+//! the production representation. Deep shapes have a scale proportional to
 //! their node count, so traversal properties can exercise meaningful depth.
 //! [`co_generated`] builds a tick's party and version together, for the walk
-//! states that independently drawn operands do not reach. [`near_valid`]
-//! spells deep trees as encodings, canonical and damaged, for the decoders.
+//! states that independently drawn operands do not reach. [`near_valid`] spells
+//! deep trees as encodings, canonical and damaged, for the decoders.
 //! [`leaf_list`] and [`regions`] draw random versions and parties tens to
 //! hundreds of levels deep, past the arbitrary generators' depth cap of four.
 //! [`census`] holds the floors that require each strategy to keep generator
@@ -33,10 +33,9 @@ use super::bridge::{from_oracle_party, from_oracle_version};
 
 /// A deep tree shape.
 ///
-/// The spines (depth linear in `scale`) stress right-child
-/// location; the bushy shape stresses multi-region cost comparisons (a node
-/// whose two children are both feasible), which the spines, with a single
-/// owned leaf, never produce.
+/// The spines (depth linear in `scale`) stress right-child location; the bushy
+/// shape stresses multi-region cost comparisons (a node whose two children are
+/// both feasible), which the spines, with a single owned leaf, never produce.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Shape {
     /// Every node leans left: `(…((·,·),·)…,·)`.
@@ -45,8 +44,9 @@ pub(crate) enum Shape {
     RightSpine,
     /// Alternating left/right lean.
     Zigzag,
-    /// A balanced-ish bushy tree: many leaves at varying depths, so an id built from it
-    /// has multiple genuinely feasible owned regions (see [`shape_party`]).
+    /// A balanced-ish bushy tree: many leaves at varying depths, so an id built
+    /// from it has multiple genuinely feasible owned regions (see
+    /// [`shape_party`]).
     Bushy,
 }
 
@@ -103,11 +103,11 @@ fn bushy_party(lo: usize, leaves: usize) -> tree::Party {
 
 /// A bushy id rooted beside one owned terminal: `(bushy(scale), 1)`.
 ///
-/// The expansion-heavy shape: the bushy left subtree makes the tick
-/// walk's route fold weigh two feasible children at every branch, while
-/// the right terminal is the cheapest inflation at every scale, so the
-/// splice's chosen path (and its one skip of the whole off-path bushy
-/// subtree) is scale-independent.
+/// The expansion-heavy shape: the bushy left subtree makes the tick walk's
+/// route fold weigh two feasible children at every branch, while the right
+/// terminal is the cheapest inflation at every scale, so the splice's chosen
+/// path (and its one skip of the whole off-path bushy subtree) is
+/// scale-independent.
 pub(crate) fn bushy_expand_party(scale: usize) -> Party {
     use tree::Party as P;
     from_oracle_party(&P::node(bushy_party(0, scale + 1), P::Leaf(true)))
@@ -137,19 +137,19 @@ pub(crate) fn shape_version(shape: Shape, scale: usize) -> Version {
     from_oracle_version(&t)
 }
 
-/// Build [`shape_version`]'s tree with one leaf raised by `wide`, at the tip
-/// or at an interior position halfway up. Requires `scale ≥ 1`.
+/// Build [`shape_version`]'s tree with one leaf raised by `wide`, at the tip or
+/// at an interior position halfway up. Requires `scale ≥ 1`.
 ///
 /// The tip is the spines' deepest leaf and the bushy shape's first; the
 /// interior position is the spines' mid-level off-spine leaf and the bushy
 /// shape's middle leaf.
 ///
-/// The deep-operand differentials draw `wide` from [`arb_magnitude`], so a walk's
-/// suspended-ancestor state and pre-scan latents carry genuinely wide values
-/// across real depth, the conjunction that neither the depth-capped
-/// arbitrary trees nor the small-valued deep shapes reach on their own.
-/// Raising one distinct counter by `wide` keeps every leaf base distinct, so
-/// the shape and size survive normalization unchanged.
+/// The deep-operand differentials draw `wide` from [`arb_magnitude`], so a
+/// walk's suspended-ancestor state and pre-scan latents carry genuinely wide
+/// values across real depth, the conjunction that neither the depth-capped
+/// arbitrary trees nor the small-valued deep shapes reach on their own. Raising
+/// one distinct counter by `wide` keeps every leaf base distinct, so the shape
+/// and size survive normalization unchanged.
 pub(crate) fn shape_version_wide(
     shape: Shape,
     scale: usize,
@@ -249,8 +249,8 @@ pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
 ///
 /// The mirror of [`deep_left_spine_party`]: each spine node is a `Right-only`
 /// tag (`01`), giving `(0, (0, …(0, 1)…))`. A walk that loops down left
-/// children but recurses into right ones keeps one frame per level only on
-/// this spine.
+/// children but recurses into right ones keeps one frame per level only on this
+/// spine.
 pub(crate) fn deep_right_spine_party(depth: usize) -> Party {
     let mut bits = bits::BitsWriter::with_capacity(2 * depth as u64 + 2);
     for _ in 0..depth {
@@ -266,11 +266,11 @@ pub(crate) fn deep_right_spine_party(depth: usize) -> Party {
 /// with a single owned region at the tip of a unary spine that turns at every
 /// level.
 ///
-/// The root descends left, the next level right, and so on: each spine node
-/// is a `Left-only` tag (`10`) or a `Right-only` tag (`01`), alternating, and
-/// the tip is a terminal (`00`). Its stored path changes direction at every
-/// level, where [`deep_left_spine_party`] and [`deep_right_spine_party`] each
-/// run in one direction throughout.
+/// The root descends left, the next level right, and so on: each spine node is
+/// a `Left-only` tag (`10`) or a `Right-only` tag (`01`), alternating, and the
+/// tip is a terminal (`00`). Its stored path changes direction at every level,
+/// where [`deep_left_spine_party`] and [`deep_right_spine_party`] each run in
+/// one direction throughout.
 pub(crate) fn deep_zigzag_party(depth: usize) -> Party {
     let mut bits = bits::BitsWriter::with_capacity(2 * depth as u64 + 2);
     for level in 0..depth {
@@ -320,8 +320,8 @@ const ARB_NODES: u32 = 16;
 ///
 /// The weighted arms keep common collapses frequent while reaching `u64` and
 /// `u128` boundaries, low zero limbs, sparse high bits, and values wider than
-/// two limbs. [`tests::generator_classes_stay_under_mass`] checks that the
-/// wide classes remain reachable.
+/// two limbs. [`tests::generator_classes_stay_under_mass`] checks that the wide
+/// classes remain reachable.
 pub(crate) fn arb_magnitude() -> impl Strategy<Value = BigUint> {
     prop_oneof![
         6 => (0u64..6).prop_map(BigUint::from),
@@ -365,10 +365,10 @@ pub(crate) fn arb_oracle_party_nonempty() -> impl Strategy<Value = tree::Party> 
 /// aligned version remains reachable.
 ///
 /// Appending a region that rises by `d > 0` above the last one lengthens the
-/// stream by exactly `2·bits(d) + 3` bits: the new root's branch tag, the
-/// leaf tag, and the change's zigzag-gamma code. Rises of 4, 8, 1, and 2 add
-/// 9, 11, 5, and 7 bits, one for each odd residue mod 8. So an odd shortfall
-/// closes in one append, and an even one becomes odd after a rise of 8.
+/// stream by exactly `2·bits(d) + 3` bits: the new root's branch tag, the leaf
+/// tag, and the change's zigzag-gamma code. Rises of 4, 8, 1, and 2 add 9, 11,
+/// 5, and 7 bits, one for each odd residue mod 8. So an odd shortfall closes in
+/// one append, and an even one becomes odd after a rise of 8.
 pub(crate) fn arb_flush_version() -> impl Strategy<Value = Version> {
     arb_oracle_version().prop_map(|mut version| {
         for _ in 0..3 {
@@ -412,14 +412,13 @@ fn with_rising_region(version: tree::Version, rise: u8) -> tree::Version {
 /// An arbitrary party whose live bits end at a byte boundary.
 ///
 /// An arbitrary party is wrapped until it aligns, rather than filtered, so no
-/// draw is rejected and any case count stays within proptest's reject
-/// limits. An aligned draw is returned unchanged, so every aligned party
-/// remains reachable.
+/// draw is rejected and any case count stays within proptest's reject limits.
+/// An aligned draw is returned unchanged, so every aligned party remains
+/// reachable.
 ///
 /// Every node of a party's stream is a two-bit tag, and wrapping a nonempty
-/// party as the left child of a node whose right child is unowned adds
-/// exactly one node. So three wraps at most bring the node count to a multiple
-/// of four.
+/// party as the left child of a node whose right child is unowned adds exactly
+/// one node. So three wraps at most bring the node count to a multiple of four.
 pub(crate) fn arb_flush_party() -> impl Strategy<Value = Party> {
     arb_oracle_party_nonempty().prop_map(|mut party| {
         for _ in 0..4 {
@@ -450,9 +449,9 @@ pub(crate) fn arb_oracle_version() -> impl Strategy<Value = tree::Version> {
 
 /// A list length spanning every fold case through two carry boundaries.
 ///
-/// The range includes empty and singleton folds, combinations of raw and
-/// merged values, both the carry and final-drain paths, and the boundaries at
-/// eight and sixteen inputs.
+/// The range includes empty and singleton folds, combinations of raw and merged
+/// values, both the carry and final-drain paths, and the boundaries at eight
+/// and sixteen inputs.
 pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
     0usize..=MAX_FOLD_ARITY
 }
@@ -462,8 +461,8 @@ pub(crate) fn arb_fold_arity() -> impl Strategy<Value = usize> {
 const MAX_FOLD_ARITY: usize = 17;
 
 /// The fork shares in [`arb_clock_family`]'s party pool: one for the receiver
-/// and one for each item of the longest list, so a dealt family can give
-/// every participant a different share.
+/// and one for each item of the longest list, so a dealt family can give every
+/// participant a different share.
 const CLOCK_FAMILY_SHARES: usize = MAX_FOLD_ARITY + 1;
 
 /// The probability that a dealt clock family places one overlap (see
@@ -519,18 +518,18 @@ pub(crate) fn arb_party_family() -> impl Strategy<Value = (tree::Party, Vec<tree
 ///
 /// The party pool holds one to three unrelated arbitrary parties and the
 /// [`CLOCK_FAMILY_SHARES`] balanced shares of one more, which are pairwise
-/// disjoint. Versions come from [`arb_version_pool`], independently of
-/// parties, so arbitrary pairings occur, and the empty version gives fresh
-/// clocks. Each family takes one of two forms, equally often:
+/// disjoint. Versions come from [`arb_version_pool`], independently of parties,
+/// so arbitrary pairings occur, and the empty version gives fresh clocks. Each
+/// family takes one of two forms, equally often:
 ///
 /// - *Picked*: the receiver and every item come from the pool independently.
 ///   Repeated parties overlap anywhere in the list, and unrelated parties
 ///   overlap the shares or not as they fall.
 /// - *Dealt*: the receiver and the items hold distinct shares, so they are
-///   pairwise disjoint. With probability [`DEALT_ALIAS_PROBABILITY`], one
-///   item, uniform over the list, then takes the party of a participant
-///   before it, uniform over the receiver and the earlier items, and that
-///   pair is the family's only overlap.
+///   pairwise disjoint. With probability [`DEALT_ALIAS_PROBABILITY`], one item,
+///   uniform over the list, then takes the party of a participant before it,
+///   uniform over the receiver and the earlier items, and that pair is the
+///   family's only overlap.
 ///
 /// Picked families rarely hold many disjoint participants, so dealt families
 /// carry two cases: a family that `join_all` and `sync_all` accept, and one
@@ -559,13 +558,13 @@ pub(crate) fn arb_clock_family() -> impl Strategy<
 }
 
 /// A dealt clock family (see [`arb_clock_family`]): the receiver holds
-/// `shares[0]` and item `i` holds `shares[i + 1]`, each beside a version
-/// picked from `versions`, before the optional alias.
+/// `shares[0]` and item `i` holds `shares[i + 1]`, each beside a version picked
+/// from `versions`, before the optional alias.
 ///
 /// # Panics
 ///
-/// Panics unless `shares` holds a share for the receiver and for each item
-/// of the longest list [`arb_fold_arity`] draws.
+/// Panics unless `shares` holds a share for the receiver and for each item of
+/// the longest list [`arb_fold_arity`] draws.
 fn dealt_clock_family(
     shares: Vec<tree::Party>,
     versions: Vec<tree::Version>,
@@ -611,8 +610,8 @@ fn dealt_clock_family(
 // ───────────────────────────── dyadic rationals ─────────────────────────────
 
 /// Numerators for [`arb_dyadic`]: zero, small values, powers of two and their
-/// neighbors at word boundaries and beyond, random values to 80 bytes,
-/// shifted random values, and shifted runs of ones.
+/// neighbors at word boundaries and beyond, random values to 80 bytes, shifted
+/// random values, and shifted runs of ones.
 fn arb_dyadic_num() -> impl Strategy<Value = BigUint> {
     let boundary_power = prop_oneof![
         0u32..8,
@@ -639,8 +638,8 @@ fn arb_dyadic_num() -> impl Strategy<Value = BigUint> {
     ]
 }
 
-/// Exponents for [`arb_dyadic`]: zero often, small values, word boundaries,
-/// and values to 5,000.
+/// Exponents for [`arb_dyadic`]: zero often, small values, word boundaries, and
+/// values to 5,000.
 fn arb_dyadic_exp() -> impl Strategy<Value = u64> {
     prop_oneof![
         3 => Just(0u64),
@@ -654,10 +653,10 @@ fn arb_dyadic_exp() -> impl Strategy<Value = u64> {
 /// Dyadic rationals in any spelling, numerator and exponent drawn
 /// independently.
 ///
-/// An exponent of zero, or a numerator with at least as many trailing zero
-/// bits as the exponent, gives an integral value, and a zero numerator gives
-/// zero; both are common. The strategy draws numerators that are neither odd
-/// nor normalized, so the same value arrives in many spellings.
+/// An exponent of zero, or a numerator with at least as many trailing zero bits
+/// as the exponent, gives an integral value, and a zero numerator gives zero;
+/// both are common. The strategy draws numerators that are neither odd nor
+/// normalized, so the same value arrives in many spellings.
 pub(crate) fn arb_dyadic() -> impl Strategy<Value = Dyadic> {
     (arb_dyadic_num(), arb_dyadic_exp()).prop_map(|(num, exp)| Dyadic { num, exp })
 }
@@ -666,10 +665,10 @@ pub(crate) fn arb_dyadic() -> impl Strategy<Value = Dyadic> {
 ///
 /// The second is, with equal weight: an independent draw; the same value in
 /// another spelling; a low-bit flip of the numerator, usually in the same
-/// magnitude class; the value plus a tiny offset far below it; the value
-/// scaled into a wider word count with one deep bit added; a value of the same
-/// width class at another exponent with an independent mantissa, or the same
-/// spelling again when the first is zero; or the same spelling again.
+/// magnitude class; the value plus a tiny offset far below it; the value scaled
+/// into a wider word count with one deep bit added; a value of the same width
+/// class at another exponent with an independent mantissa, or the same spelling
+/// again when the first is zero; or the same spelling again.
 pub(crate) fn arb_related_dyadic(first: Dyadic) -> impl Strategy<Value = (Dyadic, Dyadic)> {
     (
         0u8..7,

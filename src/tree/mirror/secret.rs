@@ -2,73 +2,67 @@
 //! network's secret.
 //!
 //! A peer that joins a network must come away holding the network's secret
-//! (`NetworkSecret`), and the secret must never cross the wire in the
-//! clear: the transport is assumed authenticated, not confidential, and an
-//! observer of the transport is in the crate's model. So the provider seals
-//! the secret to a key pair the joiner draws for this one session, with
-//! HPKE (RFC 9180), the IETF's standard public-key encryption:
+//! (`NetworkSecret`), and the secret must never cross the wire in the clear:
+//! the transport is assumed authenticated, not confidential, and an observer of
+//! the transport is in the crate's model. So the provider seals the secret to a
+//! key pair the joiner draws for this one session, with HPKE (RFC 9180), the
+//! IETF's standard public-key encryption:
 //!
-//! 1. The joiner draws an HPKE key pair and sends its public key in the
-//!    *key item*, `BOOTSTRAP_KEY_TAG(bstr(public key))`, in the same write as
-//!    its preamble, so the exchange adds no round trip. It sends the item
-//!    before it knows whether its counterparty provides; the preamble
-//!    exchange reads the key item of any counterparty whose preamble
-//!    declares bootstrapping, and one that is bootstrapping too discards
-//!    it.
-//! 2. The provider, once the preambles show its counterparty is
-//!    bootstrapping, reads and validates that key, and seals the secret to it
-//!    with HPKE's single-shot encryption in base mode. It sends the *sealed
-//!    item*, `NETWORK_SECRET_TAG(bstr(encapsulated key ‖ ciphertext ‖
+//! 1. The joiner draws an HPKE key pair and sends its public key in the *key
+//!    item*, `BOOTSTRAP_KEY_TAG(bstr(public key))`, in the same write as its
+//!    preamble, so the exchange adds no round trip. It sends the item before it
+//!    knows whether its counterparty provides; the preamble exchange reads the
+//!    key item of any counterparty whose preamble declares bootstrapping, and
+//!    one that is bootstrapping too discards it.
+//! 2. The provider, once the preambles show its counterparty is bootstrapping,
+//!    reads and validates that key, and seals the secret to it with HPKE's
+//!    single-shot encryption in base mode. It sends the *sealed item*,
+//!    `NETWORK_SECRET_TAG(bstr(encapsulated key ‖ ciphertext ‖
 //!    tag))`, right after the preambles and ahead of its greeting.
 //! 3. The joiner opens the seal with its private key, and accepts the secret
-//!    only if its identifier is the network the provider's preamble
-//!    declared.
+//!    only if its identifier is the network the provider's preamble declared.
 //!
 //! # Ciphersuite and bindings
 //!
 //! The ciphersuite is one RFC 9180 registers: the KEM DHKEM(P-256,
-//! HKDF-SHA256), the KDF HKDF-SHA256, and the AEAD AES-256-GCM. Public keys
-//! and the encapsulated key are uncompressed SEC1 points, as RFC 9180
-//! encodes them.
+//! HKDF-SHA256), the KDF HKDF-SHA256, and the AEAD AES-256-GCM. Public keys and
+//! the encapsulated key are uncompressed SEC1 points, as RFC 9180 encodes them.
 //!
 //! HPKE's `info` input holds the domain label `"rumors bootstrap network
-//! secret"` and the protocol version, and its associated data holds the
-//! network identifier the provider's preamble declared. A seal therefore
-//! opens only in a bootstrap of this protocol version that declares the
-//! same network.
+//! secret"` and the protocol version, and its associated data holds the network
+//! identifier the provider's preamble declared. A seal therefore opens only in
+//! a bootstrap of this protocol version that declares the same network.
 //!
 //! # What HPKE guarantees here
 //!
-//! - **Confidentiality.** Base mode is IND-CCA2 secure (RFC 9180, section
-//!   9.1): without the joiner's private key, an observer of both items
-//!   learns nothing about the secret.
-//! - **Integrity.** A sealed item that was altered in any way fails to open,
-//!   so the joiner never accepts a secret that was tampered with in transit.
+//! - **Confidentiality.** Base mode is IND-CCA2 secure (RFC 9180, section 9.1):
+//!   without the joiner's private key, an observer of both items learns nothing
+//!   about the secret.
+//! - **Integrity.** A sealed item that was altered in any way fails to open, so
+//!   the joiner never accepts a secret that was tampered with in transit.
 //! - **Binding.** The KEM binds the encapsulated key and the joiner's public
 //!   key into the key schedule, and the key schedule binds the suite and the
 //!   `info`, so a seal opens only for the key pair it was sealed to, under
 //!   these bindings.
 //!
 //! Base mode does not authenticate the sender: anyone holding the joiner's
-//! public key could seal something to it. Nor does HPKE protect the key
-//! item, which travels in the clear: whoever replaced it with a key of its
-//! own would receive the secret. So the secret's confidentiality rests on
-//! the transport's authentication, which delivers the key item unaltered
-//! and identifies the provider, the only peer the joiner reads a sealed
-//! item from. The crate's model provides both: the transport is
-//! authenticated, and an adversary outside the peers can observe a session
-//! but not alter it.
+//! public key could seal something to it. Nor does HPKE protect the key item,
+//! which travels in the clear: whoever replaced it with a key of its own would
+//! receive the secret. So the secret's confidentiality rests on the transport's
+//! authentication, which delivers the key item unaltered and identifies the
+//! provider, the only peer the joiner reads a sealed item from. The crate's
+//! model provides both: the transport is authenticated, and an adversary
+//! outside the peers can observe a session but not alter it.
 //!
-//! Every primitive here is aligned with a FIPS algorithm standard, as all
-//! of the crate's are (the `network` module lists them): SP 800-56A ECDH
-//! over P-256 inside the KEM, SP 800-56C HKDF-SHA-256, and SP 800-38D
-//! AES-256-GCM. A validated deployment would swap in validated
-//! implementations and an approved random source, without changing the
-//! protocol.
+//! Every primitive here is aligned with a FIPS algorithm standard, as all of
+//! the crate's are (the `network` module lists them): SP 800-56A ECDH over
+//! P-256 inside the KEM, SP 800-56C HKDF-SHA-256, and SP 800-38D AES-256-GCM. A
+//! validated deployment would swap in validated implementations and an approved
+//! random source, without changing the protocol.
 //!
 //! Each item is one tagged byte string whose length the reader checks, so a
-//! later dialect can extend an item's contents by changing its declared
-//! length and layout here alone.
+//! later dialect can extend an item's contents by changing its declared length
+//! and layout here alone.
 
 use hpke::{
     Deserializable, Kem as _, OpModeR, OpModeS, Serializable,
@@ -108,8 +102,8 @@ type EncappedKey = <Kem as hpke::Kem>::EncappedKey;
 /// Bytes in a serialized public key: an uncompressed SEC1 P-256 point.
 const PUBLIC_KEY_LEN: usize = <PublicKey as Serializable>::OutputSize::USIZE;
 
-/// Bytes in a serialized encapsulated key, which is the provider's
-/// ephemeral public key.
+/// Bytes in a serialized encapsulated key, which is the provider's ephemeral
+/// public key.
 const ENCAPPED_KEY_LEN: usize = <EncappedKey as Serializable>::OutputSize::USIZE;
 
 /// Bytes in the AEAD's authentication tag.
@@ -167,9 +161,9 @@ const INFO_LABEL: &[u8] = b"rumors bootstrap network secret";
 /// Bytes of HPKE's `info`: the domain label, then the protocol version.
 const INFO_LEN: usize = INFO_LABEL.len() + size_of::<u64>();
 
-/// HPKE's `info` for a seal: the domain label, then the protocol version as
-/// a big-endian `u64`. The label has a fixed length, so the version's
-/// position is fixed too.
+/// HPKE's `info` for a seal: the domain label, then the protocol version as a
+/// big-endian `u64`. The label has a fixed length, so the version's position is
+/// fixed too.
 fn info() -> [u8; INFO_LEN] {
     let mut info = [0; INFO_LEN];
     let (label, version) = info.split_at_mut(INFO_LABEL.len());
@@ -189,17 +183,16 @@ pub(crate) enum SecretDefect {
         item: &'static str,
     },
 
-    /// A public key in the item is not the uncompressed encoding of a point
-    /// of the curve other than the identity.
+    /// A public key in the item is not the uncompressed encoding of a point of
+    /// the curve other than the identity.
     #[error("the {item} carries an invalid public key")]
     InvalidKey {
         /// Which item.
         item: &'static str,
     },
 
-    /// The sealed secret did not open: the item was altered, sealed to
-    /// another key, or sealed for another declared network or protocol
-    /// version.
+    /// The sealed secret did not open: the item was altered, sealed to another
+    /// key, or sealed for another declared network or protocol version.
     #[error("the sealed network secret does not open")]
     Unauthentic,
 
@@ -220,8 +213,8 @@ const KEY_ITEM: &str = "bootstrap key item";
 /// The name of the sealed item, in defects.
 const SEALED_ITEM: &str = "sealed network secret item";
 
-/// A bootstrapping peer's half of the exchange: the HPKE key pair it draws
-/// for this one session.
+/// A bootstrapping peer's half of the exchange: the HPKE key pair it draws for
+/// this one session.
 ///
 /// The private key zeroizes when it drops, through `p256`'s own support.
 pub(crate) struct Joining {
@@ -244,8 +237,7 @@ impl Joining {
         Self { private, public }
     }
 
-    /// The key item announcing this side's public key, to follow its
-    /// preamble.
+    /// The key item announcing this side's public key, to follow its preamble.
     pub(crate) fn item(&self) -> [u8; KEY_ITEM_LEN] {
         let mut item = [0; KEY_ITEM_LEN];
         item[..PREFIX_LEN].copy_from_slice(&KEY_ITEM_PREFIX);
@@ -253,8 +245,8 @@ impl Joining {
         item
     }
 
-    /// Receive and open the sealed secret of the network `declared`, which
-    /// the provider's preamble named.
+    /// Receive and open the sealed secret of the network `declared`, which the
+    /// provider's preamble named.
     pub(crate) async fn receive<R>(
         self,
         reader: &mut R,
@@ -312,13 +304,13 @@ impl Joining {
 pub(crate) struct JoinerKey(PublicKey);
 
 /// Validate a bootstrapping counterparty's key item, which the preamble
-/// exchange read after its preamble: by a provider, to seal the secret for
-/// it, and by a bootstrapping peer, before discarding it.
+/// exchange read after its preamble: by a provider, to seal the secret for it,
+/// and by a bootstrapping peer, before discarding it.
 ///
-/// The `hpke` crate's deserialization makes the public-key validation RFC
-/// 9180 requires (section 7.1.4, by SP 800-56A): the key must be the
-/// uncompressed encoding, its coordinates reduced field elements, and its
-/// point on the curve and not the identity.
+/// The `hpke` crate's deserialization makes the public-key validation RFC 9180
+/// requires (section 7.1.4, by SP 800-56A): the key must be the uncompressed
+/// encoding, its coordinates reduced field elements, and its point on the curve
+/// and not the identity.
 pub(crate) fn decode_key(item: &[u8; KEY_ITEM_LEN]) -> Result<JoinerKey, Error> {
     let violation = |defect| Error::violation(Phase::IdentityTransfer, defect);
     let (prefix, key) = item.split_at(PREFIX_LEN);
@@ -330,8 +322,8 @@ pub(crate) fn decode_key(item: &[u8; KEY_ITEM_LEN]) -> Result<JoinerKey, Error> 
         .map_err(|_| violation(SecretDefect::InvalidKey { item: KEY_ITEM }))
 }
 
-/// Seal `secret` to the bootstrapping counterparty whose key is `joiner`,
-/// bound to the network identifier `declared` this side's preamble sent.
+/// Seal `secret` to the bootstrapping counterparty whose key is `joiner`, bound
+/// to the network identifier `declared` this side's preamble sent.
 ///
 /// # Panics
 ///
@@ -359,11 +351,10 @@ fn seal(secret: &NetworkSecret, joiner: &JoinerKey, declared: Network) -> [u8; S
 
 /// Write the network's secret, sealed, to a bootstrapping counterparty.
 ///
-/// The item is not flushed here: the greeting follows it on the same write
-/// half before this side waits for anything from the joiner, and that
-/// greeting's flush delivers both. The joiner, which waits for this item
-/// before sending its greeting, therefore never waits on bytes held in a
-/// buffer.
+/// The item is not flushed here: the greeting follows it on the same write half
+/// before this side waits for anything from the joiner, and that greeting's
+/// flush delivers both. The joiner, which waits for this item before sending
+/// its greeting, therefore never waits on bytes held in a buffer.
 ///
 /// # Panics
 ///

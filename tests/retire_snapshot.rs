@@ -69,9 +69,8 @@ fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
 /// Retire into a converged absorber: both sides are empty, so their versions
 /// are equal and the absorber dominates reflexively.
 ///
-/// The minimal retire session
-/// — a reconciliation round that moves no content, then the bare party
-/// hand-off.
+/// The minimal retire session — a reconciliation round that moves no content,
+/// then the bare party hand-off.
 #[test]
 fn empty_retire() {
     let seed = seeded();
@@ -97,9 +96,9 @@ fn divergent_retire() {
 /// retire-intent from the preamble and refuses to absorb a peer that is itself
 /// leaving, so both decline and are handed back intact.
 ///
-/// The capture pins the
-/// bytes of that mutual stand-down. (The symmetric exception to this file's
-/// A-absorbs/B-retires convention: here both parties retire.)
+/// The capture pins the bytes of that mutual stand-down. (The symmetric
+/// exception to this file's A-absorbs/B-retires convention: here both parties
+/// retire.)
 #[test]
 fn mutual_retire_declines() {
     let seed = seeded();
@@ -141,10 +140,10 @@ fn mutual_retire_declines() {
 /// retiree's whole tree through the descent and then receives its whole party
 /// as the trailing frame.
 ///
-/// The newcomer *becomes* the retiree's successor in the same universe.
-/// The cross of the bootstrap and retire legs: one side bootstraps,
-/// the other retires, and the identity is handed off rather than reclaimed by
-/// an established peer.
+/// The newcomer *becomes* the retiree's successor in the same universe. The
+/// cross of the bootstrap and retire legs: one side bootstraps, the other
+/// retires, and the identity is handed off rather than reclaimed by an
+/// established peer.
 #[test]
 fn retire_into_bootstrapper() {
     let seed = seeded();

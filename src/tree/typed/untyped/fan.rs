@@ -4,10 +4,10 @@
 //! allowing binary-search lookups and ordered traversal without sorting again.
 //! Small fans fit inline; wider ones use one contiguous allocation.
 //!
-//! Stored branches have at least two children because path compression
-//! absorbs singletons. Temporary fans may be empty or contain one child.
-//! Cloning copies the entries and shares their child nodes; copy-on-write
-//! belongs to the enclosing node, not this container.
+//! Stored branches have at least two children because path compression absorbs
+//! singletons. Temporary fans may be empty or contain one child. Cloning copies
+//! the entries and shares their child nodes; copy-on-write belongs to the
+//! enclosing node, not this container.
 
 use std::fmt;
 
@@ -20,9 +20,9 @@ mod tests;
 
 /// Entries a [`Fan`] holds inline before spilling to the heap.
 ///
-/// Two entries cover the smallest stored branch and temporary singletons.
-/// A larger inline buffer would enlarge every node, including leaves, to
-/// avoid allocations only for wider branches.
+/// Two entries cover the smallest stored branch and temporary singletons. A
+/// larger inline buffer would enlarge every node, including leaves, to avoid
+/// allocations only for wider branches.
 const FAN_INLINE: usize = 2;
 
 /// The most heap slots a stored fan of `len` children holds: none while its
@@ -33,9 +33,9 @@ const FAN_INLINE: usize = 2;
 /// allocation sized the same way, so the copy-on-write copy of a stored node
 /// meets it too. A fan reserved larger than it filled, deduplicated by
 /// collection, or shortened by [`Fan::remove`] can hold more; [`Fan::fit`]
-/// restores the bound, and every branch constructor fits its fan before
-/// storing it. A stored node's heap memory is therefore bounded by its child
-/// count, however its fan was assembled.
+/// restores the bound, and every branch constructor fits its fan before storing
+/// it. A stored node's heap memory is therefore bounded by its child count,
+/// however its fan was assembled.
 pub const fn heap_slots(len: usize) -> usize {
     if len <= FAN_INLINE {
         0
@@ -46,8 +46,8 @@ pub const fn heap_slots(len: usize) -> usize {
 
 /// Child handles keyed by unique radixes in ascending order.
 ///
-/// Constructors and mutations preserve this order. Hashing, wire encoding,
-/// and merge walks can consume it directly.
+/// Constructors and mutations preserve this order. Hashing, wire encoding, and
+/// merge walks can consume it directly.
 #[derive(Default, Clone)]
 pub struct Fan {
     /// Invariant: strictly ascending by radix, no duplicates.
@@ -89,9 +89,9 @@ impl Fan {
 
     /// Release heap slots beyond [`heap_slots`] of the current length.
     ///
-    /// A fan beyond the bound shrinks to exactly its length, moving back
-    /// inline when its entries fit there. A fan within the bound, such as one
-    /// grown by pushes, keeps its allocation untouched.
+    /// A fan beyond the bound shrinks to exactly its length, moving back inline
+    /// when its entries fit there. A fan within the bound, such as one grown by
+    /// pushes, keeps its allocation untouched.
     pub fn fit(&mut self) {
         if self.heap_capacity() > heap_slots(self.len()) {
             self.entries.shrink_to_fit();
@@ -151,9 +151,11 @@ impl Fan {
         self.entries.push((radix, child));
     }
 
-    /// Borrow entries in ascending radix order, with reverse traversal available.
+    /// Borrow entries in ascending radix order, with reverse traversal
+    /// available.
     ///
-    /// The remaining length is exact; hash construction sizes its buffer from it.
+    /// The remaining length is exact; hash construction sizes its buffer from
+    /// it.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = (u8, &Node)> + ExactSizeIterator {
         self.entries.iter().map(|(radix, child)| (*radix, child))
     }

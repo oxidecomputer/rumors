@@ -56,8 +56,8 @@ impl Clock {
     /// production's clock, leaving `self` the residual.
     ///
     /// The party splits into the balanced partition of `count + 1` shares.
-    /// Children take shares 1 through `taken`, each with this clock's
-    /// version, and `self` keeps share 0 joined with every untaken share.
+    /// Children take shares 1 through `taken`, each with this clock's version,
+    /// and `self` keeps share 0 joined with every untaken share.
     ///
     /// # Panics
     ///
@@ -81,9 +81,9 @@ impl Clock {
         children
     }
 
-    /// Splits the clock as the array conversion `<[Clock; n]>::from` does:
-    /// the balanced partition of the party into `n` shares, in order, each
-    /// with this clock's version.
+    /// Splits the clock as the array conversion `<[Clock; n]>::from` does: the
+    /// balanced partition of the party into `n` shares, in order, each with
+    /// this clock's version.
     ///
     /// # Panics
     ///
@@ -139,16 +139,15 @@ impl Clock {
     /// Reconcile `self` with every clock in `others`, as production's
     /// `sync_all` does.
     ///
-    /// When the participants' parties are pairwise disjoint, every
-    /// participant takes the join of all their versions, and the balanced
-    /// partition of their parties' union is dealt in participant order,
-    /// `self` first.
+    /// When the participants' parties are pairwise disjoint, every participant
+    /// takes the join of all their versions, and the balanced partition of
+    /// their parties' union is dealt in participant order, `self` first.
     ///
     /// # Errors
     ///
     /// Returns [`OverlapError`] and changes no clock if any two participants'
-    /// parties overlap. Each party is joined into the union of those before
-    /// it, so a join fails exactly when it overlaps an earlier participant.
+    /// parties overlap. Each party is joined into the union of those before it,
+    /// so a join fails exactly when it overlaps an earlier participant.
     pub fn sync_all(&mut self, others: Vec<&mut Clock>) -> Result<(), OverlapError> {
         let mut whole = self.party.clone();
         for other in &others {

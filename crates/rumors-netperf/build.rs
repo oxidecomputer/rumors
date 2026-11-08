@@ -1,24 +1,23 @@
 //! Records the facts about this build that a results directory names: the
 //! source revision, the compiler, and the target.
 //!
-//! The revision is for the people who read results. What identifies a
-//! build, for resuming a run and for the calibration cache, is a digest of
-//! the running executable, which the tool computes when it runs: two builds
-//! of one revision can differ, and the revision cannot say so.
+//! The revision is for the people who read results. What identifies a build,
+//! for resuming a run and for the calibration cache, is a digest of the running
+//! executable, which the tool computes when it runs: two builds of one revision
+//! can differ, and the revision cannot say so.
 //!
-//! The revision comes from git through vergen: the checked-out commit,
-//! with `-dirty` when a tracked file differs from it. A tree with no git
-//! repository, such as one copied to a measurement host, names its commit
-//! in a `COMMIT` file at the workspace's root instead, and the revision
-//! records that it came from there, since nothing then says whether the
-//! tree differs from the commit.
+//! The revision comes from git through vergen: the checked-out commit, with
+//! `-dirty` when a tracked file differs from it. A tree with no git repository,
+//! such as one copied to a measurement host, names its commit in a `COMMIT`
+//! file at the workspace's root instead, and the revision records that it came
+//! from there, since nothing then says whether the tree differs from the
+//! commit.
 //!
 //! The script reruns when the revision could change: vergen watches git's
 //! `HEAD` and the branch it names, so a new commit reruns it, and the script
-//! watches every tracked file, so an edit anywhere in the repository does,
-//! the library's included. Without git it watches the `COMMIT` file, even
-//! while the file is absent, which makes cargo rerun it on every build
-//! until one exists.
+//! watches every tracked file, so an edit anywhere in the repository does, the
+//! library's included. Without git it watches the `COMMIT` file, even while the
+//! file is absent, which makes cargo rerun it on every build until one exists.
 
 use std::env;
 use std::error::Error;
@@ -52,9 +51,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// The revision from git, emitting what makes cargo rerun this script when
-/// it changes, or `None` when the crate is not in a git work tree or git
-/// cannot run.
+/// The revision from git, emitting what makes cargo rerun this script when it
+/// changes, or `None` when the crate is not in a git work tree or git cannot
+/// run.
 ///
 /// # Errors
 ///
@@ -88,8 +87,8 @@ fn git_revision(manifest_dir: &Path) -> Result<Option<String>, Box<dyn Error>> {
     }))
 }
 
-/// Makes cargo rerun this script when any file git tracks changes, so the
-/// dirty mark follows edits outside this crate.
+/// Makes cargo rerun this script when any file git tracks changes, so the dirty
+/// mark follows edits outside this crate.
 ///
 /// A path that holds a newline cannot appear in a cargo instruction, so its
 /// directory is watched in its place.
@@ -126,13 +125,13 @@ fn watch_tracked_files(manifest_dir: &Path) {
     }
 }
 
-/// The revision a tree with no git repository records in its `COMMIT`
-/// file, at the workspace's root: the nearest ancestor of this crate that
-/// holds `Cargo.lock`.
+/// The revision a tree with no git repository records in its `COMMIT` file, at
+/// the workspace's root: the nearest ancestor of this crate that holds
+/// `Cargo.lock`.
 ///
 /// The file's first line is the commit ID in hexadecimal. A file that is
-/// absent, unreadable, or holds anything else leaves the revision
-/// `unknown`, with a cargo warning saying why.
+/// absent, unreadable, or holds anything else leaves the revision `unknown`,
+/// with a cargo warning saying why.
 fn commit_file_revision(manifest_dir: &Path) -> String {
     let Some(root) = manifest_dir
         .ancestors()

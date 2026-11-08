@@ -2,12 +2,12 @@
 //! production's encoders.
 //!
 //! The near-valid generators and the decoder properties trust this module to
-//! spell canonical trees exactly as production does, and to bring any
-//! spelling to its normal form. No public doc states the version or party bit
-//! layout, so production's encoders are the authority the canonical
-//! spellings are checked against. Each property compares the encoder against
-//! an answer computed elsewhere: the recursive oracle's normal form, or
-//! production's `encode` of the same value.
+//! spell canonical trees exactly as production does, and to bring any spelling
+//! to its normal form. No public doc states the version or party bit layout, so
+//! production's encoders are the authority the canonical spellings are checked
+//! against. Each property compares the encoder against an answer computed
+//! elsewhere: the recursive oracle's normal form, or production's `encode` of
+//! the same value.
 
 use proptest::prelude::*;
 
@@ -20,8 +20,8 @@ use crate::testing::generators::{
     arb_oracle_party_nonempty, arb_oracle_version, arb_shape, shape_party, shape_version,
 };
 
-/// Splits every leaf into two children with its value: a non-normal spelling
-/// of the same tree, which normalizing must undo.
+/// Splits every leaf into two children with its value: a non-normal spelling of
+/// the same tree, which normalizing must undo.
 fn split_leaves<T: Clone>(leaves: &[(u64, T)]) -> Vec<(u64, T)> {
     leaves
         .iter()

@@ -1,13 +1,13 @@
 //! Chooses the owned region raised by a tick.
 //!
 //! A tick may be able to raise several owned regions. The selection walk
-//! prefers the route requiring fewer leaf expansions, then the shallower
-//! route, and finally the right child when both costs are equal.
+//! prefers the route requiring fewer leaf expansions, then the shallower route,
+//! and finally the right child when both costs are equal.
 //!
 //! An unowned subtree has no feasible route. [`Cost`] represents that absence
-//! directly rather than assigning it a numeric value. Its two feasible
-//! counters are stored one greater than their logical values so that zero can
-//! retain absence when a suspended cost is written to the traversal stack.
+//! directly rather than assigning it a numeric value. Its two feasible counters
+//! are stored one greater than their logical values so that zero can retain
+//! absence when a suspended cost is written to the traversal stack.
 
 use core::cmp::Ordering;
 use core::num::NonZeroU64;
@@ -162,7 +162,8 @@ impl Cost {
         })
     }
 
-    /// Restore a cost from the words returned by [`stack_words`](Self::stack_words).
+    /// Restore a cost from the words returned by
+    /// [`stack_words`](Self::stack_words).
     pub fn from_stack_words(expansions: u64, depth: u64) -> Cost {
         match (
             Distance::from_stack_word(expansions),
@@ -218,10 +219,10 @@ pub struct Route {
 
 /// Compact branch choices used while planning and replaying a tick.
 ///
-/// A set bit selects the left child; a clear bit selects the right child.
-/// Route planning addresses choices by Party position, while expansion paths
-/// append them in traversal order. This wrapper keeps that representation out
-/// of the tree algorithms.
+/// A set bit selects the left child; a clear bit selects the right child. Route
+/// planning addresses choices by Party position, while expansion paths append
+/// them in traversal order. This wrapper keeps that representation out of the
+/// tree algorithms.
 pub struct BranchDirections(BitsWriter);
 
 impl BranchDirections {

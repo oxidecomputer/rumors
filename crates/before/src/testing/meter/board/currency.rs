@@ -9,8 +9,8 @@
 pub enum Currency {
     /// Peak additional live heap bytes, including retained results.
     Heap,
-    /// Wasm instructions executed, as Wasmtime fuel (execution cost; read
-    /// only when the board runs inside a wasm guest that supplies a
+    /// Wasm instructions executed, as Wasmtime fuel (execution cost; read only
+    /// when the board runs inside a wasm guest that supplies a
     /// [`FuelMeter`](super::FuelMeter)).
     Fuel,
 }
@@ -38,8 +38,8 @@ pub struct ByCurrency<T> {
 }
 
 impl<T> ByCurrency<T> {
-    /// Builds a value for every currency from `value`, called once per
-    /// currency in display order.
+    /// Builds a value for every currency from `value`, called once per currency
+    /// in display order.
     pub fn from_fn(mut value: impl FnMut(Currency) -> T) -> Self {
         ByCurrency {
             heap: value(Currency::Heap),
@@ -88,14 +88,13 @@ pub enum Liveness {
     },
 }
 
-/// A cell's liveness declarations, one for each measurement whose counter
-/// the measured implementation could bypass.
+/// A cell's liveness declarations, one for each measurement whose counter the
+/// measured implementation could bypass.
 ///
-/// Heap counts only the allocations that pass through the counting
-/// allocator, so each cell argues its own floor. Fuel counts every
-/// instruction the guest executes, so no implementation can bypass it, and
-/// one floor serves every cell ([`FUEL_FLOOR`]); [`Floors::with_fuel`] adds
-/// it.
+/// Heap counts only the allocations that pass through the counting allocator,
+/// so each cell argues its own floor. Fuel counts every instruction the guest
+/// executes, so no implementation can bypass it, and one floor serves every
+/// cell ([`FUEL_FLOOR`]); [`Floors::with_fuel`] adds it.
 #[derive(Clone, Copy, Debug)]
 pub struct Floors {
     /// The peak-heap column's declaration.

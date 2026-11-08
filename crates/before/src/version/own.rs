@@ -131,8 +131,8 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-/// Takes `O(|view| + |result|)` time, where `|result| = O(|view|^2)`;
-/// measured on [`OwnVersion::to_version`].
+/// Takes `O(|view| + |result|)` time, where `|result| = O(|view|^2)`; measured
+/// on [`OwnVersion::to_version`].
 ///
 /// # Example
 ///

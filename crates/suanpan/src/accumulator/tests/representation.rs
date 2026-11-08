@@ -2,16 +2,15 @@
 //! sign-led, and shifting zero takes constant space whatever its stored form.
 //!
 //! At every step, compare the value with a big-integer oracle and inspect the
-//! representation itself. A nonzero digit missing from the written set would
-//! be skipped by a later query even while the current value still reads
-//! correctly.
+//! representation itself. A nonzero digit missing from the written set would be
+//! skipped by a later query even while the current value still reads correctly.
 //!
-//! A shift streams the value's magnitude into new digits, normalizing it as
-//! it goes, so that its digits start the crate's cost argument for updates of
-//! one sign in the state that argument needs. Normalization in place, the
-//! streamed magnitude, and the shift each get a property of their own, and
-//! another follows the operations of a sum that rescales its total: updates
-//! of one sign interleaved with shifts, from creation.
+//! A shift streams the value's magnitude into new digits, normalizing it as it
+//! goes, so that its digits start the crate's cost argument for updates of one
+//! sign in the state that argument needs. Normalization in place, the streamed
+//! magnitude, and the shift each get a property of their own, and another
+//! follows the operations of a sum that rescales its total: updates of one sign
+//! interleaved with shifts, from creation.
 //!
 //! Zero can be stored as nonzero digits that cancel. Shifting such a zero, or
 //! adding it at a shift, must take constant space, as a known zero does.
@@ -40,8 +39,7 @@ struct Operands {
     max64: IBig,
 }
 
-/// Number of update, negation, and sign-query operations explored at each
-/// step.
+/// Number of update, negation, and sign-query operations explored at each step.
 const REPRESENTATION_OPS: u8 = 12;
 
 /// Apply the finite operation alphabet using its precomputed operands.
@@ -50,8 +48,8 @@ impl Operands {
     ///
     /// Unit and maximum-word updates exercise ordinary deposits and carries.
     /// Jumps to digits three and seven create, clear, and split zero runs.
-    /// Depositing a whole coefficient of ±2^32 at digit six makes the sign
-    /// fold reach a run with either a small nonzero or exactly zero partial.
+    /// Depositing a whole coefficient of ±2^32 at digit six makes the sign fold
+    /// reach a run with either a small nonzero or exactly zero partial.
     /// Negation sets or clears the digits' flag, so every later update and
     /// comparison also runs against flagged digits.
     fn apply(&self, acc: &mut Accumulator, oracle: &mut IBig, op: u8) {
@@ -109,12 +107,13 @@ impl Operands {
 
 /// Depth of the exhaustive representation sweep.
 ///
-/// Every schedule of at most this many alphabet ops runs, with every
-/// invariant checked at every step of every schedule (the search is a
-/// prefix tree, so each state is reached and checked exactly once).
+/// Every schedule of at most this many alphabet ops runs, with every invariant
+/// checked at every step of every schedule (the search is a prefix tree, so
+/// each state is reached and checked exactly once).
 const REPRESENTATION_DEPTH: usize = 6;
 
-/// Check every child schedule, then recurse while retaining its operation trace.
+/// Check every child schedule, then recurse while retaining its operation
+/// trace.
 ///
 /// Recurses `depth` levels, at most [`REPRESENTATION_DEPTH`].
 fn check_schedules(
@@ -138,13 +137,14 @@ fn check_schedules(
     }
 }
 
-/// Every schedule of up to six operations preserves the digit and written-set invariants.
+/// Every schedule of up to six operations preserves the digit and written-set
+/// invariants.
 ///
 /// The operation alphabet exercises gap creation, splitting, and consumption,
 /// including carries and sign collapse inside a gap of unwritten zeros. Every
-/// state must match the oracle, write every nonzero digit, write nothing
-/// above the top, and write nothing below the lowest written position but
-/// position zero.
+/// state must match the oracle, write every nonzero digit, write nothing above
+/// the top, and write nothing below the lowest written position but position
+/// zero.
 #[test]
 fn representation_invariants_hold_exhaustively() {
     let operands = Operands {
@@ -170,11 +170,11 @@ fn representation_invariants_hold_exhaustively() {
 ///
 /// [`apply_stream_step`] gives the arms their meaning: limb updates of either
 /// sign, a whole-word subtraction, a primitive update, an accumulator operand
-/// whose stored digits have mixed signs, negated or not, added or subtracted
-/// at the step's shift, a negation, and a comparison with zero. Together they
-/// leave runs, gaps, cancelled tops, digits of both signs, and either state
-/// of the digits' flag, the varied stored forms that the normalization and
-/// shift properties below start from.
+/// whose stored digits have mixed signs, negated or not, added or subtracted at
+/// the step's shift, a negation, and a comparison with zero. Together they
+/// leave runs, gaps, cancelled tops, digits of both signs, and either state of
+/// the digits' flag, the varied stored forms that the normalization and shift
+/// properties below start from.
 pub(super) fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u64)>> {
     proptest::collection::vec(
         (
@@ -186,8 +186,8 @@ pub(super) fn run_forming_stream() -> impl Strategy<Value = Vec<(u8, Vec<u64>, u
     )
 }
 
-/// Apply one step of a [`run_forming_stream`] to the accumulator and the
-/// oracle in lockstep; the comparison arm checks the sign against the oracle.
+/// Apply one step of a [`run_forming_stream`] to the accumulator and the oracle
+/// in lockstep; the comparison arm checks the sign against the oracle.
 pub(super) fn apply_stream_step(
     acc: &mut Accumulator,
     oracle: &mut IBig,
@@ -275,8 +275,8 @@ fn shift_spelling() -> impl Strategy<Value = ShiftSpelling> {
 }
 
 /// Shift `acc` by `count` in `spelling`, returning the result and, for the
-/// borrowed spelling, the accumulator it read, which still holds the
-/// unshifted value.
+/// borrowed spelling, the accumulator it read, which still holds the unshifted
+/// value.
 fn shift_in(
     acc: Accumulator,
     count: u64,
@@ -337,20 +337,19 @@ fn assert_normalized(acc: &Accumulator, sign: Ordering, context: &dyn core::fmt:
     }
 }
 
-/// Assert that the stored digits are *sign-led* for a nonzero value of
-/// `sign`: the top digit has the stored sum's sign, and no digit has the
-/// other sign with magnitude above `B / 2`.
+/// Assert that the stored digits are *sign-led* for a nonzero value of `sign`:
+/// the top digit has the stored sum's sign, and no digit has the other sign
+/// with magnitude above `B / 2`.
 ///
 /// The stored sum is the value, or its negation when the digits' flag is set.
 ///
-/// The crate's cost argument for updates of one sign starts from this state
-/// and keeps it. In it, the partial a comparison with zero folds reaches at
-/// least `B / 2` by the position below the top, so the comparison's scan
-/// decides within two positions and never crosses a gap. When it stops one
-/// position below the top, its truncation can still cross one gap, once:
-/// the top digit was small and the position below it was never written.
-/// A value held in the small representation, or zero, has no digits to
-/// check.
+/// The crate's cost argument for updates of one sign starts from this state and
+/// keeps it. In it, the partial a comparison with zero folds reaches at least
+/// `B / 2` by the position below the top, so the comparison's scan decides
+/// within two positions and never crosses a gap. When it stops one position
+/// below the top, its truncation can still cross one gap, once: the top digit
+/// was small and the position below it was never written. A value held in the
+/// small representation, or zero, has no digits to check.
 fn assert_sign_led(acc: &Accumulator, sign: Ordering, context: &dyn core::fmt::Debug) {
     let stored = acc.stored();
     if stored.small.is_some() || sign == Ordering::Equal {
@@ -725,7 +724,8 @@ enum Cancellation {
     /// Add a word as a two-limb stream, then subtract it as a primitive.
     ///
     /// The stream deposits two 32-bit halves while the primitive deposits one
-    /// whole contribution, so their carries can leave further cancelling digits.
+    /// whole contribution, so their carries can leave further cancelling
+    /// digits.
     Word(u64),
     /// Add limbs at a shift, then subtract them as an accumulator operand.
     ///
@@ -779,8 +779,8 @@ fn redundant_zero(k: u64, cancellation: &Cancellation) -> Accumulator {
 /// Draw a fixed boundary shift, or any shift up to the widest.
 ///
 /// Proptest shrinks a union toward its earlier alternatives, and the random
-/// alternative shrinks toward the widest shift, so a failure reports the
-/// widest failing shift, where growth with the shift is easiest to see.
+/// alternative shrinks toward the widest shift, so a failure reports the widest
+/// failing shift, where growth with the shift is easiest to see.
 fn zero_shift() -> impl Strategy<Value = u64> {
     prop_oneof![
         1 => Just(WIDEST_ZERO_SHIFT),
@@ -809,11 +809,12 @@ enum Receiver {
     /// A zero operand can land inside this buffer, which is wider than the
     /// receiver's working width.
     Clear(Vec<u64>),
-    /// A value of several limbs with the digit `2^33 - 2` one position above them.
+    /// A value of several limbs with the digit `2^33 - 2` one position above
+    /// them.
     ///
-    /// Two deposits of `2^32 - 1` there leave a digit just inside the
-    /// redundant range without carrying, so a zero deposited beside it can
-    /// carry one position past the buffer.
+    /// Two deposits of `2^32 - 1` there leave a digit just inside the redundant
+    /// range without carrying, so a zero deposited beside it can carry one
+    /// position past the buffer.
     NearLimit(Vec<u64>),
 }
 
@@ -866,11 +867,11 @@ fn receiver() -> impl Strategy<Value = Receiver> {
 /// digit-stored zero it came from, and keeps that zero's representation and
 /// buffer.
 ///
-/// The stored digits may not grow, and both bounds depend only on the
-/// unshifted zero, so they hold at every shift. The crate promises constant
-/// space; the representation's one-way rule adds that a digit-stored value
-/// stays in digits, so a shift neither returns it to the small form nor
-/// drops its buffer.
+/// The stored digits may not grow, and both bounds depend only on the unshifted
+/// zero, so they hold at every shift. The crate promises constant space; the
+/// representation's one-way rule adds that a digit-stored value stays in
+/// digits, so a shift neither returns it to the small form nor drops its
+/// buffer.
 fn assert_shifted_zero(shifted: Accumulator, shift: u64, unshifted: &Accumulator) {
     // Read the space before comparing: the comparison compacts a cancelled
     // stored form, which would hide what the shift left behind.
@@ -901,10 +902,10 @@ fn assert_shifted_zero(shifted: Accumulator, shift: u64, unshifted: &Accumulator
 /// Assert that applying a zero operand at a shift keeps both values and leaves
 /// the receiver's space unchanged.
 ///
-/// The operand is a fresh stored copy of `zero`, so the call sees its cancelled form.
-/// Comparing the operand with zero skips it, so neither the receiver's stored
-/// digit count nor its buffer may change, whether the zero's digits would land
-/// inside the buffer or past it.
+/// The operand is a fresh stored copy of `zero`, so the call sees its cancelled
+/// form. Comparing the operand with zero skips it, so neither the receiver's
+/// stored digit count nor its buffer may change, whether the zero's digits
+/// would land inside the buffer or past it.
 fn assert_zero_operand(
     receiver: &Receiver,
     name: &str,
@@ -1002,8 +1003,9 @@ proptest! {
     }
 }
 
-/// The widths at which [`sign_queries_add_written_set_space_independent_of_width`]
-/// reads each value shape, in digit positions.
+/// The widths at which
+/// [`sign_queries_add_written_set_space_independent_of_width`] reads each value
+/// shape, in digit positions.
 ///
 /// They span three orders of magnitude, so storage that grew with the width
 /// would differ between them by thousands of bitset words.
@@ -1012,13 +1014,13 @@ const SIGN_QUERY_WIDTHS: [u64; 4] = [100, 1_000, 10_000, 100_000];
 /// A sign query adds the same written-set storage at every width, as the
 /// crate's O(1) additional-space bound for sign queries requires.
 ///
-/// Each shape is a value whose top digit `s` lies far above its other
-/// digits: `2^(32s)` alone, whose set is a prefix and a run; with digits at
-/// 0 and `s/2`, two gaps, which the set holds in a bitset; and with digits
-/// at 10 and 20 as well, a bitset holding more gaps. The query reads the top
-/// digit, finds the unwritten position below it, and writes the compacted
-/// top back there. For every shape, the bitset words the query adds must
-/// equal those it adds at the narrowest width.
+/// Each shape is a value whose top digit `s` lies far above its other digits:
+/// `2^(32s)` alone, whose set is a prefix and a run; with digits at 0 and
+/// `s/2`, two gaps, which the set holds in a bitset; and with digits at 10 and
+/// 20 as well, a bitset holding more gaps. The query reads the top digit, finds
+/// the unwritten position below it, and writes the compacted top back there.
+/// For every shape, the bitset words the query adds must equal those it adds at
+/// the narrowest width.
 #[test]
 fn sign_queries_add_written_set_space_independent_of_width() {
     #[allow(clippy::type_complexity)]

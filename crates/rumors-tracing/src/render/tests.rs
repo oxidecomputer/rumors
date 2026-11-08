@@ -15,9 +15,9 @@ fn rendered(bytes: &[u8]) -> String {
     DiagCbor(bytes).to_string()
 }
 
-/// Scalars render in diagnostic notation: integers as decimals (with
-/// the notation's encoding indicator where the head is not immediate),
-/// text quoted, booleans and null literally.
+/// Scalars render in diagnostic notation: integers as decimals (with the
+/// notation's encoding indicator where the head is not immediate), text quoted,
+/// booleans and null literally.
 #[test]
 fn scalars_render_in_diagnostic_notation() {
     assert_eq!(rendered(&encoded(&Value::Integer(7.into()))), "7");
@@ -30,8 +30,8 @@ fn scalars_render_in_diagnostic_notation() {
     assert_eq!(rendered(&encoded(&Value::Null)), "null");
 }
 
-/// Byte strings render as full hex; the length budget, not a per-string
-/// cap, is what bounds a rendering built from large strings.
+/// Byte strings render as full hex; the length budget, not a per-string cap, is
+/// what bounds a rendering built from large strings.
 #[test]
 fn byte_strings_render_as_hex() {
     assert_eq!(
@@ -40,8 +40,8 @@ fn byte_strings_render_as_hex() {
     );
 }
 
-/// Arrays and maps unfold with their elements rendered in place, the
-/// shape a wire frame or greeting map arrives in.
+/// Arrays and maps unfold with their elements rendered in place, the shape a
+/// wire frame or greeting map arrives in.
 #[test]
 fn containers_unfold() {
     let frame = Value::Array(vec![Value::Integer(162.into()), Value::Bytes(vec![0x01])]);
@@ -53,9 +53,9 @@ fn containers_unfold() {
     assert_eq!(rendered(&encoded(&map)), "{\"protocol\":\"rumors\"}");
 }
 
-/// The registered atom tags render by number, like any other tag: the
-/// rendering is rumors-blind, and the tag registry in [`rumors::tags`]
-/// is the reader's decoder ring.
+/// The registered atom tags render by number, like any other tag: the rendering
+/// is rumors-blind, and the tag registry in [`rumors::tags`] is the reader's
+/// decoder ring.
 #[test]
 fn atom_tags_render_by_number() {
     for tag in [PARTY_TAG, VERSION_TAG, CLOCK_TAG] {
@@ -64,9 +64,9 @@ fn atom_tags_render_by_number() {
     }
 }
 
-/// Embedded-CBOR byte strings unfold as `<<…>>`: tag 24 to its one
-/// item, tag 63 to its whole sequence — the deep-inspection payoff for
-/// supply runs and their records.
+/// Embedded-CBOR byte strings unfold as `<<…>>`: tag 24 to its one item, tag 63
+/// to its whole sequence — the deep-inspection payoff for supply runs and their
+/// records.
 #[test]
 fn embedded_cbor_tags_unfold() {
     let one = Value::Tag(
@@ -81,8 +81,8 @@ fn embedded_cbor_tags_unfold() {
     assert_eq!(rendered(&encoded(&run)), "63_0(<<1,\"x\">>)");
 }
 
-/// A tag-24 byte string that does not hold exactly one item falls back
-/// to the honest raw byte-string form instead of guessing.
+/// A tag-24 byte string that does not hold exactly one item falls back to the
+/// honest raw byte-string form instead of guessing.
 #[test]
 fn malformed_embedded_items_fall_back_to_bytes() {
     let two_items = {
@@ -94,9 +94,9 @@ fn malformed_embedded_items_fall_back_to_bytes() {
     assert_eq!(rendered(&encoded(&tagged)), "24_0(h'0102')");
 }
 
-/// A chain of embedded byte strings longer than the depth limit stops
-/// unfolding at the budget and falls back to the raw byte-string form:
-/// rendering terminates with bounded recursion however deep the chain.
+/// A chain of embedded byte strings longer than the depth limit stops unfolding
+/// at the budget and falls back to the raw byte-string form: rendering
+/// terminates with bounded recursion however deep the chain.
 #[test]
 fn unfolding_stops_at_the_depth_budget() {
     let mut value = Value::Integer(7.into());
@@ -108,8 +108,8 @@ fn unfolding_stops_at_the_depth_budget() {
     assert!(out.contains("24_0(h'"));
 }
 
-/// An item nested structurally past the depth limit renders as the
-/// explicit unrenderable note instead of recursing without bound.
+/// An item nested structurally past the depth limit renders as the explicit
+/// unrenderable note instead of recursing without bound.
 #[test]
 fn deep_structure_renders_as_a_note() {
     let mut value = Value::Integer(0.into());
@@ -119,9 +119,9 @@ fn deep_structure_renders_as_a_note() {
     assert!(rendered(&encoded(&value)).starts_with("unrenderable CBOR h'"));
 }
 
-/// Undecodable bytes and trailing garbage render as the explicit note
-/// plus capped hex: the renderer never panics on wire input, whatever
-/// arrives, and a large garbage buffer buys only a bounded rendering.
+/// Undecodable bytes and trailing garbage render as the explicit note plus
+/// capped hex: the renderer never panics on wire input, whatever arrives, and a
+/// large garbage buffer buys only a bounded rendering.
 #[test]
 fn defects_render_as_notes_not_panics() {
     assert_eq!(rendered(&[0xff]), "unrenderable CBOR h'ff'");
@@ -144,8 +144,8 @@ fn truncation_respects_character_boundaries() {
     assert!(out.len() <= LENGTH_BUDGET + '…'.len_utf8());
 }
 
-/// A rendering that crosses the length budget truncates with an
-/// elision marker: events stay cheap under megabyte supply runs.
+/// A rendering that crosses the length budget truncates with an elision marker:
+/// events stay cheap under megabyte supply runs.
 #[test]
 fn length_is_bounded_by_the_budget() {
     let wide = Value::Array(

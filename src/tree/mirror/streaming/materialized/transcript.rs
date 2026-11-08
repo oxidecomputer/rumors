@@ -8,11 +8,11 @@
 //! walk's decisions rather than wire frames.
 //!
 //! Capture point: [`super::work::Work::respond`], the pump every response
-//! stream funnels through. A reply lands when that pump pulls its first
-//! chunk from the walk, before the counterparty can receive it, and its
-//! later chunks extend it. Per-stream order therefore
-//! matches the walk, and the global order is causally consistent: a reply is
-//! recorded before any reply that reacts to it.
+//! stream funnels through. A reply lands when that pump pulls its first chunk
+//! from the walk, before the counterparty can receive it, and its later chunks
+//! extend it. Per-stream order therefore matches the walk, and the global order
+//! is causally consistent: a reply is recorded before any reply that reacts to
+//! it.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -53,8 +53,8 @@ impl Transcript {
     }
 }
 
-/// One active capture: the replies begun so far, and where each stream's
-/// open reply sits among them.
+/// One active capture: the replies begun so far, and where each stream's open
+/// reply sits among them.
 #[derive(Default)]
 struct Capture {
     /// Replies, in the order their first chunks were published.
@@ -98,10 +98,9 @@ pub fn with_transcript<R>(f: impl FnOnce() -> R) -> (R, Transcript) {
 
 /// Record one outgoing chunk, payload-erased.
 ///
-/// `height` is the reply's children height (which logical stream it
-/// rides), threaded from the capturing pump's typed exit. A reply takes its
-/// place in the transcript at its first chunk, and its later chunks extend
-/// it.
+/// `height` is the reply's children height (which logical stream it rides),
+/// threaded from the capturing pump's typed exit. A reply takes its place in
+/// the transcript at its first chunk, and its later chunks extend it.
 pub(super) fn reply<E>(work: usize, height: usize, chunk: &Reply<E>) {
     let labels = chunk.reactions.iter().map(|reaction| match reaction {
         Reaction::Supply(radix, _) => Label::Supply(*radix),

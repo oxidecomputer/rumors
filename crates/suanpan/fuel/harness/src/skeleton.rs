@@ -1,5 +1,5 @@
-//! Program skeletons: steps whose lengths are measured against a unit `u`,
-//! so one skeleton yields the same program at every scale.
+//! Program skeletons: steps whose lengths are measured against a unit `u`, so
+//! one skeleton yields the same program at every scale.
 //!
 //! A [`Skeleton`] holds [`Step<Extent>`]s. An [`Extent`] is `units · u +
 //! offset` bits, so resolving a skeleton at unit `k · u`
@@ -9,31 +9,31 @@
 //! cancels, borrows across a run, or leaves a sparse high digit at one unit
 //! does so at every unit, over a span `k` times as long.
 //!
-//! The step kinds, operand forms, and swarm weighting follow the pool
-//! property in `suanpan`'s own tests (`accumulator::tests::pool`), which is
-//! internal to that crate and draws absolute sizes: each case enables a
-//! random subset of step kinds with random weights (swarm testing, Groce et
-//! al., ISSTA 2012), and its value-neutral gap rounds and extreme-digit
-//! deposits appear here as fixed sequences of limb updates. One regime in
-//! four restricts a case's context to the kinds in [`Kind::FIXED_CHARGE`],
-//! whose charge has no size-carrying term once the storage is grown; only
-//! such a skeleton's repetitions isolate the cost of returning to storage
-//! already grown (see the crate docs).
+//! The step kinds, operand forms, and swarm weighting follow the pool property
+//! in `suanpan`'s own tests (`accumulator::tests::pool`), which is internal to
+//! that crate and draws absolute sizes: each case enables a random subset of
+//! step kinds with random weights (swarm testing, Groce et al., ISSTA 2012),
+//! and its value-neutral gap rounds and extreme-digit deposits appear here as
+//! fixed sequences of limb updates. One regime in four restricts a case's
+//! context to the kinds in [`Kind::FIXED_CHARGE`], whose charge has no
+//! size-carrying term once the storage is grown; only such a skeleton's
+//! repetitions isolate the cost of returning to storage already grown (see the
+//! crate docs).
 //!
 //! Every skeleton also carries a block: a value-neutral sequence of
 //! fixed-charge steps that runs repeatedly after the context, over whatever
-//! widths the context left. The judgment reads the block's cost per call
-//! from those repetitions.
+//! widths the context left. The judgment reads the block's cost per call from
+//! those repetitions.
 //!
 //! # The budgets
 //!
 //! [`Skeleton::new`] holds every case to two budgets, rewriting a step that
-//! would exceed either as a clear of the member it writes, decided once at
-//! the base unit and so identical at every scale:
+//! would exceed either as a clear of the member it writes, decided once at the
+//! base unit and so identical at every scale:
 //!
 //! - every value stays below [`HEIGHT_BUDGET_UNITS`] units wide, so values
-//!   reach a few megabytes at the top scale and shifted self-additions
-//!   cannot compound;
+//!   reach a few megabytes at the top scale and shifted self-additions cannot
+//!   compound;
 //! - every position a value's structure can hold stays within
 //!   [`OFFSET_BUDGET_BITS`] of a multiple of the unit (see
 //!   [`Skeleton::offset_bound`]), which bounds how much faster than the unit
@@ -50,13 +50,13 @@ use crate::model::{fits, width, written_member, Model};
 /// The base unit `u`, in bits: 40 limbs, 80 digits.
 ///
 /// At the top scale, `4096 · u` is about 1.3 megabytes, and the
-/// [`HEIGHT_BUDGET_UNITS`] budget lets a value reach a few such units. The
-/// unit is wide enough that every position that scales lies, already at the
-/// base unit, past the absolute thresholds where the implementation's
-/// constants change (see [`judge::growth_bound`](crate::judge::growth_bound)):
-/// a unit less [`OFFSET_BUDGET_BITS`] is 72 digits, beyond the 64 digits the
-/// written-position bitset's first word covers, and a unit's digits fill
-/// 640 bytes, beyond the allocator's small-block bins.
+/// [`HEIGHT_BUDGET_UNITS`] budget lets a value reach a few such units. The unit
+/// is wide enough that every position that scales lies, already at the base
+/// unit, past the absolute thresholds where the implementation's constants
+/// change (see [`judge::growth_bound`](crate::judge::growth_bound)): a unit
+/// less [`OFFSET_BUDGET_BITS`] is 72 digits, beyond the 64 digits the
+/// written-position bitset's first word covers, and a unit's digits fill 640
+/// bytes, beyond the allocator's small-block bins.
 pub const UNIT_BITS: u64 = 2560;
 
 /// The widest a value may grow, in units, at the base unit.
@@ -68,26 +68,25 @@ pub const MAX_SUM_TERMS: usize = 5;
 /// The farthest a position in a value's structure may lie from a multiple of
 /// the unit, in bits.
 ///
-/// Fixed rather than proportional to the unit, so it bounds how close to
-/// the absolute thresholds a scaled position can come (see [`UNIT_BITS`]),
-/// and every length that spans at least one unit at the base unit spans
-/// at least four fifths of one.
+/// Fixed rather than proportional to the unit, so it bounds how close to the
+/// absolute thresholds a scaled position can come (see [`UNIT_BITS`]), and
+/// every length that spans at least one unit at the base unit spans at least
+/// four fifths of one.
 pub const OFFSET_BUDGET_BITS: u64 = 256;
 
-/// How many times a skeleton's block runs between its context and its
-/// epilogue.
+/// How many times a skeleton's block runs between its context and its epilogue.
 ///
-/// The judgment reads the block's cost per call over the last
-/// [`BLOCK_WINDOW`] calls, after the earlier calls have spent whatever
-/// deferred work the context left.
+/// The judgment reads the block's cost per call over the last [`BLOCK_WINDOW`]
+/// calls, after the earlier calls have spent whatever deferred work the context
+/// left.
 pub const BLOCK_REPETITIONS: usize = 12;
 
 /// The block calls, at the end of its repetitions, whose costs must agree for
 /// the block's state to count as periodic.
 pub const BLOCK_WINDOW: usize = 4;
 
-/// The most steps a generated skeleton holds before its gap rounds and
-/// extreme deposits expand and its epilogue is appended.
+/// The most steps a generated skeleton holds before its gap rounds and extreme
+/// deposits expand and its epilogue is appended.
 pub const MAX_STEPS: usize = 24;
 
 /// A length of `units · u + offset` bits, or of `units · (u / 64) + offset`
@@ -113,9 +112,9 @@ impl Extent {
     ///
     /// # Panics
     ///
-    /// Panics if the length is negative, which the generators never produce:
-    /// a negative offset comes only with a positive multiple of a unit far
-    /// wider than any offset.
+    /// Panics if the length is negative, which the generators never produce: a
+    /// negative offset comes only with a positive multiple of a unit far wider
+    /// than any offset.
     pub fn bits(self, unit: u64) -> u64 {
         (self.units * unit)
             .checked_add_signed(self.offset)
@@ -161,12 +160,12 @@ impl Skeleton {
     /// Each context step is replayed in a [`Model`] at the base unit. A step
     /// that would leave a value wider than [`HEIGHT_BUDGET_UNITS`] units, or a
     /// structural offset beyond [`OFFSET_BUDGET_BITS`], is replaced by a clear
-    /// of the member it writes. The block, which must leave every value as
-    /// it found it, is kept whole or dropped whole, since rewriting one of its
+    /// of the member it writes. The block, which must leave every value as it
+    /// found it, is kept whole or dropped whole, since rewriting one of its
     /// steps would leave it no longer value-neutral; it is dropped too if a
     /// conversion in it would succeed, which would start a new storage. Its
-    /// offsets count once, because every call starts from the values the
-    /// first call starts from.
+    /// offsets count once, because every call starts from the values the first
+    /// call starts from.
     ///
     /// # Panics
     ///
@@ -271,10 +270,10 @@ impl Skeleton {
     ///
     /// A position is where a value's bits change: a limb operand's ends, a
     /// shifted operand's structure moved by its shift, a carry out of a top.
-    /// Every length the implementation traverses (a deposit span, a borrow
-    /// run, a gap between written positions) runs between two such positions,
-    /// so it is `d · u + δ` bits with `|δ|` at most twice this bound, which
-    /// is what [`growth_bound`](crate::judge::growth_bound) rests on.
+    /// Every length the implementation traverses (a deposit span, a borrow run,
+    /// a gap between written positions) runs between two such positions, so it
+    /// is `d · u + δ` bits with `|δ|` at most twice this bound, which is what
+    /// [`growth_bound`](crate::judge::growth_bound) rests on.
     pub fn offset_bound(&self) -> u64 {
         self.offset_bound
     }
@@ -325,9 +324,9 @@ impl Offsets {
     ///
     /// An addition's carry can move a value's top, and with it the end of a
     /// run, by one bit; a sum of up to [`MAX_SUM_TERMS`] terms by
-    /// [`SUM_CARRY_BITS`]. A shift moves every position by the shift's
-    /// offset. A limb operand's positions lie at its shift's offset and at
-    /// that plus its count's fixed limbs.
+    /// [`SUM_CARRY_BITS`]. A shift moves every position by the shift's offset.
+    /// A limb operand's positions lie at its shift's offset and at that plus
+    /// its count's fixed limbs.
     fn after(mut self, step: &Step<Extent>) -> Offsets {
         let o = &mut self.members;
         match step {
@@ -403,9 +402,9 @@ impl Offsets {
 
 /// Declares [`Kind`] and [`Kind::ALL`] from one list of kinds.
 ///
-/// Generating both from the list makes `ALL` name every kind exactly once,
-/// in declaration order, which is also the order of the discriminants that
-/// index a case's swarm weights.
+/// Generating both from the list makes `ALL` name every kind exactly once, in
+/// declaration order, which is also the order of the discriminants that index a
+/// case's swarm weights.
 macro_rules! kinds {
     ($($(#[$doc:meta])* $kind:ident,)*) => {
         /// The kinds of generated step, in the order of a case's swarm
@@ -484,9 +483,9 @@ impl Kind {
     /// since their borrowed forms clone the whole value.
     ///
     /// A conversion that succeeds replaces its member by a new accumulator,
-    /// which starts a new storage; a later write above it grows storage
-    /// again in every repetition, and the model charges that growth, so such
-    /// a skeleton's steady repetition does not count as fixed-charge.
+    /// which starts a new storage; a later write above it grows storage again
+    /// in every repetition, and the model charges that growth, so such a
+    /// skeleton's steady repetition does not count as fixed-charge.
     pub const FIXED_CHARGE: [Kind; 10] = [
         Kind::Primitive,
         Kind::Limbs,
@@ -521,8 +520,8 @@ fn arb_integer() -> impl Strategy<Value = Integer> {
     ]
 }
 
-/// Machine words at the digit, limb, and sign boundaries, the pool
-/// property's list.
+/// Machine words at the digit, limb, and sign boundaries, the pool property's
+/// list.
 const BOUNDARY_WORDS: [u64; 18] = [
     0,
     1,
@@ -555,8 +554,8 @@ fn arb_word() -> impl Strategy<Value = u64> {
 }
 
 /// Generates signed values within `2^33` of `k · 2^(32 d)`, for `k` in 1..=4
-/// and `d` in 1..=2, where the small form's comparison threshold and the
-/// digit boundaries lie.
+/// and `d` in 1..=2, where the small form's comparison threshold and the digit
+/// boundaries lie.
 fn arb_near_threshold() -> impl Strategy<Value = i128> {
     (
         1i128..=4,
@@ -594,9 +593,9 @@ fn arb_primitive() -> impl Strategy<Value = Primitive> {
 /// Offsets from a multiple of the unit at the digit and limb boundaries.
 const ALIGNMENTS: [i64; 6] = [0, 1, 31, 32, 33, 63];
 
-/// Generates a position of one to `max_units` units, misaligned by a
-/// boundary offset either way, or, one time in four, a fixed position of at
-/// most 128 bits.
+/// Generates a position of one to `max_units` units, misaligned by a boundary
+/// offset either way, or, one time in four, a fixed position of at most 128
+/// bits.
 fn arb_position(max_units: u64) -> BoxedStrategy<Extent> {
     let scaled = (
         1..=max_units,
@@ -610,8 +609,8 @@ fn arb_position(max_units: u64) -> BoxedStrategy<Extent> {
     prop_oneof![3 => scaled, 1 => (0u64..=128).prop_map(Extent::fixed)].boxed()
 }
 
-/// Generates a digit-aligned position of exactly `units` units, offset by
-/// up to two digits either way (never below zero).
+/// Generates a digit-aligned position of exactly `units` units, offset by up to
+/// two digits either way (never below zero).
 fn arb_digit(units: u64) -> impl Strategy<Value = Extent> {
     (-2i64..=2).prop_map(move |digits| Extent {
         units,
@@ -845,12 +844,11 @@ fn arb_steps(kind: Kind, fixed_charge: bool) -> BoxedStrategy<Vec<Step<Extent>>>
 /// leaves every value as it found it.
 ///
 /// Each element is an update and its inverse, a value-neutral gap round or
-/// extreme-digit deposit and its inverse, a question about a sign or an
-/// order, a conversion that refuses, or a negation applied twice. Its limb
-/// operands have fixed counts,
-/// though their positions scale, so once storage is grown no step of it
-/// charges a term that grows with the unit, whatever the context left in
-/// the members it touches.
+/// extreme-digit deposit and its inverse, a question about a sign or an order,
+/// a conversion that refuses, or a negation applied twice. Its limb operands
+/// have fixed counts, though their positions scale, so once storage is grown no
+/// step of it charges a term that grows with the unit, whatever the context
+/// left in the members it touches.
 fn arb_block_element() -> BoxedStrategy<Vec<Step<Extent>>> {
     let member = arb_member;
     prop_oneof![
@@ -928,8 +926,8 @@ fn arb_block_element() -> BoxedStrategy<Vec<Step<Extent>>> {
     .boxed()
 }
 
-/// Generates a block: a few elements, possibly none, each value-neutral, so
-/// the block is too.
+/// Generates a block: a few elements, possibly none, each value-neutral, so the
+/// block is too.
 fn arb_block() -> impl Strategy<Value = Vec<Step<Extent>>> {
     proptest::collection::vec(arb_block_element(), 0..=3)
         .prop_map(|elements| elements.into_iter().flatten().collect())
@@ -937,13 +935,14 @@ fn arb_block() -> impl Strategy<Value = Vec<Step<Extent>>> {
 
 /// Generates a skeleton, normalized by [`Skeleton::new`].
 ///
-/// A case draws a regime, a swarm of enabled kinds with weights, a context
-/// of up to [`MAX_STEPS`] generated steps drawn from that swarm, and a block
-/// of value-neutral, fixed-charge elements.
+/// A case draws a regime, a swarm of enabled kinds with weights, a context of
+/// up to [`MAX_STEPS`] generated steps drawn from that swarm, and a block of
+/// value-neutral, fixed-charge elements.
 ///
-/// One case in four draws from the fixed-charge regime ([`Kind::FIXED_CHARGE`]).
-/// Each kind is disabled in about a third of cases and otherwise weighted
-/// from 1 to 5; a case that disables every writer enables [`Kind::Limbs`].
+/// One case in four draws from the fixed-charge regime
+/// ([`Kind::FIXED_CHARGE`]). Each kind is disabled in about a third of cases
+/// and otherwise weighted from 1 to 5; a case that disables every writer
+/// enables [`Kind::Limbs`].
 pub fn arb_skeleton() -> impl Strategy<Value = Skeleton> {
     let weights = proptest::array::uniform::<_, { Kind::ALL.len() }>(
         prop_oneof![1 => Just(0u32), 2 => 1u32..6],

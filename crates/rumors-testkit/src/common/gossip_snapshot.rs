@@ -1,16 +1,15 @@
 //! Record protocol traffic for byte-level assertions and wire snapshots.
 //!
-//! A capture records every byte each side writes to and reads from its end
-//! of an in-memory connection, independently of the observation hook. The
-//! reads let the driver check that both peers consumed every byte before
-//! returning.
+//! A capture records every byte each side writes to and reads from its end of
+//! an in-memory connection, independently of the observation hook. The reads
+//! let the driver check that both peers consumed every byte before returning.
 //!
 //! One pipe per direction carries the preamble, the greeting, every logical
 //! stream's frames, and the closing items, so a capture preserves the
 //! multiplexer's interleaving. The snapshot renderer groups frames by the
 //! logical stream the observation hook names, so that interleaving never
-//! changes a snapshot. Re-accept a snapshot only after a deliberate
-//! protocol change.
+//! changes a snapshot. Re-accept a snapshot only after a deliberate protocol
+//! change.
 //!
 //! Each in-memory connection end is wrapped at both halves, which share a
 //! `Log`. These transport records can then be compared with observation
@@ -77,8 +76,8 @@ enum Op {
     Recv,
 }
 
-/// One recorded I/O event: a contiguous run of bytes that a single peer
-/// sent or received in one `poll_write` / `poll_read`.
+/// One recorded I/O event: a contiguous run of bytes that a single peer sent or
+/// received in one `poll_write` / `poll_read`.
 struct Event {
     /// The peer that performed the I/O (`"A"` or `"B"`).
     peer: &'static str,
@@ -89,9 +88,9 @@ struct Event {
 /// A shared, append-only, globally-ordered event log. The push order across
 /// both peers *is* the captured interleaving.
 ///
-/// `Arc<Mutex<…>>` rather than `Rc<RefCell<…>>` because `gossip` requires
-/// its transport to be `Send`; the mutex is uncontended in practice since
-/// the deterministic executor only ever polls one peer at a time.
+/// `Arc<Mutex<…>>` rather than `Rc<RefCell<…>>` because `gossip` requires its
+/// transport to be `Send`; the mutex is uncontended in practice since the
+/// deterministic executor only ever polls one peer at a time.
 #[derive(Clone, Default)]
 struct Log(Arc<Mutex<Vec<Event>>>);
 
@@ -105,8 +104,8 @@ impl Log {
     }
 }
 
-/// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one half that records
-/// every byte crossing it into a shared `Log`.
+/// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one half that records every
+/// byte crossing it into a shared `Log`.
 pub struct Recorder {
     inner: DuplexStream,
     peer: &'static str,
@@ -159,8 +158,8 @@ impl AsyncWrite for Recorder {
 
 /// The recording connection end handed to each session driver.
 pub struct CaptureEnd {
-    /// The recorded read half, buffered as a session requires; the
-    /// recording sees what the buffer reads.
+    /// The recorded read half, buffered as a session requires; the recording
+    /// sees what the buffer reads.
     pub read: BufReader<Recorder>,
     /// The recorded write half.
     pub write: Recorder,
@@ -205,11 +204,10 @@ impl Side {
 
 /// The hook-side recorder a capture driver attaches to its peer.
 ///
-/// Records one session: its elected role and every *sent* directed
-/// stream's items, each stamped from one session-scoped counter so their
-/// observation order survives. The received directions are declined: each
-/// side of a capture renders what it sent, and the two sides together
-/// cover both directions.
+/// Records one session: its elected role and every *sent* directed stream's
+/// items, each stamped from one session-scoped counter so their observation
+/// order survives. The received directions are declined: each side of a capture
+/// renders what it sent, and the two sides together cover both directions.
 #[derive(Default)]
 pub struct HookRecorder {
     sessions: Mutex<Vec<Arc<RecordedSession>>>,
@@ -277,9 +275,9 @@ impl StreamObserver for RecordStream {
     }
 }
 
-/// Attach `hook` to a sole-handle [`Rumors`], for drivers whose peer is
-/// already past its builder. Panics if other clones are live: capture
-/// drivers own their peers.
+/// Attach `hook` to a sole-handle [`Rumors`], for drivers whose peer is already
+/// past its builder. Panics if other clones are live: capture drivers own their
+/// peers.
 pub async fn observed<T>(rumors: Rumors<T>, hook: Arc<HookRecorder>) -> Rumors<T>
 where
     T: Send + Sync + 'static,
@@ -294,9 +292,9 @@ where
 
 /// Harvest one side's [`HookCapture`], held to the transport oracle.
 ///
-/// Every observed item, control and frame alike, taken in observation
-/// order, must reproduce the pipe's sent bytes exactly. That assertion is
-/// what licenses rendering hook items as a pin of wire bytes.
+/// Every observed item, control and frame alike, taken in observation order,
+/// must reproduce the pipe's sent bytes exactly. That assertion is what
+/// licenses rendering hook items as a pin of wire bytes.
 fn hook_capture(recorder: &HookRecorder, transport: &PipeCapture) -> HookCapture {
     let sessions = recorder.sessions.lock().unwrap();
     assert_eq!(sessions.len(), 1, "one captured session per driver");
@@ -347,15 +345,14 @@ fn hook_capture(recorder: &HookRecorder, transport: &PipeCapture) -> HookCapture
 /// Capture and render an arbitrary pair of V2 protocol sessions.
 ///
 /// Each side is a closure handed its recorded connection end and its hook
-/// recorder; it attaches the recorder to its peer (or builder) and
-/// returns the future that drives its role (`gossip`, `bootstrap`,
-/// `retire`, …). Rendering consumes the observation hook's items — the
-/// instrument enters through the public door — while the transport
-/// capture stays as the totality oracle behind the byte-pin claim. The
-/// renderer preserves exact items per logical stream but keys the streams
-/// by their observed index, which is the V2 protocol's deterministic
-/// observable ordering. A driver must run its session to completion
-/// and assert its own outcome.
+/// recorder; it attaches the recorder to its peer (or builder) and returns the
+/// future that drives its role (`gossip`, `bootstrap`, `retire`, …). Rendering
+/// consumes the observation hook's items — the instrument enters through the
+/// public door — while the transport capture stays as the totality oracle
+/// behind the byte-pin claim. The renderer preserves exact items per logical
+/// stream but keys the streams by their observed index, which is the V2
+/// protocol's deterministic observable ordering. A driver must run its session
+/// to completion and assert its own outcome.
 ///
 /// [`capture_gossip`] is the gossip/gossip specialization; the bootstrap and
 /// retire snapshot suites build the asymmetric pairings on top of this.
@@ -378,12 +375,11 @@ where
     render_hook_capture(&hook_capture(&hook_a, &a), &hook_capture(&hook_b, &b))
 }
 
-/// Drive both roles over recording connections and return both sides'
-/// captures.
+/// Drive both roles over recording connections and return both sides' captures.
 ///
-/// The raw form of [`capture_session`], for suites that inspect the
-/// captured bytes themselves (the wire-legibility property) rather than
-/// the rendered transcript.
+/// The raw form of [`capture_session`], for suites that inspect the captured
+/// bytes themselves (the wire-legibility property) rather than the rendered
+/// transcript.
 pub fn capture_sides<DriveA, DriveB, FutA, FutB>(
     drive_a: DriveA,
     drive_b: DriveB,
@@ -405,16 +401,15 @@ where
     (a_side.capture(), b_side.capture())
 }
 
-/// Assert the captured session drained the connection in both directions:
-/// every byte each peer sent, the other received.
+/// Assert the captured session drained the connection in both directions: every
+/// byte each peer sent, the other received.
 ///
-/// The same invariant [`assert_connection_drained`] probes on a bare
-/// memory connection, in the form this harness can check: the
-/// shared [`Log`] records both peers' I/O, so per direction the received
-/// total must equal the sent total (delivery preserves order, so equal
-/// totals mean the halves rest at the session boundary). Every capture
-/// driver asserts a successful outcome, so the drain invariant applies to
-/// every captured session.
+/// The same invariant [`assert_connection_drained`] probes on a bare memory
+/// connection, in the form this harness can check: the shared [`Log`] records
+/// both peers' I/O, so per direction the received total must equal the sent
+/// total (delivery preserves order, so equal totals mean the halves rest at the
+/// session boundary). Every capture driver asserts a successful outcome, so the
+/// drain invariant applies to every captured session.
 ///
 /// [`assert_connection_drained`]: crate::common::wire::assert_connection_drained
 fn assert_capture_drained(events: &[Event]) {
@@ -441,15 +436,14 @@ where
     capture_gossip_returning(a, b).0
 }
 
-/// [`capture_gossip`], handing the two live handles back after the
-/// session, for tests that assert on post-session replica state.
+/// [`capture_gossip`], handing the two live handles back after the session, for
+/// tests that assert on post-session replica state.
 ///
-/// The hook attaches by briefly reclaiming each `Peer` (the observation
-/// hook's attach point), which requires the passed handle to be its
-/// peer's sole one — so a caller wanting post-state must take its
-/// handles back here rather than holding clones across the capture (a
-/// held clone stalls the reclaim, and the deterministic executor
-/// reports the whole session stalled).
+/// The hook attaches by briefly reclaiming each `Peer` (the observation hook's
+/// attach point), which requires the passed handle to be its peer's sole one —
+/// so a caller wanting post-state must take its handles back here rather than
+/// holding clones across the capture (a held clone stalls the reclaim, and the
+/// deterministic executor reports the whole session stalled).
 pub fn capture_gossip_returning<T>(a: Rumors<T>, b: Rumors<T>) -> (String, Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,

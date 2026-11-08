@@ -6,8 +6,8 @@ use super::*;
 // these helpers write. The round-trip families therefore cover majors 0–6.
 
 /// Every head a writer emits reads back as the same `(major, value)` pair,
-/// occupies exactly `head_len` bytes, and leaves trailing input untouched:
-/// the writer and the canonical reader are inverses.
+/// occupies exactly `head_len` bytes, and leaves trailing input untouched: the
+/// writer and the canonical reader are inverses.
 #[test]
 fn heads_round_trip_at_their_stated_width() {
     proptest!(|(major in 0u8..7, value: u64, trailing: Vec<u8>)| {
@@ -23,8 +23,7 @@ fn heads_round_trip_at_their_stated_width() {
 }
 
 /// A head whose argument is wider than its value requires is rejected as
-/// non-shortest-form: the deterministic contract admits one spelling per
-/// value.
+/// non-shortest-form: the deterministic contract admits one spelling per value.
 #[test]
 fn widened_heads_are_rejected() {
     proptest!(|(major in 0u8..7, value: u64)| {
@@ -43,8 +42,8 @@ fn widened_heads_are_rejected() {
     });
 }
 
-/// Indefinite-length and reserved additional-information heads are
-/// rejected: the wire is definite-length, deterministic CBOR only.
+/// Indefinite-length and reserved additional-information heads are rejected:
+/// the wire is definite-length, deterministic CBOR only.
 #[test]
 fn indefinite_and_reserved_heads_are_rejected() {
     for major in 0u8..8 {
@@ -67,8 +66,8 @@ fn indefinite_and_reserved_heads_are_rejected() {
     }
 }
 
-/// A head cut anywhere before its final byte is a truncation, and the
-/// input is left unconsumed.
+/// A head cut anywhere before its final byte is a truncation, and the input is
+/// left unconsumed.
 #[test]
 fn truncated_heads_are_rejected() {
     proptest!(|(major in 0u8..7, value: u64)| {
@@ -83,9 +82,9 @@ fn truncated_heads_are_rejected() {
     });
 }
 
-/// The rendered self-described-tag spelling is exactly what the head
-/// writer emits for the tag number: the byte constant the production
-/// frames open with cannot drift from the writers.
+/// The rendered self-described-tag spelling is exactly what the head writer
+/// emits for the tag number: the byte constant the production frames open with
+/// cannot drift from the writers.
 #[test]
 fn self_described_head_matches_the_writer() {
     let mut rendered = Vec::new();
@@ -93,9 +92,9 @@ fn self_described_head_matches_the_writer() {
     assert_eq!(rendered, SELF_DESCRIBED_HEAD);
 }
 
-/// The async head reader agrees with the slice reader on every written
-/// head — the two ingress paths cannot drift — and reports a clean
-/// end-of-stream before the first byte as `None`.
+/// The async head reader agrees with the slice reader on every written head —
+/// the two ingress paths cannot drift — and reports a clean end-of-stream
+/// before the first byte as `None`.
 #[test]
 fn async_heads_match_the_slice_reader() {
     proptest!(|(major in 0u8..7, value: u64)| {

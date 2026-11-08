@@ -110,8 +110,8 @@ fn arb_query() -> impl Strategy<Value = Vec<Listed>> {
         })
 }
 
-/// Generate the later matches a match covers: none, or any nonempty set,
-/// every size likely enough to reach both of a set's spellings.
+/// Generate the later matches a match covers: none, or any nonempty set, every
+/// size likely enough to reach both of a set's spellings.
 fn arb_later_matches() -> impl Strategy<Value = LaterMatches> {
     (0..=256usize).prop_flat_map(|len| {
         proptest::sample::subsequence((0..=u8::MAX).collect::<Vec<_>>(), len)
@@ -119,8 +119,8 @@ fn arb_later_matches() -> impl Strategy<Value = LaterMatches> {
     })
 }
 
-/// The covered sets the read plan, the atlas and the corpus spell for a
-/// match: one in a list's spelling and one in a bitmap's.
+/// The covered sets the read plan, the atlas and the corpus spell for a match:
+/// one in a list's spelling and one in a bitmap's.
 fn spelled_sets() -> [ByteSet; 2] {
     [
         [1, 2].into_iter().collect(),
@@ -287,8 +287,8 @@ proptest! {
     }
 }
 
-/// A synchronous writer that takes the given count of bytes, then fails
-/// every write.
+/// A synchronous writer that takes the given count of bytes, then fails every
+/// write.
 struct FailAfter(usize);
 
 impl std::io::Write for FailAfter {
@@ -306,9 +306,9 @@ impl std::io::Write for FailAfter {
     }
 }
 
-/// An async writer that supports vectored writes, taking at most `chunk`
-/// bytes per write across all of its slices until `budget` bytes are
-/// taken, then failing every write. It records each write's bytes.
+/// An async writer that supports vectored writes, taking at most `chunk` bytes
+/// per write across all of its slices until `budget` bytes are taken, then
+/// failing every write. It records each write's bytes.
 struct VectoredWrite {
     /// The most bytes one write takes.
     chunk: usize,
@@ -319,8 +319,8 @@ struct VectoredWrite {
 }
 
 impl VectoredWrite {
-    /// Take at most `chunk` bytes per write, and fail once `budget` bytes
-    /// are taken.
+    /// Take at most `chunk` bytes per write, and fail once `budget` bytes are
+    /// taken.
     fn new(chunk: usize, budget: usize) -> Self {
         Self {
             chunk,
@@ -443,7 +443,8 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
     }
 }
 
-/// All 340 placements pin either their canonical frame bytes or typed rejection.
+/// All 340 placements pin either their canonical frame bytes or typed
+/// rejection.
 #[test]
 fn canonical_frame_atlas_snapshot() {
     let mut atlas = String::new();
@@ -565,7 +566,8 @@ fn representative_frame(signal: Signal) -> Frame {
     }
 }
 
-/// Every bounded frame's exact codec outcome is pinned by speaker, stream, and signal.
+/// Every bounded frame's exact codec outcome is pinned by speaker, stream, and
+/// signal.
 #[test]
 fn bounded_corpus_manifest_snapshot() {
     let mut frames = 0;
@@ -772,9 +774,9 @@ fn generic_io_preserves_frame_boundaries() {
     assert_eq!(reader.position(), frame_len);
 }
 
-/// A slice-backed async reader that counts transport reads and serves
-/// each in full, so a decode's count is the reader's own read plan and
-/// not the transport's chunking.
+/// A slice-backed async reader that counts transport reads and serves each in
+/// full, so a decode's count is the reader's own read plan and not the
+/// transport's chunking.
 struct CountingRead<'a> {
     bytes: &'a [u8],
     reads: usize,
@@ -795,20 +797,20 @@ impl AsyncRead for CountingRead<'_> {
     }
 }
 
-/// Transport reads the async decoder spends on a head's argument
-/// extension when nothing rides along with it: one when the head carries
-/// one (a value of 24 or more), none otherwise.
+/// Transport reads the async decoder spends on a head's argument extension when
+/// nothing rides along with it: one when the head carries one (a value of 24 or
+/// more), none otherwise.
 fn extension_reads(value: u64) -> usize {
     usize::from(cbor::head_len(value) > 1)
 }
 
 /// Transport reads a listing's entries cost in bulk.
 ///
-/// Each read takes the fewest bytes the entries still owed can occupy
-/// (the narrow entry width per entry until a radix of 24 or more has
-/// been recorded, the wide width after), or what the entry cut short by
-/// the previous read still needs once its key head has arrived,
-/// whichever is more; each parses every entry it completes.
+/// Each read takes the fewest bytes the entries still owed can occupy (the
+/// narrow entry width per entry until a radix of 24 or more has been recorded,
+/// the wide width after), or what the entry cut short by the previous read
+/// still needs once its key head has arrived, whichever is more; each parses
+/// every entry it completes.
 fn listing_bulk_reads(children: &[Listed]) -> usize {
     let widths: Vec<usize> = children
         .iter()
@@ -840,18 +842,17 @@ fn listing_bulk_reads(children: &[Listed]) -> usize {
 }
 
 /// Transport reads the async decoder spends on one canonical frame whose
-/// transport serves every read in full: the reader's read plan, stated
-/// over the frame's wire shape.
+/// transport serves every read in full: the reader's read plan, stated over the
+/// frame's wire shape.
 ///
-/// Every read takes only bytes the grammar guarantees to exist given what
-/// is already parsed, and takes all of them it can. The frame's opener —
-/// its array head, stream item, and state item, one byte each — costs
-/// one read. A listing costs its map head
-/// (one read, plus one for an extension) and then its bulk reads
-/// ([`listing_bulk_reads`]). A supply costs one read for each of its two
-/// heads' initial bytes, one for each extension present, and one for its
-/// run body, which the reader reserves whole once the run's length is
-/// judged, so a transport serving every read in full delivers it at once.
+/// Every read takes only bytes the grammar guarantees to exist given what is
+/// already parsed, and takes all of them it can. The frame's opener — its array
+/// head, stream item, and state item, one byte each — costs one read. A listing
+/// costs its map head (one read, plus one for an extension) and then its bulk
+/// reads ([`listing_bulk_reads`]). A supply costs one read for each of its two
+/// heads' initial bytes, one for each extension present, and one for its run
+/// body, which the reader reserves whole once the run's length is judged, so a
+/// transport serving every read in full delivers it at once.
 fn read_plan(frame: &WireFrame) -> usize {
     let (_, frame) = frame;
     let mut reads = 1;
@@ -879,9 +880,8 @@ fn read_plan(frame: &WireFrame) -> usize {
     reads
 }
 
-/// Decode `encoded` as one frame through the async reader over a
-/// transport that serves every read in full, returning the frame and the
-/// reads it cost.
+/// Decode `encoded` as one frame through the async reader over a transport that
+/// serves every read in full, returning the frame and the reads it cost.
 fn decode_counting(speaker: Speaker, encoded: &[u8]) -> (WireFrame, usize) {
     let mut reader = FrameRead::new(
         speaker,
@@ -918,15 +918,15 @@ proptest! {
     }
 }
 
-/// The read plan at the wire's reference shapes, pinned as numbers so a
-/// change to the reader's batching shows in this diff.
+/// The read plan at the wire's reference shapes, pinned as numbers so a change
+/// to the reader's batching shows in this diff.
 ///
 /// The body-free match is the frame the reader meets most often; a match
-/// covering later matches carries a set in either spelling; the full-fan
-/// query is the widest listing; the lone-record supply is the smallest
-/// run. Each case checks the decoder's actual reads against the
-/// pinned number and the pinned number against the plan formula, so the
-/// formula and the reader are held to each other.
+/// covering later matches carries a set in either spelling; the full-fan query
+/// is the widest listing; the lone-record supply is the smallest run. Each case
+/// checks the decoder's actual reads against the pinned number and the pinned
+/// number against the plan formula, so the formula and the reader are held to
+/// each other.
 #[test]
 fn read_plan_at_reference_shapes() {
     let stream = Stream::new(4).unwrap();

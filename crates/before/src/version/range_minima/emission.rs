@@ -15,7 +15,8 @@ use super::RangeMinima;
 
 /// Track emitted minima and client differences without distinct-minimum events.
 impl RangeMinima {
-    /// Emit the running height, arming pending ranges or lowering existing minima.
+    /// Emit the running height, arming pending ranges or lowering existing
+    /// minima.
     pub fn emit_here(&mut self) {
         if self.has_pending() {
             self.arm_at_height(&mut (), |_| ());
@@ -24,7 +25,8 @@ impl RangeMinima {
         }
     }
 
-    /// Emit `v = h + offset`, changing the minima only where the value is lower.
+    /// Emit `v = h + offset`, changing the minima only where the value is
+    /// lower.
     ///
     /// Pending ranges take `-offset` as their first height gap. Existing ranges
     /// first try a leading-digit comparison when the gap dominates a word-sized
@@ -59,8 +61,8 @@ impl RangeMinima {
     ///
     /// This requires `A = m`. A dominating positive gap means the emission
     /// stays above the minimum. A negative gap means it undercuts; move the gap
-    /// into `decrease = -gap - offset` and propagate that owned value. Returning
-    /// `false` leaves the ordinary folded comparison to the caller.
+    /// into `decrease = -gap - offset` and propagate that owned value.
+    /// Returning `false` leaves the ordinary folded comparison to the caller.
     fn emit_when_gap_dominates(&mut self, offset: &BigInt) -> bool {
         if self.deferred_live() || u64::try_from(offset.magnitude()).is_err() {
             return false;
@@ -95,7 +97,8 @@ impl RangeMinima {
     /// A wide gap can decide a word-sized offset from its leading digits.
     /// Otherwise a temporary height fold exposes the candidate to the ordinary
     /// minimum comparison. That comparison may resolve a deferred distance;
-    /// undoing the offset still restores the running height under the new anchor.
+    /// undoing the offset still restores the running height under the new
+    /// anchor.
     pub fn compare_above(&mut self, above: &BigInt) -> Ordering {
         debug_assert!(self.armed(), "a comparison needs an armed range");
         if !self.deferred_live() && u64::try_from(above.magnitude()).is_ok() {
@@ -118,10 +121,11 @@ impl RangeMinima {
         self.anchor.compare_offset_to(above, arm_offset)
     }
 
-    /// Arm pending ranges at `v = A + arm_offset`, taking ownership of the offset.
+    /// Arm pending ranges at `v = A + arm_offset`, taking ownership of the
+    /// offset.
     ///
-    /// The same value first changes the height gap to `h - v`, then becomes
-    /// the boundary `v - old_minimum`. Neither endpoint is copied or materialized.
+    /// The same value first changes the height gap to `h - v`, then becomes the
+    /// boundary `v - old_minimum`. Neither endpoint is copied or materialized.
     pub fn arm_relative(&mut self, arm_offset: Accumulator) {
         debug_assert!(
             self.has_pending(),
@@ -144,7 +148,8 @@ impl RangeMinima {
         self.anchor.set_follower(slot, follower);
     }
 
-    /// Detach `A - X` exactly as stored, without resolving the deferred distance.
+    /// Detach `A - X` exactly as stored, without resolving the deferred
+    /// distance.
     ///
     /// Resolve first when the consumer needs `m - X`. Anchor-relative uses,
     /// such as [`Self::bridge_add_gap`], let the deferred terms cancel instead.

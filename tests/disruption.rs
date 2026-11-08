@@ -1,18 +1,18 @@
 //! Party linearity and disjointness under arbitrary disruption.
 //!
 //! One simulation (`common::sim`): a fleet of peers on one multi-thread
-//! runtime, every gossip session, bootstrap, send, and redact spawned at
-//! once, over in-memory wires that may be severed at arbitrary byte
-//! offsets. The global properties are stated on each test below. Task
-//! interleavings are nondeterministic, so a counterexample may not replay
-//! byte-for-byte; the invariants quantify over *all* interleavings, so any
-//! failure is a genuine one.
+//! runtime, every gossip session, bootstrap, send, and redact spawned at once,
+//! over in-memory wires that may be severed at arbitrary byte offsets. The
+//! global properties are stated on each test below. Task interleavings are
+//! nondeterministic, so a counterexample may not replay byte-for-byte; the
+//! invariants quantify over *all* interleavings, so any failure is a genuine
+//! one.
 //!
 //! The focused departure tests below use [`run_to_quiescence`] to detect a
-//! stalled in-memory session deterministically. The concurrent simulator has
-//! no local deadline: elapsed time cannot distinguish a deadlock from host
-//! load on a multi-thread executor. Nextest's process limit remains its outer
-//! runaway guard.
+//! stalled in-memory session deterministically. The concurrent simulator has no
+//! local deadline: elapsed time cannot distinguish a deadlock from host load on
+//! a multi-thread executor. Nextest's process limit remains its outer runaway
+//! guard.
 
 use rumors_testkit::common;
 
@@ -39,16 +39,16 @@ use rumors_testkit::divided_proptest;
 
 /// Worker threads in each simulation's runtime.
 ///
-/// Several workers let peers' tasks run truly in parallel. The count is
-/// fixed rather than Tokio's default of one per host core, so a simulation
-/// interleaves the same way on every host, and a property case does not
-/// spawn and join a thread per core: on a many-core host that thread churn,
-/// repeated in every case, costs far more than the simulation itself.
+/// Several workers let peers' tasks run truly in parallel. The count is fixed
+/// rather than Tokio's default of one per host core, so a simulation
+/// interleaves the same way on every host, and a property case does not spawn
+/// and join a thread per core: on a many-core host that thread churn, repeated
+/// in every case, costs far more than the simulation itself.
 const SIM_WORKERS: usize = 4;
 
-/// A fresh multi-thread runtime of [`SIM_WORKERS`] workers per simulation,
-/// so tasks interleave with real parallelism rather than cooperative
-/// scheduling alone.
+/// A fresh multi-thread runtime of [`SIM_WORKERS`] workers per simulation, so
+/// tasks interleave with real parallelism rather than cooperative scheduling
+/// alone.
 fn mt_runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(SIM_WORKERS)
@@ -122,8 +122,8 @@ divided_proptest! {
     }
 }
 
-/// Run one plan through the full invariant battery: execute, heal,
-/// then convergence, party, deletion-honoring, and value-ledger checks.
+/// Run one plan through the full invariant battery: execute, heal, then
+/// convergence, party, deletion-honoring, and value-ledger checks.
 async fn check_plan(plan: Plan) {
     let outcome = run_plan(plan).await;
     quiesce(&outcome.peers).await;
@@ -139,13 +139,12 @@ async fn check_plan(plan: Plan) {
     );
 }
 
-/// The vanish dimension is live in the generated plan population: across
-/// a deterministic sample of plans run through the engine, some endpoint
-/// reaches its vanish point.
+/// The vanish dimension is live in the generated plan population: across a
+/// deterministic sample of plans run through the engine, some endpoint reaches
+/// its vanish point.
 ///
-/// A drawn vanish past the end of everything its endpoint writes never
-/// trips, so the floor counts vanishes that fired, not plans that carry
-/// one.
+/// A drawn vanish past the end of everything its endpoint writes never trips,
+/// so the floor counts vanishes that fired, not plans that carry one.
 #[test]
 fn vanishes_fire_in_the_generated_population() {
     let mut runner = TestRunner::deterministic();
@@ -166,12 +165,12 @@ fn vanishes_fire_in_the_generated_population() {
     );
 }
 
-/// A deterministic pair for the vanish tests: `a` holds the only new
-/// content, and `b` has nothing to send.
+/// A deterministic pair for the vanish tests: `a` holds the only new content,
+/// and `b` has nothing to send.
 ///
 /// Every call with one `network` constructs the same replicas, and a session
-/// between them writes the same bytes, so an offset measured on one pair
-/// lands at the same point in another's session.
+/// between them writes the same bytes, so an offset measured on one pair lands
+/// at the same point in another's session.
 fn vanish_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     a.send_all(0..8).unwrap();
@@ -180,11 +179,11 @@ fn vanish_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     (a, b)
 }
 
-/// The bytes `a` of [`vanish_pair`] writes before its first frame: its
-/// preamble and greeting.
+/// The bytes `a` of [`vanish_pair`] writes before its first frame: its preamble
+/// and greeting.
 ///
-/// Measured on a clean session: everything `a` writes, less the frame
-/// bytes its statistics count and its completion marker.
+/// Measured on a clean session: everything `a` writes, less the frame bytes its
+/// statistics count and its completion marker.
 fn bytes_before_first_frame(network: NetworkSeed) -> usize {
     let (a, b) = vanish_pair(network);
     let (a_end, mut b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -202,9 +201,9 @@ fn bytes_before_first_frame(network: NetworkSeed) -> usize {
     meter.written() - gossiped.stats.bytes_sent as usize - COMPLETION_MARKER.len()
 }
 
-/// Run one session of [`vanish_pair`] under the closed-world poller in
-/// which `a` vanishes at `point`, and `b` survives with nothing to send:
-/// `b`'s outcome, or the poller's name for `b` parking.
+/// Run one session of [`vanish_pair`] under the closed-world poller in which
+/// `a` vanishes at `point`, and `b` survives with nothing to send: `b`'s
+/// outcome, or the poller's name for `b` parking.
 fn survive_a_vanish(
     network: NetworkSeed,
     point: Vanish,
@@ -337,9 +336,9 @@ fn panics(f: impl FnOnce()) -> bool {
 
 /// A small, fault-free plan for the tripwires.
 ///
-/// Deterministically loss-free by construction (no fault is ever
-/// injected), with enough content that a live message always exists to
-/// corrupt the ledger around.
+/// Deterministically loss-free by construction (no fault is ever injected),
+/// with enough content that a live message always exists to corrupt the ledger
+/// around.
 fn tripwire_plan(network: NetworkSeed) -> Plan {
     Plan {
         n_peers: 2,
@@ -438,12 +437,11 @@ divided_proptest! {
 /// transitively.
 ///
 /// The concrete reviewed counterexample: founder 1 redacts, retires into
-/// founder 2 (committed), then 2 retires toward 0 and that transfer is
-/// lost. Founder 1's cargo rode in 2 and is gone with it, so both must be
-/// reported lost — deriving loss from each logger's own retire outcome
-/// alone would leave 1 retained and blame the protocol on an honest run
-/// (its redaction can no longer reach the survivors). Recoveries move
-/// custody in neither direction.
+/// founder 2 (committed), then 2 retires toward 0 and that transfer is lost.
+/// Founder 1's cargo rode in 2 and is gone with it, so both must be reported
+/// lost — deriving loss from each logger's own retire outcome alone would leave
+/// 1 retained and blame the protocol on an honest run (its redaction can no
+/// longer reach the survivors). Recoveries move custody in neither direction.
 #[test]
 fn custody_chain_loss_is_transitive() {
     let lost = lost_custody(3, &[(1, 2, Transfer::Committed), (2, 0, Transfer::Lost)]);
@@ -461,12 +459,11 @@ fn custody_chain_loss_is_transitive() {
     );
 }
 
-/// An unbroken chain of committed transfers retains custody end to end:
-/// nothing is reported lost, so every logger's redactions stay subject
-/// to the unconditional deletion-honoring check.
+/// An unbroken chain of committed transfers retains custody end to end: nothing
+/// is reported lost, so every logger's redactions stay subject to the
+/// unconditional deletion-honoring check.
 ///
-/// The transitive weakening in [`lost_custody`] must never eat honest
-/// coverage.
+/// The transitive weakening in [`lost_custody`] must never eat honest coverage.
 #[test]
 fn custody_committed_chain_retains() {
     let lost = lost_custody(
@@ -572,28 +569,26 @@ divided_proptest! {
 
 // ---- MAX_CUT derivation pin --------------------------------------------------
 
-/// Distinct values per side of the envelope session: one more than the
-/// most content an entire plan can create anywhere.
+/// Distinct values per side of the envelope session: one more than the most
+/// content an entire plan can create anywhere.
 ///
-/// Derived from the generator's own bounds so the dominance premise
-/// cannot drift from the strategy.
+/// Derived from the generator's own bounds so the dominance premise cannot
+/// drift from the strategy.
 const ENVELOPE_VALUES_PER_SIDE: u64 =
     (MAX_PLAN_SEED_MESSAGES + MAX_PLAN_PEERS * MAX_PLAN_SCRIPT_OPS + 1) as u64;
 
 /// Byte extent of the envelope session, per endpoint.
 ///
-/// The construction dominates a plan's *value count* exactly — each
-/// endpoint holds more unique content than an entire plan can create —
-/// and exercises the version shapes plans produce at the generator's
-/// bounds: the fleet sits on a `MAX_PLAN_PEERS`-party fork lattice,
-/// every party contributes a send tick and a redaction tick, and two
-/// star rounds entangle every party's ticks into both endpoints'
-/// version bounds before the measured, fully-divergent session runs at
-/// the default budget. Byte extent is not *proven* maximal over
-/// version shapes (plan versions vary in dimensions no single
-/// construction dominates); the two-sided band in
-/// [`max_cut_spans_the_envelope_session`] is what keeps the constant
-/// tracking reality. Metered with the same counters the fault cuts
+/// The construction dominates a plan's *value count* exactly — each endpoint
+/// holds more unique content than an entire plan can create — and exercises the
+/// version shapes plans produce at the generator's bounds: the fleet sits on a
+/// `MAX_PLAN_PEERS`-party fork lattice, every party contributes a send tick and
+/// a redaction tick, and two star rounds entangle every party's ticks into both
+/// endpoints' version bounds before the measured, fully-divergent session runs
+/// at the default budget. Byte extent is not *proven* maximal over version
+/// shapes (plan versions vary in dimensions no single construction dominates);
+/// the two-sided band in [`max_cut_spans_the_envelope_session`] is what keeps
+/// the constant tracking reality. Metered with the same counters the fault cuts
 /// spend, so the result is directly comparable to cut offsets.
 async fn envelope_session_bytes(network: NetworkSeed) -> usize {
     let seed = BudgetChoice::Default

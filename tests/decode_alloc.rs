@@ -1,55 +1,52 @@
 //! Allocator metering for the wire decoders.
 //!
-//! A counting global allocator prices each decode in bytes requested from
-//! the allocator, holding decoder memory against the bytes a peer actually
+//! A counting global allocator prices each decode in bytes requested from the
+//! allocator, holding decoder memory against the bytes a peer actually
 //! delivered. The metered entries are the framing layer's declared-length
-//! payload read — the policy beneath every variable body whose
-//! peer-declared length nothing has bounded yet, the party hand-off's byte
-//! string included — the streaming codec's supply read, which reserves a
-//! run's body whole only once the run budget has judged its length, and
-//! record decoding, whose allocations and reallocations per record are
-//! bounded by the decode's steps. The meter counts only the
-//! thread driving the decode, so test-harness work on other threads cannot
-//! perturb its bounds.
+//! payload read — the policy beneath every variable body whose peer-declared
+//! length nothing has bounded yet, the party hand-off's byte string included —
+//! the streaming codec's supply read, which reserves a run's body whole only
+//! once the run budget has judged its length, and record decoding, whose
+//! allocations and reallocations per record are bounded by the decode's steps.
+//! The meter counts only the thread driving the decode, so test-harness work on
+//! other threads cannot perturb its bounds.
 
 use alloc_meter::measure as metered;
 use rumors::testing::{CodecDecodeError, CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
 
-/// The payload length a corrupt stream or conformance-buggy peer declares
-/// while delivering no or few payload bytes behind it.
+/// The payload length a corrupt stream or conformance-buggy peer declares while
+/// delivering no or few payload bytes behind it.
 const DECLARED_LEN: usize = 256 * 1024 * 1024;
 
-/// The payload length of the honest fully-delivered frames the liveness
-/// floors meter.
+/// The payload length of the honest fully-delivered frames the liveness floors
+/// meter.
 const HONEST_LEN: usize = 8 * 1024 * 1024;
 
 /// A non-power-of-two honest payload length.
 ///
-/// A growth policy whose capacity overshoots the declared length
-/// (amortized doubling lands on the next power of two, near twice this)
-/// breaches the honest ceiling here, where a power-of-two length would
-/// mask it.
+/// A growth policy whose capacity overshoots the declared length (amortized
+/// doubling lands on the next power of two, near twice this) breaches the
+/// honest ceiling here, where a power-of-two length would mask it.
 const HONEST_ODD_LEN: usize = 8 * 1024 * 1024 + 37;
 
-/// Allocator-noise allowance for a metered decode beyond its derived
-/// bound.
+/// Allocator-noise allowance for a metered decode beyond its derived bound.
 ///
-/// Covers waker and error-construction incidentals within two KiB:
-/// orders of magnitude below every bound it pads, so it cannot mask a
-/// declared-length prepay or a capacity overshoot.
+/// Covers waker and error-construction incidentals within two KiB: orders of
+/// magnitude below every bound it pads, so it cannot mask a declared-length
+/// prepay or a capacity overshoot.
 const METER_SLACK: usize = 2 * 1024;
 
-/// Allocation-event allowance beyond the derived growth schedule: waker
-/// and run-validation incidentals. Far below the events a per-granule
-/// reservation policy would produce (payload length over chunk length).
+/// Allocation-event allowance beyond the derived growth schedule: waker and
+/// run-validation incidentals. Far below the events a per-granule reservation
+/// policy would produce (payload length over chunk length).
 const EVENT_SLACK: usize = 16;
 
-/// Allocations needed to materialize one decoded record: the version's
-/// byte store, the payload bytes, and its typed `Arc`.
+/// Allocations needed to materialize one decoded record: the version's byte
+/// store, the payload bytes, and its typed `Arc`.
 ///
-/// The version adopts the buffer it reads its atom into as its storage.
-/// Sealed to its exact length, that buffer becomes the version's shared
-/// bytes without a separate sharing header, so the version allocates once.
+/// The version adopts the buffer it reads its atom into as its storage. Sealed
+/// to its exact length, that buffer becomes the version's shared bytes without
+/// a separate sharing header, so the version allocates once.
 const RECORD_ALLOCATIONS: usize = 3;
 
 /// Reallocations allowed per decoded record: one, which seals the version's
@@ -57,15 +54,15 @@ const RECORD_ALLOCATIONS: usize = 3;
 ///
 /// Every decoded version owns storage sized to its encoding. When the read
 /// reserves more than the atom's length, sealing shrinks the buffer. A
-/// reallocation is the cheapest way to reach the exact size: at worst it
-/// moves the atom once, as copying it into a fresh allocation would, and the
+/// reallocation is the cheapest way to reach the exact size: at worst it moves
+/// the atom once, as copying it into a fresh allocation would, and the
 /// allocator may shrink the block in place. No other step of a record decode
 /// resizes a buffer.
 const RECORD_REALLOCATIONS: usize = 1;
 
 /// Reservation events of the doubling-clamped growth schedule for a fully
-/// delivered `len`-byte payload: one initial granule, then one doubling
-/// per factor of two between the granule and `len`.
+/// delivered `len`-byte payload: one initial granule, then one doubling per
+/// factor of two between the granule and `len`.
 fn growth_events(len: usize) -> usize {
     let chunk = rumors::testing::frame_payload_chunk_len();
     usize::try_from(len.div_ceil(chunk).next_power_of_two().trailing_zeros())
@@ -73,29 +70,28 @@ fn growth_events(len: usize) -> usize {
         + 1
 }
 
-/// A streaming supply frame declaring `declared` run bytes, delivering
-/// `body` behind the frame and run heads.
+/// A streaming supply frame declaring `declared` run bytes, delivering `body`
+/// behind the frame and run heads.
 fn supply_frame(declared: usize, body: &[u8]) -> Vec<u8> {
     let mut bytes = rumors::testing::supply_frame_head(declared);
     bytes.extend_from_slice(body);
     bytes
 }
 
-/// A run body of `len` total bytes that passes run-record framing: one
-/// record whose heads claim the rest of the body. Record contents decode
-/// lazily, so arbitrary bytes suffice for the meter.
+/// A run body of `len` total bytes that passes run-record framing: one record
+/// whose heads claim the rest of the body. Record contents decode lazily, so
+/// arbitrary bytes suffice for the meter.
 fn run_body(len: usize) -> Vec<u8> {
     rumors::testing::lone_record_run(len)
 }
 
 /// Record decoding does not allocate an intermediate CBOR byte string per
 /// version atom: each added record costs at most `RECORD_ALLOCATIONS`
-/// allocations, and the whole decode at most `RECORD_REALLOCATIONS` per
-/// record.
+/// allocations, and the whole decode at most `RECORD_REALLOCATIONS` per record.
 ///
 /// An intermediate byte string costs one allocation per record beyond
-/// `RECORD_ALLOCATIONS`, and growing a buffer incrementally costs
-/// reallocations beyond the one seal per version.
+/// `RECORD_ALLOCATIONS`, and growing a buffer incrementally costs reallocations
+/// beyond the one seal per version.
 #[test]
 fn record_decode_avoids_an_intermediate_version_allocation() {
     let few_records = 1;
@@ -124,8 +120,8 @@ fn record_decode_avoids_an_intermediate_version_allocation() {
     );
 }
 
-/// Ceiling: a declared 256 MiB payload with zero delivered bytes requests
-/// at most one payload chunk plus the meter's fixed slack.
+/// Ceiling: a declared 256 MiB payload with zero delivered bytes requests at
+/// most one payload chunk plus the meter's fixed slack.
 ///
 /// Decoder memory tracks bytes actually received, never the peer-declared
 /// length: with nothing delivered, at most one granule is reserved.
@@ -148,20 +144,20 @@ fn framing_zero_delivered_costs_at_most_one_chunk() {
     );
 }
 
-/// A supply frame reserves its run's declared length only once the
-/// session's run budget has judged it.
+/// A supply frame reserves its run's declared length only once the session's
+/// run budget has judged it.
 ///
-/// With nothing delivered behind the frame's heads, a run within the
-/// budget reserves exactly its declared length, and a run past the budget
-/// reserves nothing; both fail as a truncated `SupplyRun`.
+/// With nothing delivered behind the frame's heads, a run within the budget
+/// reserves exactly its declared length, and a run past the budget reserves
+/// nothing; both fail as a truncated `SupplyRun`.
 ///
-/// The budget bounds every length the reader reserves for a run within
-/// it, and in a session the receive pool has set that length aside before
-/// the reservation. Past the budget, the reader must read the run's
-/// first record's heads before anything else, so a garbage length there
-/// costs no reservation at all. The typed assertions keep both readings
-/// non-vacuous: a decoder that rejected the frame before its body read
-/// would no longer exercise the reservation this test prices.
+/// The budget bounds every length the reader reserves for a run within it, and
+/// in a session the receive pool has set that length aside before the
+/// reservation. Past the budget, the reader must read the run's first record's
+/// heads before anything else, so a garbage length there costs no reservation
+/// at all. The typed assertions keep both readings non-vacuous: a decoder that
+/// rejected the frame before its body read would no longer exercise the
+/// reservation this test prices.
 #[test]
 fn supply_reserves_only_a_length_its_budget_judged() {
     let truncated = |error: &CodecDecodeError| {
@@ -206,25 +202,24 @@ fn supply_reserves_only_a_length_its_budget_judged() {
 /// The bytes of a lone-record run that
 /// [`lone_record_past_the_budget_reserves_its_length`] delivers.
 ///
-/// That is two heads of the longest width a CBOR head has, nine bytes, so
-/// the run's tag and byte-string heads arrive whole whatever their widths,
-/// and at most a few bytes of the record's content follow them.
+/// That is two heads of the longest width a CBOR head has, nine bytes, so the
+/// run's tag and byte-string heads arrive whole whatever their widths, and at
+/// most a few bytes of the record's content follow them.
 const LONE_RECORD_HEADS_DELIVERED: usize = 2 * 9;
 
-/// A lone record past the session's run budget, of which only its heads
-/// and a few bytes of content arrive, reserves exactly the run's declared
-/// length once its heads have arrived.
+/// A lone record past the session's run budget, of which only its heads and a
+/// few bytes of content arrive, reserves exactly the run's declared length once
+/// its heads have arrived.
 ///
 /// Past the budget, the one run a conforming encoder can still produce is a
 /// single record spanning the whole body, so the reader reads the first
 /// record's heads before anything else. When they show such a record, it
-/// reserves the run's length whole, as for a run within the budget, and
-/// only then reads the body into the reservation. So the read fails as a
-/// truncated `SupplyRun` having requested the run's length and no more
-/// than the meter's slack beside it. A reader that rejected the run on its
-/// heads would request almost nothing, and one that grew the body as it
-/// arrived would request one granule ahead of the bytes it received; both
-/// fall outside the band.
+/// reserves the run's length whole, as for a run within the budget, and only
+/// then reads the body into the reservation. So the read fails as a truncated
+/// `SupplyRun` having requested the run's length and no more than the meter's
+/// slack beside it. A reader that rejected the run on its heads would request
+/// almost nothing, and one that grew the body as it arrived would request one
+/// granule ahead of the bytes it received; both fall outside the band.
 #[test]
 fn lone_record_past_the_budget_reserves_its_length() {
     let run = run_body(HONEST_ODD_LEN);
@@ -256,12 +251,12 @@ fn lone_record_past_the_budget_reserves_its_length() {
     );
 }
 
-/// Ceiling: a declared 256 MiB payload with only k delivered bytes
-/// requests at most 2k plus one chunk and the meter's fixed slack.
+/// Ceiling: a declared 256 MiB payload with only k delivered bytes requests at
+/// most 2k plus one chunk and the meter's fixed slack.
 ///
-/// Allocation must track receipt at every prefix, not merely at zero: a
-/// decoder that consumes one byte and then allocates the declared length
-/// passes the zero-delivered ceiling and the floors, and reds here.
+/// Allocation must track receipt at every prefix, not merely at zero: a decoder
+/// that consumes one byte and then allocates the declared length passes the
+/// zero-delivered ceiling and the floors, and reds here.
 #[test]
 fn framing_partial_delivery_costs_receipt_proportional() {
     let chunk = rumors::testing::frame_payload_chunk_len();
@@ -284,9 +279,9 @@ fn framing_partial_delivery_costs_receipt_proportional() {
     );
 }
 
-/// Liveness floor: an honest fully-delivered payload of N declared bytes
-/// meters at least N requested bytes and decodes byte-identically, so the
-/// meter provably counts the framing payload path it prices.
+/// Liveness floor: an honest fully-delivered payload of N declared bytes meters
+/// at least N requested bytes and decodes byte-identically, so the meter
+/// provably counts the framing payload path it prices.
 #[test]
 fn framing_full_delivery_meters_at_least_payload() {
     let payload: Vec<u8> = (0..HONEST_LEN).map(|i| i as u8).collect();
@@ -309,9 +304,9 @@ fn framing_full_delivery_meters_at_least_payload() {
     );
 }
 
-/// Liveness floor: an honest fully-delivered supply run of N body bytes
-/// meters at least N requested bytes, so the meter provably counts the
-/// codec's supply body path it prices.
+/// Liveness floor: an honest fully-delivered supply run of N body bytes meters
+/// at least N requested bytes, so the meter provably counts the codec's supply
+/// body path it prices.
 #[test]
 fn supply_full_delivery_meters_at_least_payload() {
     let body = run_body(HONEST_LEN);
@@ -327,15 +322,14 @@ fn supply_full_delivery_meters_at_least_payload() {
     );
 }
 
-/// Ceilings: an honest fully-delivered payload of non-power-of-two length
-/// N requests at most N plus one chunk in bytes, within a logarithmic
-/// budget of allocation events, and still meters the >= N floor.
+/// Ceilings: an honest fully-delivered payload of non-power-of-two length N
+/// requests at most N plus one chunk in bytes, within a logarithmic budget of
+/// allocation events, and still meters the >= N floor.
 ///
 /// The byte ceiling fails a growth policy whose capacity overshoots the
-/// declared length (doubling to the next power of two reads near 2N
-/// here); the event ceiling fails a per-granule reservation policy, whose
-/// event count is N over the chunk length while its netted byte reading
-/// stays N.
+/// declared length (doubling to the next power of two reads near 2N here); the
+/// event ceiling fails a per-granule reservation policy, whose event count is N
+/// over the chunk length while its netted byte reading stays N.
 #[test]
 fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
     let payload: Vec<u8> = (0..HONEST_ODD_LEN).map(|i| i as u8).collect();
@@ -367,17 +361,17 @@ fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
     );
 }
 
-/// Gate: a supply frame batching multiple records past the session run
-/// budget is rejected typed with sub-slack allocation, its fully delivered
-/// body left unbuffered.
+/// Gate: a supply frame batching multiple records past the session run budget
+/// is rejected typed with sub-slack allocation, its fully delivered body left
+/// unbuffered.
 ///
 /// This prices the decode-memory premise itself, not merely detection: a
 /// checker that buffered the body and rejected afterward would classify
-/// identically but request the body's bytes, and reds here. The codec's
-/// own tests are the complement, pinning that the admitted overhang, one
-/// record past the budget, still decodes
-/// (`oversized_lone_record_still_decodes`) and holds no more than its own
-/// bytes as it is read (`receiving_a_run_holds_at_most_its_permit`).
+/// identically but request the body's bytes, and reds here. The codec's own
+/// tests are the complement, pinning that the admitted overhang, one record
+/// past the budget, still decodes (`oversized_lone_record_still_decodes`) and
+/// holds no more than its own bytes as it is read
+/// (`receiving_a_run_holds_at_most_its_permit`).
 #[test]
 fn overbatched_supply_rejects_without_buffering_its_body() {
     let mut body = Vec::new();
@@ -401,13 +395,13 @@ fn overbatched_supply_rejects_without_buffering_its_body() {
     );
 }
 
-/// An honest fully-delivered supply run of non-power-of-two length N
-/// requests at most N plus the meter's slack in bytes, at least N, and
-/// never reallocates.
+/// An honest fully-delivered supply run of non-power-of-two length N requests
+/// at most N plus the meter's slack in bytes, at least N, and never
+/// reallocates.
 ///
-/// The supply path reserves the run's body at its exact length once the
-/// budget has judged it, so its buffer reaches the adapter as one block,
-/// without capacity overshoot and without a reallocation's two blocks.
+/// The supply path reserves the run's body at its exact length once the budget
+/// has judged it, so its buffer reaches the adapter as one block, without
+/// capacity overshoot and without a reallocation's two blocks.
 #[test]
 fn supply_full_delivery_reserves_exactly_its_payload() {
     let body = run_body(HONEST_ODD_LEN);
@@ -430,8 +424,8 @@ fn supply_full_delivery_reserves_exactly_its_payload() {
 
 /// The head-grammar defect carried by [`LeafRunError::Head`] is public
 /// vocabulary: a caller outside the crate can write the type
-/// `rumors::error::HeadError` and match the variant a non-shortest-form
-/// head classifies as.
+/// `rumors::error::HeadError` and match the variant a non-shortest-form head
+/// classifies as.
 #[test]
 fn leaf_run_head_defect_is_publicly_matchable() {
     let error = LeafRunError::Head {

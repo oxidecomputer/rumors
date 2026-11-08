@@ -9,9 +9,9 @@
 //! The cells are deliberately sparse. The shared-history sweep checks the
 //! small-divergence case quoted in the crate docs. The batching sweep checks
 //! that larger reconciliations amortize the tree walk. The mixed sweep covers
-//! insertions and redactions in the same session. Exact directional counts
-//! make an unintended wire change visible without prescribing an internal
-//! poll schedule.
+//! insertions and redactions in the same session. Exact directional counts make
+//! an unintended wire change visible without prescribing an internal poll
+//! schedule.
 //!
 //! Every cell builds a fresh network. A bootstrap changes the parties that
 //! stamp later messages, so reusing a corpus would change their versions and
@@ -187,7 +187,8 @@ fn small_reconciliation_cost_at_documented_shared_sizes() {
     );
 }
 
-/// At 10,000 shared messages, the sampled insertion batches cost less per change.
+/// At 10,000 shared messages, the sampled insertion batches cost less per
+/// change.
 #[test]
 fn insertion_batches_reduce_cost_per_change() {
     let measured = check(&[
@@ -204,7 +205,8 @@ fn insertion_batches_reduce_cost_per_change() {
     );
 }
 
-/// At 10,000 shared messages, the sampled redaction batches cost less per change.
+/// At 10,000 shared messages, the sampled redaction batches cost less per
+/// change.
 #[test]
 fn redaction_batches_reduce_cost_per_change() {
     let measured = check(&[
@@ -221,7 +223,8 @@ fn redaction_batches_reduce_cost_per_change() {
     );
 }
 
-/// Mixed insertion and redaction sessions remain covered by exact directional pins.
+/// Mixed insertion and redaction sessions remain covered by exact directional
+/// pins.
 #[test]
 fn mixed_changes_have_stable_directional_costs() {
     check(&[

@@ -1,31 +1,30 @@
 //! Canonical CBOR head primitives shared by the hand-written wire codecs.
 //!
-//! The V2 wire and the session surfaces around it (preamble, greeting,
-//! party hand-off, completion marker) spell every structure as
-//! deterministic-encoding CBOR: shortest-form heads everywhere, definite
-//! lengths only, one spelling per value. That contract is what keeps the
-//! byte-pinning snapshot discipline meaningful — a value has exactly one
-//! encoding, so a snapshot pins semantics, not an encoder's whim — and it
-//! is enforced on ingress: [`read_head`] and [`read_head_async`] reject a
-//! head that is indefinite, reserved, or wider than its value requires.
+//! The V2 wire and the session surfaces around it (preamble, greeting, party
+//! hand-off, completion marker) spell every structure as deterministic-encoding
+//! CBOR: shortest-form heads everywhere, definite lengths only, one spelling
+//! per value. That contract is what keeps the byte-pinning snapshot discipline
+//! meaningful — a value has exactly one encoding, so a snapshot pins semantics,
+//! not an encoder's whim — and it is enforced on ingress: [`read_head`] and
+//! [`read_head_async`] reject a head that is indefinite, reserved, or wider
+//! than its value requires.
 //!
-//! Hand-written primitives, not a general CBOR reader, because the wire
-//! needs the head as its unit of work: a codec here parses one head
-//! incrementally against the transport, learns the item's declared
-//! length, and skips or prices what follows in O(1) without
-//! materializing it — and these hand-parsed positions are exactly where
-//! the non-shortest, indefinite, and reserved spellings above are
-//! rejected. A general CBOR reader offers no head-level incremental
-//! API: it decodes whole items into values and buffers past item
-//! boundaries, so neither the streaming boundary nor the spelling
-//! enforcement can live there.
+//! Hand-written primitives, not a general CBOR reader, because the wire needs
+//! the head as its unit of work: a codec here parses one head incrementally
+//! against the transport, learns the item's declared length, and skips or
+//! prices what follows in O(1) without materializing it — and these hand-parsed
+//! positions are exactly where the non-shortest, indefinite, and reserved
+//! spellings above are rejected. A general CBOR reader offers no head-level
+//! incremental API: it decodes whole items into values and buffers past item
+//! boundaries, so neither the streaming boundary nor the spelling enforcement
+//! can live there.
 //!
-//! This module owns only the *head* grammar (RFC 8949 §3: the initial
-//! byte's major type and its argument). What follows a head — payload
-//! bytes, nested items, tag content — belongs to the codec reading it;
-//! each codec validates the majors and values it expects and prices its
-//! own lengths. Writers here emit exactly what the readers accept, and
-//! the round-trip property tests in this module hold the two together.
+//! This module owns only the *head* grammar (RFC 8949 §3: the initial byte's
+//! major type and its argument). What follows a head — payload bytes, nested
+//! items, tag content — belongs to the codec reading it; each codec validates
+//! the majors and values it expects and prices its own lengths. Writers here
+//! emit exactly what the readers accept, and the round-trip property tests in
+//! this module hold the two together.
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -53,19 +52,18 @@ pub(crate) const TAG_CBOR_SEQUENCE: u64 = 63;
 /// Tag number for an embedded CBOR data item in a byte string (RFC 8949).
 pub(crate) const TAG_EMBEDDED_ITEM: u64 = 24;
 
-/// Tag number for self-described CBOR (RFC 8949), which marks the bytes
-/// that follow it as a CBOR encoding.
+/// Tag number for self-described CBOR (RFC 8949), which marks the bytes that
+/// follow it as a CBOR encoding.
 pub(crate) const TAG_SELF_DESCRIBED: u64 = 55799;
 
 /// The self-described tag's shortest encoding: its tag head, three bytes.
 ///
-/// A literal, so the openers can compare and assemble it in const
-/// context; the module's own pin test holds it to [`write_tag`]'s
-/// rendering of the tag number.
+/// A literal, so the openers can compare and assemble it in const context; the
+/// module's own pin test holds it to [`write_tag`]'s rendering of the tag
+/// number.
 pub(crate) const SELF_DESCRIBED_HEAD: [u8; 3] = [0xd9, 0xd9, 0xf7];
 
-/// Bytes the widest head occupies: the initial byte and an eight-byte
-/// argument.
+/// Bytes the widest head occupies: the initial byte and an eight-byte argument.
 pub(crate) const MAX_HEAD_LEN: usize = 9;
 
 /// Bytes the shortest-form head for `value` occupies, any major type.
@@ -128,16 +126,16 @@ pub(crate) fn write_tag(out: &mut Vec<u8>, tag: u64) {
     write_head(out, MAJOR_TAG, tag);
 }
 
-/// One decoded head: the item's major type and its argument (a value,
-/// length, count, or tag number, by major type).
+/// One decoded head: the item's major type and its argument (a value, length,
+/// count, or tag number, by major type).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Head {
     pub major: u8,
     pub value: u64,
 }
 
-/// A head violating the wire's deterministic-encoding contract, or no
-/// head at all.
+/// A head violating the wire's deterministic-encoding contract, or no head at
+/// all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum HeadError {
     /// The input ended inside the head.
@@ -212,8 +210,8 @@ pub(crate) enum HeadReadError {
 ///
 /// A clean end-of-stream *before the first byte* returns `Ok(None)`; an
 /// end-of-stream inside the head is an
-/// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof) I/O error. Not
-/// cancel safe: a dropped future may have consumed part of the head.
+/// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof) I/O error. Not cancel
+/// safe: a dropped future may have consumed part of the head.
 pub(crate) async fn read_head_async<R: AsyncRead + Unpin + ?Sized>(
     read: &mut R,
 ) -> Result<Option<Head>, HeadReadError> {
@@ -235,9 +233,9 @@ pub(crate) async fn read_head_async<R: AsyncRead + Unpin + ?Sized>(
 
 /// Read one canonical head from a synchronous reader.
 ///
-/// The blocking twin of [`read_head_async`], with the same clean-close
-/// and error contract; the sync codec oracle reads through this so the
-/// two ingress paths share one head grammar.
+/// The blocking twin of [`read_head_async`], with the same clean-close and
+/// error contract; the sync codec oracle reads through this so the two ingress
+/// paths share one head grammar.
 #[cfg(test)]
 pub(crate) fn read_head_io<R: std::io::Read + ?Sized>(
     read: &mut R,

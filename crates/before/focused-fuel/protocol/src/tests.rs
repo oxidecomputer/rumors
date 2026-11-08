@@ -12,8 +12,8 @@ const ALL: [Snapshot; 5] = [
 ];
 
 /// Unpacking inverts packing for every pair and triple of snapshots, and a
-/// parameter packed at one arity never unpacks at the other, so a probe
-/// cannot read a parameter meant for a probe of another arity.
+/// parameter packed at one arity never unpacks at the other, so a probe cannot
+/// read a parameter meant for a probe of another arity.
 #[test]
 fn unpack_inverts_pack_at_its_own_arity_alone() {
     for x in ALL {

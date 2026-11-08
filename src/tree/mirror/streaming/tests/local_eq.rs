@@ -1,16 +1,16 @@
 //! [`local_eq`] agrees with what each real tree holds.
 //!
-//! The locality definition ([`view_enc`] and [`local_eq`])
-//! projects a skeleton to what party `p` holds: every D child (recursed, in
-//! radix order), R children only where `p` is the scope's asker (a held
-//! cut), nothing where `p` is the answerer (a child `p` lacks, invisible at
-//! session start), `leaf_reqs` erased from both views. This suite ties that
-//! projection to actual trees, in both directions:
+//! The locality definition ([`view_enc`] and [`local_eq`]) projects a skeleton
+//! to what party `p` holds: every D child (recursed, in radix order), R
+//! children only where `p` is the scope's asker (a held cut), nothing where `p`
+//! is the answerer (a child `p` lacks, invisible at session start), `leaf_reqs`
+//! erased from both views. This suite ties that projection to actual trees, in
+//! both directions:
 //!
 //! - **soundness** ([`assert_view_sound`], `view_projection_is_sound`):
 //!   everything retained by the projection is held by the local tree, and
-//!   everything erased as peer-side is absent from it,
-//!   checked against the literal leaf-path set the tree was built from;
+//!   everything erased as peer-side is absent from it, checked against the
+//!   literal leaf-path set the tree was built from;
 //! - **nondegeneracy** (`free_insertions_are_invisible_to_the_local_view`,
 //!   `leaf_requests_are_erased_from_the_view`): full skeletons can differ while
 //!   the p-views agree. Every constructed case realizes a free insertion: an R
@@ -36,17 +36,16 @@ fn holds(local: &BTreeSet<[u8; 32]>, prefix: &[u8]) -> bool {
     local.iter().any(|path| path.starts_with(prefix))
 }
 
-/// Assert the view projection is sound for one session against the
-/// local tree's literal leaf-path set.
+/// Assert the view projection is sound for one session against the local tree's
+/// literal leaf-path set.
 ///
 /// Retention: every D scope is held by the local tree (a dispute means both
 /// sides hold it), and every R child of a scope the local party asks is held
-/// (the cut: the subtree exists locally, absent from the skeleton).
-/// Erasure: every R child of a scope the local party answers is absent
-/// locally (peer-only — exactly what the view refuses to show), and every
-/// requested leaf is absent locally when local plays initiator (the h1
-/// answerer requests what it lacks) and held when local plays responder
-/// (the supplier).
+/// (the cut: the subtree exists locally, absent from the skeleton). Erasure:
+/// every R child of a scope the local party answers is absent locally
+/// (peer-only — exactly what the view refuses to show), and every requested
+/// leaf is absent locally when local plays initiator (the h1 answerer requests
+/// what it lacks) and held when local plays responder (the supplier).
 fn assert_view_sound(decoded: &Decoded, p: Party, local: &BTreeSet<[u8; 32]>) {
     for (i, prefix) in decoded.prefixes.iter().enumerate() {
         let scope = &decoded.skel.scopes[i];
@@ -240,9 +239,8 @@ fn free_insertions_are_invisible_to_the_local_view() {
 /// Omitting `leaf_reqs` lets leaf-request-only skeleton differences remain
 /// [`local_eq`].
 ///
-/// Two sessions from the same local tree differ only in a height-1 scope's
-/// leaf request count. Their local views agree while their full skeletons do
-/// not.
+/// Two sessions from the same local tree differ only in a height-1 scope's leaf
+/// request count. Their local views agree while their full skeletons do not.
 ///
 /// The test covers both local roles. As initiator, one remote adds a concurrent
 /// leaf that creates another request for a leaf the local tree lacks. As

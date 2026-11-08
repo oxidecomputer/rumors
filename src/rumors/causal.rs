@@ -51,15 +51,15 @@ impl PartialOrd for StageKey {
 /// replicas of the same [`Rumors`](crate::Rumors).
 ///
 /// Each message arrives as an owned `(Version, Arc<T>)` — both handles are
-/// cheap reference bumps into shared storage — through the [`Stream`] impl
-/// or [`try_next`](Self::try_next), exactly as for
+/// cheap reference bumps into shared storage — through the [`Stream`] impl or
+/// [`try_next`](Self::try_next), exactly as for
 /// [`UnorderedMessages`](super::UnorderedMessages).
 ///
-/// Unlike [`UnorderedMessages`](super::UnorderedMessages), this costs an
-/// extra amortized factor, logarithmic in the number of messages the set
-/// holds, in memory and in the time to retrieve each message, and both
-/// costs may burst arbitrarily large, up to the total size of the messages
-/// stored in the underlying [`Rumors`](crate::Rumors).
+/// Unlike [`UnorderedMessages`](super::UnorderedMessages), this costs an extra
+/// amortized factor, logarithmic in the number of messages the set holds, in
+/// memory and in the time to retrieve each message, and both costs may burst
+/// arbitrarily large, up to the total size of the messages stored in the
+/// underlying [`Rumors`](crate::Rumors).
 ///
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
@@ -67,17 +67,17 @@ impl PartialOrd for StageKey {
 pub struct CausalMessages<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,
-    /// The ingest frontier: the causal past already staged (or delivered).
-    /// The next pass walks leaves *not* contained here. Advances at ingest,
-    /// so it runs ahead of delivery while the backlog drains.
+    /// The ingest frontier: the causal past already staged (or delivered). The
+    /// next pass walks leaves *not* contained here. Advances at ingest, so it
+    /// runs ahead of delivery while the backlog drains.
     ingested: Version,
     /// The public resume point: [`checkpoint`](Self::checkpoint).
     ///
-    /// Trails [`ingested`](Self::ingested), catching up on the call *after*
-    /// the staged backlog drains — never in the step that hands over the
-    /// backlog's last message — so that resuming from it skips neither a
-    /// staged, undelivered message nor the delivered message still in the
-    /// caller's hands.
+    /// Trails [`ingested`](Self::ingested), catching up on the call *after* the
+    /// staged backlog drains — never in the step that hands over the backlog's
+    /// last message — so that resuming from it skips neither a staged,
+    /// undelivered message nor the delivered message still in the caller's
+    /// hands.
     checkpoint: Version,
     /// The undelivered backlog in rank-then-canonical-bytes order.
     ///
@@ -115,13 +115,13 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
         }
     }
 
-    /// Stage the latest snapshot's unseen leaves in causal order, then
-    /// advance the ingest frontier to include the snapshot's ceiling.
+    /// Stage the latest snapshot's unseen leaves in causal order, then advance
+    /// the ingest frontier to include the snapshot's ceiling.
     ///
-    /// The tree walks in path order, so a later leaf may causally precede
-    /// an earlier one. Delivery must wait until this whole pass is sorted.
-    /// Capture the owned walk and ceiling under the watch read guard, then
-    /// release it before traversing the snapshot.
+    /// The tree walks in path order, so a later leaf may causally precede an
+    /// earlier one. Delivery must wait until this whole pass is sorted. Capture
+    /// the owned walk and ceiling under the watch read guard, then release it
+    /// before traversing the snapshot.
     fn ingest(
         staged: &mut BTreeMap<StageKey, Leaf>,
         ingested: &mut Version,
@@ -152,15 +152,14 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// another replica of the same network.
     ///
     /// Resuming from this [`Version`] will never skip messages, but it may
-    /// replay an arbitrary number of them. It covers a yielded message
-    /// only from the *following* call onward, so a checkpoint persisted
-    /// after handling each message replays — never skips — the message in
-    /// flight at a crash.
+    /// replay an arbitrary number of them. It covers a yielded message only
+    /// from the *following* call onward, so a checkpoint persisted after
+    /// handling each message replays — never skips — the message in flight at a
+    /// crash.
     ///
-    /// Folding the yielded versions yourself is not a substitute: the
-    /// causal order is partial, not total, so "the last version I saw" is
-    /// not well-defined, and such a fold is not a causally closed
-    /// boundary.
+    /// Folding the yielded versions yourself is not a substitute: the causal
+    /// order is partial, not total, so "the last version I saw" is not
+    /// well-defined, and such a fold is not a causally closed boundary.
     ///
     /// After the observer ends (`None`), this is the final [`Version`] of the
     /// [`Rumors`](crate::Rumors).
@@ -188,8 +187,8 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
     }
 }
 
-/// Yields owned `(Version, Arc<T>)` pairs popped from the staged backlog
-/// in causal order: cheap handles into the shared storage.
+/// Yields owned `(Version, Arc<T>)` pairs popped from the staged backlog in
+/// causal order: cheap handles into the shared storage.
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
     type Item = (Version, Arc<T>);
 

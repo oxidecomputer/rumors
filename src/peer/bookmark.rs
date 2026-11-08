@@ -20,7 +20,8 @@ pub struct Unbookmarked<T: Send + Sync + 'static, B: Bookmark> {
     pub error: BookmarkIo<B::Error>,
 }
 
-/// Format an attachment failure without requiring debuggable payload or storage types.
+/// Format an attachment failure without requiring debuggable payload or storage
+/// types.
 impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
     /// Format the returned peer and storage error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -46,8 +47,8 @@ impl<T: Send + Sync + 'static> Peer<T> {
     /// storage and restart contract.
     ///
     /// This method validates any existing record and checkpoints the current
-    /// peer before returning. An untouched seed postpones its first bookmark I/O
-    /// until its first session. To attach storage while joining, use
+    /// peer before returning. An untouched seed postpones its first bookmark
+    /// I/O until its first session. To attach storage while joining, use
     /// [`Bootstrap::bookmark`](super::Bootstrap::bookmark).
     ///
     /// # Errors
@@ -88,7 +89,8 @@ impl<T: Send + Sync + 'static> Peer<T> {
 
 /// Change a peer's bookmark type without disturbing its other configuration.
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Replace bookmark storage while carrying the configured size limit forward.
+    /// Replace bookmark storage while carrying the configured size limit
+    /// forward.
     ///
     /// The new storage gets a fresh record and lock, and the size limit lives
     /// outside the old lock, so this never waits on the old lock or reads
@@ -110,7 +112,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         }
     }
 
-    /// Record this peer's current ownership without reclaiming stored identities.
+    /// Record this peer's current ownership without reclaiming stored
+    /// identities.
     async fn record_bookmark(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
         let loaded = bookmark.load().await?;

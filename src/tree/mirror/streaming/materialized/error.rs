@@ -1,11 +1,10 @@
 //! Failures detected by the materialized reconciliation walk.
 //!
-//! Backend failures identify storage work that could not complete. Count
-//! errors identify a node count the backend reported outside every node's
-//! range, a breach of the backend contract such as corrupted storage would
-//! cause. Violations identify the protocol invariant that the peer's reply
-//! broke; they are diagnostics for finding an implementation defect in one
-//! of the peers.
+//! Backend failures identify storage work that could not complete. Count errors
+//! identify a node count the backend reported outside every node's range, a
+//! breach of the backend contract such as corrupted storage would cause.
+//! Violations identify the protocol invariant that the peer's reply broke; they
+//! are diagnostics for finding an implementation defect in one of the peers.
 
 use crate::tree::mirror::streaming::message::CountError;
 
@@ -15,9 +14,8 @@ pub enum Error<E> {
     /// The backend could not read or construct a node.
     #[error(transparent)]
     Backend(#[from] E),
-    /// The backend reported a count no node can have, for a node the walk
-    /// was listing, or listed a different number of children than it
-    /// reported.
+    /// The backend reported a count no node can have, for a node the walk was
+    /// listing, or listed a different number of children than it reported.
     #[error(transparent)]
     Count(CountError),
     /// The peer's reply broke a reconciliation invariant.
@@ -28,9 +26,9 @@ pub enum Error<E> {
 /// A reconciliation invariant broken by the peer's reply.
 ///
 /// These checks depend on local context that the wire decoder does not have:
-/// outstanding questions, locally held nodes, and the peer's greeting.
-/// A reply must account for held children in radix order. It may confirm a
-/// child, ask to reconcile it more deeply, or supply a child absent locally.
+/// outstanding questions, locally held nodes, and the peer's greeting. A reply
+/// must account for held children in radix order. It may confirm a child, ask
+/// to reconcile it more deeply, or supply a child absent locally.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Violation {
@@ -46,12 +44,12 @@ pub enum Violation {
     /// The reply confirmed a child that the question did not list.
     #[error("reply attempted to match unknown child")]
     UnexpectedMatch,
-    /// The reply carried a match after its first, whose covered set names
-    /// every later matching child.
+    /// The reply carried a match after its first, whose covered set names every
+    /// later matching child.
     #[error("reply matched a child after its first match")]
     RepeatedMatch,
-    /// The reply's match covered a child that the question did not list
-    /// after the match's own.
+    /// The reply's match covered a child that the question did not list after
+    /// the match's own.
     #[error("reply's match covered a child that is not a later listed child")]
     UnlistedCover,
     /// The peer asked about a child that the question did not list.

@@ -23,8 +23,8 @@ pub use view::View;
 
 /// A shared leaf or branch, with its compressed path and cached hash.
 ///
-/// [`typed`](super) adds compile-time heights to this storage. Cloning a
-/// handle shares the node; mutation copies its state when it is shared.
+/// [`typed`](super) adds compile-time heights to this storage. Cloning a handle
+/// shares the node; mutation copies its state when it is shared.
 pub struct Node {
     /// State shared by handles to the same node.
     inner: Arc<NodeInner>,
@@ -33,8 +33,7 @@ pub struct Node {
 /// The radices a branch's children can sit at: one per byte value.
 const RADICES: usize = u8::MAX as usize + 1;
 
-/// The bytes of one heap slot of a branch's fan: a radix beside a child
-/// handle.
+/// The bytes of one heap slot of a branch's fan: a radix beside a child handle.
 pub(crate) const FAN_ENTRY_BYTES: usize = mem::size_of::<(u8, Node)>();
 
 /// Share the node and count the new handle in instrumented builds.
@@ -56,12 +55,11 @@ impl Drop for Node {
 
 /// Test-only census of live node handles, crate-wide.
 ///
-/// Every [`Node`] any code holds was constructed by
-/// [`Node::from_inner`] or [`Clone`] and released by [`Drop`], so the
-/// pair of counters here is an exact concurrent-residency measure: `live`
-/// handles exist right now, and `peak` is the most that ever existed
-/// since the last reset. Tests read it to measure how many node handles a
-/// session holds at once. Read through
+/// Every [`Node`] any code holds was constructed by [`Node::from_inner`] or
+/// [`Clone`] and released by [`Drop`], so the pair of counters here is an exact
+/// concurrent-residency measure: `live` handles exist right now, and `peak` is
+/// the most that ever existed since the last reset. Tests read it to measure
+/// how many node handles a session holds at once. Read through
 /// [`testing::node_census`](crate::testing::node_census).
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) mod census {
@@ -94,14 +92,13 @@ pub(crate) mod census {
     }
 }
 
-/// Test-only counts of the work nodes do building branches and computing
-/// their memos, crate-wide.
+/// Test-only counts of the work nodes do building branches and computing their
+/// memos, crate-wide.
 ///
-/// Each [`Work`] names one kind of step, counted where it happens; outside
-/// test builds [`record`](memo_census::record) compiles to nothing. Tests
-/// read the counts through
-/// [`testing::memo_work`](crate::testing::memo_work) to see how much of
-/// that work a session does, a deterministic stand-in for the time it
+/// Each [`Work`] names one kind of step, counted where it happens; outside test
+/// builds [`record`](memo_census::record) compiles to nothing. Tests read the
+/// counts through [`testing::memo_work`](crate::testing::memo_work) to see how
+/// much of that work a session does, a deterministic stand-in for the time it
 /// takes.
 pub(crate) mod memo_census {
     #[cfg(any(test, feature = "test-internals"))]
@@ -111,8 +108,7 @@ pub(crate) mod memo_census {
     #[derive(Clone, Copy, Debug)]
     pub(crate) enum Work {
         /// A bare branch assembled from a fan of children by
-        /// [`Node::branch`](super::Node::branch), as reassembly assembles
-        /// them.
+        /// [`Node::branch`](super::Node::branch), as reassembly assembles them.
         ///
         /// The subtrees a session receives are built leaf by leaf
         /// ([`SortedLeaves`](super::SortedLeaves)) and not counted.
@@ -129,14 +125,13 @@ pub(crate) mod memo_census {
         /// A rebuilt branch's bounds seeded at one endpoint from its
         /// original's, the other folded from all of its children.
         BoundsHalf,
-        /// A rebuilt branch's bounds seeded, whole or at one endpoint, with
-        /// the help of an unchanged child's bound.
+        /// A rebuilt branch's bounds seeded, whole or at one endpoint, with the
+        /// help of an unchanged child's bound.
         BoundsBySibling,
-        /// A rebuilt branch's bounds left for warming to compute from all
-        /// of its children, because seeding them would not be exact.
+        /// A rebuilt branch's bounds left for warming to compute from all of
+        /// its children, because seeding them would not be exact.
         BoundsDeclined,
-        /// A branch's encoded version size computed from all of its
-        /// children.
+        /// A branch's encoded version size computed from all of its children.
         VersionBytesFull,
     }
 
@@ -173,8 +168,8 @@ pub(crate) mod memo_census {
 }
 use memo_census::Work;
 
-/// A branch's grandchild count, less one, from its fan
-/// ([`Body::Branch`]'s `spread`).
+/// A branch's grandchild count, less one, from its fan ([`Body::Branch`]'s
+/// `spread`).
 ///
 /// A fan of two to 256 children, each weighing one to 256, sums to at most
 /// 65,536, so the stored value fits a `u16` exactly.
@@ -184,11 +179,11 @@ fn spread(children: &Fan) -> u16 {
     u16::try_from(grandchildren - 1).expect("a branch has at most 65,536 grandchildren")
 }
 
-/// The height of a bare branch over `children` ([`Body::Branch`]'s
-/// `height`): one more than theirs.
+/// The height of a bare branch over `children` ([`Body::Branch`]'s `height`):
+/// one more than theirs.
 ///
-/// Every child of a branch sits one level below it, so every child's height
-/// is the same; debug builds check that they agree.
+/// Every child of a branch sits one level below it, so every child's height is
+/// the same; debug builds check that they agree.
 fn height_over(children: &Fan) -> u8 {
     let mut heights = children.values().map(Node::height);
     let child = heights.next().expect("a branch has at least two children");
@@ -199,9 +194,8 @@ fn height_over(children: &Fan) -> u8 {
     u8::try_from(child + 1).expect("a branch sits at most at the root's height")
 }
 
-/// The height of a branch whose children diverge at the path byte
-/// `branch_at` ([`Body::Branch`]'s `height`): the levels from that byte to
-/// the leaves.
+/// The height of a branch whose children diverge at the path byte `branch_at`
+/// ([`Body::Branch`]'s `height`): the levels from that byte to the leaves.
 fn height_at(branch_at: usize) -> u8 {
     u8::try_from(PATH_LEN - branch_at).expect("a path byte lies within the path")
 }
@@ -209,8 +203,8 @@ fn height_at(branch_at: usize) -> u8 {
 /// Shared node storage, copied only when a mutation cannot reuse it.
 #[derive(Clone)]
 struct NodeInner {
-    /// Path compressed above this leaf or branch, deepest byte first.
-    /// Pushing or popping the last byte adds or removes its topmost level.
+    /// Path compressed above this leaf or branch, deepest byte first. Pushing
+    /// or popping the last byte adds or removes its topmost level.
     ///
     /// The path is at most 32 bytes, so storing it inline avoids a separate
     /// allocation for compressed nodes, at the cost of a larger node body.
@@ -224,15 +218,15 @@ struct NodeInner {
     ///
     /// # One key per cache
     ///
-    /// The memo records no key, so every read must pass the key it was
-    /// filled under. Every digest accessor takes the key from the tree that
-    /// holds the node, and a node is reachable only from trees of one
-    /// network: a tree's clones share its keys, [`Tree::join`] merges only
-    /// trees with equal keys, a session lists and compares digests under the
-    /// keys of the tree it reconciles and returns its nodes into that tree,
-    /// and a bootstrapper's tree holds nothing until the session that fills
-    /// it under the keys it received. Independently seeded universes never
-    /// interact, so no node is shared between two networks' trees.
+    /// The memo records no key, so every read must pass the key it was filled
+    /// under. Every digest accessor takes the key from the tree that holds the
+    /// node, and a node is reachable only from trees of one network: a tree's
+    /// clones share its keys, [`Tree::join`] merges only trees with equal keys,
+    /// a session lists and compares digests under the keys of the tree it
+    /// reconciles and returns its nodes into that tree, and a bootstrapper's
+    /// tree holds nothing until the session that fills it under the keys it
+    /// received. Independently seeded universes never interact, so no node is
+    /// shared between two networks' trees.
     ///
     /// [`Tree::join`]: crate::tree::Tree::join
     hash: OnceLock<Hash>,
@@ -240,8 +234,8 @@ struct NodeInner {
     body: Body,
 }
 
-/// [`NodeInner`] as it would be without the fields that ride in its
-/// padding: the same fields, with [`BodyBaseline`] for its body.
+/// [`NodeInner`] as it would be without the fields that ride in its padding:
+/// the same fields, with [`BodyBaseline`] for its body.
 ///
 /// Nothing builds one; it exists so the compiler lays out the node without
 /// those fields, for the assertion below to compare against.
@@ -255,9 +249,8 @@ struct NodeInnerBaseline {
     body: BodyBaseline,
 }
 
-/// [`Body`] as it would be without the fields that ride in the node's
-/// padding: every variant and field but the branch's grandchild count and
-/// its height.
+/// [`Body`] as it would be without the fields that ride in the node's padding:
+/// every variant and field but the branch's grandchild count and its height.
 #[expect(dead_code, reason = "a layout reference, measured and never built")]
 enum BodyBaseline {
     /// As [`Body::Leaf`].
@@ -306,8 +299,8 @@ impl fmt::Debug for Node {
 /// Content stored beneath a node's compressed prefix.
 ///
 /// Cloning shares leaf data and child nodes and preserves computed summaries.
-/// Those summaries depend only on the subtree, so changing children must
-/// clear them; changing the prefix leaves them valid.
+/// Those summaries depend only on the subtree, so changing children must clear
+/// them; changing the prefix leaves them valid.
 #[derive(Debug, Clone)]
 enum Body {
     /// A leaf's version and payload.
@@ -323,31 +316,31 @@ enum Body {
         /// its floor is their meet, its ceiling their join.
         ///
         /// It is computed on first read, or at construction when
-        /// [`View::rebuild`] can derive it exactly from the node it
-        /// replaces. [`Span`] keeps the pair ordered by construction.
+        /// [`View::rebuild`] can derive it exactly from the node it replaces.
+        /// [`Span`] keeps the pair ordered by construction.
         bounds: OnceLock<Span<'static>>,
         /// The number of leaves below this branch.
         leaves: usize,
         /// This branch's grandchild count as a bare branch, `S`, stored as
-        /// `S − 1`: over its children, each one's own child count, a child
-        /// at the leaves counting one ([`View::grandchild_count`]).
+        /// `S − 1`: over its children, each one's own child count, a child at
+        /// the leaves counting one ([`View::grandchild_count`]).
         ///
-        /// A branch has two to 256 children, each counting one to 256, so
-        /// `S` lies in 2..=65,536 and `S − 1` fits exactly. It depends only
-        /// on the fan, which never changes after construction; peeling or
-        /// extending the prefix leaves it valid.
+        /// A branch has two to 256 children, each counting one to 256, so `S`
+        /// lies in 2..=65,536 and `S − 1` fits exactly. It depends only on the
+        /// fan, which never changes after construction; peeling or extending
+        /// the prefix leaves it valid.
         spread: u16,
-        /// The height of the branch itself above the leaves, one more than
-        /// each child's ([`Node::height`]): 1..=32.
+        /// The height of the branch itself above the leaves, one more than each
+        /// child's ([`Node::height`]): 1..=32.
         ///
-        /// A node's height is its body's plus one level per path byte, so
-        /// a stored node knows the height of its top, and a handle tagged
-        /// with the height it sits at derives how many path bytes it hides
+        /// A node's height is its body's plus one level per path byte, so a
+        /// stored node knows the height of its top, and a handle tagged with
+        /// the height it sits at derives how many path bytes it hides
         /// ([`View::at_height`]). Like `spread`, it depends only on the fan.
         height: u8,
-        /// The largest encoded version size in this subtree: leaf versions
-        /// and branch bounds, including this branch's own bounds. Computing
-        /// it also fills `bounds`; later reads use the cached size.
+        /// The largest encoded version size in this subtree: leaf versions and
+        /// branch bounds, including this branch's own bounds. Computing it also
+        /// fills `bounds`; later reads use the cached size.
         version_bytes: OnceLock<usize>,
         /// The children of this branch.
         children: Fan,
@@ -355,8 +348,8 @@ enum Body {
 }
 
 impl Body {
-    /// The height of the body above the leaves: zero for a leaf, and a
-    /// branch's stored height.
+    /// The height of the body above the leaves: zero for a leaf, and a branch's
+    /// stored height.
     fn height(&self) -> usize {
         match self {
             Body::Leaf { .. } => 0,
@@ -365,13 +358,13 @@ impl Body {
     }
 }
 
-/// A body under a compressed path, as one level of the tree sees it: a
-/// stored node's whole path, or the part of it a [`View`] leaves visible.
+/// A body under a compressed path, as one level of the tree sees it: a stored
+/// node's whole path, or the part of it a [`View`] leaves visible.
 ///
 /// Everything listing depends on is a function of these two: the children
-/// listed, their count and radices, their own children's count, and the
-/// hash, which commits the path in one preimage. A view and the node a
-/// copy would build for it have the same shape, so they answer alike.
+/// listed, their count and radices, their own children's count, and the hash,
+/// which commits the path in one preimage. A view and the node a copy would
+/// build for it have the same shape, so they answer alike.
 #[derive(Clone, Copy)]
 struct Shape<'a> {
     /// The visible path, deepest byte first: its last byte is the top.
@@ -381,8 +374,8 @@ struct Shape<'a> {
 }
 
 impl Shape<'_> {
-    /// The number of children listing yields: a bare branch's fan, one for
-    /// a non-empty path, and none for a bare leaf.
+    /// The number of children listing yields: a bare branch's fan, one for a
+    /// non-empty path, and none for a bare leaf.
     fn child_count(self) -> usize {
         match (self.prefix.is_empty(), self.body) {
             (true, Body::Leaf { .. }) => 0,
@@ -405,8 +398,8 @@ impl Shape<'_> {
             .chain(fan.into_iter().flatten())
     }
 
-    /// The number of children the listed children have, a child at the
-    /// leaves counting one ([`View::grandchild_count`]).
+    /// The number of children the listed children have, a child at the leaves
+    /// counting one ([`View::grandchild_count`]).
     fn grandchild_count(self) -> usize {
         match (self.prefix.len(), self.body) {
             (0, Body::Leaf { .. }) => 0,
@@ -417,9 +410,8 @@ impl Shape<'_> {
         }
     }
 
-    /// The height of the trie position this shape describes, the top of
-    /// its visible path: its body's height plus one level per visible path
-    /// byte.
+    /// The height of the trie position this shape describes, the top of its
+    /// visible path: its body's height plus one level per visible path byte.
     ///
     /// A typed handle at height `H` sees exactly the shape whose top is `H`
     /// ([`View::at_height`]), so this is the handle's typed height.
@@ -456,9 +448,8 @@ impl Shape<'_> {
 impl Node {
     /// Wrap built node state as a handle.
     ///
-    /// Every handle in the crate passes through here or [`Clone`] — the
-    /// funnel that makes the test-only [`census`] an exact residency
-    /// count.
+    /// Every handle in the crate passes through here or [`Clone`] — the funnel
+    /// that makes the test-only [`census`] an exact residency count.
     fn from_inner(inner: Arc<NodeInner>) -> Self {
         #[cfg(any(test, feature = "test-internals"))]
         census::created();
@@ -516,8 +507,8 @@ impl Node {
         }))
     }
 
-    /// This node's bounds if already computed: a leaf's always are, a
-    /// branch's once first read.
+    /// This node's bounds if already computed: a leaf's always are, a branch's
+    /// once first read.
     fn computed_span(&self) -> Option<Span<'_>> {
         match &self.inner.body {
             Body::Leaf { version, .. } => Some(Span::at(version)),
@@ -562,29 +553,29 @@ impl Node {
 
     /// Build the maximally-compressed subtree over one sorted leaf run.
     ///
-    /// `leaves` pairs each full 32-byte path with its bare (prefix-free)
-    /// leaf node, **strictly ascending by path**, every path sharing its
-    /// first `depth` bytes; the run must be non-empty, and each node is
-    /// consumed exactly once (the `Option` lets the recursion move nodes
-    /// out of a shared slice). The result observes the tree from depth
-    /// `depth` — i.e. it sits at height `32 - depth`.
+    /// `leaves` pairs each full 32-byte path with its bare (prefix-free) leaf
+    /// node, **strictly ascending by path**, every path sharing its first
+    /// `depth` bytes; the run must be non-empty, and each node is consumed
+    /// exactly once (the `Option` lets the recursion move nodes out of a shared
+    /// slice). The result observes the tree from depth `depth` — i.e. it sits
+    /// at height `32 - depth`.
     ///
     /// This is the bulk inverse of a leaf walk: where composing
-    /// [`branch`](Self::branch)/[`beneath`](Self::beneath) level by level
-    /// costs an allocation per *virtual* level, this jumps straight to
-    /// each divergence byte (sorted input makes it the first/last path
-    /// comparison) and lays down every compressed span in one step, so
-    /// the work is proportional to the *materialized* structure: one node
-    /// per real branch point plus one per leaf spine.
+    /// [`branch`](Self::branch)/[`beneath`](Self::beneath) level by level costs
+    /// an allocation per *virtual* level, this jumps straight to each
+    /// divergence byte (sorted input makes it the first/last path comparison)
+    /// and lays down every compressed span in one step, so the work is
+    /// proportional to the *materialized* structure: one node per real branch
+    /// point plus one per leaf spine.
     ///
     /// The session builds supplied subtrees one leaf at a time instead
-    /// ([`SortedLeaves`]), which builds this same tree; this constructor is
-    /// the reference that builder is tested against.
+    /// ([`SortedLeaves`]), which builds this same tree; this constructor is the
+    /// reference that builder is tested against.
     ///
     /// # Panics
     ///
-    /// Panics if the run is empty, contains duplicate paths or a consumed
-    /// slot, or supplies a node that is not a bare leaf.
+    /// Panics if the run is empty, contains duplicate paths or a consumed slot,
+    /// or supplies a node that is not a bare leaf.
     #[cfg(test)]
     pub(crate) fn from_sorted_leaves(
         depth: usize,
@@ -679,8 +670,8 @@ impl Node {
     }
 
     /// Look up the leaf at `path` beneath this node: a single root-to-leaf
-    /// descent costing `O(depth)`, never a scan. `None` when no live leaf
-    /// sits at that path.
+    /// descent costing `O(depth)`, never a scan. `None` when no live leaf sits
+    /// at that path.
     pub fn get(&self, mut path: &[u8]) -> Option<(&Version, &Message)> {
         let mut node = self;
         loop {
@@ -715,28 +706,26 @@ impl Node {
         }
     }
 
-    /// The height of this node's top above the leaves: its body's height,
-    /// zero for a leaf, plus one level per byte of its compressed path.
+    /// The height of this node's top above the leaves: its body's height, zero
+    /// for a leaf, plus one level per byte of its compressed path.
     ///
-    /// A typed handle at the same height views the node whole; one at a
-    /// lower height, down to the body's, views it from inside its path
+    /// A typed handle at the same height views the node whole; one at a lower
+    /// height, down to the body's, views it from inside its path
     /// ([`View::at_height`]).
     pub fn height(&self) -> usize {
         self.shape().height()
     }
 
-    /// Check [`View::grandchild_count`] against a direct count
-    /// at this node and at every level beneath it, returning the first that
-    /// disagrees.
+    /// Check [`View::grandchild_count`] against a direct count at this node and
+    /// at every level beneath it, returning the first that disagrees.
     ///
-    /// Each level of a compressed path counts, as the view listing yields
-    /// for it. A disagreement comes back with the stored and the counted
-    /// values.
+    /// Each level of a compressed path counts, as the view listing yields for
+    /// it. A disagreement comes back with the stored and the counted values.
     ///
-    /// The count lists each level's children with [`View::children`] and
-    /// each child's own children the same way. The traversal keeps an
-    /// explicit stack, bounded by the key depth times the fan, so it never
-    /// recurses on the tree's shape.
+    /// The count lists each level's children with [`View::children`] and each
+    /// child's own children the same way. The traversal keeps an explicit
+    /// stack, bounded by the key depth times the fan, so it never recurses on
+    /// the tree's shape.
     #[cfg(test)]
     pub(crate) fn miscounted_grandchildren(&self) -> Option<(View, usize, usize)> {
         let mut stack = vec![View::from(self.clone())];
@@ -769,34 +758,32 @@ impl Node {
     }
 
     /// How many children listing a whole view of this node yields
-    /// ([`View::children`]), counting a bare leaf as one: what it
-    /// contributes to its parent's grandchild count.
+    /// ([`View::children`]), counting a bare leaf as one: what it contributes
+    /// to its parent's grandchild count.
     fn weight(&self) -> usize {
         self.child_count().max(1)
     }
 
     /// The largest canonical [`Version`] encoding among every bound this
-    /// subtree holds — its leaf versions and every branch's ceiling and
-    /// floor — in bytes.
+    /// subtree holds — its leaf versions and every branch's ceiling and floor —
+    /// in bytes.
     ///
-    /// Exact, never a high-water mark: a leaf answers with its own
-    /// version's packed length, and a branch memoizes the max over its
-    /// children's values and its own two bounds, computed lazily on
-    /// first read like [`ceiling`](Self::ceiling) (which it forces).
-    /// Every mutation rebuilds its copy-on-write spine through the
-    /// branch constructors with fresh memos, so deleting the version
-    /// that carries the maximum resizes the aggregate down with no
-    /// separate invalidation, exactly like `len`. Interior bounds must
-    /// be covered because a join over many small concurrent leaf stamps
-    /// can encode several times larger than any one of them — the
-    /// aggregate answers for what the tree *holds*, not only what its
-    /// leaves carry.
+    /// Exact, never a high-water mark: a leaf answers with its own version's
+    /// packed length, and a branch memoizes the max over its children's values
+    /// and its own two bounds, computed lazily on first read like
+    /// [`ceiling`](Self::ceiling) (which it forces). Every mutation rebuilds
+    /// its copy-on-write spine through the branch constructors with fresh
+    /// memos, so deleting the version that carries the maximum resizes the
+    /// aggregate down with no separate invalidation, exactly like `len`.
+    /// Interior bounds must be covered because a join over many small
+    /// concurrent leaf stamps can encode several times larger than any one of
+    /// them — the aggregate answers for what the tree *holds*, not only what
+    /// its leaves carry.
     ///
-    /// The first read after loading a large corpus materializes the
-    /// subtree's bounds once; a session forces the same memos along
-    /// every divergent path it walks, and they are shared through the
-    /// copy-on-write clones, so subsequent reads cost the freshly
-    /// rebuilt spine only.
+    /// The first read after loading a large corpus materializes the subtree's
+    /// bounds once; a session forces the same memos along every divergent path
+    /// it walks, and they are shared through the copy-on-write clones, so
+    /// subsequent reads cost the freshly rebuilt spine only.
     pub fn version_bytes(&self) -> usize {
         match &self.inner.body {
             Body::Leaf { version, .. } => version.as_bytes().len(),
@@ -817,19 +804,19 @@ impl Node {
         }
     }
 
-    /// Whether two nodes share the same backing allocation: a sufficient
-    /// (not necessary) test for structural equality that touches no hash.
+    /// Whether two nodes share the same backing allocation: a sufficient (not
+    /// necessary) test for structural equality that touches no hash.
     ///
     /// Forked trees share their unchanged subtrees by `Arc`, so an in-memory
     /// merge can short-circuit those in `O(1)`, even with cold memos, before
-    /// falling back to the Merkle hash for subtrees that diverged in memory
-    /// but hold the same version set.
+    /// falling back to the Merkle hash for subtrees that diverged in memory but
+    /// hold the same version set.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
-    /// The digest of the subtree rooted at this node under `key`, as
-    /// observed from the top of its compressed prefix.
+    /// The digest of the subtree rooted at this node under `key`, as observed
+    /// from the top of its compressed prefix.
     ///
     /// The digest is computed lazily on first call and memoized, so the first
     /// read of a freshly-built subtree is `O(nodes)` — one preimage and one
@@ -838,13 +825,13 @@ impl Node {
     /// [`HashKey::branch`]): a single preimage commits the node's kind, the
     /// height of its top, its compressed prefix in path order, and, for a
     /// branch, its children as ascending `radix ‖ hash` records. Digest
-    /// agreement between differently-built trees rests on the tree's
-    /// canonical shape; see [`HashKey::branch`]'s canonicity section.
+    /// agreement between differently-built trees rests on the tree's canonical
+    /// shape; see [`HashKey::branch`]'s canonicity section.
     ///
     /// `key` must be the hash key of the network whose tree holds this node:
     /// the memo is filled under the first key passed and records none
-    /// ([`NodeInner`]'s `hash` gives the argument that every caller passes
-    /// the same one).
+    /// ([`NodeInner`]'s `hash` gives the argument that every caller passes the
+    /// same one).
     pub fn hash(&self, key: &HashKey) -> Hash {
         *self.inner.hash.get_or_init(|| self.shape().hash(key))
     }
@@ -861,12 +848,12 @@ impl Node {
     /// children).
     ///
     /// Like [`hash`](Self::hash), the ceiling is computed on first call and
-    /// memoized: a leaf's is set at construction, and a branch's is the
-    /// join endpoint of its memoized bounds span, so reading either bound
-    /// computes both, unless reassembly derived them when it built the
-    /// branch ([`View::rebuild`]). The memo is a pure function of the
-    /// subtree, so it is safe to share across the structurally-shared
-    /// clones a forked tree produces.
+    /// memoized: a leaf's is set at construction, and a branch's is the join
+    /// endpoint of its memoized bounds span, so reading either bound computes
+    /// both, unless reassembly derived them when it built the branch
+    /// ([`View::rebuild`]). The memo is a pure function of the subtree, so it
+    /// is safe to share across the structurally-shared clones a forked tree
+    /// produces.
     pub fn ceiling(&self) -> &Version {
         match &self.inner.body {
             Body::Leaf { version, .. } => version,
@@ -880,12 +867,12 @@ impl Node {
     /// children).
     ///
     /// Like [`hash`](Self::hash), the floor is computed on first call and
-    /// memoized: a leaf's is set at construction, and a branch's is the
-    /// meet endpoint of its memoized bounds span, so reading either bound
-    /// computes both, unless reassembly derived them when it built the
-    /// branch ([`View::rebuild`]). The memo is a pure function of the
-    /// subtree, so it is safe to share across the structurally-shared
-    /// clones a forked tree produces.
+    /// memoized: a leaf's is set at construction, and a branch's is the meet
+    /// endpoint of its memoized bounds span, so reading either bound computes
+    /// both, unless reassembly derived them when it built the branch
+    /// ([`View::rebuild`]). The memo is a pure function of the subtree, so it
+    /// is safe to share across the structurally-shared clones a forked tree
+    /// produces.
     pub fn floor(&self) -> &Version {
         match &self.inner.body {
             Body::Leaf { version, .. } => version,
@@ -899,8 +886,8 @@ impl Node {
     /// `[floor, ceiling]` pair, borrowed.
     ///
     /// A branch reborrows its stored span. A leaf uses [`Span::at`] because
-    /// both bounds equal its version. Reading a branch span fills the same
-    /// memo shared by [`ceiling`](Self::ceiling) and [`floor`](Self::floor).
+    /// both bounds equal its version. Reading a branch span fills the same memo
+    /// shared by [`ceiling`](Self::ceiling) and [`floor`](Self::floor).
     pub fn span(&self) -> Span<'_> {
         match &self.inner.body {
             Body::Leaf { version, .. } => Span::at(version),
@@ -915,8 +902,8 @@ impl Node {
     /// A fringe branch uses [`Version::span_all`] to derive both bounds in one
     /// pass over its leaf versions. An interior branch uses [`Span::union_all`]
     /// over child spans, reusing their cached bounds. Both balanced folds avoid
-    /// repeatedly combining one growing accumulator with the next child.
-    /// The fold cannot be empty: canonical branches have at least two children.
+    /// repeatedly combining one growing accumulator with the next child. The
+    /// fold cannot be empty: canonical branches have at least two children.
     fn bounds<'a>(bounds: &'a OnceLock<Span<'static>>, children: &Fan) -> &'a Span<'static> {
         bounds.get_or_init(|| {
             memo_census::record(Work::BoundsFull);
@@ -937,16 +924,15 @@ impl Node {
         })
     }
 
-    /// The largest canonical encoding among every version this subtree
-    /// holds — leaf versions plus every branch's ceiling and floor —
-    /// recomputed by direct walk with no aggregate memo consulted.
+    /// The largest canonical encoding among every version this subtree holds —
+    /// leaf versions plus every branch's ceiling and floor — recomputed by
+    /// direct walk with no aggregate memo consulted.
     ///
-    /// Test instrumentation: the independent oracle the aggregate
-    /// proptests and the census pin hold
-    /// [`version_bytes`](Self::version_bytes) against — the two must
-    /// agree on every tree, and this side derives the answer from the
-    /// bounds alone. Materialized depth is at most the 32-byte path, so
-    /// the recursion is stack-safe.
+    /// Test instrumentation: the independent oracle the aggregate proptests and
+    /// the census pin hold [`version_bytes`](Self::version_bytes) against — the
+    /// two must agree on every tree, and this side derives the answer from the
+    /// bounds alone. Materialized depth is at most the 32-byte path, so the
+    /// recursion is stack-safe.
     #[cfg(test)]
     pub fn max_bound_bytes(&self) -> usize {
         match &self.inner.body {
@@ -967,13 +953,13 @@ impl Node {
     }
 
     /// The tightest span containing every leaf version beneath this node,
-    /// computed by direct walk, consulting no memo: each version folded in
-    /// turn into a running meet and join.
+    /// computed by direct walk, consulting no memo: each version folded in turn
+    /// into a running meet and join.
     ///
     /// Test instrumentation: the independent oracle stored bounds are held
     /// against ([`mismemoized`](Self::mismemoized)). It shares neither the
-    /// memos nor the balanced folds the bounds are computed with. The
-    /// traversal keeps an explicit stack.
+    /// memos nor the balanced folds the bounds are computed with. The traversal
+    /// keeps an explicit stack.
     #[cfg(test)]
     pub(crate) fn walked_span(&self) -> Span<'static> {
         let mut versions = Vec::new();
@@ -993,9 +979,9 @@ impl Node {
         Span::new(lo, hi).expect("the meet of versions is at or below their join")
     }
 
-    /// The first node at or beneath this one whose bounds differ from a
-    /// direct walk ([`walked_span`](Self::walked_span)) or whose encoded
-    /// version size differs from one ([`max_bound_bytes`](Self::max_bound_bytes)).
+    /// The first node at or beneath this one whose bounds differ from a direct
+    /// walk ([`walked_span`](Self::walked_span)) or whose encoded version size
+    /// differs from one ([`max_bound_bytes`](Self::max_bound_bytes)).
     #[cfg(test)]
     pub(crate) fn mismemoized(&self) -> Option<Node> {
         let mut stack = vec![self.clone()];
@@ -1042,9 +1028,9 @@ impl Node {
     /// path-compressed prefix above it).
     ///
     /// A leaf carries exactly one version, so its [`floor`](Self::floor) and
-    /// [`ceiling`](Self::ceiling) coincide — which lets callers decide "keep
-    /// or drop this whole subtree" from the version check alone, without
-    /// exploding the compressed prefix.
+    /// [`ceiling`](Self::ceiling) coincide — which lets callers decide "keep or
+    /// drop this whole subtree" from the version check alone, without exploding
+    /// the compressed prefix.
     pub fn is_leaf(&self) -> bool {
         matches!(self.inner.body, Body::Leaf { .. })
     }
@@ -1058,9 +1044,9 @@ impl Node {
     /// Place a node beneath the given child index, increasing its height by
     /// one.
     ///
-    /// Pushing onto the prefix raises the observable hash by one virtual
-    /// level, so the memoized hash is invalidated and recomputed lazily on the
-    /// next read.
+    /// Pushing onto the prefix raises the observable hash by one virtual level,
+    /// so the memoized hash is invalidated and recomputed lazily on the next
+    /// read.
     pub fn beneath(mut self, index: u8) -> Node {
         let inner = Arc::make_mut(&mut self.inner);
         inner.prefix.push(index);
@@ -1085,59 +1071,54 @@ impl Node {
 }
 
 /// The bounds of the bare branch over `children`, derived from those of
-/// `original`, the view the children were listed from, wherever that is
-/// exact.
+/// `original`, the view the children were listed from, wherever that is exact.
 ///
 /// A view's bounds are its stored node's, since bounds depend on the body
-/// alone; which children are unchanged is decided on the views, as
-/// listing yields them: the same stored node, hiding the same bytes.
+/// alone; which children are unchanged is decided on the views, as listing
+/// yields them: the same stored node, hiding the same bytes.
 ///
 /// Otherwise the memo is left empty, and warming fills it by computing the
 /// bounds from every child.
 ///
 /// # Exactness
 ///
-/// A branch's span is the union of its children's spans: its floor is the
-/// meet of their floors, and its ceiling the join of their ceilings. Call
-/// the new branch `N` and `original` `O`. Split `N`'s children into `U`,
-/// those `O` lists unchanged at the same radix, and `D`, those that differ
-/// or are new; and call `R` the children of `O` that changed or are gone.
-/// Let `T` be the union of `D`'s spans. Union is associative, commutative
-/// and idempotent, so
+/// A branch's span is the union of its children's spans: its floor is the meet
+/// of their floors, and its ceiling the join of their ceilings. Call the new
+/// branch `N` and `original` `O`. Split `N`'s children into `U`, those `O`
+/// lists unchanged at the same radix, and `D`, those that differ or are new;
+/// and call `R` the children of `O` that changed or are gone. Let `T` be the
+/// union of `D`'s spans. Union is associative, commutative and idempotent, so
 ///
 /// ```text
 /// span(O) ∪ T = span(U) ∪ span(R) ∪ T     span(N) = span(U) ∪ T
 /// ```
 ///
-/// and the two agree exactly when every span in `R` lies within span(N).
-/// The endpoints answer separately. `N`'s ceiling is `O`'s joined with
-/// `T`'s exactly when every `r` in `R` has a ceiling at or below `N`'s;
-/// `N`'s floor is `O`'s met with `T`'s exactly when every `r` has a floor
-/// at or above `N`'s.
+/// and the two agree exactly when every span in `R` lies within span(N). The
+/// endpoints answer separately. `N`'s ceiling is `O`'s joined with `T`'s
+/// exactly when every `r` in `R` has a ceiling at or below `N`'s; `N`'s floor
+/// is `O`'s met with `T`'s exactly when every `r` has a floor at or above
+/// `N`'s.
 ///
-/// The ceiling of `r` is *certified* at or below `N`'s by any bound known to
-/// be at or below `N`'s ceiling and at or above `r`'s: `T`'s ceiling, or the
-/// ceiling of any child in `U`. A floor is certified likewise, by `T`'s
-/// floor or any `U` child's. Certificates are sufficient, not necessary: a
-/// ceiling above every certificate can still lie below the join of
-/// several.
+/// The ceiling of `r` is *certified* at or below `N`'s by any bound known to be
+/// at or below `N`'s ceiling and at or above `r`'s: `T`'s ceiling, or the
+/// ceiling of any child in `U`. A floor is certified likewise, by `T`'s floor
+/// or any `U` child's. Certificates are sufficient, not necessary: a ceiling
+/// above every certificate can still lie below the join of several.
 ///
-/// An endpoint whose every `r` is certified is seeded, at the cost of one
-/// join or meet. An endpoint with an uncertified `r` is folded over all of
-/// `N`'s children, half the full computation. When neither is certified,
-/// the memo is left for the full computation, which folds both endpoints
-/// in one pass.
+/// An endpoint whose every `r` is certified is seeded, at the cost of one join
+/// or meet. An endpoint with an uncertified `r` is folded over all of `N`'s
+/// children, half the full computation. When neither is certified, the memo is
+/// left for the full computation, which folds both endpoints in one pass.
 ///
 /// # What is read
 ///
-/// `O`'s bounds and its children's are read only if already computed:
-/// computing them to seed would cost a full pass over the old node, more
-/// than computing the new one directly. `D`'s bounds are computed if they
-/// are not yet: publication computes the bounds of every node it
-/// publishes, so this moves that work rather than adding it, and lets
-/// seeding continue up the rebuilt path. `U`'s are read as certificates
-/// only if already computed, and computed only where an endpoint is folded,
-/// as warming would compute them.
+/// `O`'s bounds and its children's are read only if already computed: computing
+/// them to seed would cost a full pass over the old node, more than computing
+/// the new one directly. `D`'s bounds are computed if they are not yet:
+/// publication computes the bounds of every node it publishes, so this moves
+/// that work rather than adding it, and lets seeding continue up the rebuilt
+/// path. `U`'s are read as certificates only if already computed, and computed
+/// only where an endpoint is folded, as warming would compute them.
 ///
 /// Each certificate search tries the child that certified last first, then
 /// takes the unchanged children in order, resuming where it left off. Per
@@ -1267,8 +1248,8 @@ fn seeded_bounds(original: &View, children: &[(u8, View)]) -> OnceLock<Span<'sta
 struct Certifier {
     /// The position of the child that certified last, tried first next time.
     last: Option<usize>,
-    /// The position the scan resumes from: children before it have been
-    /// tried once.
+    /// The position the scan resumes from: children before it have been tried
+    /// once.
     next: usize,
     /// Whether an unchanged child certified a bound.
     by_sibling: bool,
@@ -1278,8 +1259,8 @@ struct Certifier {
 
 impl Certifier {
     /// Find a child in `kept` that `certifies`, unless the search already
-    /// failed: the child that certified last first, then the children not
-    /// yet tried, in order. Records a failure when none does.
+    /// failed: the child that certified last first, then the children not yet
+    /// tried, in order. Records a failure when none does.
     fn certify(&mut self, kept: &[&Node], certifies: impl Fn(&Node) -> bool) {
         if self.failed {
             return;
@@ -1301,51 +1282,49 @@ impl Certifier {
 
 /// Compare replicated version sets.
 impl Node {
-    /// Whether `self` and `other`, at the same trie position in trees of
-    /// the network whose hash key is `key`, hold the same version set,
-    /// without walking equal shared subtrees.
+    /// Whether `self` and `other`, at the same trie position in trees of the
+    /// network whose hash key is `key`, hold the same version set, without
+    /// walking equal shared subtrees.
     ///
     /// Shared backing settles equality with no hashing (and even cold): the
     /// common case for forked or cloned trees and the subtrees they share.
-    /// Distinct allocations fall back to the Merkle digest, which commits
-    /// shape and version set, never message bytes. So this is version-set
-    /// equality, and content equality, because no two messages ever share a
-    /// version. (Same-version leaves with different payloads would compare
-    /// equal; producing such a pair takes an already-fatal linearity
-    /// violation.)
+    /// Distinct allocations fall back to the Merkle digest, which commits shape
+    /// and version set, never message bytes. So this is version-set equality,
+    /// and content equality, because no two messages ever share a version.
+    /// (Same-version leaves with different payloads would compare equal;
+    /// producing such a pair takes an already-fatal linearity violation.)
     pub fn same(&self, other: &Self, key: &HashKey) -> bool {
         self.ptr_eq(other) || self.hash(key) == other.hash(key)
     }
 }
 
-/// Builds the maximally compressed subtree over a strictly ascending stream
-/// of bare leaves, one leaf at a time, holding only the subtree's open right
+/// Builds the maximally compressed subtree over a strictly ascending stream of
+/// bare leaves, one leaf at a time, holding only the subtree's open right
 /// spine.
 ///
 /// The result is the node the tests' whole-run constructor,
-/// `Node::from_sorted_leaves`, builds from the same leaves: the same
-/// compressed prefixes, branches, and fans, so the same hash. Where that
-/// constructor needs the whole run in hand, this one keeps
-/// at most one open branch per path byte below its starting depth, each with
-/// the children closed beneath it so far, and the last leaf pushed. A
-/// subtree of any size therefore assembles in transient memory bounded by
-/// [`PATH_LEN`] fans of at most 256 children.
+/// `Node::from_sorted_leaves`, builds from the same leaves: the same compressed
+/// prefixes, branches, and fans, so the same hash. Where that constructor needs
+/// the whole run in hand, this one keeps at most one open branch per path byte
+/// below its starting depth, each with the children closed beneath it so far,
+/// and the last leaf pushed. A subtree of any size therefore assembles in
+/// transient memory bounded by [`PATH_LEN`] fans of at most 256 children.
 ///
-/// Each push compares the new leaf's path with the previous one's. Every
-/// open branch deeper than the byte where the two diverge can gain no more
-/// children, so it closes, and is built once with its whole compressed
-/// prefix, exactly as the bulk constructor builds it. The work is the bulk
-/// constructor's: one node per branch point and one per leaf.
+/// Each push compares the new leaf's path with the previous one's. Every open
+/// branch deeper than the byte where the two diverge can gain no more children,
+/// so it closes, and is built once with its whole compressed prefix, exactly as
+/// the bulk constructor builds it. The work is the bulk constructor's: one node
+/// per branch point and one per leaf.
 pub(crate) struct SortedLeaves {
-    /// The depth the finished subtree observes from: every leaf's path
-    /// shares its first `depth` bytes.
+    /// The depth the finished subtree observes from: every leaf's path shares
+    /// its first `depth` bytes.
     depth: usize,
-    /// The open branches along the right spine, shallowest first, with
-    /// strictly increasing divergence bytes.
+    /// The open branches along the right spine, shallowest first, with strictly
+    /// increasing divergence bytes.
     spine: Vec<OpenBranch>,
     /// The last leaf pushed, with its path. It stays unattached because its
-    /// compressed prefix starts below its parent's divergence byte, which
-    /// the next leaf decides.
+    /// compressed prefix starts below its parent's divergence byte, which the
+    /// next leaf decides.
     last: Option<([u8; PATH_LEN], Node)>,
 }
 
@@ -1362,8 +1341,8 @@ struct OpenBranch {
     children: Fan,
 }
 
-/// A finished subtree of a [`SortedLeaves`] build, not yet given the
-/// compressed prefix its parent's divergence byte decides.
+/// A finished subtree of a [`SortedLeaves`] build, not yet given the compressed
+/// prefix its parent's divergence byte decides.
 enum Closed {
     /// A bare leaf at its full path.
     Leaf([u8; PATH_LEN], Node),
@@ -1380,9 +1359,9 @@ impl Closed {
         }
     }
 
-    /// Build the node observed from depth `from`, returning it with its
-    /// leaf count: its compressed prefix spans the path bytes from `from` to
-    /// its own divergence byte, or to the end of the path for a leaf.
+    /// Build the node observed from depth `from`, returning it with its leaf
+    /// count: its compressed prefix spans the path bytes from `from` to its own
+    /// divergence byte, or to the end of the path for a leaf.
     fn observed_from(self, from: usize) -> (Node, usize) {
         match self {
             Closed::Leaf(path, mut node) => {
@@ -1445,13 +1424,13 @@ impl OpenBranch {
 }
 
 impl SortedLeaves {
-    /// The most transient bytes one build holds at once, whatever the
-    /// subtree's size.
+    /// The most transient bytes one build holds at once, whatever the subtree's
+    /// size.
     ///
-    /// That is [`PATH_LEN`] open branches, each with the heap slots of a
-    /// full fan, counted twice for the blocks a growing vector or fan frees
-    /// as it reallocates. Closed children are not transient: each becomes
-    /// part of the finished subtree.
+    /// That is [`PATH_LEN`] open branches, each with the heap slots of a full
+    /// fan, counted twice for the blocks a growing vector or fan frees as it
+    /// reallocates. Closed children are not transient: each becomes part of the
+    /// finished subtree.
     pub(crate) const MAX_TRANSIENT_BYTES: usize =
         2 * PATH_LEN * (mem::size_of::<OpenBranch>() + fan::heap_slots(256) * FAN_ENTRY_BYTES);
 
@@ -1468,9 +1447,9 @@ impl SortedLeaves {
     ///
     /// # Panics
     ///
-    /// Panics if `path` does not ascend strictly from the previous leaf's
-    /// path, and in debug builds if it leaves the subtree's shared prefix or
-    /// `leaf` is not a bare leaf. Session decoding establishes all three.
+    /// Panics if `path` does not ascend strictly from the previous leaf's path,
+    /// and in debug builds if it leaves the subtree's shared prefix or `leaf`
+    /// is not a bare leaf. Session decoding establishes all three.
     pub(crate) fn push(&mut self, path: [u8; PATH_LEN], leaf: Node) {
         debug_assert!(
             leaf.inner.prefix.is_empty() && leaf.is_leaf(),
@@ -1501,8 +1480,8 @@ impl SortedLeaves {
         }
     }
 
-    /// Close every open branch and return the finished subtree, or `None`
-    /// if no leaf was pushed.
+    /// Close every open branch and return the finished subtree, or `None` if no
+    /// leaf was pushed.
     pub(crate) fn finish(mut self) -> Option<Node> {
         let (path, leaf) = self.last.take()?;
         let mut closed = Closed::Leaf(path, leaf);

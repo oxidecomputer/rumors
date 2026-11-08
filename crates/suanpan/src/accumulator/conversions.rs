@@ -10,9 +10,9 @@
 //! value to at most six digits, which a normalizing read then extracts. Either
 //! way, extraction compacts only what it reads.
 //!
-//! `TryFrom` consumes its source, so a failed conversion returns the same
-//! value as the error. This preserves both its exact value and any storage the
-//! caller may want to reuse.
+//! `TryFrom` consumes its source, so a failed conversion returns the same value
+//! as the error. This preserves both its exact value and any storage the caller
+//! may want to reuse.
 
 use core::cmp::Ordering;
 

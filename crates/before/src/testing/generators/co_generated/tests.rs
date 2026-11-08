@@ -3,9 +3,9 @@
 //! Each strategy exists to reach one pre-scan regime that independently drawn
 //! operands do not. A strategy that stops reaching its regime (a dead arm, a
 //! normalization that collapses the sites it builds) still passes every
-//! differential, on easier inputs; the census reads that as a failure
-//! instead. It samples each strategy under a committed seed and classifies
-//! every case by the lookahead sites the tick walk meets in it.
+//! differential, on easier inputs; the census reads that as a failure instead.
+//! It samples each strategy under a committed seed and classifies every case by
+//! the lookahead sites the tick walk meets in it.
 
 use proptest::strategy::Strategy;
 
@@ -24,9 +24,9 @@ use super::{
 /// The census seed: names the sampled corpus (see
 /// [`crate::testing::rng::strategy_rng`]).
 ///
-/// Fixed because the census measures its generators
-/// deterministically: a regime it counts has no mass derived from the
-/// generators' weights, so its floors hold for this corpus alone.
+/// Fixed because the census measures its generators deterministically: a regime
+/// it counts has no mass derived from the generators' weights, so its floors
+/// hold for this corpus alone.
 const CENSUS_SEED: u64 = 11;
 
 /// The lookahead sites the tick walk meets in one case.
@@ -55,11 +55,11 @@ impl Sites {
     ///
     /// A site is a party branch with an owned left child and a nonempty right
     /// child over a version branch, which is where the tick walk and its
-    /// pre-scan reserve a memo slot. The walk reaches no site under an owned
-    /// or unowned party leaf, nor under a version leaf.
+    /// pre-scan reserve a memo slot. The walk reaches no site under an owned or
+    /// unowned party leaf, nor under a version leaf.
     ///
-    /// Recurses once per level of the case, whose depth its strategy bounds
-    /// by construction (see [`resolve`](super::resolve)).
+    /// Recurses once per level of the case, whose depth its strategy bounds by
+    /// construction (see [`resolve`](super::resolve)).
     fn visit(
         &mut self,
         party: &tree::Party,
@@ -103,18 +103,19 @@ fn census(strategy: impl Strategy<Value = TickCase>, in_regime: impl Fn(&Sites) 
         .count()
 }
 
-/// Every co-generated strategy keeps enough mass on its pre-scan regime
-/// that each default run of every property over it expects
-/// [`REGIME_CASES_PER_RUN`](super::super::census::seeded::REGIME_CASES_PER_RUN) cases there.
+/// Every co-generated strategy keeps enough mass on its pre-scan regime that
+/// each default run of every property over it expects
+/// [`REGIME_CASES_PER_RUN`](super::super::census::seeded::REGIME_CASES_PER_RUN)
+/// cases there.
 ///
 /// The regimes: sites nested three deep and a range holding two sites side by
-/// side (spine), sites nested more deeply than one memo block holds slots
-/// (deep spine), a pre-scan reserving more slots than one memo block holds
-/// (wide), and two such pre-scans in one walk (multi-scan). Every property
-/// over a strategy runs the default case count divided by that strategy's
-/// divisor, and each floor follows from that premise and that case count, so
-/// a strategy whose regime mass falls below what its own runs need reads as a
-/// failure here, whatever its count was when last measured.
+/// side (spine), sites nested more deeply than one memo block holds slots (deep
+/// spine), a pre-scan reserving more slots than one memo block holds (wide),
+/// and two such pre-scans in one walk (multi-scan). Every property over a
+/// strategy runs the default case count divided by that strategy's divisor, and
+/// each floor follows from that premise and that case count, so a strategy
+/// whose regime mass falls below what its own runs need reads as a failure
+/// here, whatever its count was when last measured.
 #[test]
 fn co_generated_strategies_keep_mass_on_their_regimes() {
     assert_default_case_count();

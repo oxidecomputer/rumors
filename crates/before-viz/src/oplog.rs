@@ -1,10 +1,10 @@
-//! The operation log and its pure algebra: the causal edges it induces, which nodes it
-//! supersedes, the descendant cone of a set of nodes, the rewind-and-append rewrite,
-//! and the URL-fragment codec.
+//! The operation log and its pure algebra: the causal edges it induces, which
+//! nodes it supersedes, the descendant cone of a set of nodes, the
+//! rewind-and-append rewrite, and the URL-fragment codec.
 //!
-//! No `before` or wasm here — just the combinatorics of the
-//! log. Node indices follow creation order: index 0 is the implicit seed, then each op
-//! appends its outputs in order.
+//! No `before` or wasm here — just the combinatorics of the log. Node indices
+//! follow creation order: index 0 is the implicit seed, then each op appends
+//! its outputs in order.
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,12 +21,13 @@ pub enum Op {
     Fork { x: usize },
     /// Merge disjoint clock `b` into clock `a`.
     Join { a: usize, b: usize },
-    /// Merge `from`'s history into `to` (no tick, no id change); `from` is read-only.
+    /// Merge `from`'s history into `to` (no tick, no id change); `from` is
+    /// read-only.
     Send { from: usize, to: usize },
 }
 
-/// The three kinds of causal edge. A `message` edge runs from a sender to the receiver's
-/// updated clock (a sent version), with no node between.
+/// The three kinds of causal edge. A `message` edge runs from a sender to the
+/// receiver's updated clock (a sent version), with no node between.
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum EdgeKind {
@@ -47,7 +48,8 @@ pub struct Analysis {
     pub edges: Vec<Edge>,
     /// `per_op[i]` is the node indices appended by `log[i]`.
     pub per_op: Vec<Vec<usize>>,
-    /// Nodes consumed by a later op (tick/fork/join operands, the send receiver).
+    /// Nodes consumed by a later op (tick/fork/join operands, the send
+    /// receiver).
     pub superseded: HashSet<usize>,
 }
 
@@ -128,8 +130,9 @@ pub fn analyze(log: &[Op]) -> Analysis {
     }
 }
 
-/// The nodes an op supersedes — those whose futures must be rewound when the op is
-/// applied to historical nodes. (A send's `from` is read-only and is not superseded.)
+/// The nodes an op supersedes — those whose futures must be rewound when the op
+/// is applied to historical nodes. (A send's `from` is read-only and is not
+/// superseded.)
 pub fn anchors_of(op: Op) -> Vec<usize> {
     match op {
         Op::Tick { x } | Op::Fork { x } => vec![x],
@@ -147,14 +150,14 @@ pub fn operands_of(op: Op) -> Vec<usize> {
     }
 }
 
-/// An operand of the applied op lies inside the very future the op would rewind, so
-/// applying it would orphan that operand (e.g. joining a clock with its own causal
-/// descendant). Carries the offending operand's index.
+/// An operand of the applied op lies inside the very future the op would
+/// rewind, so applying it would orphan that operand (e.g. joining a clock with
+/// its own causal descendant). Carries the offending operand's index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Orphaned(pub usize);
 
-/// Every node reachable from any anchor along any edge (excluding the anchors): the
-/// futures that depend on them.
+/// Every node reachable from any anchor along any edge (excluding the anchors):
+/// the futures that depend on them.
 pub fn descendant_cone(edges: &[Edge], anchors: &[usize]) -> HashSet<usize> {
     let mut out: HashMap<usize, Vec<usize>> = HashMap::new();
     for e in edges {
@@ -190,19 +193,19 @@ fn remap_op(op: Op, remap: &HashMap<usize, usize>) -> Op {
     }
 }
 
-/// Rewind history to the nodes `op` supersedes (drop the union of their descendant
-/// cones) and append `op`.
+/// Rewind history to the nodes `op` supersedes (drop the union of their
+/// descendant cones) and append `op`.
 ///
-/// Returns a canonical minimal log producing exactly the
-/// surviving DAG plus the new frontier. Every superseded operand must be rewound, or a
-/// still-historical operand's future would survive alongside the new lineage and
-/// duplicate its id-space. When all anchors are live tips the cones are empty and this
-/// is a plain append.
+/// Returns a canonical minimal log producing exactly the surviving DAG plus the
+/// new frontier. Every superseded operand must be rewound, or a
+/// still-historical operand's future would survive alongside the new lineage
+/// and duplicate its id-space. When all anchors are live tips the cones are
+/// empty and this is a plain append.
 ///
 /// Rejected with [`Orphaned`] when one of `op`'s operands lies inside another
 /// operand's descendant cone: the rewind would drop the very node the op reads
-/// (e.g. joining a clock with its own causal descendant), so the op is incoherent
-/// and the log is left for the caller to keep unchanged.
+/// (e.g. joining a clock with its own causal descendant), so the op is
+/// incoherent and the log is left for the caller to keep unchanged.
 pub fn rewind_and_apply(log: &[Op], op: Op) -> Result<Vec<Op>, Orphaned> {
     let Analysis { edges, per_op, .. } = analyze(log);
     let cone = descendant_cone(&edges, &anchors_of(op));
@@ -264,8 +267,8 @@ fn read_varint(bytes: &[u8], pos: &mut usize) -> Result<usize, String> {
     Ok(result)
 }
 
-/// Encode a log to a URL-safe fragment (1-byte tag + LEB128 varint operands, base64url).
-/// An empty log is the empty string.
+/// Encode a log to a URL-safe fragment (1-byte tag + LEB128 varint operands,
+/// base64url). An empty log is the empty string.
 pub fn encode(log: &[Op]) -> String {
     let mut bytes = Vec::new();
     for op in log {
@@ -295,27 +298,26 @@ pub fn encode(log: &[Op]) -> String {
 
 /// The most ops a log may carry: the op budget.
 ///
-/// A log is caller input (any shared link carries one as a fragment), and
-/// every accepted op costs a replay. A clock can grow linearly with the log,
-/// and retaining every historical clock can therefore consume quadratic
-/// space. A teaching figure needs at most a few dozen ops, so 512 is an
-/// order of magnitude of headroom. [`decode`] enforces the budget as early
-/// rejection on the wire; the engine owns the same budget at replay, so
-/// every entry is covered.
+/// A log is caller input (any shared link carries one as a fragment), and every
+/// accepted op costs a replay. A clock can grow linearly with the log, and
+/// retaining every historical clock can therefore consume quadratic space. A
+/// teaching figure needs at most a few dozen ops, so 512 is an order of
+/// magnitude of headroom. [`decode`] enforces the budget as early rejection on
+/// the wire; the engine owns the same budget at replay, so every entry is
+/// covered.
 pub const MAX_OPS: usize = 512;
 
 /// The longest fragment any log within the op budget can encode, pinned by
-/// arithmetic so [`decode`] can reject longer strings before doing base64
-/// work proportional to attacker-chosen length.
+/// arithmetic so [`decode`] can reject longer strings before doing base64 work
+/// proportional to attacker-chosen length.
 ///
 /// Derivation: an op encodes to at most 21 bytes (one tag byte plus two
-/// operands, each a LEB128 varint of at most 10 bytes for a 64-bit
-/// `usize`), and unpadded base64 spends 4 chars per 3 bytes, rounded up.
+/// operands, each a LEB128 varint of at most 10 bytes for a 64-bit `usize`),
+/// and unpadded base64 spends 4 chars per 3 bytes, rounded up.
 pub const MAX_FRAGMENT_CHARS: usize = (MAX_OPS * 21 * 4).div_ceil(3);
 
-/// Decode a fragment back into a log. Errs on malformed input or a log
-/// past the op budget ([`MAX_OPS`]), the latter before any op is
-/// materialized.
+/// Decode a fragment back into a log. Errs on malformed input or a log past the
+/// op budget ([`MAX_OPS`]), the latter before any op is materialized.
 pub fn decode(fragment: &str) -> Result<Vec<Op>, String> {
     if fragment.len() > MAX_FRAGMENT_CHARS {
         return Err(format!(

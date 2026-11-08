@@ -6,12 +6,12 @@
 //!
 //! The checksum protects the format version and payload bytes. Both writing and
 //! verification feed their Serde encodings into SHA3-256: the version item,
-//! followed by the tagged payload item. Equivalent spellings of the envelope
-//! do not affect integrity. The payload itself is opaque bytes until its hash
-//! has been checked; any change to those bytes changes the checksum input.
-//! The checksum belongs to the stored format, not to the gossip protocol, so
-//! it stays SHA3-256 whichever hash the protocol's paths and digests use:
-//! nothing stored here derives from those.
+//! followed by the tagged payload item. Equivalent spellings of the envelope do
+//! not affect integrity. The payload itself is opaque bytes until its hash has
+//! been checked; any change to those bytes changes the checksum input. The
+//! checksum belongs to the stored format, not to the gossip protocol, so it
+//! stays SHA3-256 whichever hash the protocol's paths and digests use: nothing
+//! stored here derives from those.
 //!
 //! The payload stores networks newest-first and identities oldest-first, with
 //! one shared write frontier per network. Serde owns the CBOR encoding at both
@@ -34,8 +34,8 @@ use crate::tree::mirror::cbor::{self, TAG_EMBEDDED_ITEM, TAG_SELF_DESCRIBED};
 /// identity entries, and preserves network and identity recency. It keys each
 /// network's record by the network's [`Network`] identifier, so how an
 /// identifier is derived is part of the format: a build that derived
-/// identifiers differently would find no record for its networks.
-/// Other version numbers are rejected with [`FormatError::VersionMismatch`].
+/// identifiers differently would find no record for its networks. Other version
+/// numbers are rejected with [`FormatError::VersionMismatch`].
 pub const BOOKMARK_FORMAT_VERSION: u64 = 8;
 
 /// Width of the SHA3-256 integrity hash, in bytes.

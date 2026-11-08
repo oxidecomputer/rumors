@@ -5,10 +5,10 @@
 //! lookaheads in the same range, before the main walk continues.
 //!
 //! [`Memo`] passes those results from the pre-scan to the walk in the order the
-//! walk encounters the branches. Each result is a difference from a minimum
-//! the walk already holds. Equal minima produce a zero difference and occupy
-//! no value storage; nonzero differences use [`StoredAccumulator`], which
-//! keeps a machine-sized value inline and boxes only a wide one.
+//! walk encounters the branches. Each result is a difference from a minimum the
+//! walk already holds. Equal minima produce a zero difference and occupy no
+//! value storage; nonzero differences use [`StoredAccumulator`], which keeps a
+//! machine-sized value inline and boxes only a wide one.
 //!
 //! The pre-scan discovers branches in preorder but finishes them when their
 //! ranges close, so writes may arrive out of order. Small fixed-size blocks

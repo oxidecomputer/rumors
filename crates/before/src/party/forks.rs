@@ -7,13 +7,13 @@
 //! low-`d`-bit reversal of `q` is less than `r`.
 //!
 //! [`Plan`] stores that compact plan and a read-only source snapshot. It
-//! composes every fork for one share into a single descent, without constructing
-//! the intermediate regions. [`PartyForks`] then removes that share from the
-//! borrowed party in one rebuilding pass. The removal remembers bits per open
-//! ancestor, not a machine word or tree node, so even an arbitrary-width count
-//! cannot turn path depth into disproportionate transient memory. The borrowed
-//! party always owns the residual and every untaken share; dropping the
-//! iterator requires no cleanup.
+//! composes every fork for one share into a single descent, without
+//! constructing the intermediate regions. [`PartyForks`] then removes that
+//! share from the borrowed party in one rebuilding pass. The removal remembers
+//! bits per open ancestor, not a machine word or tree node, so even an
+//! arbitrary-width count cannot turn path depth into disproportionate transient
+//! memory. The borrowed party always owns the residual and every untaken share;
+//! dropping the iterator requires no cleanup.
 
 use core::iter::FusedIterator;
 
@@ -25,13 +25,13 @@ use crate::Count;
 
 /// The current share's directions in the party's spatial tree.
 ///
-/// The balanced fork plan describes only choices that fork an owned region.
-/// The source party may also contain one-child branches, which locate that
-/// region but do not fork it. [`SharePath`] merges the two: it yields every
-/// one-child direction, consumes one planned choice at each two-child branch,
-/// and uses any choices remaining below an owned region to create deeper
-/// levels. The resulting path addresses the exact subtree that
-/// [`PartyReader::remove_path`] removes.
+/// The balanced fork plan describes only choices that fork an owned region. The
+/// source party may also contain one-child branches, which locate that region
+/// but do not fork it. [`SharePath`] merges the two: it yields every one-child
+/// direction, consumes one planned choice at each two-child branch, and uses
+/// any choices remaining below an owned region to create deeper levels. The
+/// resulting path addresses the exact subtree that [`PartyReader::remove_path`]
+/// removes.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 struct SharePath<'a> {
     /// Current source node while the path remains inside the original tree.
@@ -54,8 +54,8 @@ struct SharePath<'a> {
 impl SharePath<'_> {
     /// Take the next direction from the balanced plan.
     ///
-    /// The `depth` bits of `index` name the base share from root to leaf. A base
-    /// share selected for one extra fork appends `second` as its final
+    /// The `depth` bits of `index` name the base share from root to leaf. A
+    /// base share selected for one extra fork appends `second` as its final
     /// decision.
     fn next_decision(&mut self) -> Option<bool> {
         let direction = if self.decision < self.depth {
@@ -192,9 +192,9 @@ impl Plan {
     ///
     /// # Panics
     ///
-    /// Panics if every share has already been produced. Callers advance only
-    /// a plan that is not [`is_empty`](Self::is_empty), so a panic here is a
-    /// bug in this module.
+    /// Panics if every share has already been produced. Callers advance only a
+    /// plan that is not [`is_empty`](Self::is_empty), so a panic here is a bug
+    /// in this module.
     fn advance(&mut self, forks_again: bool) {
         self.remaining -= 1u8;
         if forks_again && !self.second {
@@ -219,8 +219,8 @@ impl Plan {
 /// its left half and `floor(n/2)` to its right is the recursive definition of
 /// the balanced partition. The stack visits left before right, so the result
 /// order matches [`Plan`]. Unlike `Plan`, it never rescans the original party
-/// from its root for another output: every intermediate party is consumed by
-/// at most one binary fork.
+/// from its root for another output: every intermediate party is consumed by at
+/// most one binary fork.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 struct Shares {
     /// Regions still to fork, with the next region last.
@@ -294,8 +294,8 @@ impl Iterator for Plan {
 ///
 /// Construction costs `O(log k)` for the count representation. Each `next`
 /// costs `O(|p| + log k)` and dropping the iterator costs `O(1)`, with `|p|`
-/// the borrowed party's size when the iterator was created. A full drain
-/// takes `O(|p| + k (|p| + log k))` time; measured on [`Party::forks`].
+/// the borrowed party's size when the iterator was created. A full drain takes
+/// `O(|p| + k (|p| + log k))` time; measured on [`Party::forks`].
 #[must_use = "`PartyForks` produces no child parties unless consumed"]
 pub struct PartyForks<'a> {
     /// The borrowed party, containing the residual and every untaken share.
@@ -375,8 +375,7 @@ mod tests;
 ///
 /// # Complexity
 ///
-/// Takes `O(|party| + N (|party| + log N))` time; measured on
-/// [`Party::forks`].
+/// Takes `O(|party| + N (|party| + log N))` time; measured on [`Party::forks`].
 ///
 /// # Example
 ///

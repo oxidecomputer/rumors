@@ -1,8 +1,8 @@
-//! Causal filtering and span placement: the fused walks decode each stream
-//! once and keep the early exits of the compositions they replace.
+//! Causal filtering and span placement: the fused walks decode each stream once
+//! and keep the early exits of the compositions they replace.
 //!
-//! Every claim is stated against the pair comparison on the same operands,
-//! over the history fixture (`focused_fuel_protocol::Snapshot` states its
+//! Every claim is stated against the pair comparison on the same operands, over
+//! the history fixture (`focused_fuel_protocol::Snapshot` states its
 //! construction and order) at three sizes.
 
 use focused_fuel_harness::{assert_at_most, assert_less, assert_saving_grows, measure, Probe};
@@ -23,12 +23,11 @@ fn compare(senders: u64, x: Snapshot, y: Snapshot) -> u64 {
     history(Probe::HistoryCompare, senders, [x, y])
 }
 
-/// A query over a single stored bound answers at its first refuted
-/// direction.
+/// A query over a single stored bound answers at its first refuted direction.
 ///
-/// A refuted ceiling and a satisfied hole cost less than the pair
-/// comparison, which must refute both directions or confirm one to
-/// exhaustion, and a concurrent ceiling costs no more than it.
+/// A refuted ceiling and a satisfied hole cost less than the pair comparison,
+/// which must refute both directions or confirm one to exhaustion, and a
+/// concurrent ceiling costs no more than it.
 ///
 /// Forms: strict saving (F-lt) of the refuted ceiling and the satisfied hole
 /// under the comparison of the same pair, and derived bound (F-bound) of the
@@ -55,9 +54,9 @@ fn query_single_bound_exits_at_the_first_refuted_direction() {
     }
 }
 
-/// The composition's early exit on a probe concurrent with the ceiling
-/// survives the fusion: the refuted containment answers at the deciding
-/// interval, so the fused walk costs less than the two comparisons.
+/// The composition's early exit on a probe concurrent with the ceiling survives
+/// the fusion: the refuted containment answers at the deciding interval, so the
+/// fused walk costs less than the two comparisons.
 ///
 /// Form: strict saving (F-lt) of the fused walk under the composition.
 #[test]
@@ -75,16 +74,16 @@ fn query_concurrent_ceiling_exit_survives_the_fusion() {
     }
 }
 
-/// One fused span placement decodes each stream once, and its coarsenings
-/// never cost more than it.
+/// One fused span placement decodes each stream once, and its coarsenings never
+/// cost more than it.
 ///
 /// On a full sweep, `place` costs less than the two comparisons with the
 /// endpoints, by a saving that grows with the streams. On a contained probe,
-/// `dominance` drops the end stream at its refuted domination and
-/// `precedence` the start stream, so both cost less than `place`, while
-/// `contains`, whose two directions confirm only at exhaustion, costs no
-/// more. On a probe dominating the whole span `dominance` costs no more than
-/// `place`, and on one preceding it `precedence` costs no more.
+/// `dominance` drops the end stream at its refuted domination and `precedence`
+/// the start stream, so both cost less than `place`, while `contains`, whose
+/// two directions confirm only at exhaustion, costs no more. On a probe
+/// dominating the whole span `dominance` costs no more than `place`, and on one
+/// preceding it `precedence` costs no more.
 ///
 /// Forms: strict saving (F-lt) for `place` under the composition, with a
 /// growing saving, and for the coarsenings that drop a stream; derived bound
@@ -133,8 +132,8 @@ fn span_place_decodes_each_stream_once() {
 /// The walk returns at the second deciding interval, so the saving grows with
 /// the streams.
 ///
-/// Form: strict saving (F-lt) of `place` under the composition, with a
-/// growing saving.
+/// Form: strict saving (F-lt) of `place` under the composition, with a growing
+/// saving.
 #[test]
 fn span_concurrent_exit_survives_the_fusion() {
     let rows: Vec<(u64, u64, u64)> = SENDERS
@@ -151,12 +150,12 @@ fn span_concurrent_exit_survives_the_fusion() {
 /// The dominance query stops when the probe fails to dominate the start,
 /// whether the start is concurrent with the probe or above it.
 ///
-/// A concurrent start refutes `lo <= probe` at its first opposing interval,
-/// so the walk returns before full resolution and under the two-check shape
-/// it replaces: the start's comparison with the probe, then the end's
-/// containment in the probe's past. A dominating start is refuted at the
-/// first excess interval, under even the first check, which confirms only at
-/// exhaustion. Form: strict saving (F-lt) in each case.
+/// A concurrent start refutes `lo <= probe` at its first opposing interval, so
+/// the walk returns before full resolution and under the two-check shape it
+/// replaces: the start's comparison with the probe, then the end's containment
+/// in the probe's past. A dominating start is refuted at the first excess
+/// interval, under even the first check, which confirms only at exhaustion.
+/// Form: strict saving (F-lt) in each case.
 #[test]
 fn dominance_bails_at_the_refuted_start() {
     for senders in SENDERS {
@@ -190,13 +189,13 @@ fn dominance_bails_at_the_refuted_start() {
     }
 }
 
-/// The precedence query stops when the probe fails to precede the end,
-/// whether the end is concurrent with the probe or below it: the dominance
-/// bail, mirrored.
+/// The precedence query stops when the probe fails to precede the end, whether
+/// the end is concurrent with the probe or below it: the dominance bail,
+/// mirrored.
 ///
-/// The two-check shape it replaces is the end's comparison with the probe,
-/// then the start's containment in the probe's future. Form: strict saving
-/// (F-lt) in each case.
+/// The two-check shape it replaces is the end's comparison with the probe, then
+/// the start's containment in the probe's future. Form: strict saving (F-lt) in
+/// each case.
 #[test]
 fn precedence_bails_at_the_refuted_end() {
     for senders in SENDERS {
@@ -230,12 +229,12 @@ fn precedence_bails_at_the_refuted_end() {
     }
 }
 
-/// The membership query stops at the first refuted direction, on either
-/// side, before the placement walk, which confirms its `After` or `Before`
-/// verdict only at exhaustion.
+/// The membership query stops at the first refuted direction, on either side,
+/// before the placement walk, which confirms its `After` or `Before` verdict
+/// only at exhaustion.
 ///
-/// Form: strict saving (F-lt) of `contains` under `place` for a probe above
-/// the end and for one below the start.
+/// Form: strict saving (F-lt) of `contains` under `place` for a probe above the
+/// end and for one below the start.
 #[test]
 fn contains_bails_at_either_refuted_side() {
     for senders in SENDERS {

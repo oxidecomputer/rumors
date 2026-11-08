@@ -1,239 +1,226 @@
-//! The session memory budget against the transient heap a session
-//! allocates, under the most adverse link and data this suite constructs.
+//! The session memory budget against the transient heap a session allocates,
+//! under the most adverse link and data this suite constructs.
 //!
 //! [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) caps the
-//! memory one session uses beyond the replica. This suite measures that
-//! claim directly: with budget `B`, the heap a session allocates
-//! *transiently*, meaning allocations made during the session that do not
-//! survive into the replica, stays near `B`. The replica's own growth, the
-//! messages the session supplies, is outside the claim.
+//! memory one session uses beyond the replica. This suite measures that claim
+//! directly: with budget `B`, the heap a session allocates *transiently*,
+//! meaning allocations made during the session that do not survive into the
+//! replica, stays near `B`. The replica's own growth, the messages the session
+//! supplies, is outside the claim.
 //!
 //! # The measurement
 //!
-//! Each test drives two peers through one session on this thread, over the
-//! held link of the [`link`] module: every byte written waits until both
-//! peers stall, so each side fills whatever its admission lets it have
-//! outstanding before any reply arrives, and each release hands the reader
-//! everything its peer produced meanwhile. At each stall the schedule can
-//! also hold back kinds of either side's tasks, as a slow storage backend
-//! would: walk stages, so replies park while the questions they answer stay
-//! queued, or assemblers, so resolutions pile up. An [`alloc_meter::trace`]
-//! records every allocation and free over the session, and the driver
-//! labels each allocation with the peer whose poll made it.
+//! Each test drives two peers through one session on this thread, over the held
+//! link of the [`link`] module: every byte written waits until both peers
+//! stall, so each side fills whatever its admission lets it have outstanding
+//! before any reply arrives, and each release hands the reader everything its
+//! peer produced meanwhile. At each stall the schedule can also hold back kinds
+//! of either side's tasks, as a slow storage backend would: walk stages, so
+//! replies park while the questions they answer stay queued, or assemblers, so
+//! resolutions pile up. An [`alloc_meter::trace`] records every allocation and
+//! free over the session, and the driver labels each allocation with the peer
+//! whose poll made it.
 //!
-//! After the session's state is dropped, the trace classifies every block
-//! the session allocated. A block still live is replica content. A block
-//! freed was transient. Each peer's *transient peak* is the highest number of
-//! its transient bytes live at once, which is the quantity the claim bounds.
-//! A block allocated before the session is neither, even when the session
-//! frees it: the replica's old nodes, which the session holds through its
-//! starting root until it publishes the merged tree, were allocated at rest
-//! and count toward the replica at rest. The link's buffers and the
-//! driver's own state are allocated outside the trace, so they count toward
-//! nothing, and every block the trace records is some peer's.
+//! After the session's state is dropped, the trace classifies every block the
+//! session allocated. A block still live is replica content. A block freed was
+//! transient. Each peer's *transient peak* is the highest number of its
+//! transient bytes live at once, which is the quantity the claim bounds. A
+//! block allocated before the session is neither, even when the session frees
+//! it: the replica's old nodes, which the session holds through its starting
+//! root until it publishes the merged tree, were allocated at rest and count
+//! toward the replica at rest. The link's buffers and the driver's own state
+//! are allocated outside the trace, so they count toward nothing, and every
+//! block the trace records is some peer's.
 //!
 //! Three checks hold the survivors to being replica content. The peers are
 //! dropped while a snapshot of each replica keeps it alive, and then the
-//! snapshots: every survivor must be freed by one of the two, so none
-//! belongs to a leak or a global cache that would hide transient bytes. A
-//! survivor the peer frees while its replica lives is session state the
-//! peer kept, which may be no more than a session that compares almost
-//! nothing leaves (see [the reference](#the-reference-session)). The
-//! survivors the replica keeps may be no more than building the merged
-//! replica directly allocates: the peer's messages as its own sends built
-//! them, and the interior a join of the two replicas builds. And each
-//! peer's survivors must number at least the messages it gained, since every
-//! gained message becomes at least one new block of its replica, so a trace
-//! that stopped seeing the session cannot pass.
+//! snapshots: every survivor must be freed by one of the two, so none belongs
+//! to a leak or a global cache that would hide transient bytes. A survivor the
+//! peer frees while its replica lives is session state the peer kept, which may
+//! be no more than a session that compares almost nothing leaves (see [the
+//! reference](#the-reference-session)). The survivors the replica keeps may be
+//! no more than building the merged replica directly allocates: the peer's
+//! messages as its own sends built them, and the interior a join of the two
+//! replicas builds. And each peer's survivors must number at least the messages
+//! it gained, since every gained message becomes at least one new block of its
+//! replica, so a trace that stopped seeing the session cannot pass.
 //!
 //! # The data
 //!
-//! The budget binds when two large replicas differ throughout. A peer
-//! catching up from nothing disputes no subtree: it receives the set as
-//! supplies, and with nothing disputed the budget barely binds the session,
-//! so each fixture is two forks of one network holding equal, disjoint message
-//! sets.
+//! The budget binds when two large replicas differ throughout. A peer catching
+//! up from nothing disputes no subtree: it receives the set as supplies, and
+//! with nothing disputed the budget barely binds the session, so each fixture
+//! is two forks of one network holding equal, disjoint message sets.
 //!
-//! A leaf's tree path is its version's hash keyed by the network's secret,
-//! so the suite cannot place leaves: two hashed sets of `n` messages each
-//! interleave as uniformly random keys do. At 100,000 messages per side,
-//! every depth-1 node and most depth-2 nodes hold children from both
-//! replicas, and deeper nodes rarely do. Placing leaves so that deeper
-//! nodes also hold both would mean searching versions for chosen hash
-//! prefixes, at a cost of `256^k` versions per shared byte `k`, and would
-//! leave the uniform-hash model, under which the crate's guarantees are
-//! stated. Equal, fully divergent hashed sets are the most adverse fixture
-//! within that model.
+//! A leaf's tree path is its version's hash keyed by the network's secret, so
+//! the suite cannot place leaves: two hashed sets of `n` messages each
+//! interleave as uniformly random keys do. At 100,000 messages per side, every
+//! depth-1 node and most depth-2 nodes hold children from both replicas, and
+//! deeper nodes rarely do. Placing leaves so that deeper nodes also hold both
+//! would mean searching versions for chosen hash prefixes, at a cost of `256^k`
+//! versions per shared byte `k`, and would leave the uniform-hash model, under
+//! which the crate's guarantees are stated. Equal, fully divergent hashed sets
+//! are the most adverse fixture within that model.
 //!
-//! One fixture has side `A` redact messages both sides received before
-//! they diverged ([`redacting_replicas_keep_the_bound`]), so `B`'s supplies
-//! pass through the deletion filter over subtrees that mix leaves `A`
-//! lacks with leaves `A`'s version knows.
+//! One fixture has side `A` redact messages both sides received before they
+//! diverged ([`redacting_replicas_keep_the_bound`]), so `B`'s supplies pass
+//! through the deletion filter over subtrees that mix leaves `A` lacks with
+//! leaves `A`'s version knows.
 //!
-//! Both peers set their run target to [`COMPARISON_FRAME_BYTES`], the
-//! largest frame that carries one comparison, so no frame of the session is
-//! larger, unless one supplied record alone outgrows it, and the wire pools
-//! below hold a couple of such frames each way.
+//! Both peers set their run target to [`COMPARISON_FRAME_BYTES`], the largest
+//! frame that carries one comparison, so no frame of the session is larger,
+//! unless one supplied record alone outgrows it, and the wire pools below hold
+//! a couple of such frames each way.
 //!
-//! One test instead sends byte vectors larger than serde's preallocation
-//! cap at the default target ([`large_byte_vectors_keep_the_bound`]), so
-//! that decoding a payload outgrows a buffer and runs travel whole, within
-//! the run budget and past it, beside the pools.
+//! One test instead sends byte vectors larger than serde's preallocation cap at
+//! the default target ([`large_byte_vectors_keep_the_bound`]), so that decoding
+//! a payload outgrows a buffer and runs travel whole, within the run budget and
+//! past it, beside the pools.
 //!
 //! # Attribution
 //!
-//! The session marks the code that allocates for each place it keeps state
-//! in ([`Holding`]), and this suite labels each block with the peer and the
-//! place its allocation served, so every place's peak sits beside the bound
-//! that covers it. An allocation counts toward the place whose code made
-//! it: a question's child listing where the walk explodes the node it asks
-//! about, a parked reply where the decoder assembles it. The listing
-//! allocates only the vector that holds the children's handles, since the
-//! backend shares each child rather than copying it. Places the ledger
-//! leaves out, such as wire buffering and assembly, are labelled too.
-//! Blocks no marked region allocated, the session's tasks and setup, are
-//! *unattributed*.
+//! The session marks the code that allocates for each place it keeps state in
+//! ([`Holding`]), and this suite labels each block with the peer and the place
+//! its allocation served, so every place's peak sits beside the bound that
+//! covers it. An allocation counts toward the place whose code made it: a
+//! question's child listing where the walk explodes the node it asks about, a
+//! parked reply where the decoder assembles it. The listing allocates only the
+//! vector that holds the children's handles, since the backend shares each
+//! child rather than copying it. Places the ledger leaves out, such as wire
+//! buffering and assembly, are labelled too. Blocks no marked region allocated,
+//! the session's tasks and setup, are *unattributed*.
 //!
-//! Each label's peak is its own, so the labels' peaks need not occur
-//! together; each side's transient peak is the peak of all its labels at
-//! once.
+//! Each label's peak is its own, so the labels' peaks need not occur together;
+//! each side's transient peak is the peak of all its labels at once.
 //!
 //! # The bounds
 //!
 //! Every label has a bound, and each side's whole transient peak must stay
-//! within their sum: every byte the session holds at once is some label's,
-//! and no label holds more than its own peak.
+//! within their sum: every byte the session holds at once is some label's, and
+//! no label holds more than its own peak.
 //!
-//! The places the ledger charges ([`CHARGED`]) are bounded together, by
-//! the ledger: at every allocation event their live bytes may exceed what
-//! the ledger holds by at most the scratch its stages fill before they
-//! charge what they built, and the ledger holds at most its budget beside
-//! what its kinds and depths of unit hold within their bounds
-//! ([the ledger](#the-ledger)).
+//! The places the ledger charges ([`CHARGED`]) are bounded together, by the
+//! ledger: at every allocation event their live bytes may exceed what the
+//! ledger holds by at most the scratch its stages fill before they charge what
+//! they built, and the ledger holds at most its budget beside what its kinds
+//! and depths of unit hold within their bounds ([the ledger](#the-ledger)).
 //!
-//! The scratch is what a stage, encoder, or decoder fills for a place while
-//! it builds items it charges only once built: an answer's plan, a chunk's
-//! reactions before its question is admitted, a decoder's ready reactions,
-//! the scopes derived from a chunk's questions as its stage takes it. Each
-//! place is owed its own scratch for each of the
+//! The scratch is what a stage, encoder, or decoder fills for a place while it
+//! builds items it charges only once built: an answer's plan, a chunk's
+//! reactions before its question is admitted, a decoder's ready reactions, the
+//! scopes derived from a chunk's questions as its stage takes it. Each place is
+//! owed its own scratch for each of the
 //! [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS) logical streams,
 //! computed from the types it covers ([`ledger_scratch`]).
 //!
-//! The classes the ledger leaves out, the session's fixed state, are
-//! bounded by their capacities:
+//! The classes the ledger leaves out, the session's fixed state, are bounded by
+//! their capacities:
 //!
-//! - **Wire buffering** holds at most the session's two wire pools at its
-//!   run target, which bound every supply run on its way through the pipe,
-//!   beside the pipe's fixed state ([`wire_allowance`] derives the bound
-//!   from the production definition). Every frame that is not a run is
-//!   charged to the place its chunk or its question's room belongs to.
+//! - **Wire buffering** holds at most the session's two wire pools at its run
+//!   target, which bound every supply run on its way through the pipe, beside
+//!   the pipe's fixed state ([`wire_allowance`] derives the bound from the
+//!   production definition). Every frame that is not a run is charged to the
+//!   place its chunk or its question's room belongs to.
 //! - **Assembly** holds the queues of fixed capacity around it and the
-//!   in-memory backend's build of each supplied subtree, which keeps only
-//!   the subtree's open right spine however large it is
-//!   ([`assembly_allowance`] derives the bound from both, independent of
-//!   the replicas' sizes).
+//!   in-memory backend's build of each supplied subtree, which keeps only the
+//!   subtree's open right spine however large it is ([`assembly_allowance`]
+//!   derives the bound from both, independent of the replicas' sizes).
 //! - **Decode fans** hold at most a fan of decoded leaves for each logical
 //!   stream a side receives on.
-//! - **Hashing** holds the preimages the in-memory backend builds to
-//!   compute nodes' hashes. Listing or comparing a node computes its hash
-//!   on first use, and a peeled view, which keeps no hash, computes its
-//!   own on each read. A preimage lives only within the call that computes
-//!   its hash, and a node keeps only the hash, inside its own allocation. The driver polls every task on one thread
-//!   and hashing never yields, so a side holds the preimages of at most one
-//!   hashing descent at once, at most one per path byte
-//!   ([`HASHING_SCRATCH_BYTES`] derives the bound, independent of the
-//!   budget and the replicas' sizes).
-//! - **The unattributed blocks** are the session's fixed overhead: the
-//!   tasks, channels, and buffers it sets up for every logical stream and
-//!   tree level, and its greeting's root fan, independent of the budget and
-//!   of the sets' sizes once the root's fan is full. Admission's own
-//!   bookkeeping ([`Holding::Admission`]) is fixed overhead too. Together
-//!   they may be no more than [the reference
-//!   session](#the-reference-session)'s whole transient peak.
+//! - **Hashing** holds the preimages the in-memory backend builds to compute
+//!   nodes' hashes. Listing or comparing a node computes its hash on first use,
+//!   and a peeled view, which keeps no hash, computes its own on each read. A
+//!   preimage lives only within the call that computes its hash, and a node
+//!   keeps only the hash, inside its own allocation. The driver polls every
+//!   task on one thread and hashing never yields, so a side holds the preimages
+//!   of at most one hashing descent at once, at most one per path byte
+//!   ([`HASHING_SCRATCH_BYTES`] derives the bound, independent of the budget
+//!   and the replicas' sizes).
+//! - **The unattributed blocks** are the session's fixed overhead: the tasks,
+//!   channels, and buffers it sets up for every logical stream and tree level,
+//!   and its greeting's root fan, independent of the budget and of the sets'
+//!   sizes once the root's fan is full. Admission's own bookkeeping
+//!   ([`Holding::Admission`]) is fixed overhead too. Together they may be no
+//!   more than [the reference session](#the-reference-session)'s whole
+//!   transient peak.
 //!
 //!   That bound is a measurement rather than a figure derived from types,
-//!   because two of admission's terms belong to the platform and the
-//!   executor, not to the crate: the lock inside each waiting unit, which
-//!   the standard library boxes on some platforms (illumos among them),
-//!   and the clone of its task's waker, which allocates under some
-//!   executors. Its meaning is understood. A unit admitted as it asks
-//!   allocates nothing, and what each kind and depth holds is a count in
-//!   the ledger's own account, so admission allocates only for units that
-//!   wait: each a
-//!   waiter, its lock, its waker's clone, and a place in the queue's
-//!   buffer. Each walk stage waits on one unit at a time, so at most one
-//!   unit per stage, of the [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS), waits at once, whatever the
-//!   budget and the sets' sizes: a few hundred bytes a side, measured. The
-//!   reference session sets up the same streams as the session under test
-//!   and its own work beside them, so its peak exceeds that setup by far
-//!   more than admission ever holds.
+//!   because two of admission's terms belong to the platform and the executor,
+//!   not to the crate: the lock inside each waiting unit, which the standard
+//!   library boxes on some platforms (illumos among them), and the clone of its
+//!   task's waker, which allocates under some executors. Its meaning is
+//!   understood. A unit admitted as it asks allocates nothing, and what each
+//!   kind and depth holds is a count in the ledger's own account, so admission
+//!   allocates only for units that wait: each a waiter, its lock, its waker's
+//!   clone, and a place in the queue's buffer. Each walk stage waits on one
+//!   unit at a time, so at most one unit per stage, of the
+//!   [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS), waits at once,
+//!   whatever the budget and the sets' sizes: a few hundred bytes a side,
+//!   measured. The reference session sets up the same streams as the session
+//!   under test and its own work beside them, so its peak exceeds that setup by
+//!   far more than admission ever holds.
 //!
 //! # The ledger
 //!
-//! A peer's memory budget sets aside the floor allowance, the most its
-//! ledger's kinds and depths of unit can hold within their bounds at once,
-//! which the budget never counts, and the session allowance
-//! for the session's fixed state and wire pools: the bounds above on the
-//! decode fans, assembly, hashing, and the wire, and every place's scratch.
-//! The ledger admits work beyond both against the rest. Every budget this
-//! suite names is that rest, what the ledgers admit against: each peer's
-//! memory budget is the named budget beside the two allowances at its run
-//! target ([`ledger_budget`](rumors::testing::ledger_budget)), so that the
-//! suite's fixtures admit work as their names say. Some of those budgets
-//! lie below the largest grant, which the public setter's minimum
-//! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET)) keeps
-//! every application's session above, so the suite sets each ledger budget
-//! directly ([`ledger_budget`](rumors::testing::ledger_budget)).
+//! A peer's memory budget sets aside the floor allowance, the most its ledger's
+//! kinds and depths of unit can hold within their bounds at once, which the
+//! budget never counts, and the session allowance for the session's fixed state
+//! and wire pools: the bounds above on the decode fans, assembly, hashing, and
+//! the wire, and every place's scratch. The ledger admits work beyond both
+//! against the rest. Every budget this suite names is that rest, what the
+//! ledgers admit against: each peer's memory budget is the named budget beside
+//! the two allowances at its run target
+//! ([`ledger_budget`](rumors::testing::ledger_budget)), so that the suite's
+//! fixtures admit work as their names say. Some of those budgets lie below the
+//! largest grant, which the public setter's minimum
+//! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET)) keeps every
+//! application's session above, so the suite sets each ledger budget directly
+//! ([`ledger_budget`](rumors::testing::ledger_budget)).
 //!
-//! Each side keeps a ledger of what its session holds and of the room it
-//! sets aside for the replies its questions invite, and admits its walk's
-//! work against its budget. The suite holds every session it measures to
-//! three identities:
+//! Each side keeps a ledger of what its session holds and of the room it sets
+//! aside for the replies its questions invite, and admits its walk's work
+//! against its budget. The suite holds every session it measures to three
+//! identities:
 //!
 //! - **Coverage.** At every allocation event, and for each place it charges
-//!   ([`CHARGED`]), the ledger's charges for the place are at least the
-//!   place's live transient bytes, less the place's own scratch
-//!   ([`ledger_scratch`]), and so in total too. The trace's position at each
-//!   ledger change lines the two up, event by event; checking each place
-//!   alone keeps room set aside in one place from hiding a charge missing in
-//!   another.
+//!   ([`CHARGED`]), the ledger's charges for the place are at least the place's
+//!   live transient bytes, less the place's own scratch ([`ledger_scratch`]),
+//!   and so in total too. The trace's position at each ledger change lines the
+//!   two up, event by event; checking each place alone keeps room set aside in
+//!   one place from hiding a charge missing in another.
 //! - **Fit.** Every reply a stage finishes held no more reactions, and its
-//!   queries no more listing entries, than its question reserved room for,
-//!   and the records derived from its questions held no more than the
-//!   reservation's records part, which pays for nothing else. Coverage
-//!   checks that part's place together with the question records' own
-//!   charges, and does not see the part missing at these fixtures' sizes;
-//!   this check does.
+//!   queries no more listing entries, than its question reserved room for, and
+//!   the records derived from its questions held no more than the reservation's
+//!   records part, which pays for nothing else. Coverage checks that part's
+//!   place together with the question records' own charges, and does not see
+//!   the part missing at these fixtures' sizes; this check does.
 //! - **Zero.** Each side's ledger holds nothing once the session ends.
-//! - **Outgoing floor.** Over the session, each side's charges to its
-//!   outgoing replies, the sum of every rise in that place's account, are
-//!   at least half the bytes it allocated for them
-//!   ([`OUTGOING_REPLIES_FLOOR_DIVISOR`] derives the share). Coverage
-//!   alone cannot see a missing charge there: a chunk's charge returns
-//!   once the multiplexer has written the chunk's last frame, which
-//!   carries it, so its items never outlive it by more
-//!   than the place's scratch. Computing a node's hash while an answer
-//!   lists or compares it is hashing's work, not the outgoing replies'
-//!   (above), so the placed fixture's half fans, each hashed anew on its
-//!   peeled view, stay out of the share. The floor's premise fails where
-//!   the deletion filter prunes: a supply answer can list a fan of
-//!   children of which one survives to be charged as a reaction, so no
-//!   share is derived, and the floor is not asserted for the redacting
-//!   fixture.
+//! - **Outgoing floor.** Over the session, each side's charges to its outgoing
+//!   replies, the sum of every rise in that place's account, are at least half
+//!   the bytes it allocated for them ([`OUTGOING_REPLIES_FLOOR_DIVISOR`]
+//!   derives the share). Coverage alone cannot see a missing charge there: a
+//!   chunk's charge returns once the multiplexer has written the chunk's last
+//!   frame, which carries it, so its items never outlive it by more than the
+//!   place's scratch. Computing a node's hash while an answer lists or compares
+//!   it is hashing's work, not the outgoing replies' (above), so the placed
+//!   fixture's half fans, each hashed anew on its peeled view, stay out of the
+//!   share. The floor's premise fails where the deletion filter prunes: a
+//!   supply answer can list a fan of children of which one survives to be
+//!   charged as a reaction, so no share is derived, and the floor is not
+//!   asserted for the redacting fixture.
 //!
-//! It also holds each ledger to its bound, as two checks: its excess, what
-//! its kinds and depths hold beyond their bounds, at most the budget, and
-//! what they hold within their bounds at most the floor allowance, so at
-//! most the peer's memory budget, less the session allowance, in all; and
-//! every item built within its unit's grant. Each ledger must also have
-//! counted, some reply must have finished, and some unit must have waited
-//! for admission, so that none of the checks passes vacuously. The ledgers'
-//! peaks in the fixed fixtures are committed as baselines: what each side
-//! held and set aside at once. The ledger peaks agree between macOS and
-//! illumos, but the heap peaks do not, so no heap peak is committed.
-//! Instead, a held-back fixture shows that it raised a heap peak by running
-//! the same session with nothing held back, in the same test, and comparing
-//! the two.
+//! It also holds each ledger to its bound, as two checks: its excess, what its
+//! kinds and depths hold beyond their bounds, at most the budget, and what they
+//! hold within their bounds at most the floor allowance, so at most the peer's
+//! memory budget, less the session allowance, in all; and every item built
+//! within its unit's grant. Each ledger must also have counted, some reply must
+//! have finished, and some unit must have waited for admission, so that none of
+//! the checks passes vacuously. The ledgers' peaks in the fixed fixtures are
+//! committed as baselines: what each side held and set aside at once. The
+//! ledger peaks agree between macOS and illumos, but the heap peaks do not, so
+//! no heap peak is committed. Instead, a held-back fixture shows that it raised
+//! a heap peak by running the same session with nothing held back, in the same
+//! test, and comparing the two.
 //!
 //! # The reference session
 //!
@@ -241,46 +228,45 @@
 //! replicas of [`REFERENCE_MESSAGES`] messages each in the serial
 //! configuration, a ledger budget of zero with every kind and depth's bound
 //! zero. Its root's fan is full and it sets up every logical stream, so its
-//! setup is the setup of any larger session, and its transient peak, that
-//! setup and its work of one unit of each kind and depth at a time
-//! together, bounds the setup of the session under test. A ledger budget of
-//! zero beside the walk's bounds would pipeline within them instead, and
-//! its larger peak would loosen that bound by what its work held. Its peers also show what a session leaves in the
-//! peer beyond the replica.
+//! setup is the setup of any larger session, and its transient peak, that setup
+//! and its work of one unit of each kind and depth at a time together, bounds
+//! the setup of the session under test. A ledger budget of zero beside the
+//! walk's bounds would pipeline within them instead, and its larger peak would
+//! loosen that bound by what its work held. Its peers also show what a session
+//! leaves in the peer beyond the replica.
 //!
 //! # Upper bounds only
 //!
 //! The suite asserts no lower bound on what a session holds: replicas that
-//! agree from the start stop at the root and hold almost nothing, whatever
-//! the budget, so no floor proportional to `B` would mean anything.
+//! agree from the start stop at the root and hold almost nothing, whatever the
+//! budget, so no floor proportional to `B` would mean anything.
 //!
-//! An upper bound means something only where the budget constrains the
-//! session; on a session it never constrains, every bound would pass
-//! without judging the budget. So each test also checks that it does: some
-//! unit of the session's work waited for admission. Each side's session
-//! report must count exactly the units its ledger counted waiting
-//! ([`SessionStats::budget_waits`]), the user's view of the same constraint.
+//! An upper bound means something only where the budget constrains the session;
+//! on a session it never constrains, every bound would pass without judging the
+//! budget. So each test also checks that it does: some unit of the session's
+//! work waited for admission. Each side's session report must count exactly the
+//! units its ledger counted waiting ([`SessionStats::budget_waits`]), the
+//! user's view of the same constraint.
 //!
 //! # Network seeds
 //!
-//! A committed figure holds for one tree shape, and so for one network
-//! secret: the ledger peaks, and the reference session's peak, which bounds
-//! every other session's setup. The tests that commit figures, the held-back
-//! fixtures built on the same sessions, and the reference session fork the
-//! network [`BUDGET_NETWORK_SEED`] names, and also check every bound there.
-//! Every other test states a claim for every network, so it draws its
-//! network's seed as a property input: the schedule search, the redacting
-//! and placed fixtures, and the hop sweep.
+//! A committed figure holds for one tree shape, and so for one network secret:
+//! the ledger peaks, and the reference session's peak, which bounds every other
+//! session's setup. The tests that commit figures, the held-back fixtures built
+//! on the same sessions, and the reference session fork the network
+//! [`BUDGET_NETWORK_SEED`] names, and also check every bound there. Every other
+//! test states a claim for every network, so it draws its network's seed as a
+//! property input: the schedule search, the redacting and placed fixtures, and
+//! the hop sweep.
 //!
 //! # Hops against the budget
 //!
 //! A larger budget must never make a session slower. One test sweeps one
-//! fixture across budgets on the held link, releasing every byte at
-//! every stall, where each release is one hop and the count is exact,
-//! independent of time and load
-//! ([`hops_never_rise_with_the_budget`]). The sweep needs no trace, so it
-//! runs untraced, at the schedule search's size, and its sessions run at
-//! once, each driven on a thread of its own.
+//! fixture across budgets on the held link, releasing every byte at every
+//! stall, where each release is one hop and the count is exact, independent of
+//! time and load ([`hops_never_rise_with_the_budget`]). The sweep needs no
+//! trace, so it runs untraced, at the schedule search's size, and its sessions
+//! run at once, each driven on a thread of its own.
 
 #[path = "session_budget/link.rs"]
 mod link;
@@ -313,37 +299,34 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::BufReader;
 
-/// Messages each side of the per-budget fixtures holds that the other
-/// lacks: large enough that units still wait for admission at
-/// [`WIDE_BUDGET`].
+/// Messages each side of the per-budget fixtures holds that the other lacks:
+/// large enough that units still wait for admission at [`WIDE_BUDGET`].
 const MESSAGES: u64 = 100_000;
 
-/// Messages per side for the schedule search, small enough that each case
-/// costs a few seconds.
+/// Messages per side for the schedule search, small enough that each case costs
+/// a few seconds.
 const SEARCH_MESSAGES: u64 = 10_000;
 
-/// The schedule search's budget, 2 MiB, at which its sessions' units wait
-/// for admission, so their bounds are judged where the budget constrains
-/// them.
+/// The schedule search's budget, 2 MiB, at which its sessions' units wait for
+/// admission, so their bounds are judged where the budget constrains them.
 const SEARCH_BUDGET: usize = 2 << 20;
 
-/// The wide fixtures' budget, 32 MiB, four times the near-floor fixture's,
-/// at which units still wait for admission at [`MESSAGES`] per side, so the
-/// queued work it admits, rather than the fixed work near the root,
-/// dominates.
+/// The wide fixtures' budget, 32 MiB, four times the near-floor fixture's, at
+/// which units still wait for admission at [`MESSAGES`] per side, so the queued
+/// work it admits, rather than the fixed work near the root, dominates.
 const WIDE_BUDGET: usize = 32 << 20;
 
 /// Messages each side of [the reference session](self#the-reference-session)
 /// holds: enough that its root has a full fan of children.
 const REFERENCE_MESSAGES: u64 = SEARCH_MESSAGES;
 
-/// Trace events reserved per message the session moves, in both
-/// directions together, beside [`SETUP_EVENTS`].
+/// Trace events reserved per message the session moves, in both directions
+/// together, beside [`SETUP_EVENTS`].
 ///
-/// A session makes fewer than a hundred allocator events per moved message
-/// at these sizes, and one that outgrows the reservation fails with the
-/// count it needed. Systems that do not overcommit memory, such as illumos,
-/// commit a reservation up front, so it is sized near what a session uses.
+/// A session makes fewer than a hundred allocator events per moved message at
+/// these sizes, and one that outgrows the reservation fails with the count it
+/// needed. Systems that do not overcommit memory, such as illumos, commit a
+/// reservation up front, so it is sized near what a session uses.
 const EVENTS_PER_MESSAGE: usize = 128;
 
 /// Trace events reserved for a session's setup, whatever its size.
@@ -354,40 +337,40 @@ const SETUP_EVENTS: usize = 1 << 16;
 struct Fixture<T: Send + Sync + 'static> {
     /// The two peers, `A` then `B`.
     peers: [Rumors<T>; 2],
-    /// What each side's sends allocated, in [`Side::BOTH`] order: building
-    /// its own messages into its replica.
+    /// What each side's sends allocated, in [`Side::BOTH`] order: building its
+    /// own messages into its replica.
     sends: [Stats; 2],
     /// What joining the two replicas in memory allocated beyond them: the
     /// merged tree's new interior.
     join: Stats,
-    /// Every allocation the fixture made, an upper bound on the blocks
-    /// either replica holds before the session.
+    /// Every allocation the fixture made, an upper bound on the blocks either
+    /// replica holds before the session.
     allocations: usize,
 }
 
 /// The first value of side `B`'s messages; side `A`'s start at zero.
 const B_VALUES: u64 = 1_000_000;
 
-/// The seed of the network every fixture with committed figures forks, and
-/// the reference session's (see [the module docs](self#network-seeds)).
+/// The seed of the network every fixture with committed figures forks, and the
+/// reference session's (see [the module docs](self#network-seeds)).
 const BUDGET_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xb0d9_e75e_5510_0001);
 
 /// Builds two forks of the network `network` names, holding `messages`
 /// messages, in [`Side::BOTH`] order, that the other lacks.
 ///
-/// Each fork runs on the suite's run target, with the ledger `ledger`
-/// chooses, set through the test path: a ledger budget beside the walk's
-/// bounds ([`BudgetChoice::Ledger`]), which reaches below the public
-/// minimum, or the serial configuration ([`BudgetChoice::Serial`]).
+/// Each fork runs on the suite's run target, with the ledger `ledger` chooses,
+/// set through the test path: a ledger budget beside the walk's bounds
+/// ([`BudgetChoice::Ledger`]), which reaches below the public minimum, or the
+/// serial configuration ([`BudgetChoice::Serial`]).
 ///
-/// The network first holds `redacted` messages both forks receive, which
-/// side `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with
-/// leaves `A`'s version knows and `B` must not resend.
+/// The network first holds `redacted` messages both forks receive, which side
+/// `A` then redacts, so `B`'s subtrees mix leaves `A` lacks with leaves `A`'s
+/// version knows and `B` must not resend.
 ///
 /// `A`'s messages are the values from 0 and `B`'s from [`B_VALUES`], so a
-/// message's value names its side and its place among that side's sends.
-/// The seed makes the network reproducible, and with it every message's
-/// version, since forking and sending are deterministic.
+/// message's value names its side and its place among that side's sends. The
+/// seed makes the network reproducible, and with it every message's version,
+/// since forking and sending are deterministic.
 fn fixture(
     network: NetworkSeed,
     messages: [u64; 2],
@@ -469,27 +452,27 @@ struct Run {
     drive: Drive,
     /// Each side's ledger, held against the places it charges.
     ledgers: [LedgerReport; 2],
-    /// The replies the session's stages finished, and those that held more
-    /// than their questions reserved for.
+    /// The replies the session's stages finished, and those that held more than
+    /// their questions reserved for.
     fits: Fits,
 }
 
-/// One side's ledger over a session, against the transient heap of the
-/// places it charges ([`CHARGED`]) and against its budget.
+/// One side's ledger over a session, against the transient heap of the places
+/// it charges ([`CHARGED`]) and against its budget.
 #[derive(Clone, Copy, Debug, Default)]
 struct LedgerReport {
     /// The ledger changes the side made.
     changes: usize,
-    /// For each charged place, in [`CHARGED`] order, the bytes charged to
-    /// it over the session: the sum of every rise in its account.
+    /// For each charged place, in [`CHARGED`] order, the bytes charged to it
+    /// over the session: the sum of every rise in its account.
     charged: [usize; CHARGED.len()],
     /// The most the ledger held at once.
     peak: usize,
-    /// The ledger's largest excess, what its kinds and depths held beyond
-    /// their bounds at once: what its budget bounds.
+    /// The ledger's largest excess, what its kinds and depths held beyond their
+    /// bounds at once: what its budget bounds.
     excess_peak: usize,
-    /// The most the ledger's kinds and depths held within their bounds at
-    /// once, what it held less its excess: what the floor allowance bounds.
+    /// The most the ledger's kinds and depths held within their bounds at once,
+    /// what it held less its excess: what the floor allowance bounds.
     within_peak: usize,
     /// What the ledger held when the session ended.
     left: usize,
@@ -497,16 +480,15 @@ struct LedgerReport {
     short: u64,
     /// Units that waited for admission.
     waited: u64,
-    /// The most the charged places' live transient bytes exceeded the
-    /// ledger, at any allocation event.
+    /// The most the charged places' live transient bytes exceeded the ledger,
+    /// at any allocation event.
     uncovered: usize,
     /// For each charged place, in [`CHARGED`] order, the most its live
     /// transient bytes exceeded the ledger's charges for it.
     uncovered_by_place: [usize; CHARGED.len()],
-    /// For each charged place, the most its live transient bytes reached
-    /// as a share of the ledger's charges for it, in thousandths, where
-    /// those charges were at least a page: how tight the place's prices
-    /// run.
+    /// For each charged place, the most its live transient bytes reached as a
+    /// share of the ledger's charges for it, in thousandths, where those
+    /// charges were at least a page: how tight the place's prices run.
     tightest: [usize; CHARGED.len()],
 }
 
@@ -518,19 +500,19 @@ struct Fits {
     /// The bytes the records derived from those replies' questions held,
     /// summed.
     records: usize,
-    /// Those that held more than their reservation allowed, or whose
-    /// questions derived records beyond its records part.
+    /// Those that held more than their reservation allowed, or whose questions
+    /// derived records beyond its records part.
     over: Vec<ReplyFit>,
 }
 
-/// The most the charged places' transient heap may exceed a side's ledger
-/// in total: every charged place's scratch ([`ledger_scratch`]).
+/// The most the charged places' transient heap may exceed a side's ledger in
+/// total: every charged place's scratch ([`ledger_scratch`]).
 fn ledger_slack() -> usize {
     CHARGED.iter().map(|&holding| ledger_scratch(holding)).sum()
 }
 
-/// The places the ledger charges: everything a session holds but its
-/// fixed state (wire buffering, decode fans, assembly) and its setup.
+/// The places the ledger charges: everything a session holds but its fixed
+/// state (wire buffering, decode fans, assembly) and its setup.
 const CHARGED: [Holding; 5] = [
     Holding::Questions,
     Holding::Resolutions,
@@ -556,11 +538,10 @@ struct LedgerEvent {
     ledger: usize,
     /// What the ledger held after the change.
     held: usize,
-    /// What it held for each place after the change, in [`Holding::ALL`]
-    /// order.
+    /// What it held for each place after the change, in [`Holding::ALL`] order.
     places: [usize; PLACES],
-    /// Its excess after the change: what its kinds and depths held beyond
-    /// their bounds.
+    /// Its excess after the change: what its kinds and depths held beyond their
+    /// bounds.
     excess: usize,
     /// Bytes its items have needed beyond their grants.
     short: u64,
@@ -617,8 +598,7 @@ fn reply_fit(fit: ReplyFit) {
     });
 }
 
-/// Each side's ledger report from a session's ledger changes and its
-/// trace.
+/// Each side's ledger report from a session's ledger changes and its trace.
 fn ledger_reports(events: &[LedgerEvent], session: &alloc_meter::Trace) -> [LedgerReport; 2] {
     Side::BOTH.map(|side| {
         // A ledger belongs to the side that was polled when it first
@@ -703,17 +683,17 @@ fn ledger_reports(events: &[LedgerEvent], session: &alloc_meter::Trace) -> [Ledg
     })
 }
 
-/// Runs one session between the peers [`fixture`] builds from `network`,
-/// both on `budget`, over the held link released by `schedule`, and
-/// classifies what it allocated.
+/// Runs one session between the peers [`fixture`] builds from `network`, both
+/// on `budget`, over the held link released by `schedule`, and classifies what
+/// it allocated.
 ///
-/// The peers hold `messages` messages, in [`Side::BOTH`] order, that the
-/// other lacks, and `redacted` more that both received and `A` redacted.
+/// The peers hold `messages` messages, in [`Side::BOTH`] order, that the other
+/// lacks, and `redacted` more that both received and `A` redacted.
 ///
 /// # Panics
 ///
-/// Panics if the session fails, if a trace overflows its reservation, or if
-/// a surviving block outlives both its peer and its replica.
+/// Panics if the session fails, if a trace overflows its reservation, or if a
+/// surviving block outlives both its peer and its replica.
 fn run_session(
     network: NetworkSeed,
     messages: [u64; 2],
@@ -729,8 +709,8 @@ fn run_session(
 }
 
 /// Runs one session between the peers `build` builds, holding `messages`
-/// messages in [`Side::BOTH`] order that the other lacks, as
-/// [`run_session`] does.
+/// messages in [`Side::BOTH`] order that the other lacks, as [`run_session`]
+/// does.
 ///
 /// # Panics
 ///
@@ -892,25 +872,24 @@ struct Measured {
     /// The bound on the decode fans.
     decoded: u128,
     /// Bytes each side's replica may keep beyond what building the merged
-    /// replica directly allocates, for messages whose decoding keeps more
-    /// than their sender's sends built.
+    /// replica directly allocates, for messages whose decoding keeps more than
+    /// their sender's sends built.
     replica_slack: u128,
     /// The bound on assembly.
     assembly: u128,
     /// The bound on the unattributed blocks and admission's bookkeeping
     /// together: the reference session's larger transient peak.
     fixed: u128,
-    /// Whether the outgoing replies' floor's premise holds for the fixture,
-    /// so the floor is asserted (see the module docs).
+    /// Whether the outgoing replies' floor's premise holds for the fixture, so
+    /// the floor is asserted (see the module docs).
     outgoing_floor: bool,
     /// The session under test.
     run: Run,
 }
 
 impl Measured {
-    /// Measures the session [`run_session`] runs between fully divergent
-    /// forks of the network `network` names, beside the bounds it is judged
-    /// against.
+    /// Measures the session [`run_session`] runs between fully divergent forks
+    /// of the network `network` names, beside the bounds it is judged against.
     fn new(
         network: NetworkSeed,
         messages: u64,
@@ -921,8 +900,7 @@ impl Measured {
     }
 
     /// Measures the session [`run_session`] runs with `redacted` shared
-    /// messages that side `A` redacted, beside the bounds it is judged
-    /// against.
+    /// messages that side `A` redacted, beside the bounds it is judged against.
     fn redacting(
         network: NetworkSeed,
         messages: u64,
@@ -935,8 +913,8 @@ impl Measured {
     }
 
     /// The measurement of `run`, a session of `messages` messages per side,
-    /// `redacted` of them redacted by `A`, at `budget`, beside the bounds it
-    /// is judged against.
+    /// `redacted` of them redacted by `A`, at `budget`, beside the bounds it is
+    /// judged against.
     fn of(messages: u64, redacted: u64, budget: usize, run: Run) -> Self {
         let fixed = Side::BOTH
             .map(|side| reference().sides[side.index()].transient_peak)
@@ -959,8 +937,8 @@ impl Measured {
     /// The highest transient peak one side's allocations for `holding` may
     /// reach, for each class the ledger leaves out.
     ///
-    /// The places the ledger charges ([`CHARGED`]) are bounded together, by
-    /// the ledger's own bound ([`Self::charged_bound`]), and admission's
+    /// The places the ledger charges ([`CHARGED`]) are bounded together, by the
+    /// ledger's own bound ([`Self::charged_bound`]), and admission's
     /// bookkeeping together with the unattributed blocks ([`Self::fixed`]).
     ///
     /// Each class the ledger leaves out may reach its allowance; the module
@@ -975,20 +953,19 @@ impl Measured {
         }
     }
 
-    /// The highest transient peak `side`'s charged places may reach
-    /// together.
+    /// The highest transient peak `side`'s charged places may reach together.
     ///
-    /// That is its ledger's bound, the budget and the most its kinds and
-    /// depths held within their bounds, beside the scratch its stages fill before they charge what
-    /// they built ([`ledger_slack`]).
+    /// That is its ledger's bound, the budget and the most its kinds and depths
+    /// held within their bounds, beside the scratch its stages fill before they
+    /// charge what they built ([`ledger_slack`]).
     fn charged_bound(&self, side: Side) -> u128 {
         let ledger = self.run.ledgers[side.index()];
         (self.budget as u128) + (ledger.within_peak as u128) + (ledger_slack() as u128)
     }
 
-    /// The highest transient peak `side`'s allocations may reach in all:
-    /// its charged places' bound, every other holding's, and the bound on
-    /// the unattributed blocks and admission's bookkeeping together.
+    /// The highest transient peak `side`'s allocations may reach in all: its
+    /// charged places' bound, every other holding's, and the bound on the
+    /// unattributed blocks and admission's bookkeeping together.
     fn side_bound(&self, side: Side) -> u128 {
         Holding::ALL
             .iter()
@@ -999,8 +976,8 @@ impl Measured {
     }
 
     /// The most bytes of survivors `side`'s replica may keep: the bytes the
-    /// peer's messages took when its own sends built them, the interior a
-    /// join of the two replicas builds, and the replica slack.
+    /// peer's messages took when its own sends built them, the interior a join
+    /// of the two replicas builds, and the replica slack.
     fn replica_bound(&self, side: Side) -> u128 {
         let built = |stats: Stats| u128::try_from(stats.net_bytes).unwrap_or(0);
         built(self.run.sends[side.peer().index()]) + built(self.run.join) + self.replica_slack
@@ -1111,11 +1088,11 @@ impl Measured {
     }
 }
 
-/// Runs a region the session attributes to `holding` under the label of
-/// that holding on the side being polled.
+/// Runs a region the session attributes to `holding` under the label of that
+/// holding on the side being polled.
 ///
-/// Outside a poll the region runs under whatever label is current: the
-/// session allocates only while the driver polls it.
+/// Outside a poll the region runs under whatever label is current: the session
+/// allocates only while the driver polls it.
 fn attribute(holding: Holding, region: &mut dyn FnMut()) {
     match polling() {
         Some(side) => labelled(side.holding_label(holding), region),
@@ -1123,8 +1100,8 @@ fn attribute(holding: Holding, region: &mut dyn FnMut()) {
     }
 }
 
-/// Returns why a measured session falls outside a bound or fails to show
-/// that the budget constrained it, or `None` if it passes.
+/// Returns why a measured session falls outside a bound or fails to show that
+/// the budget constrained it, or `None` if it passes.
 fn violation(measured: &Measured) -> Option<String> {
     if let Some(violation) = bound_violation(measured) {
         return Some(violation);
@@ -1147,9 +1124,9 @@ fn violation(measured: &Measured) -> Option<String> {
     None
 }
 
-/// Returns why a measured session falls outside a bound, or `None` if it
-/// stays within every one: [`violation`]'s checks short of the two that
-/// show the budget constrained a divergent fixture.
+/// Returns why a measured session falls outside a bound, or `None` if it stays
+/// within every one: [`violation`]'s checks short of the two that show the
+/// budget constrained a divergent fixture.
 fn bound_violation(measured: &Measured) -> Option<String> {
     let report = measured.report();
     let unlabelled = measured.run.unlabelled;
@@ -1256,16 +1233,15 @@ fn bound_violation(measured: &Measured) -> Option<String> {
 /// Returns why a session's ledgers fail one of their three accounting
 /// identities or their bound, or `None` if they hold.
 ///
-/// Each side's ledger must have counted, must cover the transient heap of
-/// each place it charges, less that place's scratch, at every allocation
-/// event, and must return to zero once the session ends; every reply the
-/// session's stages finished must fit the room its question reserved for
-/// it, records part included, with at least one reply finished. And each
-/// side's ledger, admitting against `budget`, must keep its excess within
-/// the budget and what its kinds and depths hold within their bounds within
-/// the floor allowance, so that it holds at most what its peer's memory
-/// budget leaves it beside the session allowance, with every item built
-/// within its unit's grant.
+/// Each side's ledger must have counted, must cover the transient heap of each
+/// place it charges, less that place's scratch, at every allocation event, and
+/// must return to zero once the session ends; every reply the session's stages
+/// finished must fit the room its question reserved for it, records part
+/// included, with at least one reply finished. And each side's ledger,
+/// admitting against `budget`, must keep its excess within the budget and what
+/// its kinds and depths hold within their bounds within the floor allowance, so
+/// that it holds at most what its peer's memory budget leaves it beside the
+/// session allowance, with every item built within its unit's grant.
 fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
     for side in Side::BOTH {
         let ledger = run.ledgers[side.index()];
@@ -1331,9 +1307,9 @@ fn ledger_violation(run: &Run, budget: usize) -> Option<String> {
     None
 }
 
-/// Measures one fully divergent session at `budget` under `schedule`,
-/// prints its report, and asserts it passes the bounds and `reached`, which
-/// returns why the session failed to reach the state its test targets.
+/// Measures one fully divergent session at `budget` under `schedule`, prints
+/// its report, and asserts it passes the bounds and `reached`, which returns
+/// why the session failed to reach the state its test targets.
 ///
 /// The session's peers hold [`MESSAGES`] messages each, and are forks of the
 /// network [`BUDGET_NETWORK_SEED`] names.
@@ -1354,34 +1330,33 @@ fn release_everything(_: [usize; 2]) -> Release {
     Release::bytes([Portion::All; 2])
 }
 
-/// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
-/// 8 MiB.
+/// Each side's ledger peak, in [`Side::BOTH`] order, in the session at 8 MiB.
 ///
-/// Admission fills each side's budget with work beyond the bounds of its
-/// kinds and depths, as far as each depth's claims under the invitation
-/// share let its questions take it, and each kind and depth holds up to its
-/// bound beside it: each peak is at most the 8 MiB budget plus what its
-/// kinds and depths hold within their bounds.
+/// Admission fills each side's budget with work beyond the bounds of its kinds
+/// and depths, as far as each depth's claims under the invitation share let its
+/// questions take it, and each kind and depth holds up to its bound beside it:
+/// each peak is at most the 8 MiB budget plus what its kinds and depths hold
+/// within their bounds.
 const NEAR_FLOOR_LEDGER_PEAKS: [usize; 2] = [10_453_812, 11_821_620];
 
 /// Each side's ledger peak, in [`Side::BOTH`] order, in the session at
-/// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit,
-/// beside what its kinds and depths hold within their bounds.
+/// [`WIDE_BUDGET`]: the work its budget and its depths' claims admit, beside
+/// what its kinds and depths hold within their bounds.
 ///
-/// A claim reserves room for processing still to come, so a side's peak
-/// can stay below its budget.
+/// A claim reserves room for processing still to come, so a side's peak can
+/// stay below its budget.
 const WIDE_LEDGER_PEAKS: [usize; 2] = [33_255_888, 36_981_288];
 
-/// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins
-/// from empty.
+/// Each side's ledger peak, in [`Side::BOTH`] order, when side `A` joins from
+/// empty.
 ///
 /// It asks one question, about the root, and the responder answers it with
-/// supplies alone, so neither side holds more than that one question and
-/// that one answer.
+/// supplies alone, so neither side holds more than that one question and that
+/// one answer.
 const JOINING_LEDGER_PEAKS: [usize; 2] = [29_368, 39_200];
 
-/// Targets a session whose ledgers peak at exactly `expected`, the
-/// fixture's committed baseline.
+/// Targets a session whose ledgers peak at exactly `expected`, the fixture's
+/// committed baseline.
 fn ledger_peaks(expected: [usize; 2]) -> impl Fn(&Measured) -> Option<String> {
     move |measured| {
         let peaks = measured.run.ledgers.map(|ledger| ledger.peak);
@@ -1394,13 +1369,13 @@ fn ledger_peaks(expected: [usize; 2]) -> impl Fn(&Measured) -> Option<String> {
     }
 }
 
-/// At 8 MiB, just above the floor, each place a peer's session keeps
-/// in-flight state stays within its bound, and each peer's whole transient
-/// peak stays within their sum.
+/// At 8 MiB, just above the floor, each place a peer's session keeps in-flight
+/// state stays within its bound, and each peer's whole transient peak stays
+/// within their sum.
 ///
-/// At 8 MiB most of the session's units wait for admission at [`MESSAGES`]
-/// per side, and the fixed work near the root, which the budget does not
-/// shrink, weighs most against it.
+/// At 8 MiB most of the session's units wait for admission at [`MESSAGES`] per
+/// side, and the fixed work near the root, which the budget does not shrink,
+/// weighs most against it.
 #[test]
 fn budget_near_the_floor_bounds_the_transient_peak() {
     assert_budget_holds(
@@ -1410,13 +1385,13 @@ fn budget_near_the_floor_bounds_the_transient_peak() {
     );
 }
 
-/// At [`WIDE_BUDGET`], each place a peer's session keeps in-flight state
-/// stays within its bound, and each peer's whole transient peak stays
-/// within their sum.
+/// At [`WIDE_BUDGET`], each place a peer's session keeps in-flight state stays
+/// within its bound, and each peer's whole transient peak stays within their
+/// sum.
 ///
 /// Units still wait for admission, and the queued work the budget admits,
-/// rather than the fixed work near the root, dominates the session's
-/// transient heap. Its ledger peaks are committed baselines.
+/// rather than the fixed work near the root, dominates the session's transient
+/// heap. Its ledger peaks are committed baselines.
 #[test]
 fn wide_budget_bounds_the_transient_peak() {
     assert_budget_holds(
@@ -1426,21 +1401,20 @@ fn wide_budget_bounds_the_transient_peak() {
     );
 }
 
-/// At [`WIDE_BUDGET`], with one side's walk stages held back while any
-/// bytes are in flight, every label and each peer's whole transient peak
-/// stay within their bounds.
+/// At [`WIDE_BUDGET`], with one side's walk stages held back while any bytes
+/// are in flight, every label and each peer's whole transient peak stay within
+/// their bounds.
 ///
 /// The held side cannot take the replies its decoders park, nor send more
-/// questions, while its peer answers every question it already sent, and
-/// the answers park beside the questions the walk still holds: the state
-/// the reservations for parked replies cover. The held side changes only at
-/// a stall with nothing left to deliver, which also releases its stages, so
-/// each side's parking fills in turn from every question its budget
-/// admitted.
+/// questions, while its peer answers every question it already sent, and the
+/// answers park beside the questions the walk still holds: the state the
+/// reservations for parked replies cover. The held side changes only at a stall
+/// with nothing left to deliver, which also releases its stages, so each side's
+/// parking fills in turn from every question its budget admitted.
 ///
-/// The test checks that the state was reached: each side's walk was held
-/// back, and each side's parked replies peaked higher than in the same
-/// session with nothing held back, which the test runs first.
+/// The test checks that the state was reached: each side's walk was held back,
+/// and each side's parked replies peaked higher than in the same session with
+/// nothing held back, which the test runs first.
 #[test]
 fn held_back_takes_bound_the_transient_peak() {
     let unheld = unheld_wide_peaks(Holding::ParkedReplies);
@@ -1464,18 +1438,17 @@ fn held_back_takes_bound_the_transient_peak() {
     );
 }
 
-/// At [`WIDE_BUDGET`], with assembly held back whenever a stall has bytes
-/// to release, each place stays within its bound, and each peer's whole
-/// transient peak stays within their sum.
+/// At [`WIDE_BUDGET`], with assembly held back whenever a stall has bytes to
+/// release, each place stays within its bound, and each peer's whole transient
+/// peak stays within their sum.
 ///
-/// Held-back assemblers consume no resolutions, so resolutions pile up
-/// while the walk keeps asking until admission or its own sends stop it,
-/// at every depth at once. Assembly runs only at stalls with nothing left
-/// to deliver.
+/// Held-back assemblers consume no resolutions, so resolutions pile up while
+/// the walk keeps asking until admission or its own sends stop it, at every
+/// depth at once. Assembly runs only at stalls with nothing left to deliver.
 ///
-/// The test checks that the state was reached: each side's assembly was
-/// held back, and each side's resolutions peaked higher than in the same
-/// session with nothing held back, which the test runs first.
+/// The test checks that the state was reached: each side's assembly was held
+/// back, and each side's resolutions peaked higher than in the same session
+/// with nothing held back, which the test runs first.
 #[test]
 fn held_back_assembly_bounds_the_transient_peak() {
     let unheld = unheld_wide_peaks(Holding::Resolutions);
@@ -1512,10 +1485,9 @@ fn unheld_wide_peaks(holding: Holding) -> [usize; 2] {
     Side::BOTH.map(|side| unheld.holding(side, holding).transient_peak)
 }
 
-/// Returns why the session failed to hold back the tasks `refused` counts
-/// on each side, or to raise each side's `holding` peak above its peak in
-/// the same session with nothing held back, `unheld`, or `None` if it did
-/// both.
+/// Returns why the session failed to hold back the tasks `refused` counts on
+/// each side, or to raise each side's `holding` peak above its peak in the same
+/// session with nothing held back, `unheld`, or `None` if it did both.
 fn held_back_raised(
     measured: &Measured,
     holding: Holding,
@@ -1557,8 +1529,8 @@ fn arb_held() -> impl Strategy<Value = Held> {
     )
 }
 
-/// Generates one stall's release: a portion of each direction's held bytes
-/// and the task kinds each side holds back.
+/// Generates one stall's release: a portion of each direction's held bytes and
+/// the task kinds each side holds back.
 fn arb_release() -> impl Strategy<Value = Release> {
     ([arb_portion(), arb_portion()], [arb_held(), arb_held()])
         .prop_map(|(bytes, held)| Release { bytes, held })
@@ -1566,22 +1538,22 @@ fn arb_release() -> impl Strategy<Value = Release> {
 
 /// The divisor of [`any_release_schedule_keeps_the_bound`]'s case count.
 ///
-/// Each case builds two [`SEARCH_MESSAGES`]-message replicas and runs a
-/// traced session, a few seconds of work in a debug build, so the default
-/// count runs about a dozen cases.
+/// Each case builds two [`SEARCH_MESSAGES`]-message replicas and runs a traced
+/// session, a few seconds of work in a debug build, so the default count runs
+/// about a dozen cases.
 const SCHEDULE_DIVISOR: u32 = 20;
 
 /// Shrink iterations [`any_release_schedule_keeps_the_bound`] spends on a
 /// failure: each costs a case's few seconds.
 const SCHEDULE_SHRINK_ITERS: u32 = 24;
 
-/// The divisor of the case count of a test that builds replicas of
-/// thousands of messages and runs one or more whole sessions: the redacting
-/// and placed fixtures and the hop sweep.
+/// The divisor of the case count of a test that builds replicas of thousands of
+/// messages and runs one or more whole sessions: the redacting and placed
+/// fixtures and the hop sweep.
 ///
 /// A case costs seconds to tens of seconds in a debug build, as much as the
-/// default count's whole run of ordinary cases, so the default count runs
-/// one case and a raised count one per this many.
+/// default count's whole run of ordinary cases, so the default count runs one
+/// case and a raised count one per this many.
 const WHOLE_FIXTURE_DIVISOR: u32 = 256;
 
 /// Under any release schedule, each place a peer's session keeps in-flight
@@ -1591,19 +1563,19 @@ const WHOLE_FIXTURE_DIVISOR: u32 = 256;
 /// Units wait for admission.
 ///
 /// At each stall the schedule releases all, a prefix, or none of each
-/// direction's held bytes, and holds back any kinds of each side's tasks
-/// until the next stall, cycling through the generated releases. So
-/// deliveries split frames at arbitrary points, either direction can lag
-/// the other, and any of a side's walk stages, assemblers, encoders, and
-/// decoders can stall while the rest run.
+/// direction's held bytes, and holds back any kinds of each side's tasks until
+/// the next stall, cycling through the generated releases. So deliveries split
+/// frames at arbitrary points, either direction can lag the other, and any of a
+/// side's walk stages, assemblers, encoders, and decoders can stall while the
+/// rest run.
 ///
 /// The claim holds for every network seed, drawn after the schedule.
 ///
-/// The property runs the configured case count divided by
-/// [`SCHEDULE_DIVISOR`], and shrinks a failure for at most
-/// [`SCHEDULE_SHRINK_ITERS`] iterations. Its runner is built here rather
-/// than by `divided_proptest!`, which keeps proptest's shrink budget; it
-/// keeps the macro's failure persistence by naming this file.
+/// The property runs the configured case count divided by [`SCHEDULE_DIVISOR`],
+/// and shrinks a failure for at most [`SCHEDULE_SHRINK_ITERS`] iterations. Its
+/// runner is built here rather than by `divided_proptest!`, which keeps
+/// proptest's shrink budget; it keeps the macro's failure persistence by naming
+/// this file.
 #[test]
 fn any_release_schedule_keeps_the_bound() {
     let mut config = Config::default();
@@ -1632,17 +1604,17 @@ fn any_release_schedule_keeps_the_bound() {
 /// Depth-31 nodes the placed fixture's sides dispute.
 const PLACED_NODES: u64 = 8;
 
-/// Leaves each side holds under each placed node: half a fan, so the two
-/// sides fill it.
+/// Leaves each side holds under each placed node: half a fan, so the two sides
+/// fill it.
 const PLACED_HALF_FAN: u64 = 128;
 
-/// The placed fixture's budget, 64 KiB: room for many leaf requests at
-/// once, beside units that still wait.
+/// The placed fixture's budget, 64 KiB: room for many leaf requests at once,
+/// beside units that still wait.
 const PLACED_BUDGET: usize = 64 << 10;
 
-/// The placed path of the message of `value`: under placed node
-/// `index / 128`, its first byte, at a last byte from the lower half of
-/// the fan for `A` and the upper half for `B`, with zeros between.
+/// The placed path of the message of `value`: under placed node `index / 128`,
+/// its first byte, at a last byte from the lower half of the fan for `A` and
+/// the upper half for `B`, with zeros between.
 ///
 /// Every path below one node shares its first 31 bytes, so the two sides
 /// dispute that node one byte above the leaves.
@@ -1821,22 +1793,22 @@ divided_proptest! {
     }
 }
 
-/// When one replica joins from empty, the side receiving every message as
-/// whole supplied subtrees holds no more in assembly than the constant
-/// bound, whatever the subtrees' size.
+/// When one replica joins from empty, the side receiving every message as whole
+/// supplied subtrees holds no more in assembly than the constant bound,
+/// whatever the subtrees' size.
 ///
 /// The peer holds [`MESSAGES`] messages, so each subtree supplied below the
-/// root holds about four hundred leaves, and the receiving side assembles
-/// every one. The bound ([`assembly_allowance`]) counts each of the
-/// [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS) reply decoders assembling one subtree at a time, each
-/// holding only its open right spine.
+/// root holds about four hundred leaves, and the receiving side assembles every
+/// one. The bound ([`assembly_allowance`]) counts each of the
+/// [`SESSION_STREAMS`](rumors::testing::SESSION_STREAMS) reply decoders
+/// assembling one subtree at a time, each holding only its open right spine.
 ///
 /// Each subtree of two or more leaves leaves at least one branch in the
-/// replica, so the receiver's assembly must leave at least one surviving
-/// block per root child of its peer's replica: a trace that stopped seeing
-/// assembly cannot pass. That floor rests on every one of the peer's 256
-/// root children holding two or more of its messages, which fails at this
-/// size with probability below 2⁻⁴⁰⁰.
+/// replica, so the receiver's assembly must leave at least one surviving block
+/// per root child of its peer's replica: a trace that stopped seeing assembly
+/// cannot pass. That floor rests on every one of the peer's 256 root children
+/// holding two or more of its messages, which fails at this size with
+/// probability below 2⁻⁴⁰⁰.
 #[test]
 fn joining_from_empty_bounds_assembly() {
     let run = run_session(
@@ -1880,9 +1852,9 @@ fn joining_from_empty_bounds_assembly() {
     );
 }
 
-/// Messages each side of the hop sweep's fixture holds that the other
-/// lacks: enough that the budget binds across a wide range of budgets,
-/// small enough that the sweep's sessions run in seconds together.
+/// Messages each side of the hop sweep's fixture holds that the other lacks:
+/// enough that the budget binds across a wide range of budgets, small enough
+/// that the sweep's sessions run in seconds together.
 const SWEEP_MESSAGES: u64 = SEARCH_MESSAGES;
 
 /// The hop sweep's smallest budget above zero: 64 KiB.
@@ -1891,13 +1863,13 @@ const SWEEP_FIRST: usize = 64 << 10;
 /// The hop sweep's budgets above zero rise by a factor of `2^(1/STEPS)`.
 const SWEEP_STEPS_PER_DOUBLING: u32 = 2;
 
-/// The doublings the hop sweep spans above [`SWEEP_FIRST`]: to 64 MiB,
-/// which the sweep requires to run the fixture as with no budget.
+/// The doublings the hop sweep spans above [`SWEEP_FIRST`]: to 64 MiB, which
+/// the sweep requires to run the fixture as with no budget.
 const SWEEP_DOUBLINGS: u32 = 10;
 
-/// The hop sweep's budgets, rising: zero, then from [`SWEEP_FIRST`] by a
-/// factor of `2^(1/SWEEP_STEPS_PER_DOUBLING)` for [`SWEEP_DOUBLINGS`]
-/// doublings, each rounded down to a byte.
+/// The hop sweep's budgets, rising: zero, then from [`SWEEP_FIRST`] by a factor
+/// of `2^(1/SWEEP_STEPS_PER_DOUBLING)` for [`SWEEP_DOUBLINGS`] doublings, each
+/// rounded down to a byte.
 fn sweep_budgets() -> Vec<usize> {
     let steps = SWEEP_STEPS_PER_DOUBLING * SWEEP_DOUBLINGS;
     std::iter::once(0)
@@ -1908,13 +1880,13 @@ fn sweep_budgets() -> Vec<usize> {
         .collect()
 }
 
-/// One session of the hop sweep, untraced: its hops, the releases the held
-/// link made with every byte released at every stall, and the units both
-/// sides report waiting.
+/// One session of the hop sweep, untraced: its hops, the releases the held link
+/// made with every byte released at every stall, and the units both sides
+/// report waiting.
 ///
-/// Its peers are the sweep's fixture, forked from the network `network`
-/// names, on `budget`. The seed makes the fixture reproducible, so every
-/// budget's session runs between the same two replicas.
+/// Its peers are the sweep's fixture, forked from the network `network` names,
+/// on `budget`. The seed makes the fixture reproducible, so every budget's
+/// session runs between the same two replicas.
 fn sweep_session(network: NetworkSeed, budget: usize) -> (usize, u64) {
     let Fixture { peers: [a, b], .. } = fixture(
         network,
@@ -1941,8 +1913,8 @@ fn sweep_session(network: NetworkSeed, budget: usize) -> (usize, u64) {
     (drive.releases, waits.iter().sum())
 }
 
-/// The result of a scoped thread, propagating its panic, message and all,
-/// if it panicked.
+/// The result of a scoped thread, propagating its panic, message and all, if it
+/// panicked.
 fn joined<T>(thread: ScopedJoinHandle<'_, T>) -> T {
     thread
         .join()
@@ -2015,17 +1987,16 @@ divided_proptest! {
     }
 }
 
-/// The byte-vector payloads [`large_byte_vectors_keep_the_bound`] sends:
-/// bytes, messages per side, the target both peers run at, and whether the
-/// message lies past the largest budgeted message at that target.
+/// The byte-vector payloads [`large_byte_vectors_keep_the_bound`] sends: bytes,
+/// messages per side, the target both peers run at, and whether the message
+/// lies past the largest budgeted message at that target.
 ///
-/// The first is past the preallocation cap serde's sequence decoding keeps
-/// to, 1 MiB, so decoding it outgrows a buffer. Its peers run at
-/// [`WITHIN_TARGET`], whose run budget holds it, so it travels in a run of
-/// its own beside the wire pools. The second is a mebibyte past the largest
-/// budgeted message at the default target, at which its peers run, so it
-/// travels alone, beyond the run budget, and holds its excess beside the
-/// pools as it crosses.
+/// The first is past the preallocation cap serde's sequence decoding keeps to,
+/// 1 MiB, so decoding it outgrows a buffer. Its peers run at [`WITHIN_TARGET`],
+/// whose run budget holds it, so it travels in a run of its own beside the wire
+/// pools. The second is a mebibyte past the largest budgeted message at the
+/// default target, at which its peers run, so it travels alone, beyond the run
+/// budget, and holds its excess beside the pools as it crosses.
 const LARGE_PAYLOADS: [(usize, u64, usize, bool); 2] = [
     ((1 << 20) + (1 << 16), 4, WITHIN_TARGET, false),
     (
@@ -2036,23 +2007,22 @@ const LARGE_PAYLOADS: [(usize, u64, usize, bool); 2] = [
     ),
 ];
 
-/// The message-size target of the first of [`LARGE_PAYLOADS`]: large
-/// enough that its largest budgeted message, about twice the target, holds
-/// a payload past serde's preallocation cap.
+/// The message-size target of the first of [`LARGE_PAYLOADS`]: large enough
+/// that its largest budgeted message, about twice the target, holds a payload
+/// past serde's preallocation cap.
 const WITHIN_TARGET: usize = 1 << 20;
 
 /// The most a lone record's message holds beyond its payload's encoding: its
-/// frame and run heads, at most nine bytes each, and its version, which
-/// encodes in under a hundred bytes in the two-party networks here.
+/// frame and run heads, at most nine bytes each, and its version, which encodes
+/// in under a hundred bytes in the two-party networks here.
 const RECORD_FRAMING: usize = 1 << 10;
 
-/// Two forks of the network `network` names, each holding `count`
-/// byte-vector messages of `payload` bytes that the other lacks, at target
-/// `target` and on a memory budget whose ledger admits work against
-/// `budget`.
+/// Two forks of the network `network` names, each holding `count` byte-vector
+/// messages of `payload` bytes that the other lacks, at target `target` and on
+/// a memory budget whose ledger admits work against `budget`.
 ///
-/// Each message's first eight bytes are its index among its side's sends,
-/// and the rest its side's number, so every message is distinct.
+/// Each message's first eight bytes are its index among its side's sends, and
+/// the rest its side's number, so every message is distinct.
 fn payload_fixture(
     network: NetworkSeed,
     payload: usize,
@@ -2095,18 +2065,18 @@ fn payload_fixture(
     }
 }
 
-/// The allocator events reserved for tracing [`decoding`]: a vector's
-/// decoding makes one allocation and one reallocation per doubling of its
-/// buffer, a few dozen for any payload here.
+/// The allocator events reserved for tracing [`decoding`]: a vector's decoding
+/// makes one allocation and one reallocation per doubling of its buffer, a few
+/// dozen for any payload here.
 const DECODING_EVENTS: usize = 1 << 10;
 
-/// What decoding one `payload`-byte vector from its encoding allocates, as
-/// a session decodes a received message's payload: `ciborium` from the
-/// encoded bytes, through serde's sequence visitor.
+/// What decoding one `payload`-byte vector from its encoding allocates, as a
+/// session decodes a received message's payload: `ciborium` from the encoded
+/// bytes, through serde's sequence visitor.
 ///
-/// Returns the encoding's length, the bytes the decoded vector keeps, and
-/// the transient peak of the blocks the decoding freed before returning,
-/// classified by the same trace the session's blocks are.
+/// Returns the encoding's length, the bytes the decoded vector keeps, and the
+/// transient peak of the blocks the decoding freed before returning, classified
+/// by the same trace the session's blocks are.
 fn decoding(payload: usize) -> (usize, usize, usize) {
     let mut encoded = Vec::new();
     ciborium::into_writer(&vec![1u8; payload], &mut encoded).expect("a byte vector encodes");
@@ -2121,35 +2091,34 @@ fn decoding(payload: usize) -> (usize, usize, usize) {
     (encoded.len(), blocks.surviving_bytes, blocks.transient_peak)
 }
 
-/// Byte-vector payloads larger than serde's preallocation cap, within the
-/// run budget and past it, keep each place within its bound, the decoding
-/// and the lone record's excess within what the budget documents as
-/// outside it.
+/// Byte-vector payloads larger than serde's preallocation cap, within the run
+/// budget and past it, keep each place within its bound, the decoding and the
+/// lone record's excess within what the budget documents as outside it.
 ///
 /// The suite's other fixtures carry `u64` payloads at a run target of one
-/// comparison, so they never decode a payload past serde's cap or read a
-/// run over one payload granule. Here each side sends [`LARGE_PAYLOADS`],
-/// each at its own target, and the session is held to the suite's bounds
+/// comparison, so they never decode a payload past serde's cap or read a run
+/// over one payload granule. Here each side sends [`LARGE_PAYLOADS`], each at
+/// its own target, and the session is held to the suite's bounds
 /// ([`bound_violation`]) with three of them widened, each by what
-/// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) names as
-/// held beyond the budget, computed independently of the session:
+/// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) names as held
+/// beyond the budget, computed independently of the session:
 ///
-/// - Wire buffering may also hold, in each direction, a lone record's
-///   excess over the largest budgeted message at its target
-///   ([`budgeted_message_bytes`]), its message taken as its payload's
-///   encoding and [`RECORD_FRAMING`].
+/// - Wire buffering may also hold, in each direction, a lone record's excess
+///   over the largest budgeted message at its target
+///   ([`budgeted_message_bytes`]), its message taken as its payload's encoding
+///   and [`RECORD_FRAMING`].
 /// - The decode fans may also hold one message's decoding transient, which
 ///   [`decoding`] measures by decoding the same payload alone.
-/// - Each replica may keep, for each message it gains, what the decoded
-///   vector keeps beyond the payload's own length, since serde's decoding
-///   grows its buffer by doubling and keeps the capacity it reached, where
-///   the sender built the vector at its exact length.
+/// - Each replica may keep, for each message it gains, what the decoded vector
+///   keeps beyond the payload's own length, since serde's decoding grows its
+///   buffer by doubling and keeps the capacity it reached, where the sender
+///   built the vector at its exact length.
 ///
-/// So that the bounds judge the regions they name, each payload's message
-/// must lie within or past the largest budgeted message as
-/// [`LARGE_PAYLOADS`] says, each session must have decoded beyond the
-/// decode fans' own bound, and a payload past the run budget must have held
-/// more on the wire than one budgeted message.
+/// So that the bounds judge the regions they name, each payload's message must
+/// lie within or past the largest budgeted message as [`LARGE_PAYLOADS`] says,
+/// each session must have decoded beyond the decode fans' own bound, and a
+/// payload past the run budget must have held more on the wire than one
+/// budgeted message.
 #[test]
 fn large_byte_vectors_keep_the_bound() {
     reference();

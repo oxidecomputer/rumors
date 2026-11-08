@@ -1,21 +1,21 @@
 //! The cost arguments for updates of one sign, measured in bitset levels.
 //!
-//! The crate drops the logarithm a shifted limb update pays for a stretch
-//! of updates of one sign that begins where a storage begins. Its argument:
-//! no bitset word empties during such a stretch, so the levels its
-//! insertions climb exceed the insertions only by the words they fill, and
-//! those words number at most one per 63 positions below the stretch's
-//! highest top, plus word zero at each level once. The bitset's test-only
-//! counters measure both sides of that inequality.
+//! The crate drops the logarithm a shifted limb update pays for a stretch of
+//! updates of one sign that begins where a storage begins. Its argument: no
+//! bitset word empties during such a stretch, so the levels its insertions
+//! climb exceed the insertions only by the words they fill, and those words
+//! number at most one per 63 positions below the stretch's highest top, plus
+//! word zero at each level once. The bitset's test-only counters measure both
+//! sides of that inequality.
 //!
-//! The argument also says why a clear cannot begin such a stretch, by a
-//! cycle that pays a level per base-64 digit of the width each round. That
-//! cycle is measured here too, as the non-guarantee it documents.
+//! The argument also says why a clear cannot begin such a stretch, by a cycle
+//! that pays a level per base-64 digit of the width each round. That cycle is
+//! measured here too, as the non-guarantee it documents.
 //!
-//! An accumulator operand at a shift that is not a multiple of 32 bits
-//! deposits its magnitude, one sign, for the same reason: stored digits of
-//! mixed signs, shifted, would climb a logarithm per digit. The last test
-//! measures that operand's climbs too.
+//! An accumulator operand at a shift that is not a multiple of 32 bits deposits
+//! its magnitude, one sign, for the same reason: stored digits of mixed signs,
+//! shifted, would climb a logarithm per digit. The last test measures that
+//! operand's climbs too.
 
 use num_bigint::{BigInt as IBig, BigUint as UBig};
 use proptest::prelude::*;
@@ -111,19 +111,19 @@ proptest! {
 }
 
 /// Each round of a clear, a re-raise with no growth, and one limb at `64^m`
-/// below it climbs `m + 1` bitset levels for the limb and `m + 1` levels
-/// for the next clear, at every `m` drawn.
+/// below it climbs `m + 1` bitset levels for the limb and `m + 1` levels for
+/// the next clear, at every `m` drawn.
 ///
 /// This is the cycle the crate's cost argument gives for why a clear cannot
 /// begin a stretch of one sign. The clear keeps the storage, and the bitset's
 /// storage covering the width reached, but empties its words. The limb at
-/// position `q + 2` raises the top again without growing the storage, and
-/// its jump finds position zero held: one level. The limb at `q = 64^m`
-/// lands in the gap below, fills one word at each level from 0 to `m - 1`,
-/// and stops at word zero of level `m`. The clear that follows zeroes the
-/// held positions `q` and `q + 2` and examines `m + 1` levels, emptying those
-/// words again. The first round differs, while the storage grows, so
-/// the exact counts are asserted from the second round on.
+/// position `q + 2` raises the top again without growing the storage, and its
+/// jump finds position zero held: one level. The limb at `q = 64^m` lands in
+/// the gap below, fills one word at each level from 0 to `m - 1`, and stops at
+/// word zero of level `m`. The clear that follows zeroes the held positions `q`
+/// and `q + 2` and examines `m + 1` levels, emptying those words again. The
+/// first round differs, while the storage grows, so the exact counts are
+/// asserted from the second round on.
 #[test]
 fn clear_cycle_climbs_a_level_per_base_64_digit_each_round() {
     for m in 1..=4u32 {
@@ -166,23 +166,23 @@ fn clear_cycle_climbs_a_level_per_base_64_digit_each_round() {
     }
 }
 
-/// An accumulator operand of mixed-sign stored digits, added at a shift
-/// that is not a multiple of 32 bits, climbs a number of bitset levels that
-/// does not grow with the operand's width or the shift.
+/// An accumulator operand of mixed-sign stored digits, added at a shift that is
+/// not a multiple of 32 bits, climbs a number of bitset levels that does not
+/// grow with the operand's width or the shift.
 ///
-/// The operand stores `[B, -1]` repeated `r` times under a top digit of 3,
-/// with `B = 2^32`: each pair is zero, so the value is `3 · B^(2r)`, and its
-/// top digit decides its comparison with zero at once, leaving the pairs
-/// stored. The receiver's bitset covers positions far past where the operand
-/// lands, near position `s`, but holds nothing there, as two writes far above
-/// and their cancellation leave it. Added at shift `32s + 1`, a stored pair
-/// would make its first digit carry by itself above the receiver's top and
-/// its second cancel that carry, with a descent and a run moved into the
-/// bitset, which climbs about `log_64 s` levels, for every pair. The
-/// magnitude's digits are all zero below its top piece, so the update makes
-/// one deposit. At each of `r` = 16 and 64 and each of two `s` whose bitsets
-/// have different heights, the insertions are at most two and their climbs
-/// at most one more than the levels the bitset has.
+/// The operand stores `[B, -1]` repeated `r` times under a top digit of 3, with
+/// `B = 2^32`: each pair is zero, so the value is `3 · B^(2r)`, and its top
+/// digit decides its comparison with zero at once, leaving the pairs stored.
+/// The receiver's bitset covers positions far past where the operand lands,
+/// near position `s`, but holds nothing there, as two writes far above and
+/// their cancellation leave it. Added at shift `32s + 1`, a stored pair would
+/// make its first digit carry by itself above the receiver's top and its second
+/// cancel that carry, with a descent and a run moved into the bitset, which
+/// climbs about `log_64 s` levels, for every pair. The magnitude's digits are
+/// all zero below its top piece, so the update makes one deposit. At each of
+/// `r` = 16 and 64 and each of two `s` whose bitsets have different heights,
+/// the insertions are at most two and their climbs at most one more than the
+/// levels the bitset has.
 #[test]
 fn an_operand_at_a_bit_offset_climbs_no_level_per_digit() {
     const B: i128 = 1 << 32;

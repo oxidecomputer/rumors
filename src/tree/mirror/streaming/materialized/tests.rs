@@ -1,12 +1,12 @@
-//! The initiator's terminal absorb loop: the closing leg's classification
-//! of every reply it can receive.
+//! The initiator's terminal absorb loop: the closing leg's classification of
+//! every reply it can receive.
 //!
-//! The session's closing leg is the one ingress the descending walks never
-//! see: the initiator's pending leaf requests are answered directly by the
+//! The session's closing leg is the one ingress the descending walks never see:
+//! the initiator's pending leaf requests are answered directly by the
 //! counterparty's terminal supplies and absorbed by [`absorb`](super::absorb),
-//! so it gets its own scripted counterparty here, for the accepted shape
-//! and for every malformed one. The opening question, the one the greeting
-//! carries, has its own module ([`opening`]).
+//! so it gets its own scripted counterparty here, for the accepted shape and
+//! for every malformed one. The opening question, the one the greeting carries,
+//! has its own module ([`opening`]).
 
 use crate::tree::mirror::streaming::message::LaterMatches;
 use std::convert::Infallible;
@@ -33,8 +33,8 @@ use crate::{
 
 mod opening;
 
-/// The in-memory backend's erased node representation, which the closing
-/// leg's replies carry.
+/// The in-memory backend's erased node representation, which the closing leg's
+/// replies carry.
 type Erased = <Local as Backend>::Erased;
 
 /// The radix the one scripted request asks for: the last byte of its path.
@@ -56,8 +56,7 @@ fn supply(radix: u8, version: Version) -> Reaction<Erased> {
 /// Drive [`absorb`](super::absorb) against one scripted closing leg.
 ///
 /// A single pending leaf request at radix [`REQUESTED`], answered by the
-/// scripted `replies`, from a counterparty whose set-length ledger is
-/// `ledger`.
+/// scripted `replies`, from a counterparty whose set-length ledger is `ledger`.
 ///
 /// Returns the loop's result and what, if anything, it passed up to the
 /// assembly above it.
@@ -111,8 +110,8 @@ fn requested(version: Version) -> Vec<Reply<Erased>> {
     }]
 }
 
-/// A terminal leaf supply at the requested radix is absorbed and passed up
-/// to the assembly, carrying its supplied version.
+/// A terminal leaf supply at the requested radix is absorbed and passed up to
+/// the assembly, carrying its supplied version.
 ///
 /// The accepted shape, from which the rejections below differ only in the
 /// scripted reply.
@@ -135,12 +134,12 @@ fn terminal_absorb_accepts_the_requested_supply() {
     );
 }
 
-/// A terminal leaf supply past the declared set length fails the closing
-/// leg with `OverdrawnSupply`.
+/// A terminal leaf supply past the declared set length fails the closing leg
+/// with `OverdrawnSupply`.
 ///
-/// A connected-session test with a false set length fails at the first
-/// absorbed supply, before it can reach this terminal ingress. This test starts
-/// with a spent ledger so it exercises the terminal check directly.
+/// A connected-session test with a false set length fails at the first absorbed
+/// supply, before it can reach this terminal ingress. This test starts with a
+/// spent ledger so it exercises the terminal check directly.
 #[test]
 fn terminal_absorb_rejects_an_overdrawn_supply() {
     let (result, returned) = absorb_scripted(SupplyLedger::new(0), requested(ticked(0)));
@@ -151,8 +150,8 @@ fn terminal_absorb_rejects_an_overdrawn_supply() {
     assert!(returned.is_none(), "nothing is passed up past a rejection");
 }
 
-/// One deliberately malformed closing-leg script and the exact violation
-/// it must surface.
+/// One deliberately malformed closing-leg script and the exact violation it
+/// must surface.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Injection {
     /// The reply stream ends with the request outstanding.
@@ -165,8 +164,7 @@ enum Injection {
     Query { after_supply: bool },
     /// The requested radix supplied twice.
     DuplicateSupply,
-    /// A supply at a radix nobody requested, alone or after the requested
-    /// one.
+    /// A supply at a radix nobody requested, alone or after the requested one.
     ForeignSupply { after_supply: bool },
 }
 
@@ -181,8 +179,7 @@ impl Injection {
         }
     }
 
-    /// The replies answering the one request, every supply carrying
-    /// `version`.
+    /// The replies answering the one request, every supply carrying `version`.
     fn script(self, version: Version) -> Vec<Reply<Erased>> {
         let requested = || supply(REQUESTED, version.clone());
         let one = |after_supply: bool, reaction: Reaction<Erased>| {

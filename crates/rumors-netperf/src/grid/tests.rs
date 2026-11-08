@@ -6,8 +6,8 @@ use super::*;
 use crate::calibrate::probe_points;
 use crate::point::budget_text;
 
-/// The shipped `quick` grid parses, and its one group is the product of
-/// its axes: two pairs, two rates, two round trips, two budgets.
+/// The shipped `quick` grid parses, and its one group is the product of its
+/// axes: two pairs, two rates, two round trips, two budgets.
 #[test]
 fn quick_grid_is_its_product() {
     let grid = Grid::parse(include_str!("../../grids/quick.toml")).unwrap();
@@ -50,9 +50,9 @@ fn shipped_grids_run_over_tls_by_default() {
     }
 }
 
-/// The `tls` axis chooses the stack over its whole domain: a point runs
-/// over TLS when the axis is absent or `on`, and over plain TCP only when
-/// it is `off`.
+/// The `tls` axis chooses the stack over its whole domain: a point runs over
+/// TLS when the axis is absent or `on`, and over plain TCP only when it is
+/// `off`.
 #[test]
 fn tls_axis_defaults_to_on() {
     for (axis, tls) in [
@@ -168,8 +168,8 @@ proptest! {
     }
 }
 
-/// The `unlimited` spelling, in any case, requests [`UNLIMITED_BUDGET`] on
-/// the sides its axis names, and leaves the other side's budget alone.
+/// The `unlimited` spelling, in any case, requests [`UNLIMITED_BUDGET`] on the
+/// sides its axis names, and leaves the other side's budget alone.
 #[test]
 fn unlimited_budget_spelling() {
     for spelling in ["unlimited", "Unlimited", " UNLIMITED "] {
@@ -184,8 +184,8 @@ fn unlimited_budget_spelling() {
     }
 }
 
-/// A `pairs` entry describes its pair whole: counts it leaves out are
-/// zero, not the defaults or the `[defaults]` table's.
+/// A `pairs` entry describes its pair whole: counts it leaves out are zero, not
+/// the defaults or the `[defaults]` table's.
 #[test]
 fn pairs_entries_zero_unnamed_counts() {
     let grid = Grid::parse("[defaults]\ninsert_b = 5\n[[group]]\npairs = [{ insert_a = 20000 }]\n")
@@ -200,13 +200,13 @@ fn pairs_entries_zero_unnamed_counts() {
     );
 }
 
-/// The published reference grid parses under the current axes, every
-/// group contributes points, and the grid holds its header's claims.
+/// The published reference grid parses under the current axes, every group
+/// contributes points, and the grid holds its header's claims.
 ///
-/// A change to the grid format that would break the file users run fails
-/// here first. The header's claims are that a full run is 2,568 points,
-/// each run three times, for 7,704 sessions, and that only the diagonal
-/// group runs the `unlimited` budget.
+/// A change to the grid format that would break the file users run fails here
+/// first. The header's claims are that a full run is 2,568 points, each run
+/// three times, for 7,704 sessions, and that only the diagonal group runs the
+/// `unlimited` budget.
 #[test]
 fn reference_grid_parses() {
     let grid = Grid::parse(include_str!("../../grids/reference.toml")).unwrap();
@@ -237,11 +237,10 @@ const LINUX_DEFAULT_WINDOW: (u64, f64) = (4 << 20, 0.5);
 /// The shipped smoke grid touches every path a reference run takes, as its
 /// header promises.
 ///
-/// It has one repetition; every reference group; every budget spelling; a
-/// point the wire-time limit skips; a point a host at Linux's default TCP
-/// limits reruns with raised limits; the pair the reference run's
-/// calibration probes, its heaviest, at the `unlimited` budget; and a
-/// fresh connection.
+/// It has one repetition; every reference group; every budget spelling; a point
+/// the wire-time limit skips; a point a host at Linux's default TCP limits
+/// reruns with raised limits; the pair the reference run's calibration probes,
+/// its heaviest, at the `unlimited` budget; and a fresh connection.
 #[test]
 fn smoke_grid_touches_every_reference_path() {
     let smoke = Grid::parse(include_str!("../../grids/smoke.toml")).unwrap();
@@ -308,12 +307,12 @@ fn smoke_grid_touches_every_reference_path() {
     );
 }
 
-/// A grid's plan partitions each group's product into planned points and
-/// skips, each skip with a reason.
+/// A grid's plan partitions each group's product into planned points and skips,
+/// each skip with a reason.
 ///
-/// The points and skips together number the product of the group's axes
-/// and pairs, and no point is both planned and skipped. The shipped grids,
-/// which skip points, are the cases.
+/// The points and skips together number the product of the group's axes and
+/// pairs, and no point is both planned and skipped. The shipped grids, which
+/// skip points, are the cases.
 #[test]
 fn plan_partitions_each_group_product() {
     for text in [

@@ -1,32 +1,30 @@
 //! The fixed preamble opening every mirror session.
 //!
-//! Every wire session first exchanges one fixed-size [`Preamble`] carrying
-//! the wire dialect's version, the network's public identifier (never its
-//! secret), and the session intent. Only after it succeeds does the mirror
-//! exchange its greeting, which
-//! front-loads the session parameters the protocol negotiates,
+//! Every wire session first exchanges one fixed-size [`Preamble`] carrying the
+//! wire dialect's version, the network's public identifier (never its secret),
+//! and the session intent. Only after it succeeds does the mirror exchange its
+//! greeting, which front-loads the session parameters the protocol negotiates,
 //! inventoried where they are defined — the [`streaming`](super::streaming)
-//! module's `Greeting` message.
-//! Keeping these phases separate permits a provider to learn that its peer is
-//! bootstrapping before it atomically snapshots the tree and forks its party,
-//! and to send that peer the network's secret (the [`secret`](super::secret)
-//! item) before the greeting.
+//! module's `Greeting` message. Keeping these phases separate permits a
+//! provider to learn that its peer is bootstrapping before it atomically
+//! snapshots the tree and forks its party, and to send that peer the network's
+//! secret (the [`secret`](super::secret) item) before the greeting.
 //!
 //! A bootstrapping peer sends its key item right after its preamble, in the
-//! same write, and the exchange reads the key item of any counterparty
-//! whose preamble declares bootstrapping, returning it with who the
-//! counterparty is ([`Counterparty`]).
+//! same write, and the exchange reads the key item of any counterparty whose
+//! preamble declares bootstrapping, returning it with who the counterparty is
+//! ([`Counterparty`]).
 //!
 //! The preamble is one self-described CBOR item, so each direction of a
 //! session's byte stream is a CBOR sequence from its very first byte —
-//! `55799(["rumors", version: uint, network: bstr, intent: uint])`.
-//! Every field's head is one byte at the values the dialect admits, so the
-//! item has the fixed [`V2_PREAMBLE_LEN`] width. That width is part of the
-//! dialect, so no redundant frame length precedes it.
+//! `55799(["rumors", version: uint, network: bstr, intent: uint])`. Every
+//! field's head is one byte at the values the dialect admits, so the item has
+//! the fixed [`V2_PREAMBLE_LEN`] width. That width is part of the dialect, so
+//! no redundant frame length precedes it.
 //!
-//! Validation diagnoses the opening, then the protocol version, followed
-//! by the semantic network/intent combination. Only after that validation
-//! may the protocol trust peer-declared lengths.
+//! Validation diagnoses the opening, then the protocol version, followed by the
+//! semantic network/intent combination. Only after that validation may the
+//! protocol trust peer-declared lengths.
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -39,25 +37,25 @@ use crate::{
     tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT},
 };
 
-/// Leading bytes quoted by [`Error::MagicMismatch`] when a peer's opening
-/// is not a rumors preamble: enough to recognize a familiar protocol in a
-/// hex dump without echoing a whole frame.
+/// Leading bytes quoted by [`Error::MagicMismatch`] when a peer's opening is
+/// not a rumors preamble: enough to recognize a familiar protocol in a hex dump
+/// without echoing a whole frame.
 const MISMATCH_PREVIEW_LEN: usize = 6;
 
-/// The V2 preamble's fixed prefix: the self-described CBOR tag, the
-/// four-item array head, and the text item `"rumors"`.
+/// The V2 preamble's fixed prefix: the self-described CBOR tag, the four-item
+/// array head, and the text item `"rumors"`.
 ///
-/// One flat constant so validation is one comparison; the tag's bytes
-/// come from the shared spelling, and `prefix_matches_the_writers` pins
-/// the whole prefix against the head writers' own rendering.
+/// One flat constant so validation is one comparison; the tag's bytes come from
+/// the shared spelling, and `prefix_matches_the_writers` pins the whole prefix
+/// against the head writers' own rendering.
 const V2_PREFIX: [u8; 11] = {
     let [a, b, c] = cbor::SELF_DESCRIBED_HEAD;
     [a, b, c, 0x84, 0x66, b'r', b'u', b'm', b'o', b'r', b's']
 };
 
-/// Length of the complete V2 preamble item: the prefix, the one-byte
-/// version item, the network byte string with its one-byte head, and the
-/// one-byte intent item.
+/// Length of the complete V2 preamble item: the prefix, the one-byte version
+/// item, the network byte string with its one-byte head, and the one-byte
+/// intent item.
 pub(crate) const V2_PREAMBLE_LEN: usize = V2_PREFIX.len() + 1 + (1 + NETWORK_BYTES) + 1;
 
 /// A peer's declared purpose for one reconciliation session.
@@ -193,8 +191,8 @@ pub(crate) enum Error {
         /// The version number advertised by the peer.
         remote_version: u64,
     },
-    /// The preamble opened correctly but a field of it is not spelled
-    /// the way the dialect demands.
+    /// The preamble opened correctly but a field of it is not spelled the way
+    /// the dialect demands.
     #[error("peer preamble is malformed: {defect}")]
     Malformed {
         /// The field or encoding rule the preamble violated.
@@ -328,15 +326,15 @@ pub(crate) type KeyItem = [u8; crate::tree::mirror::secret::KEY_ITEM_LEN];
 /// Who the counterparty is, read from its validated preamble: what every
 /// session decides by before its greeting.
 ///
-/// A peer is either joining, and then has no network, no intent but to
-/// remain, and a key item following its preamble, or a member of a network
-/// remaining or retiring after reconciliation. One value carries each case
-/// whole, so a session never checks the bootstrap placeholder and the key
-/// item's presence separately.
+/// A peer is either joining, and then has no network, no intent but to remain,
+/// and a key item following its preamble, or a member of a network remaining or
+/// retiring after reconciliation. One value carries each case whole, so a
+/// session never checks the bootstrap placeholder and the key item's presence
+/// separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Counterparty {
-    /// A peer joining a network, with the key item that followed its
-    /// preamble: a provider seals the network's secret for that key.
+    /// A peer joining a network, with the key item that followed its preamble:
+    /// a provider seals the network's secret for that key.
     Bootstrapping(KeyItem),
     /// A member of a network.
     Established {
@@ -367,18 +365,18 @@ impl Counterparty {
 
 /// Exchange the fixed preamble before the protocol trusts framed traffic.
 ///
-/// `follow` is one whole item this side sends right after its preamble, in
-/// the same write and flush, before it has read the peer's preamble: a
-/// bootstrapping peer's key item, so that its key costs no round trip.
-/// Empty for every other session.
+/// `follow` is one whole item this side sends right after its preamble, in the
+/// same write and flush, before it has read the peer's preamble: a
+/// bootstrapping peer's key item, so that its key costs no round trip. Empty
+/// for every other session.
 ///
 /// Returns who the peer is, with the key item that follows a bootstrapping
-/// peer's preamble ([`Counterparty`]). The key item is read while this side's own
-/// write is still in flight: two bootstrapping peers each write a preamble
+/// peer's preamble ([`Counterparty`]). The key item is read while this side's
+/// own write is still in flight: two bootstrapping peers each write a preamble
 /// and a key item before reading anything past the other's preamble, so if
-/// either waited for its write to finish before draining the other's key
-/// item, a transport that buffers less than both could leave them waiting
-/// on each other forever.
+/// either waited for its write to finish before draining the other's key item,
+/// a transport that buffers less than both could leave them waiting on each
+/// other forever.
 // The arguments are the exchange's inputs, one per concern.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn preamble<R, W>(

@@ -2,10 +2,10 @@
 //!
 //! No wire frame exists for the opening: [`opening_listing`] validates the
 //! locally produced opening reply and returns the listing the root scope
-//! derives from, while [`opening_reply`] replays the peer greeting's listing
-//! as the message the responder answers. The two must agree on the scope,
-//! since one side builds it from its own message and the other from the
-//! listing that crossed the wire.
+//! derives from, while [`opening_reply`] replays the peer greeting's listing as
+//! the message the responder answers. The two must agree on the scope, since
+//! one side builds it from its own message and the other from the listing that
+//! crossed the wire.
 
 use crate::tree::mirror::streaming::message::LaterMatches;
 use crate::tree::mirror::streaming::message::listed;
@@ -51,8 +51,8 @@ where
     }
 }
 
-/// The local opening's listing derives the same scope the remote side
-/// replays from the listing carried in the greeting.
+/// The local opening's listing derives the same scope the remote side replays
+/// from the listing carried in the greeting.
 #[test]
 fn opening_listing_agrees_with_greeting_replay() {
     let listing = vec![listed(3, hash(1)), listed(9, hash(2))];
@@ -76,8 +76,8 @@ fn opening_listing_agrees_with_greeting_replay() {
 }
 
 /// An empty carried listing replays the empty-tree initiator's opening: one
-/// empty `Query`, meaning "I lack the root, send everything", with a root
-/// scope holding no positional children.
+/// empty `Query`, meaning "I lack the root, send everything", with a root scope
+/// holding no positional children.
 #[test]
 fn empty_listing_replays_the_empty_opening() {
     let (replayed, scope) = opening_reply::<<Local as Backend>::Erased>(Vec::new());
@@ -101,9 +101,9 @@ enum Symbol {
     Supply,
 }
 
-/// Every opening reply of at most three reactions is accepted exactly when
-/// it is one query, and otherwise rejected by the clause it breaks: empty,
-/// not led by a query, or continuing after its query.
+/// Every opening reply of at most three reactions is accepted exactly when it
+/// is one query, and otherwise rejected by the clause it breaks: empty, not led
+/// by a query, or continuing after its query.
 #[test]
 fn opening_accepts_exactly_one_query() {
     /// Build the reply a word spells.

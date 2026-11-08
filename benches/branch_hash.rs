@@ -4,22 +4,21 @@
 //! Feeding-strategy microbenchmark behind `HashKey::branch`'s one-shot form.
 //!
 //! A branch preimage is `kind ‖ height ‖ prefix_len ‖ prefix ‖ count ‖
-//! (radix ‖ hash)*`, hashed by HMAC-SHA-256 under the tree hash key —
-//! dominated by fixed-width child records, several to one of SHA-256's
-//! 64-byte blocks. The shipped `HashKey::branch` assembles the whole
-//! preimage in a contiguous buffer and hashes it in one shot; the
-//! alternative feeds the keyed hasher one `update` per field. This bench
-//! measures exactly that comparison over the current preimage layout, across
-//! fan-outs from the smallest representable branch to the saturated 256, so
-//! the claim at `HashKey::branch` stays re-measurable: run
-//! `just bench branch_hash` and compare the `contiguous` and `streamed`
-//! curves.
+//! (radix ‖ hash)*`, hashed by HMAC-SHA-256 under the tree hash key — dominated
+//! by fixed-width child records, several to one of SHA-256's 64-byte blocks.
+//! The shipped `HashKey::branch` assembles the whole preimage in a contiguous
+//! buffer and hashes it in one shot; the alternative feeds the keyed hasher one
+//! `update` per field. This bench measures exactly that comparison over the
+//! current preimage layout, across fan-outs from the smallest representable
+//! branch to the saturated 256, so the claim at `HashKey::branch` stays
+//! re-measurable: run `just bench branch_hash` and compare the `contiguous` and
+//! `streamed` curves.
 //!
 //! The contiguous series calls the production implementation through its
 //! test-only entry point. The streamed alternative spells out the same input,
 //! and an untimed assertion keeps the two forms equivalent. Both key the hash
-//! once, outside the timed loop, and clone the keyed state per branch, as
-//! the tree does.
+//! once, outside the timed loop, and clone the keyed state per branch, as the
+//! tree does.
 
 use std::hint::black_box;
 
@@ -31,8 +30,8 @@ use sha2::Sha256;
 /// Kind byte leading a branch preimage, mirrored from the documented layout.
 const BRANCH_TAG: u8 = 1;
 
-/// The height the benched branch sits at: one below the root, as a hot
-/// interior branch near the root does.
+/// The height the benched branch sits at: one below the root, as a hot interior
+/// branch near the root does.
 const HEIGHT: u8 = 31;
 
 /// A fixed raw key: only that both series use the same one matters.
@@ -47,8 +46,8 @@ const PREFIX: &[u8] = &[0xa5, 0x5a, 0x3c];
 const FANOUTS: &[usize] = &[2, 4, 16, 64, 256];
 
 /// A deterministic set of `k` (radix, hash) children in strictly ascending
-/// radix order, as the convention requires. Only the byte content matters to
-/// a hashing microbench, and only that it is fixed across runs.
+/// radix order, as the convention requires. Only the byte content matters to a
+/// hashing microbench, and only that it is fixed across runs.
 fn children(k: usize) -> Vec<(u8, [u8; MERKLE_HASH_LEN])> {
     assert!(k <= 256, "branch fan-out is bounded by the 256-way radix");
     (0..k)
@@ -69,8 +68,8 @@ fn contiguous(
     key.branch_hash(usize::from(HEIGHT), prefix, children.iter().copied())
 }
 
-/// The streamed form: one `update` call per field, so the keyed hasher sees
-/// the preimage in radix-byte and hash-width fragments.
+/// The streamed form: one `update` call per field, so the keyed hasher sees the
+/// preimage in radix-byte and hash-width fragments.
 fn streamed(
     key: &Hmac<Sha256>,
     prefix: &[u8],

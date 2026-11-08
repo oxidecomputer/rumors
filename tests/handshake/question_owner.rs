@@ -1,9 +1,9 @@
 //! Question-ownership pins for the descent.
 //!
-//! Every scope has exactly one question-owner: for any node the descent
-//! visits, exactly one side ever asks a question about it. These tests pin
-//! the observable consequence on the wire: a divergent root child draws
-//! exactly one nonempty `Query` frame in the whole session.
+//! Every scope has exactly one question-owner: for any node the descent visits,
+//! exactly one side ever asks a question about it. These tests pin the
+//! observable consequence on the wire: a divergent root child draws exactly one
+//! nonempty `Query` frame in the whole session.
 
 use rumors::Rumors;
 
@@ -14,11 +14,11 @@ use rumors_testkit::common::wire::{block_on, bootstrap_fork_async};
 
 /// The network every test here founds.
 ///
-/// The staging searches for versions by where their keyed paths land, and
-/// the paths depend on the secret. A fixed seed makes the staging, and the
-/// capture it produces, the same on every run, under a secret for which
-/// the search is known to succeed. The assertions count frame labels, so
-/// they hold under any secret that stages the fixture.
+/// The staging searches for versions by where their keyed paths land, and the
+/// paths depend on the secret. A fixed seed makes the staging, and the capture
+/// it produces, the same on every run, under a secret for which the search is
+/// known to succeed. The assertions count frame labels, so they hold under any
+/// secret that stages the fixture.
 const NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// A peer founding [`NETWORK`], so the capture is deterministic.
@@ -29,22 +29,21 @@ fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync +
 
 /// Pool size for the one-byte path search staging the disputed sibling.
 ///
-/// The search must hit one *specific* root radix, a direct-hit search with
-/// mean 256, so the pool is sized well past it (`common::shape` explains
-/// the search-and-redact staging; it is deterministic under the seeded
-/// universe).
+/// The search must hit one *specific* root radix, a direct-hit search with mean
+/// 256, so the pool is sized well past it (`common::shape` explains the
+/// search-and-redact staging; it is deterministic under the seeded universe).
 const RADIX_POOL: u64 = 2048;
 
-/// Payload base and pool size for the responder ballast: a disjoint
-/// payload range so pool cleanups never touch the other side's messages.
+/// Payload base and pool size for the responder ballast: a disjoint payload
+/// range so pool cleanups never touch the other side's messages.
 const BALLAST_POOL: (u64, u64) = (10_000, 16);
 
-/// Count the frames whose semantic label starts with `label` in a rendered
-/// wire capture, across both directions.
+/// Count the frames whose semantic label starts with `label` in a rendered wire
+/// capture, across both directions.
 ///
 /// A frame's semantic is the comment on its header line
-/// (`frame <n> (<b> bytes) / <semantic> /`); the renderer guarantees no
-/// body line begins with `frame `, so the prefix identifies the header.
+/// (`frame <n> (<b> bytes) / <semantic> /`); the renderer guarantees no body
+/// line begins with `frame `, so the prefix identifies the header.
 fn frames_labeled(capture: &str, label: &str) -> usize {
     capture
         .lines()
@@ -60,13 +59,13 @@ fn frames_labeled(capture: &str, label: &str) -> usize {
 /// A divergent root child draws exactly one nonempty `Query` in the whole
 /// session: its single question-owner is the responder's root reply.
 ///
-/// The initiator holds two leaves under one root radix, the responder one
-/// of them plus ballast elsewhere: the shared radix is disputed, so the
-/// responder's opening reply queries it, the initiator answers with a
-/// `Match` and a `Supply` one level down, and no other question about that
-/// scope ever crosses. A second question-owner — the failure mode of
-/// symmetrizing the whole merge-join instead of only its Left arm — would
-/// double exactly this count.
+/// The initiator holds two leaves under one root radix, the responder one of
+/// them plus ballast elsewhere: the shared radix is disputed, so the
+/// responder's opening reply queries it, the initiator answers with a `Match`
+/// and a `Supply` one level down, and no other question about that scope ever
+/// crosses. A second question-owner — the failure mode of symmetrizing the
+/// whole merge-join instead of only its Left arm — would double exactly this
+/// count.
 #[test]
 fn divergent_root_child_has_one_question_owner() {
     // Stage: message `1` exists before the fork, so both sides hold it; a

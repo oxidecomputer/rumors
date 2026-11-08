@@ -6,8 +6,8 @@ use super::*;
 /// Protocol-valid signal placements in either speaker direction.
 const VALID_PLACEMENTS: [usize; 2] = [158, 163];
 
-/// The state roster is a bijection between the ten signals and the state
-/// codes 0 through 9; every other code is reserved.
+/// The state roster is a bijection between the ten signals and the state codes
+/// 0 through 9; every other code is reserved.
 #[test]
 fn state_roster_is_bijective() {
     let mut codes = BTreeSet::new();
@@ -25,8 +25,8 @@ fn state_roster_is_bijective() {
     }
 }
 
-/// Decoding an opener rejects a reserved stream index before looking at
-/// the state, and a reserved state on a known stream names that stream.
+/// Decoding an opener rejects a reserved stream index before looking at the
+/// state, and a reserved state on a known stream names that stream.
 #[test]
 fn reserved_opener_items_are_typed() {
     for speaker in [Speaker::Initiator, Speaker::Responder] {
@@ -143,7 +143,8 @@ fn state_roster_snapshot() {
     insta::assert_snapshot!(roster);
 }
 
-/// Both elected speakers map every stream index bijectively to schedule heights.
+/// Both elected speakers map every stream index bijectively to schedule
+/// heights.
 #[test]
 fn stream_height_mappings_are_bijective() {
     for speaker in [Speaker::Initiator, Speaker::Responder] {

@@ -4,22 +4,21 @@
 //!
 //! # How the report reads each point
 //!
-//! For every point, the report takes medians over its finished sessions
-//! and splits the median wall time *T* into what could explain it:
+//! For every point, the report takes medians over its finished sessions and
+//! splits the median wall time *T* into what could explain it:
 //!
 //! - *wire time*: the busier direction's socket bytes over its rate (the
-//!   emulated rate, or in pair mode the goodput the network probe
-//!   measured);
+//!   emulated rate, or in pair mode the goodput the network probe measured);
 //! - *latency*: the one-way delays the protocol needs, from the model of
 //!   uniform hashing ([`crate::point::Model::hops`]), times half the round
 //!   trip, plus one round trip to connect on a fresh connection;
 //! - *computation*: the busier peer process's CPU time during the session.
 //!
-//! The largest of the three names what bound the point. The *effective
-//! hops* are what is left of *T* after the connection, the wire, and the
-//! computation, in one-way delays: set beside the model's minimum, they
-//! show how close the session came to the fewest round trips the protocol
-//! needs. *Link use* is each direction's bytes over *T* times its rate.
+//! The largest of the three names what bound the point. The *effective hops*
+//! are what is left of *T* after the connection, the wire, and the computation,
+//! in one-way delays: set beside the model's minimum, they show how close the
+//! session came to the fewest round trips the protocol needs. *Link use* is
+//! each direction's bytes over *T* times its rate.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -181,8 +180,8 @@ impl PointSummary {
         )
     }
 
-    /// The point's settings as a key, leaving out its budgets or its TCP
-    /// buffer limit, so points that differ only there compare.
+    /// The point's settings as a key, leaving out its budgets or its TCP buffer
+    /// limit, so points that differ only there compare.
     fn family(&self, with_budget: bool, with_buffers: bool) -> String {
         let r = &self.row;
         let mut key = format!(
@@ -216,8 +215,8 @@ impl PointSummary {
         key
     }
 
-    /// The smaller side's effective budget in bytes: the budget the
-    /// session ran at ([`effective_budget`]).
+    /// The smaller side's effective budget in bytes: the budget the session ran
+    /// at ([`effective_budget`]).
     fn budget(&self) -> u64 {
         let row = &self.row;
         let a = effective_budget(row.budget_a_bytes, row.a_effective_budget_bytes);
@@ -225,26 +224,24 @@ impl PointSummary {
         a.min(b)
     }
 
-    /// The session heap over the smaller side's effective budget, or
-    /// `None` when both sides ran unlimited, with no bound to compare
-    /// against.
+    /// The session heap over the smaller side's effective budget, or `None`
+    /// when both sides ran unlimited, with no bound to compare against.
     fn heap_ratio(&self) -> Option<f64> {
         let budget = self.budget();
         (budget != UNLIMITED_BUDGET).then(|| self.transient_heap / budget as f64)
     }
 }
 
-/// The budget a side ran at: the effective budget its peer `reported`, or
-/// for a row that records none, the side's request (`None` for the
-/// library's default).
+/// The budget a side ran at: the effective budget its peer `reported`, or for a
+/// row that records none, the side's request (`None` for the library's
+/// default).
 ///
-/// The library raises a request below the minimum for the side's
-/// message-size target to that minimum, which is
-/// [`MIN_SYNC_MEMORY_BUDGET`] at the default target. It doesn't publish the
-/// minimum at other targets, so the report reads the raised budget the
-/// library reports
-/// ([`SynchronizationSettings`](rumors::SynchronizationSettings)) rather
-/// than recomputing it.
+/// The library raises a request below the minimum for the side's message-size
+/// target to that minimum, which is [`MIN_SYNC_MEMORY_BUDGET`] at the default
+/// target. It doesn't publish the minimum at other targets, so the report reads
+/// the raised budget the library reports
+/// ([`SynchronizationSettings`](rumors::SynchronizationSettings)) rather than
+/// recomputing it.
 fn effective_budget(requested: Option<u64>, reported: Option<u64>) -> u64 {
     reported.unwrap_or_else(|| requested.unwrap_or(default::SYNC_MEMORY_BUDGET as u64))
 }
@@ -377,9 +374,9 @@ fn link_text(row: &Row) -> String {
     )
 }
 
-/// One side's budget as the report prints it: the requested value, and,
-/// when the side ran at more than it requested, that it ran at the minimum
-/// for its target instead (see [`effective_budget`]).
+/// One side's budget as the report prints it: the requested value, and, when
+/// the side ran at more than it requested, that it ran at the minimum for its
+/// target instead (see [`effective_budget`]).
 fn side_budget_text(requested: Option<u64>, reported: Option<u64>) -> String {
     let asked = requested.unwrap_or(default::SYNC_MEMORY_BUDGET as u64);
     if effective_budget(requested, reported) > asked {
@@ -389,8 +386,8 @@ fn side_budget_text(requested: Option<u64>, reported: Option<u64>) -> String {
     }
 }
 
-/// The budget column of a row: one entry when both sides requested and
-/// ran at the same budgets, else one per side.
+/// The budget column of a row: one entry when both sides requested and ran at
+/// the same budgets, else one per side.
 fn budget_text(row: &Row) -> String {
     let a = side_budget_text(row.budget_a_bytes, row.a_effective_budget_bytes);
     let b = side_budget_text(row.budget_b_bytes, row.b_effective_budget_bytes);
@@ -478,8 +475,8 @@ impl Source {
         })
     }
 
-    /// How the report names this directory among several: by its shard,
-    /// if it holds one, and by its path.
+    /// How the report names this directory among several: by its shard, if it
+    /// holds one, and by its path.
     fn label(&self) -> String {
         match self.run.as_ref().and_then(|run| run.shard) {
             Some(shard) => format!(
@@ -513,13 +510,13 @@ fn hosts(sources: &[Source]) -> String {
     }
 }
 
-/// Renders the report for the results in `dirs` (one directory, or the
-/// shards of one run, which may have run on several hosts) into `out`,
-/// returning the report's path.
+/// Renders the report for the results in `dirs` (one directory, or the shards
+/// of one run, which may have run on several hosts) into `out`, returning the
+/// report's path.
 ///
-/// The points' sections read every directory's rows together. What
-/// belongs to one directory, its run's summary, sentinels, calibration,
-/// and host, the report gives for each directory.
+/// The points' sections read every directory's rows together. What belongs to
+/// one directory, its run's summary, sentinels, calibration, and host, the
+/// report gives for each directory.
 ///
 /// # Errors
 ///
@@ -594,8 +591,8 @@ pub fn render(dirs: &[PathBuf], out: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// The opening summary: one paragraph for one directory, or a line for
-/// each of several, then the build or builds that measured them.
+/// The opening summary: one paragraph for one directory, or a line for each of
+/// several, then the build or builds that measured them.
 fn write_summary(md: &mut String, sources: &[Source], rows: &[Row]) -> Result<()> {
     match sources {
         [source] => writeln!(md, "{}", part_summary(&source.rows, source.run.as_ref()))?,
@@ -968,8 +965,8 @@ fn write_memory(md: &mut String, summaries: &[(String, PointSummary)]) -> Result
     Ok(())
 }
 
-/// The plots, one per group and pair: duration against round trip, one
-/// series per rate, at the largest budget measured.
+/// The plots, one per group and pair: duration against round trip, one series
+/// per rate, at the largest budget measured.
 fn write_charts(md: &mut String, summaries: &[(String, PointSummary)], out: &Path) -> Result<()> {
     #[allow(clippy::type_complexity)]
     let mut panels: BTreeMap<(String, String), BTreeMap<String, Vec<(u64, &PointSummary)>>> =
@@ -1039,9 +1036,9 @@ fn write_charts(md: &mut String, summaries: &[(String, PointSummary)], out: &Pat
     Ok(())
 }
 
-/// The sentinels' section: for each directory whose run interleaved
-/// sentinels, their times and any drift they flagged, under the
-/// directory's label when there are several.
+/// The sentinels' section: for each directory whose run interleaved sentinels,
+/// their times and any drift they flagged, under the directory's label when
+/// there are several.
 fn write_sentinels(md: &mut String, sources: &[Source]) -> Result<()> {
     let with_sentinels: Vec<&Source> = sources
         .iter()
@@ -1156,8 +1153,8 @@ fn write_calibration(md: &mut String, calibration: &Calibration) -> Result<()> {
     Ok(())
 }
 
-/// The calibration section: each directory's calibration, under the
-/// directory's label when there are several.
+/// The calibration section: each directory's calibration, under the directory's
+/// label when there are several.
 fn write_calibrations(md: &mut String, sources: &[Source]) -> Result<()> {
     let calibrated: Vec<&Source> = sources.iter().filter(|s| s.calibration.is_some()).collect();
     if calibrated.is_empty() {
@@ -1175,8 +1172,8 @@ fn write_calibrations(md: &mut String, sources: &[Source]) -> Result<()> {
     Ok(())
 }
 
-/// The environment section: the host each directory ran on, labelled by
-/// the directory when there are several, and in pair mode the server.
+/// The environment section: the host each directory ran on, labelled by the
+/// directory when there are several, and in pair mode the server.
 fn write_environments(
     md: &mut String,
     sources: &[Source],

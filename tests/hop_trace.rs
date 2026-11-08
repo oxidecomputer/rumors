@@ -2,30 +2,30 @@
 //!
 //! Wraps both halves of a delayed connection pair in a byte-level tracer,
 //! attaches an observation hook to both peers, and runs representative
-//! divergent sessions at a fixed one-way delay under the paused clock.
-//! Because virtual time only advances while every task is blocked on the
-//! wire, all compute is instantaneous in virtual terms and every traced
-//! event lands at an exact multiple of the delay: bucket `k` holds
-//! precisely the frames whose earliest enabling arrival was `k` hops into
-//! the session. Printing the per-bucket, per-stream traffic therefore *is*
-//! the serialized critical path — no inference required.
+//! divergent sessions at a fixed one-way delay under the paused clock. Because
+//! virtual time only advances while every task is blocked on the wire, all
+//! compute is instantaneous in virtual terms and every traced event lands at an
+//! exact multiple of the delay: bucket `k` holds precisely the frames whose
+//! earliest enabling arrival was `k` hops into the session. Printing the
+//! per-bucket, per-stream traffic therefore *is* the serialized critical path —
+//! no inference required.
 //!
-//! Stream identity comes from the observation hook: each sent frame is
-//! reported with the logical stream index it names, and the index maps to
-//! a protocol phase per the speaker's role (see `describe`). Which side is
-//! initiator is evident from the trace (the opening question rides the
-//! greeting, so the earliest frame is the *responder's* opening reply on
-//! its index 0; the initiator's index 0 stays unused).
+//! Stream identity comes from the observation hook: each sent frame is reported
+//! with the logical stream index it names, and the index maps to a protocol
+//! phase per the speaker's role (see `describe`). Which side is initiator is
+//! evident from the trace (the opening question rides the greeting, so the
+//! earliest frame is the *responder's* opening reply on its index 0; the
+//! initiator's index 0 stays unused).
 //!
 //! The hop count of every session follows one rule, stated and argued in
 //! [`rule`], which predicts it from the two replicas' leaf paths alone. The
 //! property `hops_follow_the_rule` checks the traced count against that
 //! prediction over generated replica pairs and every network secret. Hashed
 //! leaves share only a few leading bytes, so those pairs part shallowly;
-//! `deep_parting_depths_follow_the_rule` places leaves to reach every
-//! deeper parting depth, to the leaves themselves. The point traces print
-//! the critical path of representative sessions, each stating its expected
-//! count through the rule.
+//! `deep_parting_depths_follow_the_rule` places leaves to reach every deeper
+//! parting depth, to the leaves themselves. The point traces print the critical
+//! path of representative sessions, each stating its expected count through the
+//! rule.
 //!
 //! Run with:
 //!
@@ -67,8 +67,8 @@ mod rule;
 
 use rule::{Prediction, Replica, Side};
 
-/// The network of every point trace, fixed so that each trace prints the
-/// same critical path on every run.
+/// The network of every point trace, fixed so that each trace prints the same
+/// critical path on every run.
 const NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// One-way delay; whole milliseconds per the timer wheel's grain.
@@ -210,8 +210,8 @@ impl SessionObserver for FrameHook {
     }
 }
 
-/// One logical stream's sent frames, recorded with the virtual time each
-/// was observed.
+/// One logical stream's sent frames, recorded with the virtual time each was
+/// observed.
 struct FrameStream {
     side: char,
     index: u8,
@@ -442,8 +442,8 @@ fn report(name: &str, trace: &Trace) {
     );
 }
 
-/// Two peers at the default budget with a shared history and insertions on
-/// both sides, mirroring the pipelining test's shape at reduced scale.
+/// Two peers at the default budget with a shared history and insertions on both
+/// sides, mirroring the pipelining test's shape at reduced scale.
 fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     const COMMON: usize = 2_048;
     const DIVERGENT_PER_SIDE: usize = 512;
@@ -490,8 +490,8 @@ fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..count).map(|_| rng.next_u64())).unwrap();
 }
 
-/// Join `parent`'s network with a new peer holding its messages, at the
-/// default memory budget and with the given target message size.
+/// Join `parent`'s network with a new peer holding its messages, at the default
+/// memory budget and with the given target message size.
 fn bootstrap_fork<T>(parent: &Rumors<T>, target_message_size: usize) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -516,17 +516,16 @@ where
     })
 }
 
-/// The largest share of the in-flight window one side's data frames may
-/// total, as a fraction's denominator: the rest leaves room for the
-/// preamble, the greeting, and the completion marker.
+/// The largest share of the in-flight window one side's data frames may total,
+/// as a fraction's denominator: the rest leaves room for the preamble, the
+/// greeting, and the completion marker.
 ///
-/// A side cannot hold more in flight than it sends in the whole session, so
-/// a session within this share never fills the window.
+/// A side cannot hold more in flight than it sends in the whole session, so a
+/// session within this share never fills the window.
 const WINDOW_SHARE_DENOMINATOR: u64 = 2;
 
 /// Check that a traced session met the rule's premises: no admission wait on
-/// either side, and an in-flight window that never filled ([`rule`]'s
-/// setting).
+/// either side, and an in-flight window that never filled ([`rule`]'s setting).
 fn assert_in_scope<T: Send + Sync + 'static>(traced: &Traced<T>) {
     let window_share = CAPACITY as u64 / WINDOW_SHARE_DENOMINATOR;
     for (side, stats) in [('A', &traced.a_stats), ('B', &traced.b_stats)] {
@@ -552,9 +551,9 @@ fn assert_converged<T: Send + Sync + 'static>(traced: &Traced<T>) {
     );
 }
 
-/// Trace a session between `a` and `b`, print its critical path under
-/// `name` with the rule's prediction, and check that it converged within the
-/// rule's setting.
+/// Trace a session between `a` and `b`, print its critical path under `name`
+/// with the rule's prediction, and check that it converged within the rule's
+/// setting.
 fn trace_point<T>(name: &str, a: Rumors<T>, b: Rumors<T>) -> (Traced<T>, Prediction)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -569,8 +568,8 @@ where
 }
 
 /// Traces the serialized hop structure of an insertion-shaped divergent
-/// session, and checks that its hop count is the one the rule predicts from
-/// the two replicas' leaf paths.
+/// session, and checks that its hop count is the one the rule predicts from the
+/// two replicas' leaf paths.
 #[test]
 fn trace_insertion_session() {
     let (left, right) = diverged_insertions();
@@ -582,11 +581,11 @@ fn trace_insertion_session() {
     );
 }
 
-/// Traces the serialized hop structure of a redaction-shaped divergent
-/// session, and checks that its hop count is the one the rule predicts.
+/// Traces the serialized hop structure of a redaction-shaped divergent session,
+/// and checks that its hop count is the one the rule predicts.
 ///
-/// Each redacted leaf is exclusive to the side that kept it, and costs the
-/// hops of any other exclusive leaf at its parting depth.
+/// Each redacted leaf is exclusive to the side that kept it, and costs the hops
+/// of any other exclusive leaf at its parting depth.
 #[test]
 fn trace_redaction_session() {
     let (left, right) = diverged_redactions();
@@ -599,16 +598,15 @@ fn trace_redaction_session() {
     );
 }
 
-/// Two peers with disjoint exclusive content and no dispute, the smaller
-/// side holding a two-leaf subtree under one root radix.
+/// Two peers with disjoint exclusive content and no dispute, the smaller side
+/// holding a two-leaf subtree under one root radix.
 ///
-/// The staging requires the initiator's two leaf paths to share their
-/// first byte while its ballast counterpart's three land under other root
-/// radices, so no root child is populated on both sides and the session is
-/// pure transfer in both directions. A leaf's path is its version's hash
-/// keyed by the network's secret, and the network is seeded, so the shape is
-/// a property of the created version sequence; the self-checks below verify
-/// it.
+/// The staging requires the initiator's two leaf paths to share their first
+/// byte while its ballast counterpart's three land under other root radices, so
+/// no root child is populated on both sides and the session is pure transfer in
+/// both directions. A leaf's path is its version's hash keyed by the network's
+/// secret, and the network is seeded, so the shape is a property of the created
+/// version sequence; the self-checks below verify it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     // Stage by pool search: paths derive from versions under the seeded
     // network's secret, so the shape is a deterministic function of the
@@ -689,17 +687,16 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     (left, right)
 }
 
-/// Traces a pure transfer whose initiator holds an exclusive root child,
-/// and checks the hop ladder of its supplies.
+/// Traces a pure transfer whose initiator holds an exclusive root child, and
+/// checks the hop ladder of its supplies.
 ///
 /// This is the rule's case of a leaf at parting depth 1 whose holder, the
-/// initiator, lists depth 1, so the session takes 3 + 1 + 1 = 5 hops. In
-/// order: the preambles land at hop 1 and the greetings at hop 2. The
-/// responder's opening reply departs at hop 2, requesting the initiator's
-/// exclusive root child. The initiator's supplies answer it, departing at
-/// hop 3 on its level-2 stream and landing at hop 4, and the completion
-/// markers land at hop 5. The initiator never sends a frame on its unused
-/// index 0.
+/// initiator, lists depth 1, so the session takes 3 + 1 + 1 = 5 hops. In order:
+/// the preambles land at hop 1 and the greetings at hop 2. The responder's
+/// opening reply departs at hop 2, requesting the initiator's exclusive root
+/// child. The initiator's supplies answer it, departing at hop 3 on its level-2
+/// stream and landing at hop 4, and the completion markers land at hop 5. The
+/// initiator never sends a frame on its unused index 0.
 #[test]
 fn trace_bulk_initiator_session() {
     let (left, right) = transfer_pair();
@@ -728,9 +725,9 @@ fn trace_bulk_initiator_session() {
 /// Traces the session between identical peers: the protocol floor every
 /// divergent trace is read against.
 ///
-/// This is the rule's case of equal versions, which takes 3 hops: the
-/// root-fan listing rides the greeting hop itself, and converged peers end
-/// the session at the greeting, so only the completion markers follow.
+/// This is the rule's case of equal versions, which takes 3 hops: the root-fan
+/// listing rides the greeting hop itself, and converged peers end the session
+/// at the greeting, so only the completion markers follow.
 #[test]
 fn trace_empty_session() {
     let left = NETWORK
@@ -749,10 +746,10 @@ fn trace_empty_session() {
 
 /// The largest shared history a generated pair forks from.
 ///
-/// Parting depths grow with the logarithm, base 256, of the other side's
-/// leaf count, so histories up to this size draw exclusive leaves parting at
-/// depths 1 through 3, and occasionally 4: both parities of the listing
-/// side, under both roles.
+/// Parting depths grow with the logarithm, base 256, of the other side's leaf
+/// count, so histories up to this size draw exclusive leaves parting at depths
+/// 1 through 3, and occasionally 4: both parities of the listing side, under
+/// both roles.
 const MAX_COMMON: usize = 2_048;
 
 /// The most messages one side of a generated pair sends after the fork.
@@ -764,16 +761,15 @@ const MAX_REDACTIONS: usize = 256;
 /// The largest payload, in bytes, of a generated pair's messages.
 ///
 /// With [`MAX_INSERTS`] and [`MAX_REDACTIONS`], it bounds what one side
-/// supplies to about 1 MiB, within the window share
-/// [`assert_in_scope`] checks.
+/// supplies to about 1 MiB, within the window share [`assert_in_scope`] checks.
 const MAX_PAYLOAD: usize = 2_048;
 
 /// The most bytes a supply frame grows to under a generated small target
 /// message size, so that supply runs split across many frames.
 const MAX_SMALL_TARGET: usize = 1_024;
 
-/// The divisor of the case count of `hops_follow_the_rule`: each case runs
-/// one bootstrap and one traced session, the session class.
+/// The divisor of the case count of `hops_follow_the_rule`: each case runs one
+/// bootstrap and one traced session, the session class.
 ///
 /// The traced session's runtime has timers, but its clock is paused and
 /// advances without waiting, so the timers cost no wall time.
@@ -784,13 +780,13 @@ const HOP_RULE_DIVISOR: u32 = rumors::testing::property::SESSION_DIVISOR;
 struct Divergence {
     /// How many messages this side sends after the fork.
     inserts: usize,
-    /// Positions, among the messages this side sent after the fork, of the
-    /// ones it redacts again.
+    /// Positions, among the messages this side sent after the fork, of the ones
+    /// it redacts again.
     retracted: Vec<Index>,
     /// Positions, among the shared messages, of the ones this side redacts.
     redacted: Vec<Index>,
-    /// This side's target message size; the session runs at the smaller of
-    /// the two.
+    /// This side's target message size; the session runs at the smaller of the
+    /// two.
     target_message_size: usize,
 }
 
@@ -829,8 +825,8 @@ fn picked(versions: &[Version], positions: &[Index]) -> Vec<Version> {
 /// A generated replica pair: a shared history, then each side's divergence.
 #[derive(Clone, Debug)]
 struct PairPlan {
-    /// How many messages the network's first peer sends before the second
-    /// joins it.
+    /// How many messages the network's first peer sends before the second joins
+    /// it.
     common: usize,
     /// The payload length, in bytes, of every message.
     payload_len: usize,
@@ -842,8 +838,8 @@ struct PairPlan {
 
 impl PairPlan {
     /// Build the pair in the network `network` names: side `'A'` creates the
-    /// network and sends the shared history, side `'B'` joins it by
-    /// bootstrap, and then each side diverges.
+    /// network and sends the shared history, side `'B'` joins it by bootstrap,
+    /// and then each side diverges.
     fn build(&self, network: NetworkSeed) -> (Rumors<Bytes>, Rumors<Bytes>) {
         let payload = Bytes::from(vec![0; self.payload_len]);
         let a = network
@@ -861,15 +857,15 @@ impl PairPlan {
     }
 }
 
-/// Counts up to `max`, spread across orders of magnitude: a few, dozens, or
-/// up to `max`, so that small and large cases are both common.
+/// Counts up to `max`, spread across orders of magnitude: a few, dozens, or up
+/// to `max`, so that small and large cases are both common.
 fn spread(max: usize) -> impl Strategy<Value = usize> + Clone {
     prop_oneof![0..=4usize, 0..=64usize, 0..=max]
 }
 
-/// One side's divergence: insertions, redactions of its own new messages
-/// and of shared ones, and a target message size that is the minimum, small,
-/// or the default.
+/// One side's divergence: insertions, redactions of its own new messages and of
+/// shared ones, and a target message size that is the minimum, small, or the
+/// default.
 fn divergence() -> impl Strategy<Value = Divergence> {
     (
         spread(MAX_INSERTS),
@@ -891,9 +887,9 @@ fn divergence() -> impl Strategy<Value = Divergence> {
         )
 }
 
-/// A replica pair to trace: a shared history of up to [`MAX_COMMON`]
-/// messages, payloads empty, small, or up to [`MAX_PAYLOAD`] bytes, and an
-/// independent divergence on each side.
+/// A replica pair to trace: a shared history of up to [`MAX_COMMON`] messages,
+/// payloads empty, small, or up to [`MAX_PAYLOAD`] bytes, and an independent
+/// divergence on each side.
 fn pair_plan() -> impl Strategy<Value = PairPlan> {
     (
         prop_oneof![0..=8usize, 0..=256usize, 0..=MAX_COMMON],
@@ -943,40 +939,39 @@ divided_proptest! {
     }
 }
 
-/// The shallowest parting depth [`deep_parting_depths_follow_the_rule`]
-/// places: the first beyond those [`hops_follow_the_rule`]'s hashed pairs
-/// reach reliably ([`MAX_COMMON`]).
+/// The shallowest parting depth [`deep_parting_depths_follow_the_rule`] places:
+/// the first beyond those [`hops_follow_the_rule`]'s hashed pairs reach
+/// reliably ([`MAX_COMMON`]).
 const PLACED_SHALLOWEST_DEPTH: usize = 5;
 
-/// The depth of a leaf: the deepest a leaf can part, sharing all but its
-/// last path byte with a leaf the other side holds.
+/// The depth of a leaf: the deepest a leaf can part, sharing all but its last
+/// path byte with a leaf the other side holds.
 const LEAF_DEPTH: usize = 32;
 
-/// The messages both sides of a placed pair hold, by value; the first sits
-/// at [`PLACED_BASE`].
+/// The messages both sides of a placed pair hold, by value; the first sits at
+/// [`PLACED_BASE`].
 const PLACED_SHARED: [u64; 3] = [0, 1, 2];
 
-/// The one message only side `A` of a placed pair holds, the exclusive
-/// leaf whose parting depth the pair places.
+/// The one message only side `A` of a placed pair holds, the exclusive leaf
+/// whose parting depth the pair places.
 const PLACED_EXCLUSIVE: u64 = 100;
 
-/// The messages side `B` of a placed pair sends when `A` is to initiate:
-/// they make `B` hold more messages than `A`.
+/// The messages side `B` of a placed pair sends when `A` is to initiate: they
+/// make `B` hold more messages than `A`.
 const PLACED_BALLAST: [u64; 2] = [200, 201];
 
-/// The path of the first shared message, beside which the exclusive leaf
-/// parts.
+/// The path of the first shared message, beside which the exclusive leaf parts.
 const PLACED_BASE: [u8; 32] = [0x10; 32];
 
 /// The path the leaf of the message `value` takes in a placed pair whose
 /// exclusive leaf parts at `depth`.
 ///
-/// The exclusive leaf's path is [`PLACED_BASE`] with byte `depth - 1`
-/// changed, so it shares exactly `depth - 1` bytes with a leaf both sides
-/// hold, and parts at `depth`. Every other leaf takes a path whose bytes
-/// all equal one root radix of its own, which no other leaf's path starts
-/// with, so the ballast parts at depth 1 and its replies sit far shallower
-/// than the exclusive leaf's.
+/// The exclusive leaf's path is [`PLACED_BASE`] with byte `depth - 1` changed,
+/// so it shares exactly `depth - 1` bytes with a leaf both sides hold, and
+/// parts at `depth`. Every other leaf takes a path whose bytes all equal one
+/// root radix of its own, which no other leaf's path starts with, so the
+/// ballast parts at depth 1 and its replies sit far shallower than the
+/// exclusive leaf's.
 fn placed_path(value: u64, depth: usize) -> [u8; 32] {
     let uniform = |radix: u8| [radix; 32];
     match value {
@@ -996,8 +991,8 @@ fn placed_path(value: u64, depth: usize) -> [u8; 32] {
 }
 
 /// Build a placed pair: side `A` creates the network and sends the shared
-/// messages, side `B` joins it by bootstrap, `A` sends the exclusive
-/// message, and, if `a_initiates`, `B` sends the ballast.
+/// messages, side `B` joins it by bootstrap, `A` sends the exclusive message,
+/// and, if `a_initiates`, `B` sends the ballast.
 ///
 /// Inside a placement ([`with_leaf_paths`]), every leaf takes the path
 /// [`placed_path`] gives its message.
@@ -1015,29 +1010,29 @@ fn placed_pair(a_initiates: bool) -> (Rumors<u64>, Rumors<u64>) {
     (a, b)
 }
 
-/// Every parting depth from [`PLACED_SHALLOWEST_DEPTH`] to the leaves takes
-/// the hops the rule predicts, both when the exclusive leaf's holder lists
-/// its parting depth and when the side lacking it does.
+/// Every parting depth from [`PLACED_SHALLOWEST_DEPTH`] to the leaves takes the
+/// hops the rule predicts, both when the exclusive leaf's holder lists its
+/// parting depth and when the side lacking it does.
 ///
-/// Hashing cannot place leaves that share more than a few bytes, so each
-/// pair places them ([`placed_path`]): side `A` alone holds one leaf, which
-/// shares all but its parting depth's byte with a leaf both sides hold. A
-/// pair in which `B` also sends the ballast has `A` initiate; otherwise `A`
-/// responds. The initiator lists the odd depths and the responder the even
-/// ones, so the two roles cover both cases of the rule at every depth: the
-/// session takes `3 + d` hops when the lacking side lists `d` and the
-/// holder supplies the leaf in its reply about depth `d`, and `3 + d + 1`
-/// when the holder lists `d` and the lacking side must request the node,
-/// which the holder answers one level deeper. At depth 32 that request is
-/// for the single leaf, answered on the leaf stream.
+/// Hashing cannot place leaves that share more than a few bytes, so each pair
+/// places them ([`placed_path`]): side `A` alone holds one leaf, which shares
+/// all but its parting depth's byte with a leaf both sides hold. A pair in
+/// which `B` also sends the ballast has `A` initiate; otherwise `A` responds.
+/// The initiator lists the odd depths and the responder the even ones, so the
+/// two roles cover both cases of the rule at every depth: the session takes
+/// `3 + d` hops when the lacking side lists `d` and the holder supplies the
+/// leaf in its reply about depth `d`, and `3 + d + 1` when the holder lists `d`
+/// and the lacking side must request the node, which the holder answers one
+/// level deeper. At depth 32 that request is for the single leaf, answered on
+/// the leaf stream.
 ///
 /// Each case checks the rule's prediction against the case it staged
 /// (initiator, holder, parting depth, and who lists it) before checking the
 /// traced count against the prediction, so a staging that drifted fails as
 /// such, not as a miscount. A first build of each role's pair, outside the
-/// placement, learns each message's version, since forking and sending a
-/// seeded network are deterministic; the placement panics on any version it
-/// does not list, so a rebuild that drifted fails loudly.
+/// placement, learns each message's version, since forking and sending a seeded
+/// network are deterministic; the placement panics on any version it does not
+/// list, so a rebuild that drifted fails loudly.
 #[test]
 fn deep_parting_depths_follow_the_rule() {
     for a_initiates in [true, false] {

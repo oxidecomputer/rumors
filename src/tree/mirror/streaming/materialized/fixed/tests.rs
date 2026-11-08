@@ -1,6 +1,6 @@
-//! The fixed allowance's figure, how the minimum budget and the ledger's
-//! budget divide a memory budget around the session allowance, and the
-//! largest target a memory budget affords.
+//! The fixed allowance's figure, how the minimum budget and the ledger's budget
+//! divide a memory budget around the session allowance, and the largest target
+//! a memory budget affords.
 
 use proptest::prelude::*;
 
@@ -17,9 +17,9 @@ const FLOOR: usize = floor_allowance::<<Local as Backend>::Erased, <Local as Bac
 /// The in-memory backend's largest grant.
 const LARGEST: usize = largest_grant::<<Local as Backend>::Erased, <Local as Backend>::Error>();
 
-/// The fixed allowance on the in-memory backend is the "about 7 MiB" the
-/// memory budget's documentation sets aside out of every budget, on the
-/// 64-bit targets the documentation's figures are measured on.
+/// The fixed allowance on the in-memory backend is the "about 7 MiB" the memory
+/// budget's documentation sets aside out of every budget, on the 64-bit targets
+/// the documentation's figures are measured on.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn the_fixed_allowance_is_the_documented_figure() {
@@ -48,9 +48,9 @@ fn budgets(target: usize) -> impl Strategy<Value = usize> {
     ]
 }
 
-/// Allowance parts and memory or ledger budgets from the small values
-/// real allowances take to `usize::MAX`, the saturated session allowance a
-/// `usize` narrower than 64 bits gives at the largest targets included.
+/// Allowance parts and memory or ledger budgets from the small values real
+/// allowances take to `usize::MAX`, the saturated session allowance a `usize`
+/// narrower than 64 bits gives at the largest targets included.
 fn bytes() -> impl Strategy<Value = usize> {
     prop_oneof![
         0usize..1 << 12,

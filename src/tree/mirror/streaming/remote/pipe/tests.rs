@@ -36,8 +36,8 @@ enum Kind {
     Supply,
 }
 
-/// Build one reply frame of `kind` whose content names `tag`, so frames of
-/// one kind stay distinguishable after decoding.
+/// Build one reply frame of `kind` whose content names `tag`, so frames of one
+/// kind stay distinguishable after decoding.
 fn frame(kind: Kind, tag: u64) -> ReplyFrame {
     match kind {
         Kind::Match => ReplyFrame::reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
@@ -60,8 +60,8 @@ fn bare(frame: Frame) -> Outbound {
     }
 }
 
-/// An interior logical stream, where every reaction form is admissible
-/// for either speaker.
+/// An interior logical stream, where every reaction form is admissible for
+/// either speaker.
 fn interior(index: u8) -> Stream {
     Stream::new(index).expect("interior indices name streams")
 }
@@ -162,16 +162,15 @@ enum Size {
     Half,
     /// A supply frame one byte short of the buffer: the largest copied.
     Below,
-    /// A supply frame exactly the buffer's size: the smallest written
-    /// directly.
+    /// A supply frame exactly the buffer's size: the smallest written directly.
     At,
     /// A supply frame one byte over the buffer: written directly.
     Above,
 }
 
 impl Size {
-    /// The encoded length of a supply frame of this size, or `None` for a
-    /// thin frame.
+    /// The encoded length of a supply frame of this size, or `None` for a thin
+    /// frame.
     fn supply_len(self) -> Option<usize> {
         match self {
             Self::Thin => None,
@@ -191,8 +190,8 @@ fn encoded_len(stream: Stream, frame: &ReplyFrame) -> usize {
     bytes.len()
 }
 
-/// A supply frame whose encoding on `stream` is exactly `len` bytes: one
-/// record whose payload is a string of the length that makes it so.
+/// A supply frame whose encoding on `stream` is exactly `len` bytes: one record
+/// whose payload is a string of the length that makes it so.
 ///
 /// Near the buffer's size every head in the frame has a fixed width, so the
 /// encoding grows byte for byte with the string, and one correction from a
@@ -232,8 +231,8 @@ struct SinkState {
     waker: Option<Waker>,
     /// How many bytes had been written at each flush, in order.
     flushes: Vec<usize>,
-    /// Whether each flush, in order, waits once before completing; flushes
-    /// past the end of the script complete at once.
+    /// Whether each flush, in order, waits once before completing; flushes past
+    /// the end of the script complete at once.
     waits: VecDeque<bool>,
     /// Whether the next flush has already waited once.
     waited: bool,
@@ -266,8 +265,8 @@ impl Sink {
         self.0.lock().expect("sink lock").bytes.clone()
     }
 
-    /// The bytes each flush carried: those written since the flush before
-    /// it, in order, omitting flushes that carried nothing.
+    /// The bytes each flush carried: those written since the flush before it,
+    /// in order, omitting flushes that carried nothing.
     fn flushed(&self) -> Vec<usize> {
         let sink = self.0.lock().expect("sink lock");
         let mut previous = 0;
@@ -282,8 +281,8 @@ impl Sink {
     }
 }
 
-/// Take every write whole, waking the waiting task, and complete each
-/// flush once, or after one wait where the script says so.
+/// Take every write whole, waking the waiting task, and complete each flush
+/// once, or after one wait where the script says so.
 impl AsyncWrite for Sink {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -424,21 +423,20 @@ proptest! {
     }
 }
 
-/// A multiplexer fed a thin frame on every pass, at the default write
-/// batch range, first flushes once its batch reaches the segment size,
-/// long before its buffer fills.
+/// A multiplexer fed a thin frame on every pass, at the default write batch
+/// range, first flushes once its batch reaches the segment size, long before
+/// its buffer fills.
 ///
-/// The producer shares one future with the multiplexer and keeps its lane
-/// full, so every poll that follows a yield finds a frame, and no pass
-/// ever brings nothing: only the batch's ceiling can end the batch. A
-/// thin frame fits a segment and nothing has waited yet, so the ceiling
-/// is the segment size. The multiplexer flushes before the frame that
-/// would push the batch past it, so the first flush carries more than the
-/// segment size less one frame, and at most the segment size. That is
-/// more frames than one pass hands it, a lane's worth at most, so the
-/// batch grew across passes, and far fewer bytes than the buffer holds,
-/// as the first assertion checks, so the ceiling, not the buffer, ended
-/// it.
+/// The producer shares one future with the multiplexer and keeps its lane full,
+/// so every poll that follows a yield finds a frame, and no pass ever brings
+/// nothing: only the batch's ceiling can end the batch. A thin frame fits a
+/// segment and nothing has waited yet, so the ceiling is the segment size. The
+/// multiplexer flushes before the frame that would push the batch past it, so
+/// the first flush carries more than the segment size less one frame, and at
+/// most the segment size. That is more frames than one pass hands it, a lane's
+/// worth at most, so the batch grew across passes, and far fewer bytes than the
+/// buffer holds, as the first assertion checks, so the ceiling, not the buffer,
+/// ended it.
 #[test]
 fn a_multiplexer_fed_every_pass_flushes_at_the_segment_size() {
     let stream = interior(1);
@@ -477,8 +475,8 @@ fn a_multiplexer_fed_every_pass_flushes_at_the_segment_size() {
 
 /// One bound of a write batch range: included, excluded, or unbounded.
 ///
-/// Its sizes run from zero through the default range's ends to past the
-/// write buffer's capacity.
+/// Its sizes run from zero through the default range's ends to past the write
+/// buffer's capacity.
 fn batch_bound() -> impl Strategy<Value = Bound<usize>> {
     let size = prop_oneof![
         Just(0usize),
@@ -496,13 +494,12 @@ fn batch_bound() -> impl Strategy<Value = Bound<usize>> {
     ]
 }
 
-/// The ceiling under `batch` of a batch whose first frame is `first`
-/// bytes, when writing out the batch before it did not wait and the
-/// `cuts` batches in a row before it were cut at their ceiling.
+/// The ceiling under `batch` of a batch whose first frame is `first` bytes,
+/// when writing out the batch before it did not wait and the `cuts` batches in
+/// a row before it were cut at their ceiling.
 ///
 /// It is the segment size if the frame fits it and `cuts` is under
-/// [`CUTS_TO_GROW`], and otherwise the largest batch, or `None` for no
-/// ceiling.
+/// [`CUTS_TO_GROW`], and otherwise the largest batch, or `None` for no ceiling.
 fn unwaited_ceiling(batch: WriteBatch, first: usize, cuts: usize) -> Option<usize> {
     if first <= batch.segment() && cuts < CUTS_TO_GROW {
         Some(batch.segment())
@@ -688,8 +685,8 @@ proptest! {
     }
 }
 
-/// A write half that takes every write whole and logs each flush that
-/// delivers bytes, with the pass of the test's clock it completed in.
+/// A write half that takes every write whole and logs each flush that delivers
+/// bytes, with the pass of the test's clock it completed in.
 struct PassSink {
     /// The pass the test's future is in: how many times it has been polled.
     clock: Arc<AtomicUsize>,
@@ -731,15 +728,14 @@ impl AsyncWrite for PassSink {
 /// Drive a multiplexer batching within `batch` while a producer hands it
 /// `frames` thin frames, one every `gap` passes, counting passes on a clock.
 ///
-/// The future polls the clock, then the multiplexer, then the producer, so
-/// each of its polls is one pass, and the multiplexer polls ahead of the
-/// producer within a pass. Once it has handed over its last frame, the
-/// producer waits for every frame's flush before closing its lane, since a
-/// closing lane would end the last batch at once.
+/// The future polls the clock, then the multiplexer, then the producer, so each
+/// of its polls is one pass, and the multiplexer polls ahead of the producer
+/// within a pass. Once it has handed over its last frame, the producer waits
+/// for every frame's flush before closing its lane, since a closing lane would
+/// end the last batch at once.
 ///
-/// Returns a thin frame's length, the pass in which the producer handed
-/// over each frame, and the pass and bytes of each flush that delivered
-/// bytes.
+/// Returns a thin frame's length, the pass in which the producer handed over
+/// each frame, and the pass and bytes of each flush that delivered bytes.
 fn paced(
     batch: WriteBatch,
     frames: usize,
@@ -803,13 +799,12 @@ fn paced(
 }
 
 /// The pass and bytes of each flush a multiplexer batching within `batch`
-/// makes, over a write half that never waits, when it writes frames of
-/// `len` bytes in the passes `written`, and nothing else arrives.
+/// makes, over a write half that never waits, when it writes frames of `len`
+/// bytes in the passes `written`, and nothing else arrives.
 ///
-/// A batch ends idle [`EMPTY_PASSES`] passes after its last write when no
-/// frame is written in those passes, and is cut at its ceiling in the pass
-/// that writes the frame reaching the ceiling, or the frame that would pass
-/// it.
+/// A batch ends idle [`EMPTY_PASSES`] passes after its last write when no frame
+/// is written in those passes, and is cut at its ceiling in the pass that
+/// writes the frame reaching the ceiling, or the frame that would pass it.
 fn modeled_flushes(
     batch: WriteBatch,
     len: usize,
@@ -904,12 +899,12 @@ proptest! {
     }
 }
 
-/// A thin frame that is ready goes ahead of a supply run that is also
-/// ready, even on an earlier lane.
+/// A thin frame that is ready goes ahead of a supply run that is also ready,
+/// even on an earlier lane.
 ///
-/// Both producers place their first frame in their lanes before the
-/// multiplexer first polls, so it chooses between a staged supply run on
-/// the first lane and a staged match on the second.
+/// Both producers place their first frame in their lanes before the multiplexer
+/// first polls, so it chooses between a staged supply run on the first lane and
+/// a staged match on the second.
 #[test]
 fn a_ready_thin_frame_precedes_a_ready_supply_run() {
     let mut multiplexer = Multiplexer::default();
@@ -1044,15 +1039,15 @@ proptest! {
     }
 }
 
-/// The lane the multiplexer should serve among `staged`, the frame kind
-/// each lane has staged, given each class's cursor.
+/// The lane the multiplexer should serve among `staged`, the frame kind each
+/// lane has staged, given each class's cursor.
 ///
-/// That is the first class in service order with a staged frame, and
-/// within it the staged lane cyclically nearest at or after that class's
-/// cursor, which then moves past it.
+/// That is the first class in service order with a staged frame, and within it
+/// the staged lane cyclically nearest at or after that class's cursor, which
+/// then moves past it.
 ///
-/// This restates [`Multiplexer::choose`] as a minimum over cyclic
-/// distances rather than a forward scan.
+/// This restates [`Multiplexer::choose`] as a minimum over cyclic distances
+/// rather than a forward scan.
 fn modeled_choice(
     staged: &[Option<Kind>],
     cursors: &mut [usize; Class::ORDER.len()],
@@ -1124,8 +1119,8 @@ enum Step {
     /// Drop the sender of the lane at this index, modulo the lane count: an
     /// encoder that finishes.
     Close(usize),
-    /// Poll the multiplexer once, as a wake of its task does, whether or
-    /// not anything woke it.
+    /// Poll the multiplexer once, as a wake of its task does, whether or not
+    /// anything woke it.
     Poll,
 }
 
@@ -1143,8 +1138,8 @@ struct ModeledLane {
     staged: Option<(Kind, Frame)>,
 }
 
-/// A multiplexer that polls every lane's channel on every poll: the
-/// reference [`polls_match_the_full_scan`] holds the multiplexer to.
+/// A multiplexer that polls every lane's channel on every poll: the reference
+/// [`polls_match_the_full_scan`] holds the multiplexer to.
 struct FullScan {
     /// Every lane, in creation order.
     lanes: Vec<ModeledLane>,
@@ -1161,11 +1156,11 @@ impl FullScan {
         })
     }
 
-    /// Stage every lane's oldest waiting frame, observe every close, and
-    /// return the frame to write as [`Multiplexer::poll_next`] would.
+    /// Stage every lane's oldest waiting frame, observe every close, and return
+    /// the frame to write as [`Multiplexer::poll_next`] would.
     ///
-    /// That is the lane's index and the frame, `Ready(None)` once every
-    /// lane has ended with nothing staged, and `Pending` otherwise.
+    /// That is the lane's index and the frame, `Ready(None)` once every lane
+    /// has ended with nothing staged, and `Pending` otherwise.
     fn poll(&mut self) -> Poll<Option<(usize, Frame)>> {
         for lane in &mut self.lanes {
             if lane.staged.is_none() && !lane.ended {
@@ -1216,8 +1211,8 @@ fn kind() -> impl Strategy<Value = Kind> {
     prop::sample::select(vec![Kind::Match, Kind::ReplyEnd, Kind::Supply])
 }
 
-/// A step, weighted toward sends and polls so that lanes carry several
-/// frames before they close.
+/// A step, weighted toward sends and polls so that lanes carry several frames
+/// before they close.
 fn step() -> impl Strategy<Value = Step> {
     prop_oneof![
         4 => (0usize..8, kind()).prop_map(|(lane, kind)| Step::Send(lane, kind)),
@@ -1323,27 +1318,27 @@ proptest! {
     }
 }
 
-/// The lanes of [`lane_wakes_from_other_threads_reach_the_multiplexer`]:
-/// twice its runtime's workers, so that producers share workers.
+/// The lanes of [`lane_wakes_from_other_threads_reach_the_multiplexer`]: twice
+/// its runtime's workers, so that producers share workers.
 const CROSS_THREAD_LANES: usize = 2 * CROSS_THREAD_WORKERS;
 
 /// The worker threads of that test's runtime.
 const CROSS_THREAD_WORKERS: usize = 6;
 
-/// The frames each of that test's lanes carries before it ends: fewer than
-/// a lane's channel holds, so no producer ever waits for room, and every
-/// wait on a lane in the test is the multiplexer's.
+/// The frames each of that test's lanes carries before it ends: fewer than a
+/// lane's channel holds, so no producer ever waits for room, and every wait on
+/// a lane in the test is the multiplexer's.
 const CROSS_THREAD_FRAMES: usize = 64;
 const _: () = assert!(CROSS_THREAD_FRAMES < LANE_CAPACITY);
 
-/// A producer of that test yields its worker after every this many frames,
-/// at an offset its lane sets, so that each worker interleaves the sends of
-/// the lanes it runs.
+/// A producer of that test yields its worker after every this many frames, at
+/// an offset its lane sets, so that each worker interleaves the sends of the
+/// lanes it runs.
 const CROSS_THREAD_YIELD_EVERY: usize = 7;
 
-/// The multiplexer runs of that test. The scheduler places each run's
-/// threads anew, so each run samples other interleavings of the lanes'
-/// wakes with the multiplexer's registering and polling.
+/// The multiplexer runs of that test. The scheduler places each run's threads
+/// anew, so each run samples other interleavings of the lanes' wakes with the
+/// multiplexer's registering and polling.
 const CROSS_THREAD_ROUNDS: usize = 200;
 
 /// Lane wakes from producers on other threads reach the multiplexer: every
@@ -1351,27 +1346,25 @@ const CROSS_THREAD_ROUNDS: usize = 200;
 /// end-of-stream frame.
 ///
 /// The multiplexer runs on the test's thread while producers on a
-/// multi-threaded runtime's workers hand frames to many lanes. A lane's
-/// channel wakes the multiplexer through the lane's own waker, which
-/// records the lane in the multiplexer's `Wakes` and wakes its task; here a
-/// producer calls it from another thread while the multiplexer may be
-/// registering its task, collecting the woken lanes, or polling a lane.
+/// multi-threaded runtime's workers hand frames to many lanes. A lane's channel
+/// wakes the multiplexer through the lane's own waker, which records the lane
+/// in the multiplexer's `Wakes` and wakes its task; here a producer calls it
+/// from another thread while the multiplexer may be registering its task,
+/// collecting the woken lanes, or polling a lane.
 ///
-/// The producers hand over their frames far faster than the multiplexer
-/// writes them, so producers started with the multiplexer have usually
-/// queued every frame before it first looks, and it rarely waits on a lane
-/// at all. So the producers start only once the multiplexer's run has
-/// first returned `Pending`, having found every lane empty and registered
-/// its task: every round then completes only through at least one wake
-/// from another thread.
+/// The producers hand over their frames far faster than the multiplexer writes
+/// them, so producers started with the multiplexer have usually queued every
+/// frame before it first looks, and it rarely waits on a lane at all. So the
+/// producers start only once the multiplexer's run has first returned
+/// `Pending`, having found every lane empty and registered its task: every
+/// round then completes only through at least one wake from another thread.
 ///
-/// [`polls_match_the_full_scan`] checks that protocol under every
-/// interleaving on one thread; this test runs it across threads. A lost
-/// wake leaves the multiplexer waiting on a lane that holds frames, so its
-/// run never completes, and nextest's slow-timeout fails the test. The
-/// rounds cycle through the default write batch range and the ranges whose
-/// end is zero and unbounded, which change when the multiplexer flushes
-/// and so when it waits.
+/// [`polls_match_the_full_scan`] checks that protocol under every interleaving
+/// on one thread; this test runs it across threads. A lost wake leaves the
+/// multiplexer waiting on a lane that holds frames, so its run never completes,
+/// and nextest's slow-timeout fails the test. The rounds cycle through the
+/// default write batch range and the ranges whose end is zero and unbounded,
+/// which change when the multiplexer flushes and so when it waits.
 #[test]
 fn lane_wakes_from_other_threads_reach_the_multiplexer() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -1479,9 +1472,9 @@ fn wire(frames: &[(Stream, Frame)], trailer: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// Run a demultiplexer over `bytes` with lanes claimed for `claimed`, until
-/// it fails or every claimed lane's receiver ends. Returns the failure, if
-/// any, each lane's frames, and the bytes the pipe left unconsumed.
+/// Run a demultiplexer over `bytes` with lanes claimed for `claimed`, until it
+/// fails or every claimed lane's receiver ends. Returns the failure, if any,
+/// each lane's frames, and the bytes the pipe left unconsumed.
 #[allow(clippy::type_complexity)]
 fn demultiplex(bytes: &[u8], claimed: &[Stream]) -> (Option<PipeError>, Vec<Vec<Frame>>, Vec<u8>) {
     let mut demultiplexer = Demultiplexer::default();
@@ -1522,9 +1515,9 @@ fn demultiplex(bytes: &[u8], claimed: &[Stream]) -> (Option<PipeError>, Vec<Vec<
     (failure, frames, read.into_inner().to_vec())
 }
 
-/// The demultiplexer routes each frame to its logical stream's decoder,
-/// closes a stream at its end-of-stream frame without delivering it, and
-/// stops at the first item that is not a frame, consuming none of it.
+/// The demultiplexer routes each frame to its logical stream's decoder, closes
+/// a stream at its end-of-stream frame without delivering it, and stops at the
+/// first item that is not a frame, consuming none of it.
 ///
 /// Here the read half's buffer holds the whole two-byte marker, which stays
 /// there for the closing exchange.
@@ -1547,8 +1540,8 @@ fn frames_route_by_stream_and_the_closing_item_stays_unread() {
     assert_eq!(ahead, MARKER);
 }
 
-/// Peeking consumes nothing, so after any number of peeks the closing
-/// exchange reads the whole closing item.
+/// Peeking consumes nothing, so after any number of peeks the closing exchange
+/// reads the whole closing item.
 #[test]
 fn peeking_leaves_the_closing_item_whole() {
     let bytes = [MARKER[0], MARKER[1]];
@@ -1568,8 +1561,8 @@ fn peeking_leaves_the_closing_item_whole() {
     assert_eq!(marker, MARKER);
 }
 
-/// End of stream at a frame boundary, before any closing item, is the
-/// peer's departure.
+/// End of stream at a frame boundary, before any closing item, is the peer's
+/// departure.
 #[test]
 fn end_of_stream_between_frames_is_departure() {
     let bytes = wire(&[(interior(1), Frame::from(frame(Kind::Match, 0)))], &[]);
@@ -1580,8 +1573,8 @@ fn end_of_stream_between_frames_is_departure() {
     );
 }
 
-/// A frame on a logical stream no decoder was created for answers no
-/// question, and fails at that frame.
+/// A frame on a logical stream no decoder was created for answers no question,
+/// and fails at that frame.
 #[test]
 fn a_frame_on_an_unclaimed_stream_is_unasked() {
     let bytes = wire(
@@ -1595,9 +1588,9 @@ fn a_frame_on_an_unclaimed_stream_is_unasked() {
     );
 }
 
-/// An end-of-stream frame on a claimed logical stream that carried no
-/// frame answers no question: a conforming peer ends only a stream it
-/// started, so the lone end fails at that frame.
+/// An end-of-stream frame on a claimed logical stream that carried no frame
+/// answers no question: a conforming peer ends only a stream it started, so the
+/// lone end fails at that frame.
 #[test]
 fn a_lone_end_on_an_unstarted_stream_is_unasked() {
     let bytes = wire(&[(interior(1), Frame::End(End::Stream))], &MARKER);
@@ -1608,8 +1601,8 @@ fn a_lone_end_on_an_unstarted_stream_is_unasked() {
     );
 }
 
-/// A frame after its started logical stream's end answers no question,
-/// and fails at that frame: the frames before the end were delivered.
+/// A frame after its started logical stream's end answers no question, and
+/// fails at that frame: the frames before the end were delivered.
 #[test]
 fn a_frame_after_its_stream_ended_is_unasked() {
     let first = Frame::from(frame(Kind::Match, 0));
@@ -1649,8 +1642,8 @@ fn a_closing_item_before_a_started_stream_ends_is_unfinished() {
     );
 }
 
-/// A lane that never started closes cleanly at the closing item: its
-/// decoder, if it still expected a reply, finds its stream ended.
+/// A lane that never started closes cleanly at the closing item: its decoder,
+/// if it still expected a reply, finds its stream ended.
 #[test]
 fn an_unstarted_stream_closes_at_the_closing_item() {
     let (failure, frames, ahead) = demultiplex(&MARKER, &[interior(1)]);
@@ -1705,14 +1698,13 @@ impl AsyncRead for Trickle {
 enum Use {
     /// Peek at the next byte, polling until the peek resolves.
     Peek,
-    /// Read into a buffer of this many bytes, polling until the read
-    /// resolves.
+    /// Read into a buffer of this many bytes, polling until the read resolves.
     Read(usize),
-    /// Start a peek, poll it once, and drop it unresolved if it found
-    /// nothing ready.
+    /// Start a peek, poll it once, and drop it unresolved if it found nothing
+    /// ready.
     DroppedPeek,
-    /// Start a read of this many bytes, poll it once, and drop it
-    /// unresolved if it found nothing ready.
+    /// Start a read of this many bytes, poll it once, and drop it unresolved if
+    /// it found nothing ready.
     DroppedRead(usize),
 }
 
@@ -1731,8 +1723,8 @@ fn poll_once<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
     future.poll(&mut Context::from_waker(Waker::noop()))
 }
 
-/// Poll `future` until it resolves; a [`Trickle`] transport always has a
-/// piece ready by the second poll.
+/// Poll `future` until it resolves; a [`Trickle`] transport always has a piece
+/// ready by the second poll.
 fn resolve<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     loop {

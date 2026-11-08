@@ -1,25 +1,25 @@
-//! Predicting what a session costs, for progress, scheduling, and sizing
-//! the sentinels.
+//! Predicting what a session costs, for progress, scheduling, and sizing the
+//! sentinels.
 //!
 //! Sessions differ in cost by orders of magnitude, so progress counted in
-//! sessions says little. The run counts progress in predicted seconds
-//! instead: each session contributes its prediction when it finishes, and
-//! the estimated time remaining is the remaining prediction at the rate the
-//! run has been retiring it. A prediction that is off by a constant factor
-//! still yields a sound fraction and estimate.
+//! sessions says little. The run counts progress in predicted seconds instead:
+//! each session contributes its prediction when it finishes, and the estimated
+//! time remaining is the remaining prediction at the rate the run has been
+//! retiring it. A prediction that is off by a constant factor still yields a
+//! sound fraction and estimate.
 //!
 //! A session's prediction has two parts. Its *preparation* starts the two
-//! processes and joins their link, builds the pair, and moves side B's
-//! replica ([`CostModel::prepare_seconds`]); its *timed session* is the
-//! gossip the row measures ([`CostModel::session_seconds`]). A run
-//! prepares many sessions at once and times them apart from any
-//! preparation ([`crate::schedule`]), so the run's wall time is not the
-//! sum of its sessions' predictions: [`crate::schedule::simulate`] plays
-//! the run's schedule through with these predictions to estimate it.
+//! processes and joins their link, builds the pair, and moves side B's replica
+//! ([`CostModel::prepare_seconds`]); its *timed session* is the gossip the row
+//! measures ([`CostModel::session_seconds`]). A run prepares many sessions at
+//! once and times them apart from any preparation ([`crate::schedule`]), so the
+//! run's wall time is not the sum of its sessions' predictions:
+//! [`crate::schedule::simulate`] plays the run's schedule through with these
+//! predictions to estimate it.
 //!
 //! Calibration measures the rates on the host ([`CostModel::fit`] and
-//! [`MemoryModel::fit`]); before it has, the defaults below stand in, and
-//! the tool predicts no wall time from them.
+//! [`MemoryModel::fit`]); before it has, the defaults below stand in, and the
+//! tool predicts no wall time from them.
 
 use serde::{Deserialize, Serialize};
 
@@ -35,22 +35,22 @@ const INITIAL_WINDOW_SEGMENTS: f64 = 10.0;
 /// Per-message rates of the work a session's processes do on this host.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CostModel {
-    /// Seconds side A spends per message it builds into the pair, while as
-    /// many preparations run at once as the run allows.
-    pub build_seconds_per_message: f64,
-    /// Seconds side B spends per message it joins, while as many
+    /// Seconds side A spends per message it builds into the pair, while as many
     /// preparations run at once as the run allows.
+    pub build_seconds_per_message: f64,
+    /// Seconds side B spends per message it joins, while as many preparations
+    /// run at once as the run allows.
     pub fetch_seconds_per_message: f64,
     /// Seconds the session spends per message held by one side only.
     pub session_seconds_per_message: f64,
-    /// Seconds a preparation spends beyond its messages: starting two
-    /// processes and setting up their link.
+    /// Seconds a preparation spends beyond its messages: starting two processes
+    /// and setting up their link.
     pub overhead_seconds: f64,
 }
 
 impl Default for CostModel {
-    /// Rates of the order measured on a current laptop processor, for use
-    /// until calibration measures this host's.
+    /// Rates of the order measured on a current laptop processor, for use until
+    /// calibration measures this host's.
     fn default() -> Self {
         Self {
             build_seconds_per_message: 6e-6,
@@ -61,9 +61,9 @@ impl Default for CostModel {
     }
 }
 
-/// The messages side A sends while building `point`'s pair: the offset,
-/// the common messages, the insertions on both sides, and the common
-/// messages again as B joins.
+/// The messages side A sends while building `point`'s pair: the offset, the
+/// common messages, the insertions on both sides, and the common messages again
+/// as B joins.
 fn build_messages(point: &Point) -> f64 {
     let r = &point.replicas;
     (OFFSET_RANGE.end + 2 * r.common() + r.insert_a + r.insert_b) as f64
@@ -96,18 +96,17 @@ impl CostModel {
         seconds
     }
 
-    /// The predicted wall seconds a timed session on a warm connection
-    /// spends before its clock starts.
+    /// The predicted wall seconds a timed session on a warm connection spends
+    /// before its clock starts.
     ///
-    /// That is connecting, the TLS handshake if it runs over TLS, and
-    /// carrying `warm_bytes` each way, one direction after the other,
-    /// through a window of at most `window` bytes. It is zero on a fresh
-    /// connection, whose session time already includes its setup, and
-    /// between hosts.
+    /// That is connecting, the TLS handshake if it runs over TLS, and carrying
+    /// `warm_bytes` each way, one direction after the other, through a window
+    /// of at most `window` bytes. It is zero on a fresh connection, whose
+    /// session time already includes its setup, and between hosts.
     ///
-    /// Each direction takes the slow-start round trips that open the
-    /// window to what one round trip carries, then its bytes at the rate a
-    /// window that size sustains, or the link's rate if that is lower.
+    /// Each direction takes the slow-start round trips that open the window to
+    /// what one round trip carries, then its bytes at the rate a window that
+    /// size sustains, or the link's rate if that is lower.
     pub fn warm_seconds(&self, point: &Point, warm_bytes: u64, window: u64) -> f64 {
         let Link::Emulated { rate, rtt } = point.link else {
             return 0.0;
@@ -143,17 +142,17 @@ impl CostModel {
         self.prepare_seconds(point) + self.session_seconds(point)
     }
 
-    /// Rates fitted to calibration's measurements of the compute-bound
-    /// `point` and of an empty pair.
+    /// Rates fitted to calibration's measurements of the compute-bound `point`
+    /// and of an empty pair.
     ///
-    /// `build_seconds` and `fetch_seconds` come from preparations of
-    /// `point` run as many at once as the run allows, `session_seconds`
-    /// from its session on an uncapped link with a short round trip, and
-    /// `empty_seconds` from the preparation of an empty pair alone.
+    /// `build_seconds` and `fetch_seconds` come from preparations of `point`
+    /// run as many at once as the run allows, `session_seconds` from its
+    /// session on an uncapped link with a short round trip, and `empty_seconds`
+    /// from the preparation of an empty pair alone.
     ///
-    /// The overhead is the empty pair's preparation less the offset it
-    /// builds at the fitted rate. Any rate the measurements cannot
-    /// determine keeps its default.
+    /// The overhead is the empty pair's preparation less the offset it builds
+    /// at the fitted rate. Any rate the measurements cannot determine keeps its
+    /// default.
     pub fn fit(
         point: &Point,
         build_seconds: f64,
@@ -197,22 +196,22 @@ impl CostModel {
     }
 }
 
-/// The messages a prepared session's two processes hold at their peak:
-/// side A holds both replicas while it builds them, and side B its own
-/// once it has joined.
+/// The messages a prepared session's two processes hold at their peak: side A
+/// holds both replicas while it builds them, and side B its own once it has
+/// joined.
 fn held_messages(point: &Point) -> f64 {
     build_messages(point) + point.replicas.live_b() as f64
 }
 
-/// How many bytes of memory a session's two processes hold at most while
-/// it is prepared and while it waits for its timed session: the quantity
-/// the run bounds when it schedules preparation ([`crate::schedule`]).
+/// How many bytes of memory a session's two processes hold at most while it is
+/// prepared and while it waits for its timed session: the quantity the run
+/// bounds when it schedules preparation ([`crate::schedule`]).
 ///
-/// The model is a line in the messages the processes hold
-/// ([`held_messages`]): a fixed part for two processes and their runtimes,
-/// and a part per message, which is a fixed overhead beyond the message's
-/// payload plus the payload itself, so points whose messages are larger
-/// than calibration's cost proportionally more.
+/// The model is a line in the messages the processes hold ([`held_messages`]):
+/// a fixed part for two processes and their runtimes, and a part per message,
+/// which is a fixed overhead beyond the message's payload plus the payload
+/// itself, so points whose messages are larger than calibration's cost
+/// proportionally more.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemoryModel {
     /// Bytes two processes hold whatever their pair.
@@ -222,12 +221,11 @@ pub struct MemoryModel {
 }
 
 impl Default for MemoryModel {
-    /// A model above resident memory measured on Linux x86-64, for use
-    /// until calibration measures this host's.
+    /// A model above resident memory measured on Linux x86-64, for use until
+    /// calibration measures this host's.
     ///
-    /// Sessions of 10,000 and 1,000,000 messages a side at 100-byte
-    /// messages measured about 18 MiB, and 790 bytes a message beyond its
-    /// payload.
+    /// Sessions of 10,000 and 1,000,000 messages a side at 100-byte messages
+    /// measured about 18 MiB, and 790 bytes a message beyond its payload.
     fn default() -> Self {
         Self {
             fixed_bytes: (32u64 << 20) as f64,
@@ -244,11 +242,11 @@ impl MemoryModel {
     }
 
     /// The line through two measured preparations: `empty`, a pair with no
-    /// messages beyond the offset, and `point`, a large one, each with the
-    /// peak resident bytes its two processes reached.
+    /// messages beyond the offset, and `point`, a large one, each with the peak
+    /// resident bytes its two processes reached.
     ///
-    /// Both parts are clamped to be at least zero, and measurements that
-    /// cannot determine the slope keep the defaults.
+    /// Both parts are clamped to be at least zero, and measurements that cannot
+    /// determine the slope keep the defaults.
     pub fn fit(empty: (&Point, u64), point: (&Point, u64)) -> Self {
         let (empty_point, empty_bytes) = (empty.0, empty.1 as f64);
         let (point, bytes) = (point.0, point.1 as f64);

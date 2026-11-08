@@ -1,8 +1,8 @@
 use super::*;
 
-/// `base` with the identity part named `part` changed and every other part
-/// as it was: the build by its executable's digest alone, as a change to
-/// the library alone makes.
+/// `base` with the identity part named `part` changed and every other part as
+/// it was: the build by its executable's digest alone, as a change to the
+/// library alone makes.
 pub(crate) fn changed(base: &Environment, part: &str) -> Environment {
     let mut other = base.clone();
     match part {
@@ -24,12 +24,12 @@ pub(crate) fn changed(base: &Environment, part: &str) -> Environment {
     other
 }
 
-/// The executable digest is the SHA-256 of the file this process runs,
-/// in lower-case hexadecimal, and the same on every call.
+/// The executable digest is the SHA-256 of the file this process runs, in
+/// lower-case hexadecimal, and the same on every call.
 ///
-/// The reference reads the whole file by its path in one piece, apart from
-/// the platform's name for the running image and the chunked reads the
-/// digest takes, so the two agree only if both hash the same bytes.
+/// The reference reads the whole file by its path in one piece, apart from the
+/// platform's name for the running image and the chunked reads the digest
+/// takes, so the two agree only if both hash the same bytes.
 #[test]
 fn executable_digest_hashes_the_running_executable() {
     let bytes = fs::read(std::env::current_exe().unwrap()).unwrap();
@@ -45,16 +45,16 @@ fn executable_digest_hashes_the_running_executable() {
     assert_eq!(executable_digest().unwrap(), digest);
 }
 
-/// An environment changed in one part of its identity alone differs from
-/// the original in exactly that part, and has another fingerprint.
+/// An environment changed in one part of its identity alone differs from the
+/// original in exactly that part, and has another fingerprint.
 ///
-/// [`Environment::differences`] names the part with both values, so
-/// neither a resumed run nor the calibration cache accepts the changed
-/// environment, and [`Environment::differences_beyond_host`] names it too
-/// for every part but the host's name, the one part shards may differ in.
-/// An unchanged copy has no difference and the same fingerprint. Every
-/// part is tried, the build by its executable's digest alone; the load,
-/// which is no part of the identity, changes nothing.
+/// [`Environment::differences`] names the part with both values, so neither a
+/// resumed run nor the calibration cache accepts the changed environment, and
+/// [`Environment::differences_beyond_host`] names it too for every part but the
+/// host's name, the one part shards may differ in. An unchanged copy has no
+/// difference and the same fingerprint. Every part is tried, the build by its
+/// executable's digest alone; the load, which is no part of the identity,
+/// changes nothing.
 #[test]
 fn each_identity_part_alone_tells_environments_apart() {
     let base = Environment::capture().unwrap();
@@ -87,13 +87,12 @@ fn each_identity_part_alone_tells_environments_apart() {
     assert_eq!(base.fingerprint(), reloaded.fingerprint());
 }
 
-/// The fields of a recorded environment that are no part of its identity,
-/// by their paths in `environment.json`, each for its reason.
+/// The fields of a recorded environment that are no part of its identity, by
+/// their paths in `environment.json`, each for its reason.
 ///
 /// - `load_average` changes from run to run on any host.
-/// - The TCP limits' buffers, payload share, and usable window are
-///   computed from the platform's settings, which the identity names
-///   whole.
+/// - The TCP limits' buffers, payload share, and usable window are computed
+///   from the platform's settings, which the identity names whole.
 const OUTSIDE_IDENTITY: [&str; 5] = [
     "load_average",
     "tcp/max_receive_buffer",
@@ -133,8 +132,8 @@ fn populated() -> Environment {
     }
 }
 
-/// The path of every leaf of `value`, `/`-separated: object keys by name,
-/// array elements by index.
+/// The path of every leaf of `value`, `/`-separated: object keys by name, array
+/// elements by index.
 fn leaves(value: &serde_json::Value, prefix: &str, out: &mut Vec<String>) {
     let join = |key: &str| {
         if prefix.is_empty() {
@@ -182,12 +181,12 @@ fn change_leaf(value: &mut serde_json::Value, path: &str) {
 /// Every field an environment records is part of its identity, but those
 /// [`OUTSIDE_IDENTITY`] names.
 ///
-/// Changing any other one field changes [`Environment::differences`] and
-/// the fingerprint, so neither a resumed run, nor the calibration cache,
-/// nor `check` across shards accepts environments that differ in it.
-/// Every leaf of the recorded JSON is changed alone, so a field the record
-/// gains is judged without this test naming it. Changing a field
-/// [`OUTSIDE_IDENTITY`] names changes neither, so the list stays exact.
+/// Changing any other one field changes [`Environment::differences`] and the
+/// fingerprint, so neither a resumed run, nor the calibration cache, nor
+/// `check` across shards accepts environments that differ in it. Every leaf of
+/// the recorded JSON is changed alone, so a field the record gains is judged
+/// without this test naming it. Changing a field [`OUTSIDE_IDENTITY`] names
+/// changes neither, so the list stays exact.
 #[test]
 fn every_recorded_field_but_the_named_ones_is_identity() {
     let base = populated();

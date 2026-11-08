@@ -1,19 +1,18 @@
 //! Grids: which points a run measures, and how often.
 //!
-//! A grid is a list of *groups*, and each group is the Cartesian product
-//! of its *axes*: every combination of one value from each axis is a
-//! point. Any setting can be an axis, the replica counts, message sizes,
-//! `Peer` settings, and the link alike; [`AXES`] lists them. An axis left
-//! out of a group takes its value from the file's `[defaults]` table, or
-//! else the tool's default.
+//! A grid is a list of *groups*, and each group is the Cartesian product of its
+//! *axes*: every combination of one value from each axis is a point. Any
+//! setting can be an axis, the replica counts, message sizes, `Peer` settings,
+//! and the link alike; [`AXES`] lists them. An axis left out of a group takes
+//! its value from the file's `[defaults]` table, or else the tool's default.
 //!
-//! Some settings move together, such as the counts that describe "a
-//! million messages, 90% shared". A group's `pairs` array holds such
-//! combinations: each entry is a table of settings applied together, and
-//! the array is one axis of the product. An entry describes its replica
-//! pair whole: any of the five counts it leaves out is zero, so
-//! `{ shared = 0, insert_a = 20000 }` is a peer joining from empty, not
-//! one that also inherits the default insertions on side B.
+//! Some settings move together, such as the counts that describe "a million
+//! messages, 90% shared". A group's `pairs` array holds such combinations: each
+//! entry is a table of settings applied together, and the array is one axis of
+//! the product. An entry describes its replica pair whole: any of the five
+//! counts it leaves out is zero, so `{ shared = 0, insert_a = 20000 }` is a
+//! peer joining from empty, not one that also inherits the default insertions
+//! on side B.
 //!
 //! The command line describes one group, with each axis flag taking a
 //! comma-separated list (`--rtt 1ms,10ms,100ms`).
@@ -140,8 +139,8 @@ fn optional_bytes(text: &str) -> Result<Option<u64>> {
     }
 }
 
-/// Parses a requested budget: `default` for the library's default,
-/// `unlimited` for [`UNLIMITED_BUDGET`], or a byte count.
+/// Parses a requested budget: `default` for the library's default, `unlimited`
+/// for [`UNLIMITED_BUDGET`], or a byte count.
 fn budget(text: &str) -> Result<Option<u64>> {
     if text.trim().eq_ignore_ascii_case("unlimited") {
         Ok(Some(UNLIMITED_BUDGET))
@@ -246,8 +245,8 @@ pub struct Group {
     pub axes: Vec<Axis>,
     /// Combinations of settings applied together, as one more axis.
     pub pairs: Vec<Vec<(String, String)>>,
-    /// Points whose busier direction the model predicts to take longer
-    /// than this many seconds on the wire alone are left out.
+    /// Points whose busier direction the model predicts to take longer than
+    /// this many seconds on the wire alone are left out.
     pub max_wire_seconds: Option<f64>,
 }
 
@@ -290,8 +289,8 @@ impl Grid {
     ///
     /// # Errors
     ///
-    /// If the text is not TOML, a key is not an axis, or a value does not
-    /// parse for its axis; the error names the place.
+    /// If the text is not TOML, a key is not an axis, or a value does not parse
+    /// for its axis; the error names the place.
     pub fn parse(text: &str) -> Result<Self> {
         let table: toml::Table = text.parse().context("the grid file is not valid TOML")?;
         let mut grid = Grid::default();
@@ -327,8 +326,8 @@ impl Grid {
         Ok(grid)
     }
 
-    /// Every point of every group, each with its group's name, in grid
-    /// order, less the points [`plan`](Self::plan) skips.
+    /// Every point of every group, each with its group's name, in grid order,
+    /// less the points [`plan`](Self::plan) skips.
     ///
     /// # Errors
     ///
@@ -337,17 +336,17 @@ impl Grid {
         Ok(self.plan()?.0)
     }
 
-    /// Every point of every group, each with its group's name, in grid
-    /// order, and apart from them the points their group's
-    /// `max_wire_seconds` skips, each with its reason.
+    /// Every point of every group, each with its group's name, in grid order,
+    /// and apart from them the points their group's `max_wire_seconds` skips,
+    /// each with its reason.
     ///
     /// Together the two lists hold every combination of every group's axes
     /// exactly once.
     ///
     /// # Errors
     ///
-    /// If a value does not parse for its axis, or a point's message sizes
-    /// are impossible.
+    /// If a value does not parse for its axis, or a point's message sizes are
+    /// impossible.
     #[allow(clippy::type_complexity)]
     pub fn plan(&self) -> Result<(Vec<(String, Point)>, Vec<Skip>)> {
         let mut base = Draft::default();
@@ -468,7 +467,8 @@ impl Group {
 }
 
 /// The seconds the model predicts the busier direction spends on the wire
-/// alone: its bytes over its rate, or zero on an uncapped link or between two hosts.
+/// alone: its bytes over its rate, or zero on an uncapped link or between two
+/// hosts.
 pub fn predicted_wire_seconds(point: &Point) -> f64 {
     let Link::Emulated { rate, .. } = point.link else {
         return 0.0;
@@ -515,20 +515,20 @@ pub struct Session {
     pub repetition: u32,
 }
 
-/// The largest TCP buffer limit a rerun raises to: 1 GiB. Linux caps one
-/// socket buffer at `INT_MAX`, and a window of half this size covers a
-/// 16 Gbit/s link at 250 ms.
+/// The largest TCP buffer limit a rerun raises to: 1 GiB. Linux caps one socket
+/// buffer at `INT_MAX`, and a window of half this size covers a 16 Gbit/s link
+/// at 250 ms.
 pub const MAX_RAISED_BUFFER: u64 = 1 << 30;
 
-/// The buffer limit a rerun of `point` needs, if `usable_window` cannot
-/// hold what the session could keep in flight.
+/// The buffer limit a rerun of `point` needs, if `usable_window` cannot hold
+/// what the session could keep in flight.
 ///
-/// A connection can keep at most one window in flight per round trip, and
-/// a session has no more to send than its busier direction's bytes, so the
-/// window binds exactly when it is smaller than both the link's
-/// bandwidth-delay product and those bytes. The raised limit holds twice
-/// the larger of the two over the payload share, rounded up to a power of
-/// two, so the window that limit allows covers it with room to spare.
+/// A connection can keep at most one window in flight per round trip, and a
+/// session has no more to send than its busier direction's bytes, so the window
+/// binds exactly when it is smaller than both the link's bandwidth-delay
+/// product and those bytes. The raised limit holds twice the larger of the two
+/// over the payload share, rounded up to a power of two, so the window that
+/// limit allows covers it with room to spare.
 pub fn raised_buffer(point: &Point, usable_window: u64, payload_share: f64) -> Option<u64> {
     let Link::Emulated { rate, rtt } = point.link else {
         return None;
@@ -546,8 +546,7 @@ pub fn raised_buffer(point: &Point, usable_window: u64, payload_share: f64) -> O
 }
 
 /// The sessions of a grid: every point `repetitions` times, and every point
-/// that needs raised TCP buffers once more at the raised limit, as many
-/// times.
+/// that needs raised TCP buffers once more at the raised limit, as many times.
 pub fn sessions(
     points: &[(String, Point)],
     repetitions: u32,

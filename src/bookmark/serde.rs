@@ -45,7 +45,8 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Complete<T> {
                 f.write_str("a tuple with exactly its expected fields")
             }
 
-            /// Decode fields and consume the end of a definite or indefinite array.
+            /// Decode fields and consume the end of a definite or indefinite
+            /// array.
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
                 let value = T::deserialize(SeqAccessDeserializer::new(&mut seq))?;
                 // Ciborium leaves tuple-end checking to the visitor. Without

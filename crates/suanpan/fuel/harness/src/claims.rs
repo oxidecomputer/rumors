@@ -1,32 +1,32 @@
-//! Measures fixed programs for `suanpan`'s focused cost claims, and states
-//! each claim as a relation between fuel readings.
+//! Measures fixed programs for `suanpan`'s focused cost claims, and states each
+//! claim as a relation between fuel readings.
 //!
-//! The interleaving property draws its sequences at random and judges how
-//! fuel grows with scale. Some claims name one sequence and a parameter
-//! instead: that a negation costs the same at any width, that a scaled read
-//! skips a prefix the unscaled read walks, that a sign flip across a gap
-//! has no rounds-by-width product. The suite in `tests/claims.rs` states
-//! each as a deterministic program, built by hand from public operations,
-//! and [`measure`] runs it: an unmeasured setup, the measured steps, and a
-//! signed read of every member, with every step's answer checked against
-//! the exact [`Model`]. No fuel number is committed anywhere, so a toolchain
-//! or Wasmtime change cannot move a claim's verdict unless it changes how
-//! the measured operations compare.
+//! The interleaving property draws its sequences at random and judges how fuel
+//! grows with scale. Some claims name one sequence and a parameter instead:
+//! that a negation costs the same at any width, that a scaled read skips a
+//! prefix the unscaled read walks, that a sign flip across a gap has no
+//! rounds-by-width product. The suite in `tests/claims.rs` states each as a
+//! deterministic program, built by hand from public operations, and [`measure`]
+//! runs it: an unmeasured setup, the measured steps, and a signed read of every
+//! member, with every step's answer checked against the exact [`Model`]. No
+//! fuel number is committed anywhere, so a toolchain or Wasmtime change cannot
+//! move a claim's verdict unless it changes how the measured operations
+//! compare.
 //!
 //! # Forms
 //!
-//! Every claim takes one of these forms, which its test's doc comment names
-//! by the label in parentheses:
+//! Every claim takes one of these forms, which its test's doc comment names by
+//! the label in parentheses:
 //!
 //! - *Equal fuel* (F-eq): the readings are identical at every value of a
 //!   parameter the operation's cost must not depend on ([`assert_equal`]).
 //! - *Strict saving* (F-lt): one reading is strictly less than another
-//!   ([`assert_less`]), and where the claim is that the saved work scales
-//!   with a parameter, the saving grows with it ([`assert_saving_grows`]).
-//! - *Flat per unit* (F-lin): fuel per unit of work at a larger size is at
-//!   most 1.25 times fuel per unit at the smaller size ([`assert_flat`]).
-//! - *No product term* (F-mix): over a two-by-two grid of two parameters,
-//!   the mixed second difference, which is zero for any cost additive in the
+//!   ([`assert_less`]), and where the claim is that the saved work scales with
+//!   a parameter, the saving grows with it ([`assert_saving_grows`]).
+//! - *Flat per unit* (F-lin): fuel per unit of work at a larger size is at most
+//!   1.25 times fuel per unit at the smaller size ([`assert_flat`]).
+//! - *No product term* (F-mix): over a two-by-two grid of two parameters, the
+//!   mixed second difference, which is zero for any cost additive in the
 //!   parameters, stays below half the smallest product term the claim rules
 //!   out, derived from the mechanism and stated beside the test
 //!   ([`assert_mixed_below`]).
@@ -51,8 +51,8 @@ const FLAT_NUM: u128 = 5;
 /// The flat-per-unit bound's denominator; see [`FLAT_NUM`].
 const FLAT_DEN: u128 = 4;
 
-/// The unit, in bits, the checking model measures events against; it
-/// detects none, so the unit changes nothing.
+/// The unit, in bits, the checking model measures events against; it detects
+/// none, so the unit changes nothing.
 const MODEL_UNIT_BITS: u64 = 64;
 
 /// The measured steps of one program run.
@@ -75,9 +75,9 @@ impl Measured {
 /// the readings of the measured steps.
 ///
 /// A signed read of every member follows the measured steps, and the exact
-/// model replays the whole program, so every answer the guest observes,
-/// those final reads included, is checked against the model's values: each
-/// read's sign, bit length, and lowest limb.
+/// model replays the whole program, so every answer the guest observes, those
+/// final reads included, is checked against the model's values: each read's
+/// sign, bit length, and lowest limb.
 ///
 /// # Panics
 ///
@@ -121,8 +121,8 @@ pub fn measure(setup: &[Step], measured: &[Step]) -> Measured {
     }
 }
 
-/// Asserts the *equal fuel* form: every reading in `rows`, each labeled by
-/// the parameter it was taken at, is identical, and returns that reading.
+/// Asserts the *equal fuel* form: every reading in `rows`, each labeled by the
+/// parameter it was taken at, is identical, and returns that reading.
 ///
 /// # Panics
 ///
@@ -137,8 +137,8 @@ pub fn assert_equal<P: Debug, R: Debug + PartialEq + Clone>(name: &str, rows: &[
     rows.first().expect("a claim compares readings").1.clone()
 }
 
-/// Asserts the *strict saving* form: `smaller` is strictly less than
-/// `larger`, with `name` describing the comparison.
+/// Asserts the *strict saving* form: `smaller` is strictly less than `larger`,
+/// with `name` describing the comparison.
 ///
 /// # Panics
 ///
@@ -154,9 +154,9 @@ pub fn assert_less(name: &str, smaller: u64, larger: u64) {
     );
 }
 
-/// Asserts the *strict saving* form across a parameter: in every row the
-/// first reading is strictly less than the second, and the saving, the
-/// second minus the first, grows strictly from each row to the next.
+/// Asserts the *strict saving* form across a parameter: in every row the first
+/// reading is strictly less than the second, and the saving, the second minus
+/// the first, grows strictly from each row to the next.
 ///
 /// Each row is `(parameter, smaller, larger)`, in increasing parameter. A
 /// growing saving shows that the work saved scales with the parameter rather
@@ -203,14 +203,14 @@ pub fn assert_flat(name: &str, small: (u64, u64), large: (u64, u64)) {
     );
 }
 
-/// Asserts the *no product term* form over `grid`, the readings at
-/// `(x, y)`, `(x', y)`, `(x, y')`, and `(x', y')` in that order: the mixed
-/// second difference is below `bound`.
+/// Asserts the *no product term* form over `grid`, the readings at `(x, y)`,
+/// `(x', y)`, `(x, y')`, and `(x', y')` in that order: the mixed second
+/// difference is below `bound`.
 ///
 /// A cost `p·x + q·y + r` has a mixed second difference of zero, and a cost
-/// `s·x·y` one of `s·(x' − x)·(y' − y)`. The claim derives `bound` as half
-/// the smallest such term it rules out, which leaves room for amortized costs
-/// that wobble between cells by less than that half.
+/// `s·x·y` one of `s·(x' − x)·(y' − y)`. The claim derives `bound` as half the
+/// smallest such term it rules out, which leaves room for amortized costs that
+/// wobble between cells by less than that half.
 ///
 /// # Panics
 ///

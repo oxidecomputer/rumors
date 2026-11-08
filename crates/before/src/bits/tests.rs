@@ -102,8 +102,8 @@ fn gamma_roundtrip_just_above_u64_max() {
     assert_eq!(pos, bits.len());
 }
 
-/// Gamma decoding never panics and reports `Truncated` when the code runs off the
-/// end (empty input, or all-zeros with no terminating `1`).
+/// Gamma decoding never panics and reports `Truncated` when the code runs off
+/// the end (empty input, or all-zeros with no terminating `1`).
 #[test]
 fn gamma_truncated() {
     let empty = BitsWriter::new();
@@ -151,7 +151,8 @@ fn marker_validation_agrees_with_storage_canonicality() {
     }
 }
 
-/// Freezing a truncated buffer preserves live bits and writes canonical padding.
+/// Freezing a truncated buffer preserves live bits and writes canonical
+/// padding.
 #[test]
 fn freeze_canonicalizes_storage() {
     // Write a byte of ones, then truncate to 3 live bits: the shed ones
@@ -168,9 +169,9 @@ fn freeze_canonicalizes_storage() {
     assert_eq!(frozen.reader().read_word(3).unwrap(), 0b111);
 }
 
-/// The marker padding makes stored bytes injective on streams: a stream
-/// and its zero-extension, bit-identical up to length, freeze to
-/// distinct raw slices, so the byte compare alone decides equality.
+/// The marker padding makes stored bytes injective on streams: a stream and its
+/// zero-extension, bit-identical up to length, freeze to distinct raw slices,
+/// so the byte compare alone decides equality.
 #[test]
 fn marker_padding_separates_length_collisions() {
     let a = bits_writer![0, 1].finalize();
@@ -180,9 +181,9 @@ fn marker_padding_separates_length_collisions() {
     assert!(a != b);
 }
 
-/// A stream whose live bits fill its final byte exactly still owes a
-/// marker: the padding becomes a whole trailing `1000_0000` byte, and
-/// the live length reads back through it.
+/// A stream whose live bits fill its final byte exactly still owes a marker:
+/// the padding becomes a whole trailing `1000_0000` byte, and the live length
+/// reads back through it.
 #[test]
 fn flush_stream_carries_a_whole_marker_byte() {
     let frozen = bits_writer![1; 8].finalize();
@@ -215,7 +216,8 @@ fn ptr_eq_implies_equality_and_clones_share_nonempty_storage() {
     assert!(e1 == e2);
 }
 
-/// Freezing built bits and adopting their canonical bytes produce equal streams.
+/// Freezing built bits and adopting their canonical bytes produce equal
+/// streams.
 #[test]
 fn from_canonical_vec_matches_freeze() {
     let frozen = bits_writer![1, 0, 1].finalize();
@@ -268,8 +270,8 @@ fn arb_build_op() -> impl Strategy<Value = BuildOp> {
     ]
 }
 
-/// Apply one history step to the buffer under test and the `Vec<bool>` model
-/// in lockstep.
+/// Apply one history step to the buffer under test and the `Vec<bool>` model in
+/// lockstep.
 fn apply_build_op(buf: &mut BitsWriter, model: &mut Vec<bool>, op: &BuildOp) {
     match op {
         BuildOp::Push(bit) => {
@@ -305,14 +307,13 @@ fn apply_build_op(buf: &mut BitsWriter, model: &mut Vec<bool>, op: &BuildOp) {
     }
 }
 
-/// A clean rebuild of `content`: single-bit pushes only, no truncation,
-/// the reference spelling of the surviving content.
+/// A clean rebuild of `content`: single-bit pushes only, no truncation, the
+/// reference spelling of the surviving content.
 fn clean_rebuild(content: &[bool]) -> BitsWriter {
     content.iter().copied().collect()
 }
 
-/// The standard `Hash` image of a frozen stream, for the eq/hash agreement
-/// leg.
+/// The standard `Hash` image of a frozen stream, for the eq/hash agreement leg.
 fn hash_of(bits: &super::Bits) -> u64 {
     use core::hash::{Hash, Hasher};
     let mut hasher = std::hash::DefaultHasher::new();
@@ -645,9 +646,9 @@ fn gamma_window_edge() {
     );
 }
 
-/// The window decoder never guesses at unprovable input: a position at or
-/// past the stream end and an all-zeros (truncated) stream both decline to
-/// the bit loop.
+/// The window decoder never guesses at unprovable input: a position at or past
+/// the stream end and an all-zeros (truncated) stream both decline to the bit
+/// loop.
 #[test]
 fn gamma_window_declines_conservatively() {
     let mut bits = BitsWriter::new();
@@ -679,8 +680,8 @@ fn gamma_window_declines_conservatively() {
     );
 }
 
-/// The smallest value whose gamma code is 59 bits long, the shortest code
-/// that can end in a window's ninth loaded byte at an unaligned start.
+/// The smallest value whose gamma code is 59 bits long, the shortest code that
+/// can end in a window's ninth loaded byte at an unaligned start.
 const SHORTEST_NINTH_BYTE_CODE_VALUE: u64 = (1 << 29) - 1;
 
 /// The largest value whose gamma code fits one window: its code is 63 bits.
@@ -902,15 +903,15 @@ fn reject_deep_nested_denormal_id() {
     ));
 }
 
-/// Padding rejection is bit-granular, not byte-granular: a complete tree
-/// that ends mid-byte must be followed by *exactly* the marker and zeros
-/// within that final byte.
+/// Padding rejection is bit-granular, not byte-granular: a complete tree that
+/// ends mid-byte must be followed by *exactly* the marker and zeros within that
+/// final byte.
 ///
-/// A perturbed bit inside the same byte as the tree (a cleared marker or
-/// a set bit after it) is `TrailingBits`, just as a whole spurious
-/// trailing byte is. The id leaf `1` encodes to the two-bit terminal tag
-/// (`0, 0`), marker-padded as `0010_0000`; perturbing any padding bit
-/// within that byte must be rejected.
+/// A perturbed bit inside the same byte as the tree (a cleared marker or a set
+/// bit after it) is `TrailingBits`, just as a whole spurious trailing byte is.
+/// The id leaf `1` encodes to the two-bit terminal tag (`0, 0`), marker-padded
+/// as `0010_0000`; perturbing any padding bit within that byte must be
+/// rejected.
 #[test]
 fn reject_intra_byte_padding() {
     // `Leaf(true)` = the terminal tag bits [0, 0], then the marker at
@@ -1207,7 +1208,8 @@ proptest! {
 /// one way of breaking that: a spurious whole zero byte after the padding and a
 /// zeroed marker byte are [`Decode::TrailingBits`] (the padding is present but
 /// malformed, or input runs beyond it), and a flush stream cut before its whole
-/// marker byte is [`Decode::Truncated`] (the padding is missing, not malformed).
+/// marker byte is [`Decode::Truncated`] (the padding is missing, not
+/// malformed).
 #[test]
 fn malformed_padding_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)`: the 9-bit stream
@@ -1328,9 +1330,9 @@ proptest! {
 /// A stream missing its full padding byte reports [`Decode::Truncated`].
 ///
 /// A uniform version at height 7 encodes to eight live bits (leaf flag `1`,
-/// gamma(7) `0001000`) plus a whole `1000_0000` padding byte, so its first
-/// byte alone is a complete tree whose required padding byte is absent
-/// entirely: missing required data.
+/// gamma(7) `0001000`) plus a whole `1000_0000` padding byte, so its first byte
+/// alone is a complete tree whose required padding byte is absent entirely:
+/// missing required data.
 #[test]
 fn flush_version_cut_before_its_marker_byte_is_truncated() {
     let bytes = from_oracle_version(&tree::Version::leaf(7u8)).encode();

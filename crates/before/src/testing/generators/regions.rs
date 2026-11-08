@@ -4,27 +4,26 @@
 //! [`arb_oracle_party_nonempty`](super::arb_oracle_party_nonempty) recurses at
 //! most four levels, and [`arb_party_family`](super::arb_party_family) draws
 //! its parties from a pool of at most four with repetition. A repeated party
-//! overlaps itself, so a family it draws that `join_all` accepts holds at
-//! most four parties, receiver included. The strategies here reach deep
-//! parties and accepted families of up to ten unrelated parties.
+//! overlaps itself, so a family it draws that `join_all` accepts holds at most
+//! four parties, receiver included. The strategies here reach deep parties and
+//! accepted families of up to ten unrelated parties.
 //!
-//! A party is drawn as a set of *pieces*: the intervals between sorted
-//! dyadic *cut points*, each piece owned or not. Some cut points are
-//! scattered at depths weighted toward the shallow end, and some cluster
-//! around one base point at many depths, so the canonical tree nests many
-//! two-child branches along one path. A party holds at most
-//! [`MAX_INTERIOR_CUTS`] cut points inside the unit interval. Every union of
-//! dyadic intervals with as many interior endpoints as the scattered arm
-//! draws ([`SCATTERED_POINTS`]), each at most [`DEEP_PARTY_DEPTH`] levels
-//! deep, is reachable; more endpoints are reachable only around one
-//! cluster's base point.
+//! A party is drawn as a set of *pieces*: the intervals between sorted dyadic
+//! *cut points*, each piece owned or not. Some cut points are scattered at
+//! depths weighted toward the shallow end, and some cluster around one base
+//! point at many depths, so the canonical tree nests many two-child branches
+//! along one path. A party holds at most [`MAX_INTERIOR_CUTS`] cut points
+//! inside the unit interval. Every union of dyadic intervals with as many
+//! interior endpoints as the scattered arm draws ([`SCATTERED_POINTS`]), each
+//! at most [`DEEP_PARTY_DEPTH`] levels deep, is reachable; more endpoints are
+//! reachable only around one cluster's base point.
 //!
-//! | Strategy | What it draws |
-//! |---|---|
-//! | [`arb_deep_party`] | one nonempty party, to depth [`DEEP_PARTY_DEPTH`] |
-//! | [`arb_disjoint_parties`] | `k` pairwise-disjoint nonempty parties, the pieces of one cut set dealt among them |
+//! | Strategy                  | What it draws                                                                                                             |
+//! |---------------------------|---------------------------------------------------------------------------------------------------------------------------|
+//! | [`arb_deep_party`]        | one nonempty party, to depth [`DEEP_PARTY_DEPTH`]                                                                         |
+//! | [`arb_disjoint_parties`]  | `k` pairwise-disjoint nonempty parties, the pieces of one cut set dealt among them                                        |
 //! | [`arb_deep_party_family`] | a receiver and items, 2 to [`FAMILY_ARITY_MAX`] parties in all: pairwise disjoint, or with one overlapping party inserted |
-//! | [`arb_deep_clock_family`] | the same family, each party paired with a deep version |
+//! | [`arb_deep_clock_family`] | the same family, each party paired with a deep version                                                                    |
 //!
 //! Nothing is rejected: each party closes through the recursive oracle's
 //! normalizing constructors. The census in this module's sibling tests floors
@@ -58,11 +57,10 @@ pub(crate) const FAMILY_ARITY_MAX: usize = 10;
 
 /// Builds the party owning exactly the pieces `owned` selects, iteratively.
 ///
-/// Piece `i` is `[cuts[i], cuts[i + 1])`. A cell of the dyadic tree that
-/// holds no cut point strictly inside it lies within one piece and becomes
-/// a row; any other cell splits in two. [`party_from_rows`] closes the rows
-/// through the oracle's normalizing [`tree::Party::node`], so the result is
-/// in normal form.
+/// Piece `i` is `[cuts[i], cuts[i + 1])`. A cell of the dyadic tree that holds
+/// no cut point strictly inside it lies within one piece and becomes a row; any
+/// other cell splits in two. [`party_from_rows`] closes the rows through the
+/// oracle's normalizing [`tree::Party::node`], so the result is in normal form.
 fn party_of_pieces(cuts: &[u128], owned: impl Fn(usize) -> bool) -> tree::Party {
     let mut rows = Vec::new();
     let mut cells = vec![(0u128, 0u32)];
@@ -81,8 +79,8 @@ fn party_of_pieces(cuts: &[u128], owned: impl Fn(usize) -> bool) -> tree::Party 
     party_from_rows(&rows)
 }
 
-/// Draws a cut point at most `max_depth` levels deep, at depths weighted
-/// toward the shallow end.
+/// Draws a cut point at most `max_depth` levels deep, at depths weighted toward
+/// the shallow end.
 fn arb_point(max_depth: u32) -> impl Strategy<Value = u128> {
     let depth = prop_oneof![
         4 => 1..=max_depth.min(4),
@@ -94,8 +92,8 @@ fn arb_point(max_depth: u32) -> impl Strategy<Value = u128> {
 }
 
 /// Draws cut points clustered around one base point: for each of several
-/// depths, the boundary of the base point's cell at that depth, below or
-/// above it.
+/// depths, the boundary of the base point's cell at that depth, below or above
+/// it.
 fn arb_cluster(max_depth: u32) -> impl Strategy<Value = Vec<u128>> {
     (
         any::<u128>(),
@@ -127,8 +125,8 @@ const SCATTERED_BESIDE_CLUSTER: Range<usize> = 0..4;
 /// Levels, and so cut points, [`arb_cluster`] draws.
 const CLUSTER_LEVELS: Range<usize> = 1..12;
 
-/// The most cut points [`arb_cuts`] places strictly inside the unit
-/// interval: the most any of its arms draws.
+/// The most cut points [`arb_cuts`] places strictly inside the unit interval:
+/// the most any of its arms draws.
 const MAX_INTERIOR_CUTS: usize = larger(
     SCATTERED_POINTS.end - 1,
     larger(
@@ -137,8 +135,7 @@ const MAX_INTERIOR_CUTS: usize = larger(
     ),
 );
 
-/// The most pieces a cut set from [`arb_cuts`] divides the unit interval
-/// into.
+/// The most pieces a cut set from [`arb_cuts`] divides the unit interval into.
 const MAX_PIECES: usize = MAX_INTERIOR_CUTS + 1;
 
 // Each piece of a cut set takes its own bit of the ownership mask that
@@ -157,11 +154,11 @@ const fn larger(a: usize, b: usize) -> usize {
     }
 }
 
-/// Draws sorted distinct cut points at most `max_depth` levels deep,
-/// always including 0 and 1: scattered, clustered, or both.
+/// Draws sorted distinct cut points at most `max_depth` levels deep, always
+/// including 0 and 1: scattered, clustered, or both.
 ///
-/// Between 0 and 1 lie at most [`MAX_INTERIOR_CUTS`] points, so the cut set
-/// has at most [`MAX_PIECES`] pieces.
+/// Between 0 and 1 lie at most [`MAX_INTERIOR_CUTS`] points, so the cut set has
+/// at most [`MAX_PIECES`] pieces.
 fn arb_cuts(max_depth: u32) -> impl Strategy<Value = Vec<u128>> {
     prop_oneof![
         3 => proptest::collection::vec(arb_point(max_depth), SCATTERED_POINTS),
@@ -183,8 +180,7 @@ fn arb_cuts(max_depth: u32) -> impl Strategy<Value = Vec<u128>> {
     })
 }
 
-/// Draws a nonempty party whose cut points sit at most `max_depth` levels
-/// deep.
+/// Draws a nonempty party whose cut points sit at most `max_depth` levels deep.
 ///
 /// Each piece is owned or not by its own bit of a mask, which has a bit for
 /// each of up to [`MAX_PIECES`] pieces, and an empty choice owns one piece
@@ -209,10 +205,10 @@ pub(crate) fn arb_deep_party() -> impl Strategy<Value = tree::Party> {
 
 /// Draws `k` pairwise-disjoint nonempty parties.
 ///
-/// The cut set gains `k` extra points and is refined, by bisecting its
-/// widest piece, until it has at least `k` pieces. Each color is then dealt
-/// to a distinct piece, and every other piece takes a random color or none,
-/// so every party is nonempty and no piece has two owners.
+/// The cut set gains `k` extra points and is refined, by bisecting its widest
+/// piece, until it has at least `k` pieces. Each color is then dealt to a
+/// distinct piece, and every other piece takes a random color or none, so every
+/// party is nonempty and no piece has two owners.
 pub(crate) fn arb_disjoint_parties(k: usize) -> impl Strategy<Value = Vec<tree::Party>> {
     (
         arb_cuts(DEEP_PARTY_DEPTH),
@@ -265,11 +261,11 @@ enum Overlap {
 /// Draws a receiver and items for the family laws: from 2 to
 /// [`FAMILY_ARITY_MAX`] parties in all.
 ///
-/// Two fifths of the families are pairwise disjoint, so `join_all` must
-/// accept them. The rest are pairwise disjoint but for one party inserted at
-/// a random position, the receiver's included: a copy of a member, an
-/// unrelated party, or an unrelated party covering a member. Those are
-/// rejected, except where an unrelated party happens to be disjoint.
+/// Two fifths of the families are pairwise disjoint, so `join_all` must accept
+/// them. The rest are pairwise disjoint but for one party inserted at a random
+/// position, the receiver's included: a copy of a member, an unrelated party,
+/// or an unrelated party covering a member. Those are rejected, except where an
+/// unrelated party happens to be disjoint.
 pub(crate) fn arb_deep_party_family() -> impl Strategy<Value = (tree::Party, Vec<tree::Party>)> {
     let overlap = prop_oneof![
         2 => Just(Overlap::Disjoint),
@@ -305,11 +301,11 @@ pub(crate) fn arb_deep_party_family() -> impl Strategy<Value = (tree::Party, Vec
         })
 }
 
-/// Draws a family from [`arb_deep_party_family`] with each party paired
-/// with a version: one of up to three deep versions, or the empty version.
+/// Draws a family from [`arb_deep_party_family`] with each party paired with a
+/// version: one of up to three deep versions, or the empty version.
 ///
-/// Drawing versions from a small pool makes several clocks share one
-/// history, as forks of one clock do.
+/// Drawing versions from a small pool makes several clocks share one history,
+/// as forks of one clock do.
 #[allow(clippy::type_complexity)]
 pub(crate) fn arb_deep_clock_family() -> impl Strategy<
     Value = (

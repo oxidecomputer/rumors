@@ -32,8 +32,8 @@ use super::{
     scope::{ReplyLevel, Scope},
 };
 
-/// What a reply decoder reads its frames as: a frame, and the permit from
-/// the receive pool it holds for a supply run's bytes.
+/// What a reply decoder reads its frames as: a frame, and the permit from the
+/// receive pool it holds for a supply run's bytes.
 ///
 /// The pipe's lanes carry [`Inbound`] items; tests that drive a decoder
 /// directly hand it bare frames, which hold no permit.
@@ -65,14 +65,14 @@ pub(crate) const SUPPLY_RECORDS_PER_STREAM: usize = FAN + 1;
 ///
 /// Each of the [`STREAM_COUNT`](super::super::STREAM_COUNT) logical reply
 /// streams a session decodes holds at most [`SUPPLY_RECORDS_PER_STREAM`]
-/// decoded leaves, each a [`DecodedLeaf`], counted at twice its size: the
-/// most a channel node takes beside its item. A full fan permits one parent
-/// group's worth of read-ahead, reducing wakeups and overlapping parsing
-/// with slower assembly; capacity one still makes progress.
+/// decoded leaves, each a [`DecodedLeaf`], counted at twice its size: the most
+/// a channel node takes beside its item. A full fan permits one parent group's
+/// worth of read-ahead, reducing wakeups and overlapping parsing with slower
+/// assembly; capacity one still makes progress.
 ///
-/// The leaf a [`DecodedLeaf`] carries is replica content from the moment
-/// it is built, so only its handle counts here. On the in-memory backend
-/// the handle keeps nothing resident beyond the node.
+/// The leaf a [`DecodedLeaf`] carries is replica content from the moment it is
+/// built, so only its handle counts here. On the in-memory backend the handle
+/// keeps nothing resident beyond the node.
 pub(crate) const fn decode_ahead_bytes<N>() -> usize {
     2 * super::super::STREAM_COUNT * SUPPLY_RECORDS_PER_STREAM * mem::size_of::<DecodedLeaf<N>>()
 }
@@ -81,21 +81,21 @@ pub(crate) const fn decode_ahead_bytes<N>() -> usize {
 pub(crate) enum DecodedLeaf<N> {
     /// A decoded leaf at its path.
     Leaf(Prefix<Z>, N),
-    /// The end of a group of consecutive supplies: the assembler finishes
-    /// the group's last node and waits for the next group.
+    /// The end of a group of consecutive supplies: the assembler finishes the
+    /// group's last node and waits for the next group.
     Break,
     /// The end of the reply: the assembler returns.
     End,
 }
 
 /// The edges between wire decoding and leaf assembly, which every reply one
-/// decode pump decodes reuses: decoded leaves one way, assembled supplies
-/// the other.
+/// decode pump decodes reuses: decoded leaves one way, assembled supplies the
+/// other.
 ///
-/// A pump decodes its replies one after another, so one pair of edges
-/// serves them all. A reply whose decode fails can leave either edge
-/// holding the rest of that reply's items, so a failed decode ends the
-/// edges' use; the pump fails the session on it.
+/// A pump decodes its replies one after another, so one pair of edges serves
+/// them all. A reply whose decode fails can leave either edge holding the rest
+/// of that reply's items, so a failed decode ends the edges' use; the pump
+/// fails the session on it.
 pub struct LeafEdge<B>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -116,10 +116,10 @@ where
 {
     /// Create a leaves' edge of [`FAN`] slots.
     ///
-    /// A full fan amortizes reader and assembler wakeups and lets parsing
-    /// run ahead when assembly is slower. Progress needs only one slot, which
-    /// the tests' one-slot edge establishes, so the fan is a throughput choice,
-    /// a fixed amount per logical stream that the fixed allowance sets aside
+    /// A full fan amortizes reader and assembler wakeups and lets parsing run
+    /// ahead when assembly is slower. Progress needs only one slot, which the
+    /// tests' one-slot edge establishes, so the fan is a throughput choice, a
+    /// fixed amount per logical stream that the fixed allowance sets aside
     /// ([`decode_ahead_bytes`]), not a liveness requirement.
     pub fn new() -> Self {
         Self::with_capacity(FAN)
@@ -127,10 +127,9 @@ where
 
     /// Create a one-slot leaves' edge.
     ///
-    /// Test-only because production fixes the capacity at [`FAN`] for
-    /// bounded read-ahead. One slot, the smallest capacity a protocol edge
-    /// accepts, establishes whether progress depends on that performance
-    /// choice.
+    /// Test-only because production fixes the capacity at [`FAN`] for bounded
+    /// read-ahead. One slot, the smallest capacity a protocol edge accepts,
+    /// establishes whether progress depends on that performance choice.
     #[cfg(test)]
     pub(super) fn one_slot() -> Self {
         Self::with_capacity(1)
@@ -138,12 +137,12 @@ where
 
     /// Create a leaves' edge of `capacity` slots.
     ///
-    /// The supplies' edge always holds [`FAN`] nodes, which liveness needs:
-    /// the reader drains it only when a group of supplies ends, and until
-    /// then the assembler sends one node per run in the group. A reply's
-    /// leaves ascend strictly by path, so its runs have distinct radices and
-    /// a group holds at most `FAN` runs; the assembler therefore never waits
-    /// on a reader that waits on it.
+    /// The supplies' edge always holds [`FAN`] nodes, which liveness needs: the
+    /// reader drains it only when a group of supplies ends, and until then the
+    /// assembler sends one node per run in the group. A reply's leaves ascend
+    /// strictly by path, so its runs have distinct radices and a group holds at
+    /// most `FAN` runs; the assembler therefore never waits on a reader that
+    /// waits on it.
     fn with_capacity(capacity: usize) -> Self {
         let (leaves, assembler) = channel(
             QueueRole::new(QueueKind::DecodedLeaves, Z::HEIGHT),
@@ -173,10 +172,10 @@ where
 /// Replay the initiator's distinguished opening question from the root-fan
 /// listing its greeting carried.
 ///
-/// No wire frame exists for the opening: the greeting decode already
-/// validated the listing's canonical order, so synthesizing the one-query
-/// reply and its root scope is infallible. An empty listing replays an empty
-/// opening `Query` — the empty-tree initiator's "send everything".
+/// No wire frame exists for the opening: the greeting decode already validated
+/// the listing's canonical order, so synthesizing the one-query reply and its
+/// root scope is infallible. An empty listing replays an empty opening `Query`
+/// — the empty-tree initiator's "send everything".
 pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
     // The local responder answers against this record and never decodes
     // a reply with it, so no tighter bound on such a reply is needed.
@@ -192,46 +191,44 @@ pub fn opening_reply<E>(listing: Vec<Listed>) -> (Reply<E>, Scope) {
     )
 }
 
-/// Decode one reply at `level` through `edge`, validating the positions of
-/// the questions it asks against `scope`, the record of the question it
-/// answers, and hand its reactions to `deliver` in chunks as they complete.
+/// Decode one reply at `level` through `edge`, validating the positions of the
+/// questions it asks against `scope`, the record of the question it answers,
+/// and hand its reactions to `deliver` in chunks as they complete.
 ///
-/// A reaction completes at its frame, or for a supply once its run of
-/// leaves ends: at the next positional reaction, at a run of another
-/// radix, or at the reply's end. A chunk ends at each question the reply
-/// asks but its last, delivered with the reactions completed before it as
-/// soon as its frame decodes, so a question the peer must answer never
-/// waits behind frames the peer may send only after that answer. Where a
-/// reply's chunks end therefore depends only on the reply, never on when
-/// its frames arrive: a reply arrives in exactly one more chunk than it
-/// asks questions before its last reaction, and no chunk holds more than
-/// one question. The last chunk is marked, and holds the reply's last
-/// reaction unless the reply is empty. Each chunk's reactions are
-/// allocated at exactly their count.
+/// A reaction completes at its frame, or for a supply once its run of leaves
+/// ends: at the next positional reaction, at a run of another radix, or at the
+/// reply's end. A chunk ends at each question the reply asks but its last,
+/// delivered with the reactions completed before it as soon as its frame
+/// decodes, so a question the peer must answer never waits behind frames the
+/// peer may send only after that answer. Where a reply's chunks end therefore
+/// depends only on the reply, never on when its frames arrive: a reply arrives
+/// in exactly one more chunk than it asks questions before its last reaction,
+/// and no chunk holds more than one question. The last chunk is marked, and
+/// holds the reply's last reaction unless the reply is empty. Each chunk's
+/// reactions are allocated at exactly their count.
 ///
-/// `room` is the room the question set aside for the reply's chunks. Each
-/// chunk leaves charged its own part of it ([`parked_bytes`]), which
-/// returns once the chunk's stage has used it. As the reply narrows what
-/// it can still deliver, the room beyond that returns at once: the reply's
-/// [`ReplyQuota`] checks every frame against what the room was priced on,
-/// so the room always covers every chunk the reply can still park, no
-/// chunk falls short of it, and none of it outlives the reply.
+/// `room` is the room the question set aside for the reply's chunks. Each chunk
+/// leaves charged its own part of it ([`parked_bytes`]), which returns once the
+/// chunk's stage has used it. As the reply narrows what it can still deliver,
+/// the room beyond that returns at once: the reply's [`ReplyQuota`] checks
+/// every frame against what the room was priced on, so the room always covers
+/// every chunk the reply can still park, no chunk falls short of it, and none
+/// of it outlives the reply.
 ///
-/// At [`ReplyLevel::Leaf`] only an empty request for the leaf is a valid
-/// query. Validation reads the record through a cursor and builds nothing:
-/// the scopes the reply's questions create are derived when each chunk is
-/// taken ([`derive_questions`](super::derive_questions)), from the same
-/// record.
+/// At [`ReplyLevel::Leaf`] only an empty request for the leaf is a valid query.
+/// Validation reads the record through a cursor and builds nothing: the scopes
+/// the reply's questions create are derived when each chunk is taken
+/// ([`derive_questions`](super::derive_questions)), from the same record.
 ///
 /// Each supplied record is checked against `bounds` before it is placed
 /// ([`SupplyBounds`]). The reply's supplied leaves cross `edge` to assembly
 /// while the reply is read. After an error the edge may hold items of the
 /// failed reply, so a caller decodes nothing further through it.
 ///
-/// A supply run's permit from the receive pool ([`IncomingFrame`]) returns
-/// as soon as the run's last record is copied into its leaf, before the
-/// decoder waits for its next frame: that frame may be a run the reader
-/// can read only once a permit returns.
+/// A supply run's permit from the receive pool ([`IncomingFrame`]) returns as
+/// soon as the run's last record is copied into its leaf, before the decoder
+/// waits for its next frame: that frame may be a run the reader can read only
+/// once a permit returns.
 // The edge, the session's decode limits, the reply's level, scope, and
 // frames, and the chunks' destination are separate inputs; the pump
 // supplies the limits from its ingress.
@@ -279,9 +276,9 @@ where
     Ok(())
 }
 
-/// Decode one reply as [`decode_reply`] does, joining its chunks into one
-/// last chunk: the one chunk itself when the reply asks no question before
-/// its last reaction, so its allocation is the decoder's own.
+/// Decode one reply as [`decode_reply`] does, joining its chunks into one last
+/// chunk: the one chunk itself when the reply asks no question before its last
+/// reaction, so its allocation is the decoder's own.
 // The arguments are `decode_reply`'s, but for the chunks' destination.
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
@@ -332,8 +329,8 @@ where
 }
 
 /// Assemble one reply's groups of supplied leaves into complete nodes at the
-/// scope's children `height`, sending each node back to the reader, until
-/// the reply's closing [`DecodedLeaf::End`].
+/// scope's children `height`, sending each node back to the reader, until the
+/// reply's closing [`DecodedLeaf::End`].
 async fn assemble_groups<B>(
     backend: B,
     height: usize,
@@ -358,15 +355,15 @@ where
     }
 }
 
-/// Stream one group's decoded leaves, from its `first`, through the
-/// backend's node assembler.
+/// Stream one group's decoded leaves, from its `first`, through the backend's
+/// node assembler.
 ///
 /// The edge accounts for decoded leaves awaiting the backend. Any further
 /// buffering used to construct a node belongs to that backend; `Local`, for
 /// example, keeps only the open right spine of the subtree it is building.
 ///
-/// The stream ends at the group's closing [`DecodedLeaf::Break`], and is
-/// fused, so the assembler cannot read past it into the next group's leaves.
+/// The stream ends at the group's closing [`DecodedLeaf::Break`], and is fused,
+/// so the assembler cannot read past it into the next group's leaves.
 fn assembly<'a, B>(
     backend: B,
     height: usize,
@@ -395,18 +392,18 @@ where
 }
 
 /// Why a send or receive on a [`LeafEdge`] cannot fail: the edge owns both
-/// halves of each of its channels, and the reader and assembler use them
-/// only while the edge is borrowed for their reply.
+/// halves of each of its channels, and the reader and assembler use them only
+/// while the edge is borrowed for their reply.
 const EDGE_OPEN: &str = "the edge holds both halves of its channels while a reply uses them";
 
-/// One reply's reader: its validation state, and the reactions it has read
-/// but not yet delivered.
+/// One reply's reader: its validation state, and the reactions it has read but
+/// not yet delivered.
 struct Reader<'a, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// The leaves the peer can still supply, counted against the set length
-    /// its greeting declared.
+    /// The leaves the peer can still supply, counted against the set length its
+    /// greeting declared.
     ledger: &'a SupplyLedger,
     /// How the reply's queries pair with positions.
     level: ReplyLevel,
@@ -426,9 +423,8 @@ where
     ready: Vec<ProtocolReaction<B::Erased>>,
     /// The runs of the open group of supplies, each awaiting its node.
     group: Vec<(u8, ErasedPrefix)>,
-    /// What the reply can still deliver, which checks each frame and
-    /// holds the part of the room no chunk has taken and no release has
-    /// returned.
+    /// What the reply can still deliver, which checks each frame and holds the
+    /// part of the room no chunk has taken and no release has returned.
     quota: ReplyQuota<B::Erased>,
 }
 
@@ -436,8 +432,7 @@ impl<'a, B> Reader<'a, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Begin reading a reply against `scope`, its chunks charged out of
-    /// `room`.
+    /// Begin reading a reply against `scope`, its chunks charged out of `room`.
     // The inputs are `decode_reply`'s, but for the frames and the chunks'
     // destination, which `read` takes.
     #[allow(clippy::too_many_arguments)]
@@ -468,8 +463,8 @@ where
     }
 
     /// Read and validate the reply while sending its supplied leaves to
-    /// assembly, delivering its reactions in chunks, then close the reply
-    /// on the edge with [`DecodedLeaf::End`].
+    /// assembly, delivering its reactions in chunks, then close the reply on
+    /// the edge with [`DecodedLeaf::End`].
     async fn read<F>(
         mut self,
         frames: &mut F,
@@ -582,13 +577,13 @@ where
         Ok(())
     }
 
-    /// End the open group of supplies, if any, and make its runs' nodes
-    /// ready in run order.
+    /// End the open group of supplies, if any, and make its runs' nodes ready
+    /// in run order.
     ///
-    /// The assembler finishes a group's last node only once the group
-    /// ends, so a supply is complete only then; ending the group at every
-    /// positional reaction keeps a question behind a supply from waiting on
-    /// frames still to come.
+    /// The assembler finishes a group's last node only once the group ends, so
+    /// a supply is complete only then; ending the group at every positional
+    /// reaction keeps a question behind a supply from waiting on frames still
+    /// to come.
     async fn close_group(&mut self) {
         self.supplies.interrupt();
         if self.group.is_empty() {
@@ -606,9 +601,9 @@ where
         }
     }
 
-    /// The ready reactions as one chunk, allocated at exactly their count:
-    /// a chunk can park, and the reservation for its reply prices each
-    /// reaction at its size, which growth slack would exceed.
+    /// The ready reactions as one chunk, allocated at exactly their count: a
+    /// chunk can park, and the reservation for its reply prices each reaction
+    /// at its size, which growth slack would exceed.
     ///
     /// A chunk that does not end the reply leaves the room beyond what the
     /// reply can still deliver for the caller to release, as it does after
@@ -634,44 +629,42 @@ fn radix(prefix: &ErasedPrefix) -> u8 {
         .expect("a listed child's prefix extends its parent's by its radix")
 }
 
-/// What every supplied leaf's version must satisfy, read from the
-/// session's two greetings.
+/// What every supplied leaf's version must satisfy, read from the session's two
+/// greetings.
 ///
-/// A peer supplies only leaves its own tree holds, and only those this
-/// side's greeting version does not contain: its filter drops every leaf
-/// this side already holds or has redacted. So each supplied version
+/// A peer supplies only leaves its own tree holds, and only those this side's
+/// greeting version does not contain: its filter drops every leaf this side
+/// already holds or has redacted. So each supplied version
 ///
-/// - encodes within the peer's declared `max_version_bytes`, which covers
-///   every version the peer's tree materializes
-///   ([`DecodeError::OversizedVersion`]);
-/// - is contained in the peer's own greeting version, which joins every
-///   version its tree holds ([`DecodeError::UncontainedSupply`]); and
+/// - encodes within the peer's declared `max_version_bytes`, which covers every
+///   version the peer's tree materializes ([`DecodeError::OversizedVersion`]);
+/// - is contained in the peer's own greeting version, which joins every version
+///   its tree holds ([`DecodeError::UncontainedSupply`]); and
 /// - is not contained in this side's greeting version
 ///   ([`DecodeError::SeenSupply`]).
 ///
-/// A conforming peer never breaks any of these, so a breach is a
-/// conformance failure, and the decoder fails the session at the offending
-/// record, before its payload takes backend custody. Absorbing either kind
-/// of version breach would make a redaction fail to hold. A leaf outside
-/// the peer's version lies outside the ceiling this side adopts for the
-/// session, so no later redaction this side makes can cover it. A leaf
-/// inside this side's version is one this side holds or redacted, and
-/// redaction leaves no tombstone: it is honored only by that version.
+/// A conforming peer never breaks any of these, so a breach is a conformance
+/// failure, and the decoder fails the session at the offending record, before
+/// its payload takes backend custody. Absorbing either kind of version breach
+/// would make a redaction fail to hold. A leaf outside the peer's version lies
+/// outside the ceiling this side adopts for the session, so no later redaction
+/// this side makes can cover it. A leaf inside this side's version is one this
+/// side holds or redacted, and redaction leaves no tombstone: it is honored
+/// only by that version.
 #[derive(Clone, Debug)]
 pub struct SupplyBounds {
     /// The peer's greeting version.
     declared: Version,
     /// The peer's greeting-declared `max_version_bytes`.
     version_bytes: u64,
-    /// This side's own greeting version, the one the peer filters its
-    /// supplies against.
+    /// This side's own greeting version, the one the peer filters its supplies
+    /// against.
     seen: Version,
 }
 
 impl SupplyBounds {
-    /// Bound the session's supplies by the peer's greeting version and
-    /// declared `max_version_bytes`, and by this side's own greeting
-    /// version, `seen`.
+    /// Bound the session's supplies by the peer's greeting version and declared
+    /// `max_version_bytes`, and by this side's own greeting version, `seen`.
     pub fn new(declared: Version, version_bytes: u64, seen: Version) -> Self {
         Self {
             declared,
@@ -680,12 +673,12 @@ impl SupplyBounds {
         }
     }
 
-    /// Check one supplied leaf's version against the bounds, naming the
-    /// leaf by its keyed `path` when its version breaks one.
+    /// Check one supplied leaf's version against the bounds, naming the leaf by
+    /// its keyed `path` when its version breaks one.
     ///
     /// The size check comes first, so the comparisons read only a version
-    /// within the declaration. Neither comparison allocates. Containment is
-    /// a partial order, so a version incomparable with the peer's is as
+    /// within the declaration. Neither comparison allocates. Containment is a
+    /// partial order, so a version incomparable with the peer's is as
     /// uncontained as one above it.
     fn check<E>(&self, version: &Version, path: Path) -> Result<(), DecodeError<E>> {
         // The declared aggregate covers every version the peer's tree
@@ -737,9 +730,9 @@ impl<'a> SupplyRuns<'a> {
     /// Validate one supplied leaf and identify the start of a new run.
     ///
     /// The leaf's version must lie within the session's [`SupplyBounds`],
-    /// checked before the leaf is placed. The run boundary sits one level
-    /// under `expected_parent`: the supplied leaf's path must extend the
-    /// parent prefix, and the byte after it is the run's radix.
+    /// checked before the leaf is placed. The run boundary sits one level under
+    /// `expected_parent`: the supplied leaf's path must extend the parent
+    /// prefix, and the byte after it is the run's radix.
     fn observe<E>(
         &mut self,
         expected_parent: ErasedPrefix,
@@ -789,13 +782,12 @@ impl<'a> SupplyRuns<'a> {
 /// Test-gated occupancy probe for the reader/assembler fan channels.
 ///
 /// Counts the decoded leaf records resident between the reader's send
-/// ([`Reader::read`]) and the assembler's pull, and the peak of that
-/// count. The adapter tests drive [`decode`] on a current-thread runtime and
-/// each channel is FIFO with
-/// one producer and one consumer, so a thread-local counter mirrors the
-/// occupancy exactly: incremented before the reader awaits the send (the record
-/// in the reader's hand is resident), decremented when the assembler's stream
-/// yields the record.
+/// ([`Reader::read`]) and the assembler's pull, and the peak of that count. The
+/// adapter tests drive [`decode`] on a current-thread runtime and each channel
+/// is FIFO with one producer and one consumer, so a thread-local counter
+/// mirrors the occupancy exactly: incremented before the reader awaits the send
+/// (the record in the reader's hand is resident), decremented when the
+/// assembler's stream yields the record.
 #[cfg(test)]
 pub(super) mod fan_probe {
     use std::cell::Cell;

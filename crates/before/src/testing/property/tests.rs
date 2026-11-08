@@ -17,10 +17,10 @@ const REPORT: &str = "divided property cases: ";
 /// configured count to 96: the divisor applies to the count the environment
 /// sets, not only to the default.
 ///
-/// Proptest reads `PROPTEST_CASES` once per process, so the test re-runs
-/// itself in a child process with the variable set, and the child reports the
-/// cases its property executed. The parent requires the report, so a child
-/// that ran no probe fails the test rather than passing it.
+/// Proptest reads `PROPTEST_CASES` once per process, so the test re-runs itself
+/// in a child process with the variable set, and the child reports the cases
+/// its property executed. The parent requires the report, so a child that ran
+/// no probe fails the test rather than passing it.
 #[test]
 fn divided_properties_honor_their_divisor_when_proptest_cases_is_set() {
     if std::env::var_os(PROBE).is_some() {

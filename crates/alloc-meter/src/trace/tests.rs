@@ -1,12 +1,12 @@
-//! Tests of trace recording against the allocator's real requests, and of
-//! the lifetime classification against a model heap.
+//! Tests of trace recording against the allocator's real requests, and of the
+//! lifetime classification against a model heap.
 //!
-//! Recording and classification are tested apart. The recording test issues
-//! raw allocator requests and predicts each event from the blocks it holds,
-//! so it checks what the allocator records and nothing about what the
-//! events mean. The classification tests build event sequences from a model
-//! heap whose every block's fate is known, so they check the analysis
-//! against an independent computation of each label's live transient bytes.
+//! Recording and classification are tested apart. The recording test issues raw
+//! allocator requests and predicts each event from the blocks it holds, so it
+//! checks what the allocator records and nothing about what the events mean.
+//! The classification tests build event sequences from a model heap whose every
+//! block's fate is known, so they check the analysis against an independent
+//! computation of each label's live transient bytes.
 
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -32,8 +32,7 @@ struct Op {
     untraced: bool,
 }
 
-/// An allocator request, aimed at a live block by position where it needs
-/// one.
+/// An allocator request, aimed at a live block by position where it needs one.
 #[derive(Clone, Copy, Debug)]
 enum Request {
     /// Allocate a fresh block of `size` bytes.
@@ -44,8 +43,8 @@ enum Request {
     Free { block: Index },
 }
 
-/// Generates requests of a few kilobytes at most under every label, inside
-/// and outside [`untraced`].
+/// Generates requests of a few kilobytes at most under every label, inside and
+/// outside [`untraced`].
 fn arb_op() -> impl Strategy<Value = Op> {
     let size = 1..=4_096usize;
     let request = prop_oneof![
@@ -63,8 +62,8 @@ fn arb_op() -> impl Strategy<Value = Op> {
 /// Issues `ops` against the allocator, keeping live blocks in `blocks`, and
 /// appends to `expected` the events a trace records for them.
 ///
-/// `blocks` and `expected` must have spare capacity for every block and
-/// event, so that no request but the ops' own reaches the allocator.
+/// `blocks` and `expected` must have spare capacity for every block and event,
+/// so that no request but the ops' own reaches the allocator.
 fn apply(blocks: &mut Vec<Block>, expected: &mut Vec<Event>, ops: &[Op]) {
     for op in ops {
         assert!(
@@ -165,8 +164,8 @@ struct ModelBlock {
     size: usize,
     /// The label it was allocated under.
     label: Label,
-    /// Whether the trace saw it allocated: not from before the trace, and
-    /// not allocated inside [`untraced`].
+    /// Whether the trace saw it allocated: not from before the trace, and not
+    /// allocated inside [`untraced`].
     traced: bool,
     /// The step that ends its lifetime, or `None` if it survives the trace.
     ends: Option<usize>,
@@ -196,8 +195,8 @@ enum Step {
     Free { block: Index },
 }
 
-/// Addresses the model heap places blocks at: few, so that addresses recur
-/// and frees must be matched to the right allocation.
+/// Addresses the model heap places blocks at: few, so that addresses recur and
+/// frees must be matched to the right allocation.
 const ADDRESSES: usize = 6;
 
 /// Generates model steps under every label, traced and untraced.
@@ -235,8 +234,8 @@ fn arb_step() -> impl Strategy<Value = Step> {
     ]
 }
 
-/// The model heap's history: every block it ever held, and the events a
-/// trace would record for each step.
+/// The model heap's history: every block it ever held, and the events a trace
+/// would record for each step.
 struct History {
     /// Every block, in allocation order, with its fate filled in.
     blocks: Vec<ModelBlock>,
@@ -248,8 +247,8 @@ struct History {
     events: Vec<Event>,
 }
 
-/// Runs `steps` on a heap that starts with `preexisting` untraced blocks of
-/// the given sizes, recording the trace's events and each block's fate.
+/// Runs `steps` on a heap that starts with `preexisting` untraced blocks of the
+/// given sizes, recording the trace's events and each block's fate.
 fn history(preexisting: &[usize], steps: &[Step]) -> History {
     let mut blocks: Vec<ModelBlock> = Vec::new();
     let mut live: Vec<usize> = Vec::new();
@@ -376,9 +375,9 @@ fn history(preexisting: &[usize], steps: &[Step]) -> History {
 /// Computes each label's classified blocks from the model's known fates.
 ///
 /// A traced block is transient when some step ends it. Each step's level is
-/// recomputed from the whole live list rather than tracked as a running
-/// total: the transient blocks live after the step, plus, for a resize, the
-/// old block it replaced, which the step held together with the new one.
+/// recomputed from the whole live list rather than tracked as a running total:
+/// the transient blocks live after the step, plus, for a resize, the old block
+/// it replaced, which the step held together with the new one.
 fn expected_lifetimes(history: &History) -> Lifetimes {
     let transient = |block: &ModelBlock| block.traced && block.ends.is_some();
     let mut expected = Lifetimes::default();
@@ -478,12 +477,12 @@ proptest! {
     }
 }
 
-/// When an address is allocated again while the trace still holds a live
-/// block there, the earlier block's lifetime ends at the new allocation,
-/// after the new block is counted, and the reuse is counted.
+/// When an address is allocated again while the trace still holds a live block
+/// there, the earlier block's lifetime ends at the new allocation, after the
+/// new block is counted, and the reuse is counted.
 ///
-/// That sequence arises when another thread frees the earlier block, which
-/// this thread's trace cannot see.
+/// That sequence arises when another thread frees the earlier block, which this
+/// thread's trace cannot see.
 #[test]
 fn reuse_of_a_live_address_ends_the_earlier_block() {
     let at = |kind, size| Event {
@@ -511,8 +510,8 @@ fn reuse_of_a_live_address_ends_the_earlier_block() {
     );
 }
 
-/// A trace whose buffer fills counts every event it had no room for, keeps
-/// the events it recorded, and refuses to classify.
+/// A trace whose buffer fills counts every event it had no room for, keeps the
+/// events it recorded, and refuses to classify.
 #[test]
 fn a_full_trace_counts_what_it_drops_and_refuses_to_classify() {
     let (trace, blocks) = trace(2, || {
@@ -535,9 +534,9 @@ fn a_full_trace_counts_what_it_drops_and_refuses_to_classify() {
     );
 }
 
-/// One step of a raw event sequence over a few addresses, which may free
-/// blocks the trace never saw allocated and allocate at addresses still
-/// live, as another thread's frees make a trace see.
+/// One step of a raw event sequence over a few addresses, which may free blocks
+/// the trace never saw allocated and allocate at addresses still live, as
+/// another thread's frees make a trace see.
 #[derive(Clone, Copy, Debug)]
 enum RawStep {
     /// An allocation at `address`.
@@ -548,8 +547,8 @@ enum RawStep {
     },
     /// A free at `address`.
     Free { address: usize },
-    /// A reallocation from `from` to `to`: its old block's free, then its
-    /// new block's allocation, the order a trace always records.
+    /// A reallocation from `from` to `to`: its old block's free, then its new
+    /// block's allocation, the order a trace always records.
     Resize {
         from: usize,
         to: usize,
@@ -616,15 +615,15 @@ fn raw_events(steps: &[RawStep]) -> Vec<Event> {
     events
 }
 
-/// Computes each event's level for each label, and for every label
-/// together, by intervals rather than by a replay.
+/// Computes each event's level for each label, and for every label together, by
+/// intervals rather than by a replay.
 ///
-/// An allocation's block ends at the next event at its address, whatever
-/// its kind; with none, the block survives and counts toward no level. A
-/// block a free ends counts up to the free, one a reallocation ends
-/// through the event after it, the new block's allocation, and one a
-/// reusing allocation ends through that allocation. The result holds, for
-/// each event, one level per label in label order, then their total.
+/// An allocation's block ends at the next event at its address, whatever its
+/// kind; with none, the block survives and counts toward no level. A block a
+/// free ends counts up to the free, one a reallocation ends through the event
+/// after it, the new block's allocation, and one a reusing allocation ends
+/// through that allocation. The result holds, for each event, one level per
+/// label in label order, then their total.
 fn interval_levels(events: &[Event]) -> Vec<Vec<usize>> {
     let width = LABELS as usize + 1;
     let mut levels = vec![vec![0; width]; events.len()];
@@ -721,8 +720,8 @@ proptest! {
     }
 }
 
-/// Inside a trace, the position is the count of events recorded so far,
-/// and outside one there is none.
+/// Inside a trace, the position is the count of events recorded so far, and
+/// outside one there is none.
 #[test]
 fn position_counts_the_events_recorded_so_far() {
     assert_eq!(position(), None);

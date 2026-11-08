@@ -2,20 +2,19 @@
 //! fuel around one call of each probe's measured operation.
 //!
 //! The harness (the `focused-fuel-harness` crate) instantiates this module
-//! afresh for every measurement and calls [`measure`] with a
-//! [`Probe`] number and two parameters. The guest builds the probe's operands,
-//! opens a measured window, runs the operation, closes the window, and then
-//! checks the operation's answer, so neither preparation nor the check enters
-//! the reading. [`reading`] returns the fuel the window consumed.
+//! afresh for every measurement and calls [`measure`] with a [`Probe`] number
+//! and two parameters. The guest builds the probe's operands, opens a measured
+//! window, runs the operation, closes the window, and then checks the
+//! operation's answer, so neither preparation nor the check enters the reading.
+//! [`reading`] returns the fuel the window consumed.
 //!
 //! The global allocator is the fuel board's window allocator: each window runs
 //! on a fresh, primed heap, so a reading does not depend on what preparation
-//! left in the heap. That module and the panic record are the board guest's
-//! own source files, included by path rather than through a shared crate:
-//! moving them into a crate would change the board guest's compiled code, and
-//! with it the fuel its ceilings were calibrated against. Their prose speaks
-//! of the board's cells; here the one measured window is one probe's
-//! operation.
+//! left in the heap. That module and the panic record are the board guest's own
+//! source files, included by path rather than through a shared crate: moving
+//! them into a crate would change the board guest's compiled code, and with it
+//! the fuel its ceilings were calibrated against. Their prose speaks of the
+//! board's cells; here the one measured window is one probe's operation.
 
 mod directed;
 mod duplicates;
@@ -59,16 +58,15 @@ unsafe extern "C" {
 /// The fuel the last measured window consumed.
 static READING: AtomicU64 = AtomicU64::new(0);
 
-/// The units of work the last measured probe stated, or zero if it stated
-/// none.
+/// The units of work the last measured probe stated, or zero if it stated none.
 static UNITS: AtomicU64 = AtomicU64::new(0);
 
-/// Measures probe `number` with parameters `a` and `b`, keeping the reading
-/// for [`reading`].
+/// Measures probe `number` with parameters `a` and `b`, keeping the reading for
+/// [`reading`].
 ///
-/// Returns [`MEASURED`], or [`UNKNOWN_PROBE`] for a number that names no
-/// probe. A wrong answer, or parameters the probe cannot use, panics instead,
-/// which traps with the message in the panic record.
+/// Returns [`MEASURED`], or [`UNKNOWN_PROBE`] for a number that names no probe.
+/// A wrong answer, or parameters the probe cannot use, panics instead, which
+/// traps with the message in the panic record.
 #[no_mangle]
 pub extern "C" fn measure(number: u32, a: u64, b: u64) -> u32 {
     panic_record::install();
@@ -92,8 +90,7 @@ pub extern "C" fn units() -> u64 {
     UNITS.load(Ordering::Relaxed)
 }
 
-/// Dispatches `probe` to the function that builds its operands and measures
-/// it.
+/// Dispatches `probe` to the function that builds its operands and measures it.
 fn run(probe: Probe, a: u64, b: u64) -> u64 {
     match probe {
         Probe::EqRefutedAtFirstInterval => early_exit::eq_refuted_at_first_interval(only(a, b)),
@@ -273,8 +270,8 @@ fn size(parameter: u64) -> usize {
 ///
 /// Operands are built before this is called, and the result is checked and
 /// dropped after the window closes, so the reading is the operation's own
-/// instructions, plus a fixed cost for the window's two fuel reads and the
-/// call of `body`.
+/// instructions, plus a fixed cost for the window's two fuel reads and the call
+/// of `body`.
 fn measured<R>(body: impl FnOnce() -> R, check: impl FnOnce(R)) -> u64 {
     let origin = enter_window();
     let result = black_box(body());
@@ -285,8 +282,8 @@ fn measured<R>(body: impl FnOnce() -> R, check: impl FnOnce(R)) -> u64 {
     used
 }
 
-/// Runs `body` in a measured window as [`measured`] does, recording `units`
-/// as the work it performs, for a claim that judges fuel per unit.
+/// Runs `body` in a measured window as [`measured`] does, recording `units` as
+/// the work it performs, for a claim that judges fuel per unit.
 fn measured_per<R>(units: u64, body: impl FnOnce() -> R, check: impl FnOnce(R)) -> u64 {
     UNITS.store(units, Ordering::Relaxed);
     measured(body, check)

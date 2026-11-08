@@ -24,12 +24,12 @@ pub(crate) fn zigzag_difference(previous: &BigUint, current: &BigUint) -> BigUin
 
 /// Build a canonical version from a min-lifted preorder tree stream.
 ///
-/// The walk keeps the inherited root-to-node sum for each pending subtree.
-/// When it reaches a leaf, that sum plus the leaf's base is its absolute
-/// height. The first leaf is stored directly; each later leaf is stored as its
-/// zigzag-coded change from the preceding leaf. Both children inherit the same
-/// sum, so a stack in reverse preorder is sufficient and every input node is
-/// visited once.
+/// The walk keeps the inherited root-to-node sum for each pending subtree. When
+/// it reaches a leaf, that sum plus the leaf's base is its absolute height. The
+/// first leaf is stored directly; each later leaf is stored as its zigzag-coded
+/// change from the preceding leaf. Both children inherit the same sum, so a
+/// stack in reverse preorder is sufficient and every input node is visited
+/// once.
 ///
 /// # Panics
 ///

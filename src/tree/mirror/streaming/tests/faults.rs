@@ -30,16 +30,16 @@ use crate::tree::{
     },
 };
 
-/// The digest of `root`'s live set under the fixture keys, which the
-/// streaming test sessions run under, or `None` for an empty root.
+/// The digest of `root`'s live set under the fixture keys, which the streaming
+/// test sessions run under, or `None` for an empty root.
 fn live_hash(root: &Root) -> Option<Hash> {
     root.node
         .as_ref()
         .map(|node| node.hash(&HashKey::fixture()))
 }
 
-/// A `Failing<Local>` endpoint in the serial configuration over `root`, its nodes
-/// wrapped for the failing backend, which misreports the root's count if
+/// A `Failing<Local>` endpoint in the serial configuration over `root`, its
+/// nodes wrapped for the failing backend, which misreports the root's count if
 /// it misreports at the root's height.
 fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
     let root = StreamingRoot {
@@ -91,8 +91,8 @@ fn connected_violation(
     }
 }
 
-/// Every scripted reply corruption is detected at every ordinary walk phase,
-/// in either orientation, and attributed to its receiver.
+/// Every scripted reply corruption is detected at every ordinary walk phase, in
+/// either orientation, and attributed to its receiver.
 #[test]
 fn connected_violations_are_classified_exhaustively() {
     for &corruption in ReplyCorruption::ALL {
@@ -317,8 +317,8 @@ proptest! {
 /// Every greeting lie is classified in both orientations.
 ///
 /// Under-declarations fail with their exact violation. Over-declarations
-/// preserve the reconciled content; an inflated version also widens history,
-/// so only a size inflation preserves the honest run's ceiling.
+/// preserve the reconciled content; an inflated version also widens history, so
+/// only a size inflation preserves the honest run's ceiling.
 #[test]
 fn greeting_lies_are_classified_exhaustively() {
     for &lie in GreetingLie::ALL {

@@ -8,7 +8,8 @@ use proptest::prelude::*;
 use super::{assert_value, fresh, Accumulator};
 use crate::accumulator::small::SMALL_MAX;
 
-/// Exercise every primitive conversion boundary and both update representations.
+/// Exercise every primitive conversion boundary and both update
+/// representations.
 macro_rules! integer_boundaries {
     ($($test:ident: $integer:ty),* $(,)?) => {$(
         /// Construction, arithmetic, and extraction preserve both range endpoints;
@@ -143,15 +144,16 @@ proptest! {
     }
 }
 
-/// Every primitive count type agrees on valid shifts, by `<<` on an owned or
-/// a borrowed value.
+/// Every primitive count type agrees on valid shifts, by `<<` on an owned or a
+/// borrowed value.
 ///
 /// A negative count, or a count beyond `u64::MAX` applied to a nonzero value,
-/// panics before changing the receiver or the borrowed value, while zero,
-/// known or cancelled, shifts by any nonnegative count.
+/// panics before changing the receiver or the borrowed value, while zero, known
+/// or cancelled, shifts by any nonnegative count.
 #[test]
 fn primitive_shift_counts_are_checked() {
-    /// Cover every supported count type at identity and register/digit transitions.
+    /// Cover every supported count type at identity and register/digit
+    /// transitions.
     macro_rules! valid_counts {
         ($($integer:ty),* $(,)?) => {$(
             for shift in [0, 1, 30, 31, 64, 127] {
@@ -209,9 +211,9 @@ fn primitive_shift_counts_are_checked() {
     assert!(zero.is_known_zero());
 }
 
-/// Owned arithmetic keeps the selected buffer, the wider operand's for
-/// addition and subtraction alike, preserves subtraction order, and agrees
-/// with borrowed and owned iterator sums.
+/// Owned arithmetic keeps the selected buffer, the wider operand's for addition
+/// and subtraction alike, preserves subtraction order, and agrees with borrowed
+/// and owned iterator sums.
 #[test]
 fn owned_arithmetic_reuses_storage_and_preserves_order() {
     let mut scalar = Accumulator::new();

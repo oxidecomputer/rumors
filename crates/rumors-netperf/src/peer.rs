@@ -1,25 +1,25 @@
-//! One side of one measured session: obtain the side's replica, open or
-//! accept the TCP connection, gossip once, and report what was measured.
+//! One side of one measured session: obtain the side's replica, open or accept
+//! the TCP connection, gossip once, and report what was measured.
 //!
-//! The same code runs in both modes. In emulation mode the orchestrator
-//! starts a peer process per side inside the side's network namespace and
-//! talks to it over its standard input and output; in pair mode the `serve`
-//! and `connect` commands drive it over a control connection. Either way
-//! the conversation is one JSON document per line, in this order:
+//! The same code runs in both modes. In emulation mode the orchestrator starts
+//! a peer process per side inside the side's network namespace and talks to it
+//! over its standard input and output; in pair mode the `serve` and `connect`
+//! commands drive it over a control connection. Either way the conversation is
+//! one JSON document per line, in this order:
 //!
-//! 1. the driver sends both sides [`Command::Setup`]. Side A builds the
-//!    pair and answers [`Reply::Built`]; side B answers [`Reply::Ready`];
-//! 2. side A receives [`Command::Serve`], answers [`Reply::Listening`],
-//!    serves side B's replica to one connection, frees it, and answers
-//!    [`Reply::Served`]; side B receives [`Command::Fetch`], joins its
-//!    replica over that connection, and answers [`Reply::Fetched`]. The
-//!    driver compares the fingerprints and, in emulation mode, shapes the
-//!    link only now, so the transfer runs at the kernel's speed. Both
-//!    sides then wait, idle, for as long as the driver takes to send the
-//!    next command: in a run, until the session's turn to be timed;
-//! 3. side A receives [`Command::Listen`] and answers
-//!    [`Reply::Listening`]; side B receives [`Command::Connect`]. Both
-//!    gossip once over the new connection and answer [`Reply::Finished`].
+//! 1. the driver sends both sides [`Command::Setup`]. Side A builds the pair
+//!    and answers [`Reply::Built`]; side B answers [`Reply::Ready`];
+//! 2. side A receives [`Command::Serve`], answers [`Reply::Listening`], serves
+//!    side B's replica to one connection, frees it, and answers
+//!    [`Reply::Served`]; side B receives [`Command::Fetch`], joins its replica
+//!    over that connection, and answers [`Reply::Fetched`]. The driver compares
+//!    the fingerprints and, in emulation mode, shapes the link only now, so the
+//!    transfer runs at the kernel's speed. Both sides then wait, idle, for as
+//!    long as the driver takes to send the next command: in a run, until the
+//!    session's turn to be timed;
+//! 3. side A receives [`Command::Listen`] and answers [`Reply::Listening`];
+//!    side B receives [`Command::Connect`]. Both gossip once over the new
+//!    connection and answer [`Reply::Finished`].
 
 use std::io::{BufRead, Write};
 use std::net::SocketAddr;
@@ -49,8 +49,8 @@ pub enum Command {
         /// Bytes each side sends the other before a warm session.
         warm_bytes: u64,
     },
-    /// Side A: listen on this address (port 0 picks a free port) and serve
-    /// side B's replica to the first connection.
+    /// Side A: listen on this address (port 0 picks a free port) and serve side
+    /// B's replica to the first connection.
     Serve {
         /// The address to bind.
         address: SocketAddr,
@@ -152,17 +152,18 @@ impl From<SessionStats> for Stats {
 /// What one side measured over its session.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Outcome {
-    /// Wall seconds from the start of the session (for side B, the start of
-    /// its `connect`; for a warm session, the end of the warm-up) until its
+    /// Wall seconds from the start of the session (for side B, the start of its
+    /// `connect`; for a warm session, the end of the warm-up) until its
     /// `gossip_once` returned.
     pub wall_seconds: f64,
-    /// Wall seconds side B's `connect` took, which [`wall_seconds`](Self::wall_seconds)
-    /// includes: one round trip on a fresh connection. Zero on side A and on
-    /// a warm connection, whose session starts after the connect.
+    /// Wall seconds side B's `connect` took, which
+    /// [`wall_seconds`](Self::wall_seconds) includes: one round trip on a fresh
+    /// connection. Zero on side A and on a warm connection, whose session
+    /// starts after the connect.
     pub connect_seconds: f64,
     /// What this side's socket saw during the session, session setup and
-    /// completion included: bytes each way, and the write and read
-    /// operations beneath every buffer and TLS.
+    /// completion included: bytes each way, and the write and read operations
+    /// beneath every buffer and TLS.
     pub socket: SocketCounts,
     /// The library's counters.
     pub stats: Stats,
@@ -170,8 +171,8 @@ pub struct Outcome {
     pub usage: Usage,
     /// The live messages this side holds after the session.
     pub live_after: u64,
-    /// The memory budget this side's peer runs its sessions at, as the
-    /// library reports it in
+    /// The memory budget this side's peer runs its sessions at, as the library
+    /// reports it in
     /// [`SynchronizationSettings`](rumors::SynchronizationSettings).
     pub effective_budget: u64,
     /// Why the session failed, if it did.
@@ -182,9 +183,9 @@ pub struct Outcome {
 ///
 /// # Errors
 ///
-/// If the control channel fails or carries something out of order. A
-/// failure of the session itself is not an error here: it is reported to
-/// the driver as [`Reply::Finished`] with [`Outcome::error`] set.
+/// If the control channel fails or carries something out of order. A failure of
+/// the session itself is not an error here: it is reported to the driver as
+/// [`Reply::Finished`] with [`Outcome::error`] set.
 pub fn serve_one(control_in: &mut impl BufRead, control_out: &mut impl Write) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -324,14 +325,13 @@ async fn bind(address: SocketAddr) -> Result<TcpListener> {
 /// Gossips once over `stream`, through the point's transport stack, and
 /// measures it.
 ///
-/// `connect_seconds` is the time side B already spent connecting: the
-/// session's wall time counts from the start of the connect on a fresh
-/// connection, as an application that connects to synchronize sees it. A
-/// TLS handshake belongs to connecting: side B's connect time includes it,
-/// and side A's clock starts after it. On a warm connection, `warm_bytes`
-/// first cross each way beneath the read buffer, and both clocks start
-/// after them ([`establish`] orders the warm-up so the socket's tally
-/// counts none of it).
+/// `connect_seconds` is the time side B already spent connecting: the session's
+/// wall time counts from the start of the connect on a fresh connection, as an
+/// application that connects to synchronize sees it. A TLS handshake belongs to
+/// connecting: side B's connect time includes it, and side A's clock starts
+/// after it. On a warm connection, `warm_bytes` first cross each way beneath
+/// the read buffer, and both clocks start after them ([`establish`] orders the
+/// warm-up so the socket's tally counts none of it).
 async fn session(
     rumors: &rumors::Rumors<fixture::Payload>,
     stream: TcpStream,

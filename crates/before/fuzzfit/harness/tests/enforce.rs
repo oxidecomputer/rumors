@@ -31,8 +31,8 @@ use fuzzfit_harness::fit::{fit, line_divergence, FIT_FLOOR_BITS};
 use fuzzfit_harness::strategies::{any_program, build, Family, ESCALATION_REPLAYS};
 use fuzzfit_harness::wasm::{guest_wasm_path, Guest};
 
-/// Checks one program's pointwise fuel and within-case growth, panicking on
-/// any violation.
+/// Checks one program's pointwise fuel and within-case growth, panicking on any
+/// violation.
 fn judge(samples: &[Sample]) {
     let mut by_key: BTreeMap<(&'static str, bool), Vec<(u64, u64)>> = BTreeMap::new();
     for s in samples {
@@ -192,8 +192,8 @@ fn fuel_metering_is_live() {
     );
 }
 
-/// A version tick after a fixed exchange has identical fuel and result bytes
-/// in fresh guest instances, including the input codecs and no-op overhead.
+/// A version tick after a fixed exchange has identical fuel and result bytes in
+/// fresh guest instances, including the input codecs and no-op overhead.
 #[test]
 fn version_tick_fuel_is_deterministic_across_fresh_guests() {
     let mut alice = Clock::seed();
@@ -276,11 +276,10 @@ fn a_live_quadratic_reads_above_a_linear_band() {
 
 /// Ensures the current compiler matches the one used to derive the bands.
 ///
-/// Fuel constants are a function of the guest codegen, which is a
-/// function of the compiler, so judging against bands pinned under a
-/// different toolchain compares incommensurable numbers. A toolchain
-/// bump fails here until the bands are re-pinned
-/// (`just fuzzfit-calibrate`).
+/// Fuel constants are a function of the guest codegen, which is a function of
+/// the compiler, so judging against bands pinned under a different toolchain
+/// compares incommensurable numbers. A toolchain bump fails here until the
+/// bands are re-pinned (`just fuzzfit-calibrate`).
 #[test]
 fn building_toolchain_matches_the_pin() {
     assert_eq!(
@@ -292,11 +291,11 @@ fn building_toolchain_matches_the_pin() {
 
 /// Ensures the guest embeds no path under the home directory.
 ///
-/// The guest embeds source paths (panic locations), and their lengths shift
-/// its memory layout and so its fuel. `just fuzzfit-build` maps every
-/// host-specific prefix to a fixed one, so a path under the home directory
-/// means the guest was built without that mapping, and its fuel, and any
-/// bands calibrated from it, depend on the host that built it.
+/// The guest embeds source paths (panic locations), and their lengths shift its
+/// memory layout and so its fuel. `just fuzzfit-build` maps every host-specific
+/// prefix to a fixed one, so a path under the home directory means the guest
+/// was built without that mapping, and its fuel, and any bands calibrated from
+/// it, depend on the host that built it.
 #[test]
 fn guest_embeds_no_home_path() {
     let path = guest_wasm_path();
@@ -314,14 +313,14 @@ fn guest_embeds_no_home_path() {
 
 /// The deterministic prefix exercises and refits every main pinned band.
 ///
-/// Every step in the first [`REFIT_PREFIX_PROGRAMS`] programs receives the
-/// same pointwise and trend checks as a generated case. This makes the
-/// corpus's operation-by-size coverage deterministic while generated cases
-/// continue exploring new shapes.
+/// Every step in the first [`REFIT_PREFIX_PROGRAMS`] programs receives the same
+/// pointwise and trend checks as a generated case. This makes the corpus's
+/// operation-by-size coverage deterministic while generated cases continue
+/// exploring new shapes.
 ///
-/// The test also refits the corpus. Every key in [`BANDS`] must
-/// remain measurable, retain its constant-or-linear classification, and
-/// agree with its pinned line within [`REFIT_TOLERANCE`].
+/// The test also refits the corpus. Every key in [`BANDS`] must remain
+/// measurable, retain its constant-or-linear classification, and agree with its
+/// pinned line within [`REFIT_TOLERANCE`].
 #[test]
 fn the_deterministic_prefix_exercises_every_band_and_matches_the_pin() {
     assert!(!BANDS.is_empty(), "no operation fuel bands are pinned");
@@ -365,8 +364,8 @@ fn the_deterministic_prefix_exercises_every_band_and_matches_the_pin() {
     }
 }
 
-/// Every fixed escalation replay satisfies the applicable fuel bounds,
-/// covering the mid-depth and depth-cap inputs with distinct seeds.
+/// Every fixed escalation replay satisfies the applicable fuel bounds, covering
+/// the mid-depth and depth-cap inputs with distinct seeds.
 #[test]
 fn the_escalated_regime_stays_in_the_pinned_bands() {
     for (depth, seed) in ESCALATION_REPLAYS {

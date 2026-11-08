@@ -36,8 +36,8 @@ const MAX_HEAL_ROUNDS: usize = 16;
 
 // ---- the gated bookmark ------------------------------------------------------
 
-/// An in-memory bookmark that can pause before or after a durable write.
-/// Tests wait for `entered`, inspect the paused state, then release or cancel it.
+/// An in-memory bookmark that can pause before or after a durable write. Tests
+/// wait for `entered`, inspect the paused state, then release or cancel it.
 #[derive(Clone, Debug)]
 struct GatedBookmark {
     /// Bytes that survive a cancelled session or a dropped peer.
@@ -52,7 +52,8 @@ struct GatedBookmark {
     release: Arc<Notify>,
     /// Fail the Nth `store` call from now (1 = the very next); 0 = disarmed.
     fail_at: Arc<AtomicUsize>,
-    /// Let the scheduled failing write replace storage before reporting its error.
+    /// Let the scheduled failing write replace storage before reporting its
+    /// error.
     fail_after_write: Arc<AtomicBool>,
 }
 
@@ -117,7 +118,8 @@ impl Bookmark for GatedBookmark {
     /// Owned reader over the durable bytes.
     type Reader = std::io::Cursor<Vec<u8>>;
 
-    /// Read the current complete record, whether or not its write returned `Ok`.
+    /// Read the current complete record, whether or not its write returned
+    /// `Ok`.
     async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
     }
@@ -318,8 +320,8 @@ const M0: Msg = 0;
 /// Message committed after the gated session fixes its snapshot.
 const M1: Msg = 1;
 
-/// Replicate M0 from the first peer of the network `network` names, then
-/// send M1 while A's next session is checkpointing its snapshot.
+/// Replicate M0 from the first peer of the network `network` names, then send
+/// M1 while A's next session is checkpointing its snapshot.
 async fn transmit_during_persist(network: NetworkSeed) -> Scene {
     let store_a = DurableStore::default();
     let bm_a = GatedBookmark::new(store_a.clone());

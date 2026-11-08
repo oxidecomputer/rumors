@@ -1,9 +1,9 @@
 //! Validates canonical party trees.
 //!
 //! Validation reads one tree from a sequential bit reader. It records whether
-//! each completed child is wholly owned, because a branch with two wholly
-//! owned children must collapse to one owned region. Two bits per unfinished
-//! branch retain exactly the state needed to enforce that rule, keeping memory
+//! each completed child is wholly owned, because a branch with two wholly owned
+//! children must collapse to one owned region. Two bits per unfinished branch
+//! retain exactly the state needed to enforce that rule, keeping memory
 //! proportional to the input even for deeply nested trees.
 
 mod frames;

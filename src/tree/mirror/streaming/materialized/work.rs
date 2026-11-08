@@ -24,8 +24,8 @@ mod queues;
 mod quota;
 mod resolver;
 
-/// Named for the documentation of `LaterMatches`, which links the covered
-/// set's net price.
+/// Named for the documentation of `LaterMatches`, which links the covered set's
+/// net price.
 #[cfg(doc)]
 pub(crate) use charges::covered_set_price;
 #[cfg(any(test, feature = "test-internals"))]
@@ -80,8 +80,7 @@ where
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
     /// Records progress-critical publications for tests.
     progress: Progress,
-    /// The endpoint's ledger, which every item the walk builds is charged
-    /// to.
+    /// The endpoint's ledger, which every item the walk builds is charged to.
     ledger: Ledger,
     /// The network's keys, whose hash key the digests the walk lists and
     /// compares are cached under ([`hash_key`](super::hash_key)).
@@ -136,7 +135,8 @@ where
         self.stats.clone()
     }
 
-    /// Drive a response stream independently and expose its replies at height `H`.
+    /// Drive a response stream independently and expose its replies at height
+    /// `H`.
     ///
     /// The stream is a stage's walk, whose allocations outside the places it
     /// marks itself are its resolutions' for the session-budget meter
@@ -176,11 +176,11 @@ where
             })));
     }
 
-    /// Drive every registered task and the terminal output to completion,
-    /// then credit the session's stats with the units its ledger made wait.
+    /// Drive every registered task and the terminal output to completion, then
+    /// credit the session's stats with the units its ledger made wait.
     ///
-    /// Every unit the walk builds is admitted by one of the tasks, so once
-    /// they complete the ledger's count is the session's.
+    /// Every unit the walk builds is admitted by one of the tasks, so once they
+    /// complete the ledger's count is the session's.
     pub async fn execute<O>(
         self,
         finish: BoxFuture<'static, Result<O, Error<B::Error>>>,

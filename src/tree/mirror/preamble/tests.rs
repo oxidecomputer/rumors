@@ -9,8 +9,8 @@ use crate::network::NETWORK_BYTES;
 use crate::observe::SessionHandle;
 use crate::{Network, Protocol};
 
-/// Construct a fully received V2 preamble with one caller-selected raw
-/// byte in the intent item's place.
+/// Construct a fully received V2 preamble with one caller-selected raw byte in
+/// the intent item's place.
 fn staged(network: Network, intent: u8) -> Staged {
     let encoded = Preamble {
         network,
@@ -24,10 +24,9 @@ fn staged(network: Network, intent: u8) -> Staged {
     staged
 }
 
-/// The V2 preamble's pinned prefix literal is exactly what the head
-/// writers render for the self-described tag, the four-item array, and
-/// the text `"rumors"`: the validation constant cannot drift from the
-/// encoder.
+/// The V2 preamble's pinned prefix literal is exactly what the head writers
+/// render for the self-described tag, the four-item array, and the text
+/// `"rumors"`: the validation constant cannot drift from the encoder.
 #[test]
 fn prefix_matches_the_writers() {
     use crate::tree::mirror::cbor::{self, MAJOR_ARRAY, MAJOR_TEXT};
@@ -95,9 +94,9 @@ fn fragmented_exchange_is_symmetric() {
     );
 }
 
-/// A bootstrapping peer's preamble carries its key item after it: the
-/// exchange returns the item whole, and a stream that ends anywhere inside
-/// it is a read failure for a truncated stream, never a hang.
+/// A bootstrapping peer's preamble carries its key item after it: the exchange
+/// returns the item whole, and a stream that ends anywhere inside it is a read
+/// failure for a truncated stream, never a hang.
 #[test]
 fn a_bootstrap_preamble_brings_its_key_item() {
     let joining = crate::tree::mirror::secret::Joining::new();
@@ -134,12 +133,11 @@ fn a_bootstrap_preamble_brings_its_key_item() {
     }
 }
 
-/// Intent decoding is exhaustive over the raw byte in the intent item's
-/// place.
+/// Intent decoding is exhaustive over the raw byte in the intent item's place.
 ///
-/// The two defined values are accepted, other small uint items are the
-/// intent rejection, and bytes that are no one-byte uint item at
-/// all are the malformed-preamble class.
+/// The two defined values are accepted, other small uint items are the intent
+/// rejection, and bytes that are no one-byte uint item at all are the
+/// malformed-preamble class.
 #[test]
 fn intent_byte_space_is_exhaustive() {
     let network = Network::from_bytes([1; NETWORK_BYTES]);
@@ -162,11 +160,11 @@ fn intent_byte_space_is_exhaustive() {
     }
 }
 
-/// A peer that closes the connection at any point inside the preamble
-/// surfaces the truncation error, never a hang and never a partial decode.
+/// A peer that closes the connection at any point inside the preamble surfaces
+/// the truncation error, never a hang and never a partial decode.
 ///
-/// Every strict prefix of the fixed item is a structurally distinct
-/// truncation, so the whole prefix space is swept, each cut resolving to
+/// Every strict prefix of the fixed item is a structurally distinct truncation,
+/// so the whole prefix space is swept, each cut resolving to
 /// [`Error::Truncated`] carrying the exact byte counts of the cut.
 #[test]
 fn every_truncation_boundary_is_typed() {
@@ -209,9 +207,9 @@ fn every_truncation_boundary_is_typed() {
 /// A wrong magic is diagnosed first, before any other field is judged.
 ///
 /// The item here is wrong in every field and must still surface
-/// [`Error::MagicMismatch`] carrying the leading remote bytes: the
-/// diagnostic order promised by the module docs puts "not a rumors
-/// stream" ahead of "wrong dialect".
+/// [`Error::MagicMismatch`] carrying the leading remote bytes: the diagnostic
+/// order promised by the module docs puts "not a rumors stream" ahead of "wrong
+/// dialect".
 #[test]
 fn magic_mismatch_is_diagnosed_first() {
     let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0xFF);
@@ -229,10 +227,10 @@ fn magic_mismatch_is_diagnosed_first() {
 
 /// A wrong wire version is diagnosed before the semantic fields.
 ///
-/// With a correct opening but a foreign version, the item's (invalid)
-/// intent must never be reached: the rejection is
-/// [`Error::VersionMismatch`] carrying the remote's declared version, so a
-/// dialect skew is reported as such rather than as a garbled body.
+/// With a correct opening but a foreign version, the item's (invalid) intent
+/// must never be reached: the rejection is [`Error::VersionMismatch`] carrying
+/// the remote's declared version, so a dialect skew is reported as such rather
+/// than as a garbled body.
 #[test]
 fn version_mismatch_is_diagnosed_before_intent() {
     let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0xFF);
@@ -335,8 +333,8 @@ proptest! {
     }
 }
 
-/// The bootstrap placeholder composes only with remain intent; retirement
-/// would promise both receiving and donating an identity in one session.
+/// The bootstrap placeholder composes only with remain intent; retirement would
+/// promise both receiving and donating an identity in one session.
 #[test]
 fn bootstrap_intent_matrix_is_exhaustive() {
     assert_eq!(
@@ -352,9 +350,9 @@ fn bootstrap_intent_matrix_is_exhaustive() {
     ));
 }
 
-/// A version item that is not an unsigned int is the typed version
-/// defect: a negative-int head in the version item's place fails the
-/// major-type filter, and the defect names the version field.
+/// A version item that is not an unsigned int is the typed version defect: a
+/// negative-int head in the version item's place fails the major-type filter,
+/// and the defect names the version field.
 #[test]
 fn version_item_wrong_major_is_the_version_defect() {
     let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0);
@@ -374,12 +372,11 @@ fn version_item_wrong_major_is_the_version_defect() {
     );
 }
 
-/// A widened spelling of the correct version value is the typed version
-/// defect.
+/// A widened spelling of the correct version value is the typed version defect.
 ///
-/// The wire admits one spelling per value, so `0x18 0x02` (a two-byte
-/// head for 2) is rejected as non-canonical before its value is compared
-/// against the dialect.
+/// The wire admits one spelling per value, so `0x18 0x02` (a two-byte head for
+/// 2) is rejected as non-canonical before its value is compared against the
+/// dialect.
 #[test]
 fn widened_version_spelling_is_the_version_defect() {
     let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0);
@@ -396,9 +393,9 @@ fn widened_version_spelling_is_the_version_defect() {
     );
 }
 
-/// A network item that is not a 16-byte byte string is the network
-/// defect: a byte-string head declaring 17 bytes fails the length filter,
-/// and the defect names the network field.
+/// A network item that is not a 16-byte byte string is the network defect: a
+/// byte-string head declaring 17 bytes fails the length filter, and the defect
+/// names the network field.
 #[test]
 fn network_item_wrong_length_is_the_network_defect() {
     let mut wrong = staged(Network::from_bytes([1; NETWORK_BYTES]), 0);

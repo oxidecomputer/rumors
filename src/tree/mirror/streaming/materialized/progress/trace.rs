@@ -9,8 +9,8 @@ pub enum Kind {
     /// An outgoing reply's wire action for a scope, at its first chunk,
     /// recorded before its internal twin.
     Wire,
-    /// The wire action of a later chunk of the scope's reply, recorded
-    /// before the question it ends at.
+    /// The wire action of a later chunk of the scope's reply, recorded before
+    /// the question it ends at.
     Chunk,
     /// The initiator's single root query.
     InitialQuery,
@@ -53,43 +53,42 @@ impl Trace {
         &self.0
     }
 
-    /// Check the publication order that keeps the walk live and correctly paired.
+    /// Check the publication order that keeps the walk live and correctly
+    /// paired.
     ///
     /// - **wire before internal publication**: every internal publication
     ///   consumes a prior wire action for its scope;
     /// - **resolution before dependent work**: dependent work follows its
     ///   scope's resolution, exactly `pending` items per resolution;
     /// - **chunk before its question**: a reply's later chunks follow its
-    ///   resolution, and the k-th question a scope sends down follows the
-    ///   k-th chunk of its reply;
-    /// - **lower resolutions before parent**: a parent resolution follows
-    ///   the lower resolutions it counts;
+    ///   resolution, and the k-th question a scope sends down follows the k-th
+    ///   chunk of its reply;
+    /// - **lower resolutions before parent**: a parent resolution follows the
+    ///   lower resolutions it counts;
     /// - **sibling contiguity**: a resolution may not arrive while an
     ///   already-resolved sibling still owes dependent work;
-    /// - **wire contiguity**: a wire may not depart while an earlier
-    ///   disputed sibling is unresolved or any resolved sibling still owes
-    ///   dependent work;
+    /// - **wire contiguity**: a wire may not depart while an earlier disputed
+    ///   sibling is unresolved or any resolved sibling still owes dependent
+    ///   work;
     /// - **radix order**: each event kind leaves a parent scope in strictly
     ///   increasing radix order;
     /// - **parent placement**: a parent resolution is its scope's last
-    ///   publication — it may not depart while any wire of its scope is
-    ///   unsent, any disputed child's resolution is unsent, or any
-    ///   resolved child's dependent-work quota is unfilled.
+    ///   publication — it may not depart while any wire of its scope is unsent,
+    ///   any disputed child's resolution is unsent, or any resolved child's
+    ///   dependent-work quota is unfilled.
     ///
     /// Sibling and wire contiguity keep a stage from handing on one scope's
     /// work while it withholds work a resolved sibling still owes. A scope's
     /// own chunks may each depart while it owes dependent work: each chunk's
-    /// question follows it.
-    /// Radix order preserves positional pairing because protocol items do not
-    /// carry their scope keys. Parent-last placement keeps a parent summary
-    /// behind everything its scope publishes.
+    /// question follows it. Radix order preserves positional pairing because
+    /// protocol items do not carry their scope keys. Parent-last placement
+    /// keeps a parent summary behind everything its scope publishes.
     ///
     /// These are the invariants the walk's progress relies on. Every completed
-    /// session in the suites passes this validator, which is empirical
-    /// evidence that the walk keeps them, not a proof that it cannot
-    /// deadlock; the [`remote::pipe`](crate::tree::mirror::streaming::remote::pipe)
-    /// module docs give the argument that one shared pipe cannot deadlock the
-    /// walk.
+    /// session in the suites passes this validator, which is empirical evidence
+    /// that the walk keeps them, not a proof that it cannot deadlock; the
+    /// [`remote::pipe`](crate::tree::mirror::streaming::remote::pipe) module
+    /// docs give the argument that one shared pipe cannot deadlock the walk.
     pub fn assert_valid(&self) {
         self.assert_valid_with_wire_contiguity(true);
         self.assert_parent_last();
@@ -97,17 +96,17 @@ impl Trace {
 
     /// Check every invariant except wire contiguity.
     ///
-    /// This keeps sibling contiguity independently falsifiable even though
-    /// wire contiguity subsumes it on a complete, valid trace.
+    /// This keeps sibling contiguity independently falsifiable even though wire
+    /// contiguity subsumes it on a complete, valid trace.
     pub(super) fn assert_valid_without_wire_contiguity(&self) {
         self.assert_valid_with_wire_contiguity(false);
     }
 
     /// Check that each parent summary follows all work needed to assemble it.
     ///
-    /// This is the parent-last invariant: every wire,
-    /// disputed-child resolution, and dependent work item owned by a scope
-    /// must precede that scope's parent resolution.
+    /// This is the parent-last invariant: every wire, disputed-child
+    /// resolution, and dependent work item owned by a scope must precede that
+    /// scope's parent resolution.
     pub(super) fn assert_parent_last(&self) {
         // The complete trace identifies disputed children and each scope's
         // last wire; neither is known when the parent event is recorded.

@@ -2,11 +2,11 @@
 //! configurable one-way wire delay.
 //!
 //! [`crate::bench::latency::delayed_pair`] mirrors the topology of
-//! [`rumors::testing::memory_connection`], one pipe per direction, but
-//! builds each direction from a *delayed pipe*: bytes written at instant
-//! `t` become readable at `t + delay`, under a byte-bounded in-flight
-//! window. `delay` is the connection's one-way latency, so a blocking
-//! request/response exchange pays `2 * delay`.
+//! [`rumors::testing::memory_connection`], one pipe per direction, but builds
+//! each direction from a *delayed pipe*: bytes written at instant `t` become
+//! readable at `t + delay`, under a byte-bounded in-flight window. `delay` is
+//! the connection's one-way latency, so a blocking request/response exchange
+//! pays `2 * delay`.
 //!
 //! # The measurement model
 //!
@@ -16,58 +16,56 @@
 //! runtime's one thread has no ready task left and parks on its own timer
 //! driver. A session's cost splits into two components:
 //!
-//! - the *virtual* component: time the session spent with every task
-//!   blocked on the wire — `delay` times the length of the session's
-//!   longest serialized chain of hops.
-//!   Compute costs zero virtual time, no thread outside the runtime
-//!   participates, and the library arms no timers of its own, so the
-//!   figure is a deterministic function of the session shape: OS
-//!   descheduling can starve the thread of CPU, never convince the
-//!   runtime that a pending task is idle, so machine load cannot move
-//!   it. Every pipe deadline is `delay` past an instant that is itself
-//!   a whole number of delays past the runtime's epoch, so the figure
-//!   lands on the delay lattice: dividing by `delay` reads serialized
-//!   one-way hops exactly. [`crate::bench::latency::DelayedWire::round_trip_virtual`] reports
-//!   this component alone; it is the load-independent measurement the budget
-//!   and hop-trace suites pin their bounds on.
+//! - the *virtual* component: time the session spent with every task blocked on
+//!   the wire — `delay` times the length of the session's longest serialized
+//!   chain of hops. Compute costs zero virtual time, no thread outside the
+//!   runtime participates, and the library arms no timers of its own, so the
+//!   figure is a deterministic function of the session shape: OS descheduling
+//!   can starve the thread of CPU, never convince the runtime that a pending
+//!   task is idle, so machine load cannot move it. Every pipe deadline is
+//!   `delay` past an instant that is itself a whole number of delays past the
+//!   runtime's epoch, so the figure lands on the delay lattice: dividing by
+//!   `delay` reads serialized one-way hops exactly.
+//!   [`crate::bench::latency::DelayedWire::round_trip_virtual`] reports this
+//!   component alone; it is the load-independent measurement the budget and
+//!   hop-trace suites pin their bounds on.
 //! - the *wall* component: real CPU time spent computing — both peers
 //!   serialized on one thread, as in the zero-latency harness. It moves with
 //!   machine load.
 //!
-//! Each peer runs in its own task because an application runs each peer in
-//! its own task, so a wake polls only the peer it is for. Joined into one
-//! task, the two peers would both be polled on every wake of either: each
-//! wake of the busy peer would re-poll the idle one, adding wall time that
-//! belongs to neither peer's work. Separate tasks change the order in which
-//! the work ready at one virtual instant runs, never when the clock moves
-//! on, which waits until no task is ready.
+//! Each peer runs in its own task because an application runs each peer in its
+//! own task, so a wake polls only the peer it is for. Joined into one task, the
+//! two peers would both be polled on every wake of either: each wake of the
+//! busy peer would re-poll the idle one, adding wall time that belongs to
+//! neither peer's work. Separate tasks change the order in which the work ready
+//! at one virtual instant runs, never when the clock moves on, which waits
+//! until no task is ready.
 //!
-//! [`crate::bench::latency::DelayedWire::round_trip`] reports their sum, which approximates
-//! session completion time on a connection with the given latency (an
-//! overestimate insofar as a real deployment overlaps one peer's compute
-//! with the other's wait). At `delay = 0` the virtual component vanishes
-//! and the sum degenerates to the zero-latency harness's wall measure. A
-//! sweep over `delay` separates the two costs in expectation — the
-//! intercept is computational overhead, the slope is latency sensitivity
-//! — which suits the benches, where load noise averages out across
-//! samples; assertions belong on the virtual figure instead. On the
-//! [`new_wall_clock`](crate::bench::latency::DelayedWire::new_wall_clock) cross-check variant
-//! the clocks coincide, and [`crate::bench::latency::DelayedWire::round_trip`]'s report is real
-//! elapsed time alone.
+//! [`crate::bench::latency::DelayedWire::round_trip`] reports their sum, which
+//! approximates session completion time on a connection with the given latency
+//! (an overestimate insofar as a real deployment overlaps one peer's compute
+//! with the other's wait). At `delay = 0` the virtual component vanishes and
+//! the sum degenerates to the zero-latency harness's wall measure. A sweep over
+//! `delay` separates the two costs in expectation — the intercept is
+//! computational overhead, the slope is latency sensitivity — which suits the
+//! benches, where load noise averages out across samples; assertions belong on
+//! the virtual figure instead. On the
+//! [`new_wall_clock`](crate::bench::latency::DelayedWire::new_wall_clock)
+//! cross-check variant the clocks coincide, and
+//! [`crate::bench::latency::DelayedWire::round_trip`]'s report is real elapsed
+//! time alone.
 //!
-//! Tokio's timer wheel has millisecond granularity, so arrival deadlines
-//! round up to the next millisecond: choose whole-millisecond delays.
+//! Tokio's timer wheel has millisecond granularity, so arrival deadlines round
+//! up to the next millisecond: choose whole-millisecond delays.
 //!
-//! The `capacity` argument bounds bytes in flight per direction (written
-//! but not yet read), which models a receive window: sustained throughput
-//! in each direction is capped at `capacity / delay`. Pass a capacity
-//! comfortably above the largest one-direction transfer to isolate
-//! round-trip structure from bandwidth-delay throttling, or a tight one to
-//! study the window.
+//! The `capacity` argument bounds bytes in flight per direction (written but
+//! not yet read), which models a receive window: sustained throughput in each
+//! direction is capped at `capacity / delay`. Pass a capacity comfortably above
+//! the largest one-direction transfer to isolate round-trip structure from
+//! bandwidth-delay throttling, or a tight one to study the window.
 //!
-//! The two directions are separate pipes, so each progresses independently
-//! and buffers at most `capacity` bytes, as the transport requirements
-//! demand.
+//! The two directions are separate pipes, so each progresses independently and
+//! buffers at most `capacity` bytes, as the transport requirements demand.
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -85,8 +83,8 @@ use tokio::time::{Instant, Sleep};
 struct Chunk {
     arrives: Instant,
     data: Vec<u8>,
-    /// Bytes of `data` already consumed by the reader (partial reads split
-    /// a chunk without re-queueing).
+    /// Bytes of `data` already consumed by the reader (partial reads split a
+    /// chunk without re-queueing).
     read: usize,
 }
 
@@ -125,16 +123,16 @@ pub struct DelayedWriter {
 /// The read half of a delayed pipe: bytes surface `delay` after the write.
 pub struct DelayedReader {
     shared: Arc<Mutex<Shared>>,
-    /// Timer armed for the head chunk's arrival. Created lazily on first
-    /// need: a `Sleep` must be created inside a runtime with a time driver,
-    /// and pipes are constructed outside one.
+    /// Timer armed for the head chunk's arrival. Created lazily on first need:
+    /// a `Sleep` must be created inside a runtime with a time driver, and pipes
+    /// are constructed outside one.
     timer: Option<Pin<Box<Sleep>>>,
 }
 
 /// Create one unidirectional delayed pipe.
 ///
-/// Bytes written become readable `delay` later; at most `capacity` bytes
-/// may be in flight (written but unread) before the writer blocks.
+/// Bytes written become readable `delay` later; at most `capacity` bytes may be
+/// in flight (written but unread) before the writer blocks.
 ///
 /// # Panics
 ///
@@ -283,18 +281,17 @@ impl AsyncRead for DelayedReader {
     }
 }
 
-/// One end of a delayed in-memory connection: the two halves a session
-/// takes.
+/// One end of a delayed in-memory connection: the two halves a session takes.
 pub struct DelayedEnd {
-    /// The read half, buffered as a session requires: the peer's writes
-    /// surface here `delay` late.
+    /// The read half, buffered as a session requires: the peer's writes surface
+    /// here `delay` late.
     pub read: BufReader<DelayedReader>,
     /// The write half.
     pub write: DelayedWriter,
 }
 
-/// Create a connected pair of in-memory connection ends with one-way
-/// latency `delay`.
+/// Create a connected pair of in-memory connection ends with one-way latency
+/// `delay`.
 ///
 /// Each direction is a delayed pipe with the given `capacity` and `delay`.
 pub fn delayed_pair(capacity: usize, delay: Duration) -> (DelayedEnd, DelayedEnd) {
@@ -315,20 +312,20 @@ pub fn delayed_pair(capacity: usize, delay: Duration) -> (DelayedEnd, DelayedEnd
 /// A persistent latency-injecting connection plus its paused-clock runtime.
 ///
 /// The counterpart of `wire::Wire` for the latency sweeps: one connection
-/// reused at clean session boundaries, each session's peers driven as two
-/// tasks on a current-thread runtime whose clock starts paused so pipe
-/// delays cost virtual — not wall — time.
+/// reused at clean session boundaries, each session's peers driven as two tasks
+/// on a current-thread runtime whose clock starts paused so pipe delays cost
+/// virtual — not wall — time.
 pub struct DelayedWire {
     runtime: tokio::runtime::Runtime,
-    /// The connection's ends, A's and then B's, between sessions: a
-    /// session's tasks own them while it runs.
+    /// The connection's ends, A's and then B's, between sessions: a session's
+    /// tasks own them while it runs.
     ends: Option<(DelayedEnd, DelayedEnd)>,
     /// Whether the runtime's clock started paused.
     ///
-    /// [`round_trip`](Self::round_trip) selects its cost model by this:
-    /// paused wires partition cost into disjoint wall and virtual
-    /// components; on a running clock the virtual component tracks the
-    /// real one, so only real elapsed time is reported.
+    /// [`round_trip`](Self::round_trip) selects its cost model by this: paused
+    /// wires partition cost into disjoint wall and virtual components; on a
+    /// running clock the virtual component tracks the real one, so only real
+    /// elapsed time is reported.
     paused: bool,
 }
 
@@ -362,12 +359,11 @@ impl DelayedWire {
 
     /// Reconcile one pair, returning the handles and the session's cost.
     ///
-    /// On the paused-clock default the reported duration is wall compute
-    /// plus virtual wire stall; see the [module docs](self) for the model
-    /// and its epistemic status. On a
-    /// [`new_wall_clock`](Self::new_wall_clock) wire the virtual clock
-    /// tracks the real one — the two components overlap instead of
-    /// partitioning — so the report is real elapsed time alone.
+    /// On the paused-clock default the reported duration is wall compute plus
+    /// virtual wire stall; see the [module docs](self) for the model and its
+    /// epistemic status. On a [`new_wall_clock`](Self::new_wall_clock) wire the
+    /// virtual clock tracks the real one — the two components overlap instead
+    /// of partitioning — so the report is real elapsed time alone.
     pub fn round_trip<T>(
         &mut self,
         a: Rumors<T>,
@@ -390,19 +386,19 @@ impl DelayedWire {
         (pair, elapsed)
     }
 
-    /// Reconcile one pair, returning the handles and the session's wire
-    /// cost alone: the virtual component, exact and load-independent.
+    /// Reconcile one pair, returning the handles and the session's wire cost
+    /// alone: the virtual component, exact and load-independent.
     ///
-    /// This is the measurement to assert on: a deterministic function of
-    /// the session shape, landing on the delay lattice, unmoved by
-    /// machine load (see the [module docs](self) for the argument).
+    /// This is the measurement to assert on: a deterministic function of the
+    /// session shape, landing on the delay lattice, unmoved by machine load
+    /// (see the [module docs](self) for the argument).
     ///
     /// # Panics
     ///
-    /// On a [`new_wall_clock`](Self::new_wall_clock) wire, where the
-    /// virtual clock tracks the real one and the component is wall time
-    /// in disguise: load-independence is the figure's contract, so a wire
-    /// that cannot honor it must refuse loudly.
+    /// On a [`new_wall_clock`](Self::new_wall_clock) wire, where the virtual
+    /// clock tracks the real one and the component is wall time in disguise:
+    /// load-independence is the figure's contract, so a wire that cannot honor
+    /// it must refuse loudly.
     pub fn round_trip_virtual<T>(
         &mut self,
         a: Rumors<T>,
@@ -424,9 +420,8 @@ impl DelayedWire {
     ///
     /// # Panics
     ///
-    /// If either peer's session fails, with that peer's panic; and on a
-    /// wire whose earlier session panicked, which kept the connection's
-    /// ends.
+    /// If either peer's session fails, with that peer's panic; and on a wire
+    /// whose earlier session panicked, which kept the connection's ends.
     fn reconcile<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> ((Rumors<T>, Rumors<T>), Duration)
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
@@ -448,8 +443,8 @@ impl DelayedWire {
     }
 }
 
-/// Gossip once over `end`, as one peer's task, handing back the peer and
-/// the end for the wire's next session.
+/// Gossip once over `end`, as one peer's task, handing back the peer and the
+/// end for the wire's next session.
 ///
 /// # Panics
 ///
@@ -468,9 +463,8 @@ where
     (peer, end)
 }
 
-/// The output of a peer's finished task, or its panic, resumed on the
-/// thread that joined it so the session's caller sees the peer's own
-/// message.
+/// The output of a peer's finished task, or its panic, resumed on the thread
+/// that joined it so the session's caller sees the peer's own message.
 fn finished<O>(joined: Result<O, tokio::task::JoinError>) -> O {
     joined.unwrap_or_else(|error| match error.try_into_panic() {
         Ok(panic) => std::panic::resume_unwind(panic),
@@ -482,8 +476,8 @@ fn finished<O>(joined: Result<O, tokio::task::JoinError>) -> O {
 ///
 /// Reconciles the pair over a fresh paused-clock wire with the given
 /// per-direction `capacity` and one-way `delay`, and reads the virtual wire
-/// cost as serialized one-way hops: deterministic and load-independent (see
-/// the [module docs](self) for the argument).
+/// cost as serialized one-way hops: deterministic and load-independent (see the
+/// [module docs](self) for the argument).
 pub fn session_hops<T>(capacity: usize, delay: Duration, (a, b): (Rumors<T>, Rumors<T>)) -> u32
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
@@ -497,12 +491,11 @@ where
 ///
 /// # Panics
 ///
-/// If `delay` is zero or not a whole number of milliseconds — Tokio's
-/// timer wheel quantizes below the millisecond, so no lattice exists
-/// there — or if `elapsed` is off the delay lattice: exactness is the
-/// invariant the measurement model rests on (see the
-/// [module docs](self)), so drift fails loudly instead of rounding
-/// silently.
+/// If `delay` is zero or not a whole number of milliseconds — Tokio's timer
+/// wheel quantizes below the millisecond, so no lattice exists there — or if
+/// `elapsed` is off the delay lattice: exactness is the invariant the
+/// measurement model rests on (see the [module docs](self)), so drift fails
+/// loudly instead of rounding silently.
 pub fn hops_on_lattice(elapsed: Duration, delay: Duration) -> u32 {
     // The timer wheel's grain: a lattice delay is a whole multiple.
     const WHEEL_GRAIN: Duration = Duration::from_millis(1);

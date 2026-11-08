@@ -28,41 +28,41 @@
 //! leaf's offset and the number of subtrees closed at that value. The range
 //! tracker reports when each distinct minimum begins and ends, in stack order,
 //! so a beginning pushes a record and an ending settles the top one. Most
-//! closes merely increment the top record's count; one multiplication settles
-//! a whole record.
+//! closes merely increment the top record's count; one multiplication settles a
+//! whole record.
 //!
 //! # Why the cost stays linear
 //!
 //! Every unit of work below is charged to input the event consumes or to a
-//! value it destroys, so no surviving wide value is read again for free.
-//! Every accumulator update here is at shift zero, so under `suanpan`'s [cost
+//! value it destroys, so no surviving wide value is read again for free. Every
+//! accumulator update here is at shift zero, so under `suanpan`'s [cost
 //! rules](suanpan#costs) it costs what it adds, never a logarithm of its
 //! receiver's storage, and every sign read costs amortized O(1). Each line
 //! below names the item whose documentation carries the local argument.
 //!
-//! - **A height change** is folded once into the live change `L` and once
-//!   into the range tracker's running height, each reading only the change.
+//! - **A height change** is folded once into the live change `L` and once into
+//!   the range tracker's running height, each reading only the change.
 //! - **A leaf** reads `L` only when `L`'s working width is within
-//!   [`UNREAD_FREEZE_BITS`](heights::UNREAD_FREEZE_BITS) of the leaf's
-//!   change, and keeps the value only when it is within
+//!   [`UNREAD_FREEZE_BITS`](heights::UNREAD_FREEZE_BITS) of the leaf's change,
+//!   and keeps the value only when it is within
 //!   [`RECORD_SLACK_BITS`](heights::RECORD_SLACK_BITS); otherwise it freezes.
-//!   The read and the addition of the offset into the answer therefore cost
-//!   the leaf's own change plus a constant, apart from cancellation the read
+//!   The read and the addition of the offset into the answer therefore cost the
+//!   leaf's own change plus a constant, apart from cancellation the read
 //!   compacts once ([`HeightReferences::add_leaf`]).
-//! - **A record** is written once when its minimum begins and read once when
-//!   it ends; no suspension or resumption moves it ([`Records`]). It holds an
+//! - **A record** is written once when its minimum begins and read once when it
+//!   ends; no suspension or resumption moves it ([`Records`]). It holds an
 //!   offset no wider than its leaf's change plus the slack, at a cost
 //!   proportional to that width ([`IntegerStack`](integers::IntegerStack)).
 //! - **A subtree close** increments the top record's count, or ends a minimum
 //!   and settles its record by one product with a word-sized count.
-//! - **The range tracker** moves boundaries and consumes each crossed one
-//!   once ([`RangeMinima`]).
+//! - **The range tracker** moves boundaries and consumes each crossed one once
+//!   ([`RangeMinima`]).
 //! - **A freeze** moves `L` into a new reference without reading it again.
 //!   Burying the previous top copies a chunk of at most
 //!   [`INLINE_CHUNK_BITS`](heights::INLINE_CHUNK_BITS) or moves a wider one
 //!   whole, a constant either way.
-//! - **A merge** reads only the narrower of two chunks and destroys it, so
-//!   the total stored width of live chunks pays for every merge
+//! - **A merge** reads only the narrower of two chunks and destroys it, so the
+//!   total stored width of live chunks pays for every merge
 //!   ([`HeightReferences`]).
 //! - **The final settlement** reads the last reference's chunk once.
 
@@ -130,10 +130,10 @@ impl SubtreeMinima {
 
     /// Close the innermost subtree and subtract its minimum from `total`.
     ///
-    /// If the parent has the same minimum, the current record continues. If
-    /// the parent has a lower minimum, the current record is settled and the
-    /// record below it, the parent's, becomes current. Closing the final
-    /// subtree settles the final record.
+    /// If the parent has the same minimum, the current record continues. If the
+    /// parent has a lower minimum, the current record is settled and the record
+    /// below it, the parent's, becomes current. Closing the final subtree
+    /// settles the final record.
     pub fn close_subtree(&mut self, total: &mut Accumulator, references: &mut HeightReferences) {
         // Charge this subtree to the leaf that supplied its minimum before
         // that record continues or is settled.

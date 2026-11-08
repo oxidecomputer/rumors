@@ -48,13 +48,11 @@ use crate::{Version, default};
 /// Bytes buffered by each direction of the pipe before backpressure applies.
 pub const TRANSPORT_CAPACITY: usize = 37;
 
-/// One endpoint's session failure, named by the participant that raised
-/// it.
+/// One endpoint's session failure, named by the participant that raised it.
 ///
-/// `MirrorError` names protocol positions; which position a participant
-/// holds is the [`Topology`]'s choice, so the harness reports by
-/// participant and the topology alone says who was client and who was
-/// server.
+/// `MirrorError` names protocol positions; which position a participant holds
+/// is the [`Topology`]'s choice, so the harness reports by participant and the
+/// topology alone says who was client and who was server.
 #[derive(Debug)]
 pub enum EndpointError<E> {
     /// The endpoint's materialized participant failed.
@@ -69,18 +67,17 @@ pub type EndpointFailure = EndpointError<Infallible>;
 /// How each endpoint pairs its materialized participant with its proxy.
 #[derive(Clone, Copy)]
 pub enum Topology {
-    /// What `Peer` runs: each materialized participant is the client of
-    /// its own proxy, so both proxies accept and exchange greetings
-    /// concurrently.
+    /// What `Peer` runs: each materialized participant is the client of its own
+    /// proxy, so both proxies accept and exchange greetings concurrently.
     Production,
-    /// The right endpoint's proxy connects and its materialized
-    /// participant accepts: the arrangement that pins the materialized
-    /// participant's behavior in the server position.
+    /// The right endpoint's proxy connects and its materialized participant
+    /// accepts: the arrangement that pins the materialized participant's
+    /// behavior in the server position.
     RightProxyConnects,
 }
 
-/// A backend whose roots convert to and from `tree::Root`: `Local`, and
-/// the failing wrapper over it.
+/// A backend whose roots convert to and from `tree::Root`: `Local`, and the
+/// failing wrapper over it.
 pub trait TreeBackend: Backend<Node<Z>: Leaf> + Clone + Send + Sync + 'static {
     /// Wrap a tree root in this backend's node type.
     fn lift(root: TreeRoot) -> Root<Self>;
@@ -122,8 +119,8 @@ impl TreeBackend for Failing<Local> {
     }
 }
 
-/// The four participants' backends: each endpoint's materialized
-/// participant and the proxy beside it.
+/// The four participants' backends: each endpoint's materialized participant
+/// and the proxy beside it.
 pub struct Backends<B> {
     /// The left materialized participant.
     pub left: B,
@@ -148,8 +145,8 @@ impl Backends<Local> {
     }
 }
 
-/// The payload codec for `T` at the default depth limit: the one every
-/// proxy in the partition decodes through.
+/// The payload codec for `T` at the default depth limit: the one every proxy in
+/// the partition decodes through.
 pub fn codec<T>() -> PayloadCodec
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -167,8 +164,8 @@ pub fn join_oracle(left: &TreeRoot, right: &TreeRoot) -> TreeRoot {
     joined.root
 }
 
-/// Build two trees from disjoint parties, each containing the requested
-/// number of unit messages.
+/// Build two trees from disjoint parties, each containing the requested number
+/// of unit messages.
 pub fn disjoint_pair(left_messages: usize, right_messages: usize) -> (TreeRoot, TreeRoot) {
     let build = |party, messages| {
         let mut tree = Tree::<()>::default();
@@ -276,8 +273,8 @@ struct ScriptState {
 
 /// Observation handle proving that a configured mutation was reached.
 ///
-/// The mutation fires once, on the first frame in pipe order that matches
-/// the selector.
+/// The mutation fires once, on the first frame in pipe order that matches the
+/// selector.
 #[derive(Clone)]
 pub struct Script(Arc<Mutex<ScriptState>>);
 
@@ -299,12 +296,12 @@ impl Script {
 
 /// A pipe writer which edits one complete frame.
 ///
-/// It splits the bytes written into CBOR items as they arrive, so it finds
-/// each frame's boundaries in the bytes themselves, however the writes and
-/// flushes fall. Items that are not frames (the greeting and closing
-/// items) pass through untouched. Complete items wait in the writer until
-/// a flush delivers them, as in a buffering writer, so a session that
-/// waited on its peer without flushing would stall here.
+/// It splits the bytes written into CBOR items as they arrive, so it finds each
+/// frame's boundaries in the bytes themselves, however the writes and flushes
+/// fall. Items that are not frames (the greeting and closing items) pass
+/// through untouched. Complete items wait in the writer until a flush delivers
+/// them, as in a buffering writer, so a session that waited on its peer without
+/// flushing would stall here.
 pub struct ScriptedWrite<W> {
     /// The write half that receives the resulting bytes.
     inner: W,
@@ -320,8 +317,7 @@ pub struct ScriptedWrite<W> {
 
 /// Construct a scripted pipe writer and apply its script to each item.
 impl<W> ScriptedWrite<W> {
-    /// Wrap a write half, applying `script` once if it reaches its
-    /// selector.
+    /// Wrap a write half, applying `script` once if it reaches its selector.
     pub fn new(inner: W, script: Option<Script>) -> Self {
         Self {
             inner,
@@ -332,8 +328,8 @@ impl<W> ScriptedWrite<W> {
         }
     }
 
-    /// Move every complete item at the front of `pending` to `output`,
-    /// applying the script to each.
+    /// Move every complete item at the front of `pending` to `output`, applying
+    /// the script to each.
     fn split_items(&mut self) {
         while let Some(len) = item_len(&self.pending) {
             let item: Vec<u8> = self.pending.drain(..len).collect();
@@ -342,8 +338,8 @@ impl<W> ScriptedWrite<W> {
         }
     }
 
-    /// Apply the selected mutation to one complete item, if the item is
-    /// the first frame to match the selector.
+    /// Apply the selected mutation to one complete item, if the item is the
+    /// first frame to match the selector.
     fn scripted(&self, item: Vec<u8>) -> Vec<u8> {
         let Some(script) = &self.script else {
             return item;
@@ -421,13 +417,13 @@ impl<W> ScriptedWrite<W> {
     }
 }
 
-/// Bytes of the complete CBOR item at the front of `bytes`, or `None`
-/// until its last byte has arrived.
+/// Bytes of the complete CBOR item at the front of `bytes`, or `None` until its
+/// last byte has arrived.
 ///
 /// Counts the items still owed instead of recursing: an array owes its
-/// elements, a map its keys and values, and a tag its content. Every item
-/// on the pipe is canonical, so a head that fails to parse is one that has
-/// not yet arrived whole.
+/// elements, a map its keys and values, and a tag its content. Every item on
+/// the pipe is canonical, so a head that fails to parse is one that has not yet
+/// arrived whole.
 fn item_len(bytes: &[u8]) -> Option<usize> {
     let mut input = bytes;
     let mut owed: u64 = 1;
@@ -492,12 +488,11 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
 /// Rewriting the *received* greeting simulates a non-conforming peer whose
 /// declaration disagrees with the traffic it then sends: the receiving side
 /// negotiates against the rewritten value while the sender behaves per its
-/// unchanged tree. Rewriting the received *version* instead makes the
-/// receiving side the non-conforming one: it filters what it supplies
-/// against a version its peer never declared. The greeting is the first
-/// item at this layer, so the rewriter buffers the one item, encodes it
-/// again with the field replaced, and passes everything after it through
-/// untouched.
+/// unchanged tree. Rewriting the received *version* instead makes the receiving
+/// side the non-conforming one: it filters what it supplies against a version
+/// its peer never declared. The greeting is the first item at this layer, so
+/// the rewriter buffers the one item, encodes it again with the field replaced,
+/// and passes everything after it through untouched.
 #[derive(Clone)]
 pub struct GreetingRewrite {
     /// Whether this rewrite reached a complete greeting.
@@ -553,8 +548,8 @@ impl GreetingRewrite {
         Self::new(GreetingField::Grandchildren(value))
     }
 
-    /// Rewrite every grandchild count in the received greeting's root
-    /// listing to `value`, which must lie in 1..=65,536.
+    /// Rewrite every grandchild count in the received greeting's root listing
+    /// to `value`, which must lie in 1..=65,536.
     pub fn listing_grandchildren(value: u64) -> Self {
         Self::new(GreetingField::ListingGrandchildren(value))
     }
@@ -562,9 +557,9 @@ impl GreetingRewrite {
     /// Rewrite the received greeting's causal version, against which the
     /// receiving side filters what it supplies.
     ///
-    /// The role election breaks a tie in set lengths by version, so a test
-    /// that rewrites the version keeps the two lengths apart, or the sides
-    /// may elect differently.
+    /// The role election breaks a tie in set lengths by version, so a test that
+    /// rewrites the version keeps the two lengths apart, or the sides may elect
+    /// differently.
     pub fn version(version: Version) -> Self {
         Self::new(GreetingField::Version(version))
     }
@@ -604,9 +599,9 @@ impl GreetingRewrite {
     }
 }
 
-/// A pipe reader replacing one greeting declaration, robust to arbitrary
-/// read chunking: it buffers the greeting item, serves the rewritten bytes,
-/// and passes the rest of the stream through.
+/// A pipe reader replacing one greeting declaration, robust to arbitrary read
+/// chunking: it buffers the greeting item, serves the rewritten bytes, and
+/// passes the rest of the stream through.
 pub struct RewriteRead<R> {
     /// The read half being read.
     inner: R,
@@ -650,8 +645,8 @@ impl<R> RewriteRead<R> {
     }
 }
 
-/// Bytes of a complete greeting item at the front of `pending`, when its
-/// heads have arrived whole.
+/// Bytes of a complete greeting item at the front of `pending`, when its heads
+/// have arrived whole.
 fn greeting_item_len(pending: &[u8]) -> Option<usize> {
     let mut input = pending;
     cbor::read_head(&mut input).ok()?;
@@ -758,8 +753,8 @@ pub async fn reconcile(
     }
 }
 
-/// Reconcile with each side's *received* greeting optionally rewritten,
-/// both endpoints at the default budget.
+/// Reconcile with each side's *received* greeting optionally rewritten, both
+/// endpoints at the default budget.
 pub async fn reconcile_rewritten_greetings(
     left: TreeRoot,
     right: TreeRoot,
@@ -815,14 +810,13 @@ pub fn rewritten(
 }
 
 /// Whether the left tree wins the initiator election against the right,
-/// mirroring the session's role election exactly (the smaller exchanged
-/// set initiates, canonical version bytes break ties).
+/// mirroring the session's role election exactly (the smaller exchanged set
+/// initiates, canonical version bytes break ties).
 ///
-/// Role-sensitive tests arrange their corrupt or faulted side through
-/// this predicate rather than through any byte-order proxy: which side
-/// initiates is a function of live counts and canonical version bytes,
-/// both of which move whenever the wire coding or a fixture's content
-/// addresses do.
+/// Role-sensitive tests arrange their corrupt or faulted side through this
+/// predicate rather than through any byte-order proxy: which side initiates is
+/// a function of live counts and canonical version bytes, both of which move
+/// whenever the wire coding or a fixture's content addresses do.
 pub fn left_initiates(left: &TreeRoot, right: &TreeRoot) -> bool {
     let key = |root: &TreeRoot| RoleKey::new(root.len() as u64, root.ceiling.clone());
     key(left).initiates(&key(right))
@@ -860,10 +854,10 @@ pub async fn reconcile_scripted(
 
 /// Drive two proxy endpoints over already-wrapped connection ends.
 ///
-/// `left_end` carries the left endpoint, whose proxy represents the right
-/// peer; `right_end` the reverse. Each end is its read half and its write
-/// half. Every result is the endpoint's materialized tree or the failure of
-/// whichever of its two participants raised one.
+/// `left_end` carries the left endpoint, whose proxy represents the right peer;
+/// `right_end` the reverse. Each end is its read half and its write half. Every
+/// result is the endpoint's materialized tree or the failure of whichever of
+/// its two participants raised one.
 // One premise per argument: the topology, the four backends, the two
 // roots, the two ends, the codec, and the budget.
 #[allow(clippy::too_many_arguments)]

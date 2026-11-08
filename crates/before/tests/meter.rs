@@ -1,11 +1,11 @@
 //! Focused resource checks for claims the amplification board cannot express.
 //!
 //! The global board owns ordinary input-scaling and peak-heap coverage across
-//! the public operation surface, and the `focused-fuel` harness judges the
-//! time claims the board cannot vary. This suite retains the memory and
-//! counter claims beside them: exact heap parities between entry points that
-//! compute the same value, heap and allocation ceilings at the shapes that
-//! exercise a representation choice, and the retained densification counter.
+//! the public operation surface, and the `focused-fuel` harness judges the time
+//! claims the board cannot vary. This suite retains the memory and counter
+//! claims beside them: exact heap parities between entry points that compute
+//! the same value, heap and allocation ceilings at the shapes that exercise a
+//! representation choice, and the retained densification counter.
 
 use before::testing::meter;
 use before::{Count, Version};
@@ -13,8 +13,8 @@ use num_bigint::BigUint;
 
 /// Measure peak heap above the storage already live at entry.
 ///
-/// The reading counts only this thread's allocator requests, so allocations
-/// the test harness makes on its own threads cannot enter it.
+/// The reading counts only this thread's allocator requests, so allocations the
+/// test harness makes on its own threads cannot enter it.
 fn peak_heap<T>(f: impl FnOnce() -> T) -> (usize, T) {
     let (stats, value) = alloc_meter::measure(f);
     (stats.peak_bytes, value)

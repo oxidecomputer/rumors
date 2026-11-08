@@ -2,28 +2,27 @@
 //!
 //! Side A's process builds the whole history of the pair:
 //!
-//! 1. A *root* peer creates the network and sends, then redacts, a
-//!    randomly drawn number of empty messages (the *offset*), so that its
-//!    clock starts the history at a random point.
-//! 2. A joins from the root, and sends every shared message and every
-//!    message one side will later redact.
+//! 1. A *root* peer creates the network and sends, then redacts, a randomly
+//!    drawn number of empty messages (the *offset*), so that its clock starts
+//!    the history at a random point.
+//! 2. A joins from the root, and sends every shared message and every message
+//!    one side will later redact.
 //! 3. B joins from A, so it receives all of them.
-//! 4. The two replicas part: A inserts its own messages and redacts its
-//!    share of the common ones, and B does the same with its own.
+//! 4. The two replicas part: A inserts its own messages and redacts its share
+//!    of the common ones, and B does the same with its own.
 //!
-//! Side B's process then joins from that copy of B over a connection of
-//! its own, before the measured session ([`join_from`]). The joined peer
-//! holds exactly B's live messages and B's knowledge of what was redacted,
-//! which is everything a session compares; only its identity within the
-//! network differs, as it would for a peer that rejoined from its old
-//! replica.
+//! Side B's process then joins from that copy of B over a connection of its
+//! own, before the measured session ([`join_from`]). The joined peer holds
+//! exactly B's live messages and B's knowledge of what was redacted, which is
+//! everything a session compares; only its identity within the network differs,
+//! as it would for a peer that rejoined from its old replica.
 //!
 //! # Why one process builds both sides
 //!
 //! Two processes cannot each build half of one history: every call to
-//! [`Peer::seed`] draws a new network secret, and peers from different
-//! networks refuse to gossip, by design. So one process seeds the network,
-//! and the other joins it.
+//! [`Peer::seed`] draws a new network secret, and peers from different networks
+//! refuse to gossip, by design. So one process seeds the network, and the other
+//! joins it.
 //!
 //! # Why the offset
 //!
@@ -103,8 +102,8 @@ impl BuildReport {
     }
 }
 
-/// A built pair: side A configured for its session, and side B's replica,
-/// to serve once to side B's process.
+/// A built pair: side A configured for its session, and side B's replica, to
+/// serve once to side B's process.
 #[derive(Debug)]
 pub struct Pair {
     /// Side A's replica, configured with the point's settings for A.
@@ -119,20 +118,19 @@ pub struct Pair {
 ///
 /// # Errors
 ///
-/// If a fixture session fails, or a side does not hold the live messages
-/// the point's counts require; either is a defect in the library or in
-/// this tool, and the error names it.
+/// If a fixture session fails, or a side does not hold the live messages the
+/// point's counts require; either is a defect in the library or in this tool,
+/// and the error names it.
 pub async fn build(point: &Point) -> Result<Pair> {
     build_from(point, Peer::seed(), &mut rand::rng()).await
 }
 
-/// Builds the pair `point` describes in the network `root` founds, drawing
-/// the history (the offset, and every message's size and contents) from
-/// `rng`.
+/// Builds the pair `point` describes in the network `root` founds, drawing the
+/// history (the offset, and every message's size and contents) from `rng`.
 ///
-/// [`build`] passes a fresh network and the thread's random source; the
-/// tests pass a network and a stream they derive from one proptest-drawn
-/// seed, so a failing case replays its whole history.
+/// [`build`] passes a fresh network and the thread's random source; the tests
+/// pass a network and a stream they derive from one proptest-drawn seed, so a
+/// failing case replays its whole history.
 ///
 /// # Errors
 ///
@@ -195,11 +193,11 @@ fn to_index(count: u64) -> Result<usize> {
     usize::try_from(count).context("a redaction count exceeds this platform's address space")
 }
 
-/// Sends `count` messages whose sizes `sampler` draws and whose contents
-/// `rng` fills, adding them to `report`.
+/// Sends `count` messages whose sizes `sampler` draws and whose contents `rng`
+/// fills, adding them to `report`.
 ///
-/// Messages go out in batches of [`SEND_BATCH`], so the pending batch, not
-/// the whole set, is what sits in memory twice.
+/// Messages go out in batches of [`SEND_BATCH`], so the pending batch, not the
+/// whole set, is what sits in memory twice.
 fn send_drawn(
     rumors: &Rumors<Payload>,
     count: u64,
@@ -229,8 +227,8 @@ fn send_drawn(
 /// Every live version of `snapshot`, in [`Version::ranked`] order: a total
 /// order fixed by the versions alone.
 ///
-/// Redacting a prefix of it removes messages scattered uniformly over the
-/// tree, since a message's place in the tree is its version's keyed hash.
+/// Redacting a prefix of it removes messages scattered uniformly over the tree,
+/// since a message's place in the tree is its version's keyed hash.
 fn ranked_versions(snapshot: &Snapshot<Payload>) -> Vec<Version> {
     let mut versions: Vec<Version> = snapshot.versions().cloned().collect();
     versions.sort_by(|x, y| x.ranked().cmp(&y.ranked()));
@@ -291,8 +289,8 @@ where
     }
 }
 
-/// Side B's process: joins side B's replica from side A's process over
-/// `read` and `write`, and configures it with the point's settings for B.
+/// Side B's process: joins side B's replica from side A's process over `read`
+/// and `write`, and configures it with the point's settings for B.
 ///
 /// # Errors
 ///

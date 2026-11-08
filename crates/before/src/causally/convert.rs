@@ -62,8 +62,8 @@ impl<'a> From<&'a Span<'_>> for Query<'a, Neutral> {
     }
 }
 
-/// A [`Version`] as a query: `after(v) & before(v)`, which by
-/// antisymmetry admits exactly `v`.
+/// A [`Version`] as a query: `after(v) & before(v)`, which by antisymmetry
+/// admits exactly `v`.
 impl From<Version> for Query<'static, Neutral> {
     fn from(version: Version) -> Query<'static, Neutral> {
         // One buffer-sharing clone fills the second atom; both bounds

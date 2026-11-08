@@ -1,5 +1,5 @@
-//! Classify one materialized query's answer, and build its questions one at
-//! a time as the reply's chunks reach them.
+//! Classify one materialized query's answer, and build its questions one at a
+//! time as the reply's chunks reach them.
 
 use itertools::{EitherOrBoth, Itertools};
 
@@ -38,8 +38,8 @@ pub(super) enum Planned<E, Q> {
 
 /// A question an internal answer asks about one child.
 pub(super) enum Question<E> {
-    /// A child both sides hold with different hashes: this side's children
-    /// of it, explored when it is asked, list the question.
+    /// A child both sides hold with different hashes: this side's children of
+    /// it, explored when it is asked, list the question.
     Dispute {
         /// The child's radix.
         radix: u8,
@@ -90,41 +90,41 @@ impl<E, Q> Answer<E, Q> {
     }
 }
 
-/// An empty plan, its buffer sized for the `children` a scope holds on
-/// either side, and its charge built out of `grant`.
+/// An empty plan, its buffer sized for the `children` a scope holds on either
+/// side, and its charge built out of `grant`.
 ///
 /// Each child takes at most one entry, so the plan never grows past this
-/// buffer, which its charge covers from before the first entry until the
-/// plan's chunks are dropped.
+/// buffer, which its charge covers from before the first entry until the plan's
+/// chunks are dropped.
 fn plan<E, Q>(grant: &mut Charge, children: usize) -> (Vec<Planned<E, Q>>, Charge) {
     let planned = Vec::with_capacity(children);
     let charge = grant.take(Holding::Resolutions, buffer(&planned));
     (planned, charge)
 }
 
-/// The children a scope holds on either side, this side's `ours` and the
-/// peer's listing `theirs`, counted from the children themselves.
+/// The children a scope holds on either side, this side's `ours` and the peer's
+/// listing `theirs`, counted from the children themselves.
 ///
-/// The answer's price counted the same union from this side's reported
-/// radices ([`charges::scope_children`]); counting it again from the
-/// children themselves sizes the plan and the resolution exactly even for
-/// a backend whose report disagrees with its children.
+/// The answer's price counted the same union from this side's reported radices
+/// ([`charges::scope_children`]); counting it again from the children
+/// themselves sizes the plan and the resolution exactly even for a backend
+/// whose report disagrees with its children.
 fn union<E>(ours: &[(u8, E)], theirs: &[Listed]) -> usize {
     charges::scope_children(ours.iter().map(|(radix, _)| *radix).collect(), theirs).either
 }
 
-/// An answer's reactions in chunks: each chunk ends at a question, and the
-/// last chunk holds the reactions after the last question, or ends at that
-/// question when none follow.
+/// An answer's reactions in chunks: each chunk ends at a question, and the last
+/// chunk holds the reactions after the last question, or ends at that question
+/// when none follow.
 ///
 /// A sender can then pause before any question until admission allows it,
-/// having sent every earlier question whole, and the reply's last chunk
-/// always holds its last reaction, as the encoder requires.
+/// having sent every earlier question whole, and the reply's last chunk always
+/// holds its last reaction, as the encoder requires.
 pub(super) struct Chunks<E, Q> {
     /// The planned reactions not yet handed out.
     planned: std::vec::IntoIter<Planned<E, Q>>,
-    /// The children the plan's match covers, until the match is handed
-    /// out carrying them; empty after.
+    /// The children the plan's match covers, until the match is handed out
+    /// carrying them; empty after.
     later: ByteSet,
     /// The charge for the plan's buffer, which the iterator keeps until the
     /// chunks are dropped.
@@ -145,12 +145,12 @@ pub(super) struct Part<E, Q> {
 }
 
 impl<E, Q> Chunks<E, Q> {
-    /// The reactions the reply's last chunk holds if it asks nothing, with
-    /// the covered sets among them, or `None` if it ends at a question;
-    /// read before any chunk is handed out.
+    /// The reactions the reply's last chunk holds if it asks nothing, with the
+    /// covered sets among them, or `None` if it ends at a question; read before
+    /// any chunk is handed out.
     ///
-    /// Only such a chunk is built out of the answer's own grant: every
-    /// chunk that ends at a question is built out of that question's.
+    /// Only such a chunk is built out of the answer's own grant: every chunk
+    /// that ends at a question is built out of that question's.
     pub(super) fn unasked_last(&self) -> Option<Held> {
         let planned = self.planned.as_slice();
         match planned.last() {
@@ -165,8 +165,8 @@ impl<E, Q> Chunks<E, Q> {
         }
     }
 
-    /// The reactions `planned` holds, and the covered set among them: the
-    /// one the match carries once handed out, if it is among them.
+    /// The reactions `planned` holds, and the covered set among them: the one
+    /// the match carries once handed out, if it is among them.
     fn held<'a>(&self, planned: impl Iterator<Item = &'a Planned<E, Q>>) -> Held
     where
         E: 'a,
@@ -187,8 +187,8 @@ impl<E, Q> Chunks<E, Q> {
     /// An answer with no reactions is one empty last chunk.
     ///
     /// The part's leading reactions are allocated with exactly one slot to
-    /// spare, for the question the chunk ends at, so a chunk holds no more
-    /// than the bound its unit was admitted at prices.
+    /// spare, for the question the chunk ends at, so a chunk holds no more than
+    /// the bound its unit was admitted at prices.
     pub(super) fn next_part(&mut self) -> Option<Part<E, Q>> {
         if self.done {
             return None;
@@ -233,8 +233,8 @@ impl<E, Q> Chunks<E, Q> {
     }
 }
 
-/// The matches an answer has classified so far: whether its first is
-/// planned, and the later ones, which that first match covers.
+/// The matches an answer has classified so far: whether its first is planned,
+/// and the later ones, which that first match covers.
 #[derive(Default)]
 struct Matches {
     /// Whether the plan holds the answer's first match.
@@ -244,8 +244,8 @@ struct Matches {
 }
 
 impl Matches {
-    /// Classify the child at `radix` as a match: the answer's first match
-    /// takes a reaction in `planned`, and every later one is covered by it.
+    /// Classify the child at `radix` as a match: the answer's first match takes
+    /// a reaction in `planned`, and every later one is covered by it.
     fn plan<E, Q>(&mut self, planned: &mut Vec<Planned<E, Q>>, radix: u8) {
         if self.first {
             self.later.insert(radix);
@@ -256,14 +256,14 @@ impl Matches {
     }
 }
 
-/// What a chunk of an answer holds before it is built: its reactions, and
-/// the covered sets among them, one at most.
+/// What a chunk of an answer holds before it is built: its reactions, and the
+/// covered sets among them, one at most.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Held {
     /// The chunk's reactions.
     pub(crate) reactions: usize,
-    /// The covered sets its match carries: one if it holds the answer's
-    /// match and that match covers a later child, none otherwise.
+    /// The covered sets its match carries: one if it holds the answer's match
+    /// and that match covers a later child, none otherwise.
     pub(crate) sets: usize,
 }
 
@@ -271,48 +271,47 @@ impl Held {
     /// The most that leads a question in its chunk: a fan of reactions less
     /// one, and one covered set.
     ///
-    /// The opening question leads its chunk alone. Every other question is
-    /// an entry of its answer's plan, which [`internal`] or [`leaf_parent`]
-    /// builds, and [`Chunks::next_part`] leads it with the plan's ready
-    /// entries since the question before it. Those reactions are entries of
-    /// the same plan, so they and the question together number at most the
-    /// plan's entries.
+    /// The opening question leads its chunk alone. Every other question is an
+    /// entry of its answer's plan, which [`internal`] or [`leaf_parent`]
+    /// builds, and [`Chunks::next_part`] leads it with the plan's ready entries
+    /// since the question before it. Those reactions are entries of the same
+    /// plan, so they and the question together number at most the plan's
+    /// entries.
     ///
-    /// The plan holds at most one entry per child either side holds, and so
-    /// at most a fan. Both builders merge-join this side's children with the
+    /// The plan holds at most one entry per child either side holds, and so at
+    /// most a fan. Both builders merge-join this side's children with the
     /// peer's listing and push at most one entry per joined element. Each
     /// element is one radix of the union of the two sides' radixes, because
     /// each side ascends strictly: this side's children as
     /// [`Backend::children`] lists them, and the peer's listing as the codec
-    /// checks of every listing it decodes. A radix is a byte, so the union
-    /// is at most a fan. That leaves at most a fan less one for the
-    /// reactions ahead of the question, and the plan's one match at most
+    /// checks of every listing it decodes. A radix is a byte, so the union is
+    /// at most a fan. That leaves at most a fan less one for the reactions
+    /// ahead of the question, and the plan's one match at most
     /// ([`Matches::plan`]) carries the one covered set among them.
     ///
     /// The plan's capacity rests on the same order: a backend listing its
-    /// children out of order would overrun the plan and resolution its
-    /// answer's grant prices, as well as this bound. A chunk whose match
-    /// carries a set leads by one reaction fewer, since the set covers a
-    /// child that takes no entry; this bound does not spend that slot.
+    /// children out of order would overrun the plan and resolution its answer's
+    /// grant prices, as well as this bound. A chunk whose match carries a set
+    /// leads by one reaction fewer, since the set covers a child that takes no
+    /// entry; this bound does not spend that slot.
     pub(crate) const LEADING_MAX: Self = Self {
         reactions: FAN - 1,
         sets: 1,
     };
 }
 
-/// Classify one nonempty internal query's children by merge-joining both
-/// child listings, exploring no disputed child.
+/// Classify one nonempty internal query's children by merge-joining both child
+/// listings, exploring no disputed child.
 ///
-/// `prefix` names the queried scope; `ours` are our children of it, one
-/// level below. A child only this side holds resolves here, through the
-/// deletion filter, to the supply that survives it.
+/// `prefix` names the queried scope; `ours` are our children of it, one level
+/// below. A child only this side holds resolves here, through the deletion
+/// filter, to the supply that survives it.
 ///
 /// This merge-join is where
 /// [`disputed_scopes`](crate::SessionStats::disputed_scopes) is counted: it
-/// runs exactly once per scope this side resolves, and the scope was a
-/// dispute exactly when both replicas held the subtree and some child failed
-/// to match. An all-match join is a confirmation; a one-sided join serves a
-/// request.
+/// runs exactly once per scope this side resolves, and the scope was a dispute
+/// exactly when both replicas held the subtree and some child failed to match.
+/// An all-match join is a confirmation; a one-sided join serves a request.
 ///
 /// The plan is charged out of `grant`, the answer's own.
 // The arguments are the answer's inputs, one per concern; bundling them
@@ -401,12 +400,12 @@ where
 }
 
 impl<E: ErasedNode + Clone> Question<E> {
-    /// The most this question's unit holds, before it is built, asked about
-    /// a child of `prefix` in a chunk behind the `leading` reactions and
-    /// covered sets ([`charges::question_bound`]).
+    /// The most this question's unit holds, before it is built, asked about a
+    /// child of `prefix` in a chunk behind the `leading` reactions and covered
+    /// sets ([`charges::question_bound`]).
     ///
-    /// A disputed child lists this side's children of it, exactly its
-    /// child count, which is at most a fan; a request lists none.
+    /// A disputed child lists this side's children of it, exactly its child
+    /// count, which is at most a fan; a request lists none.
     ///
     pub(super) fn bound<Err>(&self, prefix: ErasedPrefix, leading: Held) -> usize {
         let (theirs, listed) = match self {
@@ -426,15 +425,15 @@ impl<E: ErasedNode> Question<E> {
     /// processing its reply is predicted to admit one level down
     /// ([`charges::processing_need`]).
     ///
-    /// A disputed child lists this side's children of it, so the peer's
-    /// reply lists the grandchildren the peer holds under the children it
-    /// disputes; a request lists nothing, and its reply supplies the child's
-    /// children, needing nothing processed.
+    /// A disputed child lists this side's children of it, so the peer's reply
+    /// lists the grandchildren the peer holds under the children it disputes; a
+    /// request lists nothing, and its reply supplies the child's children,
+    /// needing nothing processed.
     ///
     /// The stage that processes the reply recomputes the need from the bound
-    /// the question's query carries, to withdraw the question's claim. The
-    /// two agree: building the question lists exactly the child count read
-    /// here, or fails the session ([`ops::children_of`]).
+    /// the question's query carries, to withdraw the question's claim. The two
+    /// agree: building the question lists exactly the child count read here, or
+    /// fails the session ([`ops::children_of`]).
     pub(super) fn need<Err>(&self, prefix: ErasedPrefix) -> usize {
         let height = prefix.height() - 1;
         let (listed, theirs) = match self {
@@ -454,15 +453,15 @@ impl<E: ErasedNode> Question<E> {
 /// charge for its record, and the room its reply parks in.
 pub(super) type Built<E, Q> = (Reaction<E>, Q, Carried);
 
-/// Build the question an internal answer asks about one child of `prefix`
-/// out of `grant`: its reaction, the query it sends down, and its record's
-/// charge and its reply's room.
+/// Build the question an internal answer asks about one child of `prefix` out
+/// of `grant`: its reaction, the query it sends down, and its record's charge
+/// and its reply's room.
 ///
-/// A disputed child is explored here, when its question is asked, so a
-/// chunk holds only its own question's children.
+/// A disputed child is explored here, when its question is asked, so a chunk
+/// holds only its own question's children.
 ///
-/// For the session-budget meter, the reaction is work for the outgoing
-/// replies, and the explored children and the query for the questions
+/// For the session-budget meter, the reaction is work for the outgoing replies,
+/// and the explored children and the query for the questions
 /// ([`holding`](crate::tree::mirror::streaming::holding)).
 pub(super) async fn question<B>(
     backend: &B,
@@ -500,16 +499,15 @@ where
     Ok((reaction, query, Carried::Question { record, room }))
 }
 
-/// Classify one leaf-parent query's leaves by merge-joining both leaf
-/// listings.
+/// Classify one leaf-parent query's leaves by merge-joining both leaf listings.
 ///
 /// The leaf-parent counterpart of [`internal`]: a matching radix here always
 /// agrees (paths are version-derived, so equal path means equal leaf), so the
 /// scope was disputed exactly when both listings were non-empty and some leaf
 /// sat on one side alone. Each exclusive local leaf the causal filter drops is
 /// one deletion honored
-/// ([`messages_shed`](crate::SessionStats::messages_shed)). Every question
-/// is a request for a leaf only the peer holds, planned by its radix.
+/// ([`messages_shed`](crate::SessionStats::messages_shed)). Every question is a
+/// request for a leaf only the peer holds, planned by its radix.
 ///
 /// The plan is charged out of `grant`, the answer's own.
 pub(super) fn leaf_parent<E: ErasedNode + Clone>(
@@ -567,9 +565,9 @@ pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     }
 }
 
-/// Build the request a leaf-parent answer makes for the leaf at `radix`
-/// under `prefix` out of `grant`: its empty query reaction, the leaf
-/// request it sends down, and its record's charge and its reply's room.
+/// Build the request a leaf-parent answer makes for the leaf at `radix` under
+/// `prefix` out of `grant`: its empty query reaction, the leaf request it sends
+/// down, and its record's charge and its reply's room.
 pub(super) fn leaf_question<E>(
     grant: &mut Charge,
     prefix: ErasedPrefix,
@@ -588,10 +586,10 @@ pub(super) fn leaf_question<E>(
 
 /// Answer one terminal leaf query.
 ///
-/// A terminal leaf question is always a *request* (leaves cannot be
-/// disputed: equal version-derived path means equal leaf, and a non-empty
-/// listing here is a protocol violation), so no dispute is counted. A
-/// requested leaf the causal filter drops is one deletion honored
+/// A terminal leaf question is always a *request* (leaves cannot be disputed:
+/// equal version-derived path means equal leaf, and a non-empty listing here is
+/// a protocol violation), so no dispute is counted. A requested leaf the causal
+/// filter drops is one deletion honored
 /// ([`messages_shed`](crate::SessionStats::messages_shed)).
 pub(super) fn leaf<E: ErasedNode + Clone>(
     their_version: &Version,

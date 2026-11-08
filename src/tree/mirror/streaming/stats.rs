@@ -1,9 +1,9 @@
 //! Measurements from a completed synchronization session.
 //!
-//! [`SessionStats`] reports latency, changes to the rumor set, and the
-//! traffic of the session's data frames while joining, gossiping, or leaving
-//! a network; the items before and after those frames are not counted.
-//! It is returned on [`Gossiped`](crate::Gossiped) and sent to
+//! [`SessionStats`] reports latency, changes to the rumor set, and the traffic
+//! of the session's data frames while joining, gossiping, or leaving a network;
+//! the items before and after those frames are not counted. It is returned on
+//! [`Gossiped`](crate::Gossiped) and sent to
 //! [`SessionObserver::finished`](crate::observe::SessionObserver::finished).
 //! Each peer measures its own side, and collection adds no protocol traffic.
 //! [`Recorder`] is the internal counter shared by the reconciliation layers.
@@ -22,9 +22,9 @@ use crate::counter::widen;
 /// Local measurements from one completed session while joining, gossiping, or
 /// leaving a network.
 ///
-/// The two peers can report different values because each measures its own
-/// work and traffic. Field documentation identifies the boundaries needed to
-/// compare the two sides or aggregate sessions.
+/// The two peers can report different values because each measures its own work
+/// and traffic. Field documentation identifies the boundaries needed to compare
+/// the two sides or aggregate sessions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SessionStats {
@@ -57,58 +57,58 @@ pub struct SessionStats {
     pub messages_shed: u64,
     /// Encoded bytes sent to compare and transfer messages.
     ///
-    /// This measures the session's outgoing data frames. It excludes every
-    /// item outside them that shares the connection: the session's setup
-    /// before the frames, and an identity donation and the completion
-    /// confirmation after them. On a
-    /// completed session, one peer's `bytes_sent` equals the other's
+    /// This measures the session's outgoing data frames. It excludes every item
+    /// outside them that shares the connection: the session's setup before the
+    /// frames, and an identity donation and the completion confirmation after
+    /// them. On a completed session, one peer's `bytes_sent` equals the other's
     /// [`bytes_received`](Self::bytes_received).
     pub bytes_sent: u64,
     /// Complete protocol frames sent while comparing and transferring messages.
     ///
     /// This includes one end marker for each logical stream that carried a
-    /// reply. Compare it
-    /// with [`bytes_sent`](Self::bytes_sent) to inspect batching and average
-    /// frame size under [`target_message_size`](crate::Peer::target_message_size).
+    /// reply. Compare it with [`bytes_sent`](Self::bytes_sent) to inspect
+    /// batching and average frame size under
+    /// [`target_message_size`](crate::Peer::target_message_size).
     pub frames_sent: u64,
     /// Encoded bytes received to compare and transfer messages.
     ///
     /// This is the incoming counterpart to [`bytes_sent`](Self::bytes_sent),
     /// with the same exclusions and traffic interpretation.
     pub bytes_received: u64,
-    /// Complete protocol frames received while comparing and transferring messages.
+    /// Complete protocol frames received while comparing and transferring
+    /// messages.
     ///
     /// This is the incoming counterpart to [`frames_sent`](Self::frames_sent),
     /// including the logical streams' end markers.
     pub frames_received: u64,
-    /// Questions and answers this peer held back until its
-    /// [memory budget](crate::Peer::sync_memory_budget) had room for them.
+    /// Questions and answers this peer held back until its [memory
+    /// budget](crate::Peer::sync_memory_budget) had room for them.
     ///
-    /// This shows whether the budget limited the session's pipelining. At
-    /// zero, the session kept in flight everything it was ready to send,
-    /// and ran as it would have with an unlimited budget. Above zero, each
-    /// count is a question or answer that waited for earlier work to free
-    /// memory before the session built it. Each peer counts against its
-    /// own budget, so the two sides of a session report their own numbers.
+    /// This shows whether the budget limited the session's pipelining. At zero,
+    /// the session kept in flight everything it was ready to send, and ran as
+    /// it would have with an unlimited budget. Above zero, each count is a
+    /// question or answer that waited for earlier work to free memory before
+    /// the session built it. Each peer counts against its own budget, so the
+    /// two sides of a session report their own numbers.
     pub budget_waits: u64,
 }
 
-/// The write side of one session's [`SessionStats`]: cheaply cloneable,
-/// shared by the walk and the codec's byte counters.
+/// The write side of one session's [`SessionStats`]: cheaply cloneable, shared
+/// by the walk and the codec's byte counters.
 ///
 /// Counters are atomics only to satisfy `Send + Sync` across the session's
-/// concurrently polled tasks; all ordering is `Relaxed` because each
-/// counter is a sum with no cross-counter invariant enforced mid-session.
-/// The one read ([`snapshot`](Self::snapshot)) happens after the session's
-/// tasks have completed.
+/// concurrently polled tasks; all ordering is `Relaxed` because each counter is
+/// a sum with no cross-counter invariant enforced mid-session. The one read
+/// ([`snapshot`](Self::snapshot)) happens after the session's tasks have
+/// completed.
 #[derive(Debug, Clone, Default)]
 pub struct Recorder {
     /// The counters every clone of this recorder adds to.
     inner: Arc<Counters>,
 }
 
-/// One session's running counts, one per counted field of
-/// [`SessionStats`], which [`Recorder::snapshot`] copies out.
+/// One session's running counts, one per counted field of [`SessionStats`],
+/// which [`Recorder::snapshot`] copies out.
 #[derive(Debug, Default)]
 struct Counters {
     /// The count behind [`SessionStats::disputed_scopes`].
@@ -185,11 +185,11 @@ impl Recorder {
 /// A transport write half that adds every accepted byte to
 /// [`SessionStats::bytes_sent`].
 ///
-/// Wraps the pipe's write half between the frame codec and the transport,
-/// and only while the multiplexer writes frames, so the count is exactly
-/// the codec's frame bytes. Vectored writes pass through to the transport,
-/// so a frame too large for the multiplexer's buffer stays one write
-/// operation where the transport supports it.
+/// Wraps the pipe's write half between the frame codec and the transport, and
+/// only while the multiplexer writes frames, so the count is exactly the
+/// codec's frame bytes. Vectored writes pass through to the transport, so a
+/// frame too large for the multiplexer's buffer stays one write operation where
+/// the transport supports it.
 pub struct CountedWrite<W> {
     inner: W,
     recorder: Recorder,
@@ -248,9 +248,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
 /// A transport read half that adds every delivered byte to
 /// [`SessionStats::bytes_received`].
 ///
-/// Wraps the pipe's read half between the transport and the frame decoder,
-/// and only while the demultiplexer reads frames, so the count is exactly
-/// the codec's frame bytes.
+/// Wraps the pipe's read half between the transport and the frame decoder, and
+/// only while the demultiplexer reads frames, so the count is exactly the
+/// codec's frame bytes.
 pub struct CountedRead<R> {
     inner: R,
     recorder: Recorder,

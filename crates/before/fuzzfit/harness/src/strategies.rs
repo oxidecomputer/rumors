@@ -2,8 +2,8 @@
 //!
 //! Each family turns a meter-board input shape into programs with randomized
 //! dimensions. Programs build their values through public operations. The
-//! [`Family::Combination`] family combines operations and values from the
-//! other shapes.
+//! [`Family::Combination`] family combines operations and values from the other
+//! shapes.
 //!
 //! # Budgets
 //!
@@ -16,19 +16,18 @@
 //!
 //! # Scope: what the generators deliberately never construct
 //!
-//! - **Wide magnitude.** Operands are built exclusively through
-//!   value-producing operations, so a `2^b`-wide leaf costs `2^b` ticks
-//!   here — even though `Version::decode` reaches one from `O(b)` bits of
-//!   crafted input. Crafted codec input, and with it the wide-magnitude
-//!   regime, deliberately remains the meter board's hand-built territory;
-//!   this instrument's envelope is the region reachable by paying for
-//!   values one operation at a time.
-//! - **Codec rejection.** The staged bytes are always the canonical
-//!   encoding produced by the immediately preceding encode step, so decode
-//!   rejection paths are never measured here; malformed-input cost belongs to
-//!   the decode fuzz targets. The rejection arms this harness *does* measure are
-//!   the operation-level ones (`join`/`sync`/`without`/`checked_sub` on
-//!   overlap, emptiness, or underflow), predicted per case by the mirror.
+//! - **Wide magnitude.** Operands are built exclusively through value-producing
+//!   operations, so a `2^b`-wide leaf costs `2^b` ticks here — even though
+//!   `Version::decode` reaches one from `O(b)` bits of crafted input. Crafted
+//!   codec input, and with it the wide-magnitude regime, deliberately remains
+//!   the meter board's hand-built territory; this instrument's envelope is the
+//!   region reachable by paying for values one operation at a time.
+//! - **Codec rejection.** The staged bytes are always the canonical encoding
+//!   produced by the immediately preceding encode step, so decode rejection
+//!   paths are never measured here; malformed-input cost belongs to the decode
+//!   fuzz targets. The rejection arms this harness *does* measure are the
+//!   operation-level ones (`join`/`sync`/`without`/`checked_sub` on overlap,
+//!   emptiness, or underflow), predicted per case by the mirror.
 //! - **Empty folds.** `join_all`/`meet_all` operands come from clock
 //!   populations the families build, never from an empty range, so
 //!   `meet_all([])`'s `None` outcome is not sampled. It stays unpriced
@@ -56,8 +55,8 @@ pub struct Budget {
 
 /// The program budget for both legs.
 ///
-/// One program stays well under about 10⁹ fuel and a few thousand guest
-/// calls. The enforcement suite's case count controls its total duration.
+/// One program stays well under about 10⁹ fuel and a few thousand guest calls.
+/// The enforcement suite's case count controls its total duration.
 pub const BUDGET: Budget = Budget {
     max_ops: 6_000,
     max_ticks: 3_000,
@@ -69,9 +68,9 @@ pub const BUDGET: Budget = Budget {
 ///
 /// Allows the family's deep fork chains and measurement sequence. The
 /// enforcement suite replays fixed mid-depth and depth-cap constructions.
-/// Construction cost is quadratic in the reach (every op pays the
-/// current size), which is why this budget belongs to one low-weighted
-/// family instead of every generated program.
+/// Construction cost is quadratic in the reach (every op pays the current
+/// size), which is why this budget belongs to one low-weighted family instead
+/// of every generated program.
 pub const ESCALATION_BUDGET: Budget = Budget {
     max_ops: 9_000,
     max_ticks: 3_000,
@@ -82,49 +81,46 @@ pub const ESCALATION_BUDGET: Budget = Budget {
 /// Shift-overflow guard on the comb families' magnitude exponents.
 ///
 /// The drawn `magnitude` becomes a shift count (`1 << magnitude`), so a
-/// draw-range widening past 31 would otherwise overflow the shift. The
-/// cap never binds today — the magnitude draws top out at 8 — it makes
-/// the shift's definedness local to the construction instead of resting
-/// on the draw ranges, and bounds a capped tooth's tick count (2¹⁰ − 1)
-/// far below the tick budgets.
+/// draw-range widening past 31 would otherwise overflow the shift. The cap
+/// never binds today — the magnitude draws top out at 8 — it makes the shift's
+/// definedness local to the construction instead of resting on the draw ranges,
+/// and bounds a capped tooth's tick count (2¹⁰ − 1) far below the tick budgets.
 const MAGNITUDE_SHIFT_CAP: u32 = 10;
 
-/// The escalation family's depth cap: the top of [`any_family`]'s draw
-/// range.
+/// The escalation family's depth cap: the top of [`any_family`]'s draw range.
 ///
 /// Also the depth of the enforcement suite's fixed depth-cap replay
-/// ([`ESCALATION_REPLAYS`]) — one constant, so widening the family's
-/// range cannot silently leave the replay pinned below the family's
-/// true far end.
+/// ([`ESCALATION_REPLAYS`]) — one constant, so widening the family's range
+/// cannot silently leave the replay pinned below the family's true far end.
 pub const ESCALATION_MAX_DEPTH: u32 = 1792;
 
 /// The enforcement suite's fixed escalation replays, as (depth, seed).
 ///
-/// One mid-reach rung and the depth cap, on distinct seeds: the
-/// deterministic reach proof the enforcement suite replays every run.
-/// `bin/calibrate` replays the same two programs — enforcement-context
-/// executions outside the calibration corpus — to measure the ceiling
-/// excess [`crate::bands::ENFORCE_MARGIN`] must absorb, so the two
-/// consumers must agree on the (depth, seed) pins.
+/// One mid-reach rung and the depth cap, on distinct seeds: the deterministic
+/// reach proof the enforcement suite replays every run. `bin/calibrate` replays
+/// the same two programs — enforcement-context executions outside the
+/// calibration corpus — to measure the ceiling excess
+/// [`crate::bands::ENFORCE_MARGIN`] must absorb, so the two consumers must
+/// agree on the (depth, seed) pins.
 pub const ESCALATION_REPLAYS: [(u32, u64); 2] = [(1024, 0xE5CA), (ESCALATION_MAX_DEPTH, 0x1792)];
 
-/// The small-operand corpus size: how many [`Family::Bootstrap`] programs
-/// the deterministic bootstrap stream enumerates (seed = case index,
-/// rounds cycling `1..=BOOTSTRAP_MAX_ROUNDS`).
+/// The small-operand corpus size: how many [`Family::Bootstrap`] programs the
+/// deterministic bootstrap stream enumerates (seed = case index, rounds cycling
+/// `1..=BOOTSTRAP_MAX_ROUNDS`).
 ///
-/// Sized so every rounds rung repeats under several seeds: the jitter
-/// across seeds populates the sub-floor span densely instead of pinning
-/// one fuel point per size.
+/// Sized so every rounds rung repeats under several seeds: the jitter across
+/// seeds populates the sub-floor span densely instead of pinning one fuel point
+/// per size.
 pub const BOOTSTRAP_PROGRAMS: usize = 96;
 
 /// The bootstrap family's growth cap, in rounds.
 ///
-/// Measured against the mirror's denominators: at this cap the family's
-/// clock tops out just under the fit floor (`crate::fit::FIT_FLOOR_BITS`),
-/// so the corpus covers the sub-floor span end to end while the
-/// single-operand kernels stay inside the constant-overhead regime the
-/// small bands price. Re-derive by sweeping the printed denominator
-/// ranges in `bin/calibrate` when the growth-per-round changes.
+/// Measured against the mirror's denominators: at this cap the family's clock
+/// tops out just under the fit floor (`crate::fit::FIT_FLOOR_BITS`), so the
+/// corpus covers the sub-floor span end to end while the single-operand kernels
+/// stay inside the constant-overhead regime the small bands price. Re-derive by
+/// sweeping the printed denominator ranges in `bin/calibrate` when the
+/// growth-per-round changes.
 pub const BOOTSTRAP_MAX_ROUNDS: u32 = 12;
 
 /// The budget a family's programs run under (the builder enforces it
@@ -138,8 +134,8 @@ pub fn budget_for(family: &Family) -> Budget {
 
 /// One family instantiation: a named archetype with its dimensions.
 ///
-/// Names correspond to the meter board's input families. Parameters select
-/// each family's dimensions and controls.
+/// Names correspond to the meter board's input families. Parameters select each
+/// family's dimensions and controls.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Family {
     /// The dense event spine: a deep fork chain, ticks at every depth.
@@ -204,16 +200,16 @@ pub enum Family {
         /// Events per side per level.
         ticks: u32,
     },
-    /// A deep spine with ticks concentrated at the tail (`tail_ticks = 1`
-    /// is the narrow mirror cross; large values the wide one).
+    /// A deep spine with ticks concentrated at the tail (`tail_ticks = 1` is
+    /// the narrow mirror cross; large values the wide one).
     WideTail {
         /// Events at the deepest level.
         tail_ticks: u32,
         /// Spine depth.
         depth: u32,
     },
-    /// Descending tick counts down the spine (every consumed leaf undercuts
-    /// the open minima).
+    /// Descending tick counts down the spine (every consumed leaf undercuts the
+    /// open minima).
     Staircase {
         /// Spine depth; level `i` gets `depth - i` ticks.
         depth: u32,
@@ -272,16 +268,15 @@ pub enum Family {
     },
     /// One universe grown to the maximum generated fork depth.
     ///
-    /// A size ladder of snapshot clocks lets the pair, fold, and query
-    /// rows sample every half-decade bucket up to the escalated top —
-    /// slope leverage for the wide-cloud kernels, and the large coupled
-    /// `Party::join` regime. A cadence battery rides the ladder so the
-    /// single-operand rows (ticks, sends, recvs, part splits and
-    /// reassembly, party splits and differences) sample the same reach,
-    /// and codec duplicates place aliased operands so every rejection arm
-    /// (`join`/`sync` on overlap, `without` on emptiness) is priced at
-    /// escalated size too — including one maximally-deferred overlap
-    /// (detectable only deep in the id tree) between the two finished
+    /// A size ladder of snapshot clocks lets the pair, fold, and query rows
+    /// sample every half-decade bucket up to the escalated top — slope leverage
+    /// for the wide-cloud kernels, and the large coupled `Party::join` regime.
+    /// A cadence battery rides the ladder so the single-operand rows (ticks,
+    /// sends, recvs, part splits and reassembly, party splits and differences)
+    /// sample the same reach, and codec duplicates place aliased operands so
+    /// every rejection arm (`join`/`sync` on overlap, `without` on emptiness)
+    /// is priced at escalated size too — including one maximally-deferred
+    /// overlap (detectable only deep in the id tree) between the two finished
     /// party halves.
     Escalation {
         /// Spine depth in forks: the reach knob.
@@ -296,8 +291,8 @@ enum Ty {
     P,
     C,
     R,
-    /// Consumed, or of uncertain liveness after a possibly-rejecting op;
-    /// never used again either way.
+    /// Consumed, or of uncertain liveness after a possibly-rejecting op; never
+    /// used again either way.
     Dead,
 }
 
@@ -399,8 +394,8 @@ impl B {
     }
 
     /// Balanced share splitting by repeated doubling: `n` clocks of roughly
-    /// equal interval depth (log₂ n), the population shape the fold
-    /// families want.
+    /// equal interval depth (log₂ n), the population shape the fold families
+    /// want.
     fn fork_balanced(&mut self, src: Reg, n: u32) -> Vec<Reg> {
         let mut pool = vec![src];
         while (pool.len() as u32) < n {
@@ -429,8 +424,8 @@ impl B {
         pool
     }
 
-    /// `Clock::join`, which may reject overlapping operands; `b` is treated
-    /// as dead under either outcome.
+    /// `Clock::join`, which may reject overlapping operands; `b` is treated as
+    /// dead under either outcome.
     fn clock_join(&mut self, a: Reg, b: Reg) {
         if self.room() {
             self.slots[b as usize] = Ty::Dead;
@@ -438,12 +433,12 @@ impl B {
         }
     }
 
-    /// Duplicate a clock through its canonical codec (encode, then
-    /// decode the staged bytes).
+    /// Duplicate a clock through its canonical codec (encode, then decode the
+    /// staged bytes).
     ///
-    /// The API-reachable route to an aliased id inside one universe,
-    /// which is how the reach family constructs overlap — and with it
-    /// `join`/`sync` rejection arms at escalated size.
+    /// The API-reachable route to an aliased id inside one universe, which is
+    /// how the reach family constructs overlap — and with it `join`/`sync`
+    /// rejection arms at escalated size.
     fn clock_dup(&mut self, src: Reg) -> Option<Reg> {
         if self.ops.len() + 2 > self.budget.max_ops {
             return None;
@@ -536,9 +531,9 @@ impl B {
         }
     }
 
-    /// Duplicate a party through its canonical codec (see [`B::clock_dup`]
-    /// for why: aliased regions are how one universe reaches the rejection
-    /// arms at scale).
+    /// Duplicate a party through its canonical codec (see [`B::clock_dup`] for
+    /// why: aliased regions are how one universe reaches the rejection arms at
+    /// scale).
     fn party_dup(&mut self, src: Reg) -> Option<Reg> {
         if self.ops.len() + 2 > self.budget.max_ops {
             return None;
@@ -566,9 +561,9 @@ impl B {
 
     /// `Party::without` into a fresh slot (`a` is consumed).
     ///
-    /// When the difference can be empty (`may_reject`), the result slot
-    /// is dead to later draws: the mirror reports emptiness as a
-    /// rejection and the guest writes nothing.
+    /// When the difference can be empty (`may_reject`), the result slot is dead
+    /// to later draws: the mirror reports emptiness as a rejection and the
+    /// guest writes nothing.
     fn party_without(&mut self, a: Reg, b: Reg, may_reject: bool) -> Option<Reg> {
         if !self.room() {
             return None;
@@ -632,8 +627,8 @@ impl B {
     }
 
     /// Extract versions from `clocks` in the given order into a fresh
-    /// contiguous range and fold them (`join_all`, or occasionally
-    /// `meet_all`, so both fold rows sample), respecting the fold budget.
+    /// contiguous range and fold them (`join_all`, or occasionally `meet_all`,
+    /// so both fold rows sample), respecting the fold budget.
     fn join_all_versions(&mut self, clocks: &[Reg]) -> Option<Reg> {
         let n = (clocks.len() as u32).min(self.budget.max_fold);
         if n == 0 || self.ops.len() + n as usize + 1 > self.budget.max_ops {
@@ -657,17 +652,16 @@ impl B {
 
     // ── the measurement battery ──
 
-    /// Append a randomized battery of query/codec/text/rank ops over the
-    /// pools: where most per-operation samples come from. Consuming ops use
-    /// spares re-extracted from clocks, never the pools' principals.
+    /// Append a randomized battery of query/codec/text/rank ops over the pools:
+    /// where most per-operation samples come from. Consuming ops use spares
+    /// re-extracted from clocks, never the pools' principals.
     ///
-    /// The battery also *feeds* the rank pool: every distance/lag pair it
-    /// emits joins `pools.ranks`, so the pool holds ranks of distinct
-    /// magnitudes and `Rank::checked_sub` draws unequal operands in both
-    /// orders — the `Greater` alignment-shift-subtract arm and the
-    /// underflow rejection arm both sample, instead of the degenerate
-    /// equal-operand `Rank::ZERO` path a single-rank pool would pin every
-    /// draw to.
+    /// The battery also *feeds* the rank pool: every distance/lag pair it emits
+    /// joins `pools.ranks`, so the pool holds ranks of distinct magnitudes and
+    /// `Rank::checked_sub` draws unequal operands in both orders — the
+    /// `Greater` alignment-shift-subtract arm and the underflow rejection arm
+    /// both sample, instead of the degenerate equal-operand `Rank::ZERO` path a
+    /// single-rank pool would pin every draw to.
     fn battery(&mut self, pools: &mut Pools, rounds: u32) {
         for _ in 0..rounds {
             if !self.room() {
@@ -1693,9 +1687,9 @@ pub fn build(family: &Family, seed: u64) -> Vec<Op> {
     b.ops
 }
 
-/// The proptest strategy over every family: what the enforcement suite
-/// draws from. Sizes are biased upward (the fits are about slopes, and
-/// small programs mostly sample the intercept).
+/// The proptest strategy over every family: what the enforcement suite draws
+/// from. Sizes are biased upward (the fits are about slopes, and small programs
+/// mostly sample the intercept).
 pub fn any_program() -> impl Strategy<Value = Vec<Op>> {
     any_family().prop_flat_map(|family| {
         (Just(family), any::<u64>()).prop_map(|(family, seed)| {
@@ -1713,8 +1707,8 @@ pub fn any_program() -> impl Strategy<Value = Vec<Op>> {
 ///
 /// The distribution is uniform except [`Family::Escalation`], weighted at one
 /// draw in ~137: its programs cost quadratically in their reach (every
-/// construction op pays the current size), so a handful per corpus buys
-/// the reach without the corpus paying escalated prices everywhere.
+/// construction op pays the current size), so a handful per corpus buys the
+/// reach without the corpus paying escalated prices everywhere.
 pub fn any_family() -> impl Strategy<Value = Family> {
     prop_oneof![
         8 => (2u32..=192, 0u32..=3).prop_map(|(depth, ticks_per_level)| Family::DenseSpine {

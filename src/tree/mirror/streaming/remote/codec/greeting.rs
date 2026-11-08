@@ -1,20 +1,19 @@
 //! The V2 greeting's wire spelling.
 //!
-//! One control-stream item: an embedded-CBOR-item tag (24) wrapping a
-//! byte string whose content is a text-keyed map. The embedding is what
-//! keeps the control stream's reader trivial — the byte string's head
-//! declares the whole greeting's length up front, so no incremental map
-//! walk happens against the transport — while a generic tool unwraps
-//! tag 24 as part of the standard vocabulary and sees the map.
+//! One control-stream item: an embedded-CBOR-item tag (24) wrapping a byte
+//! string whose content is a text-keyed map. The embedding is what keeps the
+//! control stream's reader trivial — the byte string's head declares the whole
+//! greeting's length up front, so no incremental map walk happens against the
+//! transport — while a generic tool unwraps tag 24 as part of the standard
+//! vocabulary and sees the map.
 //!
-//! The map's keys ride in CBOR deterministic order (bytewise
-//! lexicographic over their encodings), and the decoder requires exactly
-//! this key set in exactly that order: one spelling per greeting. The key
-//! set and its order are [`FIELDS`]; each field's meaning is documented at
-//! [`Greeting`]. The listing uses the same `{radix: [hash, count − 1]}` map
-//! spelling a query frame carries, and the version is the version-atom tag wrapping a
-//! byte string of the version's canonical encoding; every other field is an
-//! unsigned integer.
+//! The map's keys ride in CBOR deterministic order (bytewise lexicographic over
+//! their encodings), and the decoder requires exactly this key set in exactly
+//! that order: one spelling per greeting. The key set and its order are
+//! [`FIELDS`]; each field's meaning is documented at [`Greeting`]. The listing
+//! uses the same `{radix: [hash, count − 1]}` map spelling a query frame
+//! carries, and the version is the version-atom tag wrapping a byte string of
+//! the version's canonical encoding; every other field is an unsigned integer.
 
 use crate::{
     Version,
@@ -42,8 +41,8 @@ const FIELDS: [GreetingField; 7] = [
 /// The most grandchildren a root can have: 256 children of 256 children.
 const MAX_ROOT_GRANDCHILDREN: u64 = 65_536;
 
-/// Render one greeting as its complete control-stream item:
-/// tag 24 wrapping a byte string of the greeting map.
+/// Render one greeting as its complete control-stream item: tag 24 wrapping a
+/// byte string of the greeting map.
 pub(crate) fn encode_greeting(greeting: &Greeting) -> Vec<u8> {
     let map = greeting_map(greeting);
     let mut item = Vec::with_capacity(
@@ -380,9 +379,9 @@ fn split(input: &[u8], len: usize) -> Option<(&[u8], &[u8])> {
 /// Read one complete greeting item from the control stream.
 ///
 /// Transport failures pass through as `Err(Ok-side io)`; a malformed or
-/// non-canonical greeting is a typed [`GreetingError`], except a
-/// non-canonical listing order, surfaced separately so the handshake can
-/// report it as the codec's own violation class.
+/// non-canonical greeting is a typed [`GreetingError`], except a non-canonical
+/// listing order, surfaced separately so the handshake can report it as the
+/// codec's own violation class.
 pub(crate) async fn read_greeting<R>(read: &mut R) -> Result<Greeting, ReadGreetingError>
 where
     R: tokio::io::AsyncRead + Unpin,

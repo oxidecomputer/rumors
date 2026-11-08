@@ -17,15 +17,16 @@ use crate::default;
 /// bytes without knowing the payload type. Received encodings are preserved
 /// exactly rather than serialized again.
 ///
-/// Payload bytes do not determine a message's identity; its version does.
-/// CBOR field and variant names are the payload's wire contract, and callers
-/// need not provide a canonical encoding.
+/// Payload bytes do not determine a message's identity; its version does. CBOR
+/// field and variant names are the payload's wire contract, and callers need
+/// not provide a canonical encoding.
 ///
 /// # Panics
 ///
 /// Serializing constructors panic if the payload's [`Serialize`] implementation
-/// fails. Every payload value must serialize, as required by the crate's payload
-/// contract. A typed read with the wrong type also panics (see [`arc`](Self::arc)).
+/// fails. Every payload value must serialize, as required by the crate's
+/// payload contract. A typed read with the wrong type also panics (see
+/// [`arc`](Self::arc)).
 #[derive(Clone)]
 pub struct Message {
     /// The caller's payload allocation, unsized without copying.
@@ -34,23 +35,22 @@ pub struct Message {
     serialized: Bytes,
 }
 
-/// A peer's payload nesting-depth limit, counted in the CBOR decode
-/// engine's recursion steps.
+/// A peer's payload nesting-depth limit, counted in the CBOR decode engine's
+/// recursion steps.
 ///
 /// Selected by [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
 /// (whose docs carry the full contract); defaults to
-/// [`default::PAYLOAD_DEPTH_LIMIT`]. A step is the engine's own
-/// accounting (arrays, maps, tags, and type-driven wrappers such as an
-/// enum's variant scope), not a structural property of the bytes —
-/// which is why admission at send runs the decode itself rather than
-/// counting anything.
+/// [`default::PAYLOAD_DEPTH_LIMIT`]. A step is the engine's own accounting
+/// (arrays, maps, tags, and type-driven wrappers such as an enum's variant
+/// scope), not a structural property of the bytes — which is why admission at
+/// send runs the decode itself rather than counting anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct PayloadDepthLimit(u64);
 
 /// Construct and inspect the decoder's recursion limit.
 impl PayloadDepthLimit {
-    /// A limit of exactly `steps` decode recursion steps: a payload
-    /// value whose decode recurses deeper is rejected.
+    /// A limit of exactly `steps` decode recursion steps: a payload value whose
+    /// decode recurses deeper is rejected.
     pub(crate) const fn new(steps: u64) -> Self {
         PayloadDepthLimit(steps)
     }
@@ -91,44 +91,42 @@ pub enum EncodeError {
         /// The configured limit the payload's decode exceeded.
         limit: u64,
     },
-    /// The payload type's [`serde::Deserialize`] implementation rejected
-    /// the bytes its own [`serde::Serialize`] implementation produced:
-    /// admitted, such a value would fail at every receiver instead.
+    /// The payload type's [`serde::Deserialize`] implementation rejected the
+    /// bytes its own [`serde::Serialize`] implementation produced: admitted,
+    /// such a value would fail at every receiver instead.
     #[error("message payload does not survive its own serde round-trip: {0}")]
     Roundtrip(#[source] io::Error),
-    /// The payload value's encoding decodes to a different value (by
-    /// the payload type's own `Eq`): the serde pairing is lossy for
-    /// this value.
+    /// The payload value's encoding decodes to a different value (by the
+    /// payload type's own `Eq`): the serde pairing is lossy for this value.
     ///
-    /// The canonical example is a nested `Option` holding `Some(None)`,
-    /// which decodes as `None`. The check is send-side only: ingress
-    /// holds no original to compare against.
+    /// The canonical example is a nested `Option` holding `Some(None)`, which
+    /// decodes as `None`. The check is send-side only: ingress holds no
+    /// original to compare against.
     #[error("message payload's encoding decodes to a different value")]
     Unfaithful,
 }
 
-/// Why a payload decode failed: the crate-internal split between the
-/// depth case and everything else.
+/// Why a payload decode failed: the crate-internal split between the depth case
+/// and everything else.
 ///
-/// The depth case stays typed end to end so send-side admission can
-/// surface it as [`EncodeError::Depth`] without string matching; wire
-/// ingress folds both cases back into the `io::Error` its surface
-/// speaks ([`Message::from_wire`]). The decode-side counterpart of
-/// [`EncodeError`].
+/// The depth case stays typed end to end so send-side admission can surface it
+/// as [`EncodeError::Depth`] without string matching; wire ingress folds both
+/// cases back into the `io::Error` its surface speaks ([`Message::from_wire`]).
+/// The decode-side counterpart of [`EncodeError`].
 #[derive(Debug)]
 pub(crate) enum PayloadDecodeError {
-    /// The payload's decode recursed past the given limit (the decode
-    /// engine's recursion-limit error, preserved as a variant).
+    /// The payload's decode recursed past the given limit (the decode engine's
+    /// recursion-limit error, preserved as a variant).
     Depth(PayloadDepthLimit),
-    /// Truncation (the reader's own error, passed through) or invalid
-    /// data (corruption, a type mismatch, trailing bytes).
+    /// Truncation (the reader's own error, passed through) or invalid data
+    /// (corruption, a type mismatch, trailing bytes).
     Io(io::Error),
 }
 
 /// Convert decode failures for callers that use I/O errors.
 impl PayloadDecodeError {
-    /// Fold into `io::Error`, the wire-ingress surface: the depth case
-    /// becomes invalid data naming the exceeded limit.
+    /// Fold into `io::Error`, the wire-ingress surface: the depth case becomes
+    /// invalid data naming the exceeded limit.
     fn into_io(self) -> io::Error {
         match self {
             PayloadDecodeError::Depth(limit) => {
@@ -160,11 +158,11 @@ pub(crate) type PayloadDeserializer =
 /// [`Peer`](crate::Peer) construction and carried by every session.
 ///
 /// The payload type's serde obligations concentrate at construction; the fn
-/// pointer inside is the type's only residue afterwards, so everything
-/// that carries a codec stays non-generic. The configured
-/// [`PayloadDepthLimit`] rides beside the pointer as data (a plain fn
-/// pointer cannot capture it), which is what makes the limit unmissable:
-/// every ingress parse in the peer's orbit goes through this one value.
+/// pointer inside is the type's only residue afterwards, so everything that
+/// carries a codec stays non-generic. The configured [`PayloadDepthLimit`]
+/// rides beside the pointer as data (a plain fn pointer cannot capture it),
+/// which is what makes the limit unmissable: every ingress parse in the peer's
+/// orbit goes through this one value.
 #[derive(Clone, Copy)]
 pub(crate) struct PayloadCodec {
     /// Serialize and check admission for the peer's payload type.
@@ -180,11 +178,11 @@ impl PayloadCodec {
     /// Construct the codec for payloads of type `T` at the given depth limit.
     ///
     /// All of `T`'s payload obligations land here, at construction: a peer
-    /// demands `Serialize` at construction even if it never sends,
-    /// symmetric with demanding `DeserializeOwned` even if it never
-    /// receives (forwarding needs neither bound, since gossip re-supplies
-    /// cached bytes), and `Eq` so send-side admission can hold every
-    /// encoding to decode back equal to the value sent.
+    /// demands `Serialize` at construction even if it never sends, symmetric
+    /// with demanding `DeserializeOwned` even if it never receives (forwarding
+    /// needs neither bound, since gossip re-supplies cached bytes), and `Eq` so
+    /// send-side admission can hold every encoding to decode back equal to the
+    /// value sent.
     pub(crate) fn new<T>(limit: PayloadDepthLimit) -> Self
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -220,10 +218,10 @@ impl PayloadCodec {
     ///
     /// # Panics
     ///
-    /// If the value is not the payload type the codec was built for: a crate bug,
-    /// never an input — every caller hands in the `T` its own typed
-    /// signature names. A `Serialize` failure keeps [`Message`]'s
-    /// documented panic contract.
+    /// If the value is not the payload type the codec was built for: a crate
+    /// bug, never an input — every caller hands in the `T` its own typed
+    /// signature names. A `Serialize` failure keeps [`Message`]'s documented
+    /// panic contract.
     pub(crate) fn message(
         &self,
         payload: Arc<dyn Any + Send + Sync>,
@@ -243,8 +241,8 @@ impl PayloadCodec {
         PayloadCodec { limit, ..self }
     }
 
-    /// Decode one exact CBOR payload encoding into a type-erased payload
-    /// value, bounded at the carried depth limit.
+    /// Decode one exact CBOR payload encoding into a type-erased payload value,
+    /// bounded at the carried depth limit.
     pub(crate) fn decode(
         &self,
         bytes: &[u8],
@@ -254,8 +252,8 @@ impl PayloadCodec {
 }
 
 /// Map a ciborium deserialization failure into `io::Error`, keeping the
-/// truncation/corruption split callers classify by: a reader's own error
-/// passes through, everything else is invalid data.
+/// truncation/corruption split callers classify by: a reader's own error passes
+/// through, everything else is invalid data.
 fn de_error(error: ciborium::de::Error<io::Error>) -> io::Error {
     match error {
         ciborium::de::Error::Io(error) => error,
@@ -281,13 +279,13 @@ fn encode<T: Serialize>(value: &T) -> Bytes {
 }
 
 /// Decode exactly one CBOR value of type `T` from `bytes`, bounding the
-/// decode's recursion at `limit`: the one payload parse behind every
-/// typed constructor and the codec's deserializer.
+/// decode's recursion at `limit`: the one payload parse behind every typed
+/// constructor and the codec's deserializer.
 ///
-/// Trailing bytes are rejected as invalid data, so a cache built from the
-/// input is always the value's exact encoding. A value whose decode
-/// recurses past the limit is the typed depth case, kept distinct so
-/// send-side admission can classify it without string matching.
+/// Trailing bytes are rejected as invalid data, so a cache built from the input
+/// is always the value's exact encoding. A value whose decode recurses past the
+/// limit is the typed depth case, kept distinct so send-side admission can
+/// classify it without string matching.
 fn decode_exact<T: DeserializeOwned>(
     bytes: &[u8],
     limit: PayloadDepthLimit,
@@ -398,11 +396,11 @@ impl Hash for Message {
     }
 }
 
-/// One CBOR byte string wrapping the cached CBOR payload, so a message
-/// nests inside larger CBOR values without re-encoding.
+/// One CBOR byte string wrapping the cached CBOR payload, so a message nests
+/// inside larger CBOR values without re-encoding.
 ///
-/// The wrapper is what makes a nested message self-delimiting wherever
-/// the container does not delimit it.
+/// The wrapper is what makes a nested message self-delimiting wherever the
+/// container does not delimit it.
 impl Serialize for Message {
     /// Pass the cached encoding to the serializer as a byte string.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

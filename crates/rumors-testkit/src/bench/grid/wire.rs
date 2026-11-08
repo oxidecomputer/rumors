@@ -1,7 +1,7 @@
 //! Runtime-free asynchronous wire harness shared by reconciliation benchmarks.
 //!
-//! Benchmarks measure what ships: peers created here run at the default
-//! memory budget in every build shape.
+//! Benchmarks measure what ships: peers created here run at the default memory
+//! budget in every build shape.
 
 use rumors::testing::MemoryEnd;
 use rumors::{Peer, Rumors};

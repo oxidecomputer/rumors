@@ -21,8 +21,8 @@ const EQUAL_JOIN_PEAK_FLOOR: usize = size_of::<usize>();
 /// Joining byte-equal versions returns shared storage without copying either
 /// operand.
 ///
-/// The operands are decoded independently, so pointer identity cannot take
-/// the shortcut. Growing both streams fourfold must leave the fold's peak heap
+/// The operands are decoded independently, so pointer identity cannot take the
+/// shortcut. Growing both streams fourfold must leave the fold's peak heap
 /// unchanged: only fixed-size bookkeeping may be allocated before the
 /// byte-equality check returns a clone. That bookkeeping always includes the
 /// fold's stack, so the peak must also reach [`EQUAL_JOIN_PEAK_FLOOR`].

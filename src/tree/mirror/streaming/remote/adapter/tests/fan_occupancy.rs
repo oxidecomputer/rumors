@@ -1,12 +1,12 @@
-//! Checks the supply decoder's bounded channel occupancy, and its reuse
-//! across replies.
+//! Checks the supply decoder's bounded channel occupancy, and its reuse across
+//! replies.
 //!
 //! The reader and assembler communicate through a [`FAN`]-slot channel. An
 //! eager source must reach, but never exceed, `FAN + 1` resident records: one
 //! full channel plus the record held by the reader. A paced source confirms
 //! that the probe measures actual occupancy rather than returning a constant.
-//! One edge carries every reply a decode pump decodes, so a sequence of
-//! replies through one edge must decode each reply as a fresh edge would.
+//! One edge carries every reply a decode pump decodes, so a sequence of replies
+//! through one edge must decode each reply as a fresh edge would.
 
 use crate::network::NetworkKeys;
 use crate::tree::mirror::streaming::message::{Listed, listed};
@@ -38,8 +38,8 @@ use super::{codec, fixture_bounds, reply_frames, unbounded, uniform_version};
 /// Leaf records per supply frame.
 const PER_FRAME: usize = 16;
 
-/// `count` unique `u64` leaves, in ascending path order (the wire order
-/// the decoder validates).
+/// `count` unique `u64` leaves, in ascending path order (the wire order the
+/// decoder validates).
 fn leaves(count: u64) -> Vec<(Version, Message)> {
     let mut leaves: Vec<(Version, Message)> = (0..count)
         .map(|index| {
@@ -113,9 +113,9 @@ fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usiz
 /// A one-slot leaf channel completes an eager reply much larger than one fan.
 ///
 /// One slot is the smallest capacity a protocol edge accepts: the streaming
-/// channel rejects a zero capacity. Completing four fans of records refutes
-/// the premise that this channel must buffer a whole fan for progress; the
-/// joined assembler drains each blocked send.
+/// channel rejects a zero capacity. Completing four fans of records refutes the
+/// premise that this channel must buffer a whole fan for progress; the joined
+/// assembler drains each blocked send.
 #[test]
 fn one_slot_decode_channel_makes_progress() {
     let leaves = leaves(4 * FAN as u64);
@@ -144,12 +144,11 @@ fn eager_decode_occupancy_reaches_the_priced_ceiling() {
 
 /// A paced source stays below the ceiling, proving the probe is live.
 ///
-/// A paced source (one frame per poll cycle, so the assembler keeps up)
-/// holds peak occupancy at the reader's per-cycle intake, far under
-/// `FAN + 1`: the sub-ceiling reading proves the eager pin's figure is
-/// measured rather than an instrument artifact, and that occupancy
-/// tracks reader-ahead — not channel capacity — when the wire is the
-/// slower side.
+/// A paced source (one frame per poll cycle, so the assembler keeps up) holds
+/// peak occupancy at the reader's per-cycle intake, far under `FAN + 1`: the
+/// sub-ceiling reading proves the eager pin's figure is measured rather than an
+/// instrument artifact, and that occupancy tracks reader-ahead — not channel
+/// capacity — when the wire is the slower side.
 #[test]
 fn paced_decode_stays_under_the_ceiling() {
     let leaves = leaves(4 * FAN as u64);
@@ -167,8 +166,7 @@ fn paced_decode_stays_under_the_ceiling() {
 }
 
 /// The radix and node hash of each supply in a pure-supply reply to the
-/// opening, in order: each supplied node sits at its radix beneath the
-/// root.
+/// opening, in order: each supplied node sits at its radix beneath the root.
 fn supplies(reply: &Reply<<Local as Backend>::Erased>) -> Vec<Listed> {
     reply
         .reactions

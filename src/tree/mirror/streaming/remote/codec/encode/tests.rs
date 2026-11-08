@@ -31,8 +31,8 @@ fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
 }
 
-/// The opener of an `arity`-item frame on `stream` carrying `signal`: the
-/// array head, then the stream and state items.
+/// The opener of an `arity`-item frame on `stream` carrying `signal`: the array
+/// head, then the stream and state items.
 fn frame_head(arity: u64, stream: Stream, signal: Signal) -> Vec<u8> {
     let mut head = Vec::new();
     cbor::write_head(&mut head, MAJOR_ARRAY, arity);
@@ -49,8 +49,8 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
-/// Every query fan and flow state has one canonical map representation,
-/// its length priced exactly by the listing closed form.
+/// Every query fan and flow state has one canonical map representation, its
+/// length priced exactly by the listing closed form.
 #[test]
 fn query_count_covers_every_fan_and_flow() {
     let stream = stream(7);
@@ -81,8 +81,8 @@ fn query_count_covers_every_fan_and_flow() {
     }
 }
 
-/// Match flow and both bare ends exhaust the body-free representations:
-/// each is exactly its two-item array head, stream item, and state item.
+/// Match flow and both bare ends exhaust the body-free representations: each is
+/// exactly its two-item array head, stream item, and state item.
 #[test]
 fn body_free_frames_are_exhaustive() {
     let stream = stream(4);

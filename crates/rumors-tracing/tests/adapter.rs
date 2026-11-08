@@ -1,9 +1,9 @@
 //! End-to-end proof that the adapter bridges real sessions faithfully.
 //!
-//! Driven through the public API only: a bootstrapped-then-gossiping
-//! peer under a capturing subscriber yields the documented span tree,
-//! and every item the hook delivers surfaces as exactly one `message`
-//! event (held against a counting wrapper around the adapter itself).
+//! Driven through the public API only: a bootstrapped-then-gossiping peer under
+//! a capturing subscriber yields the documented span tree, and every item the
+//! hook delivers surfaces as exactly one `message` event (held against a
+//! counting wrapper around the adapter itself).
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,8 +19,8 @@ use tokio::io::{BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Metadata, Subscriber};
 
-/// One in-memory connection, split into each end's read and write halves,
-/// each read half buffered as a session requires.
+/// One in-memory connection, split into each end's read and write halves, each
+/// read half buffered as a session requires.
 #[allow(clippy::type_complexity)]
 fn connection() -> (
     (BufReader<ReadHalf<DuplexStream>>, WriteHalf<DuplexStream>),
@@ -56,14 +56,14 @@ struct State {
     events: Vec<EventRecord>,
 }
 
-/// A minimal capturing subscriber: retains every span and event with
-/// its fields, resolving parents from the explicit parent the adapter
-/// always passes.
+/// A minimal capturing subscriber: retains every span and event with its
+/// fields, resolving parents from the explicit parent the adapter always
+/// passes.
 #[derive(Clone, Default)]
 struct Capture(Arc<Mutex<State>>);
 
-/// Collects a span's or event's fields into string form via their
-/// debug rendering.
+/// Collects a span's or event's fields into string form via their debug
+/// rendering.
 struct Fields<'a>(&'a mut BTreeMap<String, String>);
 
 impl tracing::field::Visit for Fields<'_> {
@@ -115,8 +115,8 @@ impl Subscriber for Capture {
     fn exit(&self, _: &Id) {}
 }
 
-/// Wraps the adapter and counts every item delivery, so the captured
-/// events can be held against the hook's own invocation count.
+/// Wraps the adapter and counts every item delivery, so the captured events can
+/// be held against the hook's own invocation count.
 struct Counting {
     inner: TracingObserver,
     messages: Arc<AtomicU64>,

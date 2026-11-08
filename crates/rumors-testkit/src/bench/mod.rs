@@ -9,8 +9,8 @@ pub mod latency;
 /// A duplex link with bandwidth, delay, and send buffers, on simulated time.
 pub mod link;
 
-/// Deterministic replica pairs reconciled over the link model, with what
-/// each side's ledger admitted.
+/// Deterministic replica pairs reconciled over the link model, with what each
+/// side's ledger admitted.
 pub mod session;
 
 /// A lower estimate of a session's duration at a budget below its

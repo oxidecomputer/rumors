@@ -470,19 +470,18 @@ enum Operand {
     },
     /// A primitive tail under a stored top that cancels across two digits.
     ///
-    /// The digits `1` at `position` and `-2^32` at `position - 1` sum to
-    /// zero but stay stored, unlike [`CancelledHigh`](Self::CancelledHigh)'s,
-    /// which cancel within one digit. The stored width therefore exceeds the
-    /// value's until a read compacts it.
+    /// The digits `1` at `position` and `-2^32` at `position - 1` sum to zero
+    /// but stay stored, unlike [`CancelledHigh`](Self::CancelledHigh)'s, which
+    /// cancel within one digit. The stored width therefore exceeds the value's
+    /// until a read compacts it.
     CancelledTop {
         /// The position of the cancelled top digit, at least 1.
         position: u64,
         /// The surviving value.
         tail: Primitive,
     },
-    /// Another operand's value, negated: held in digits whose flag is set
-    /// when that value is held in digits, including a zero whose digits
-    /// cancel.
+    /// Another operand's value, negated: held in digits whose flag is set when
+    /// that value is held in digits, including a zero whose digits cancel.
     Negated(Box<Operand>),
 }
 
@@ -490,9 +489,8 @@ enum Operand {
 impl Operand {
     /// Return matching accumulator and big-integer representations.
     ///
-    /// Recurses only through [`Negated`](Self::Negated), which
-    /// [`arb_operand`] nests at most once, since it negates only an
-    /// unnegated operand.
+    /// Recurses only through [`Negated`](Self::Negated), which [`arb_operand`]
+    /// nests at most once, since it negates only an unnegated operand.
     fn values(&self) -> (Accumulator, BigInt) {
         match self {
             Operand::Primitive(value) => value.values(),
@@ -673,8 +671,8 @@ enum Operation {
     },
     /// Clear to zero while retaining reusable storage.
     Clear,
-    /// Reserve storage for a working width in bits, which may be
-    /// unsatisfiable, without changing the value.
+    /// Reserve storage for a working width in bits, which may be unsatisfiable,
+    /// without changing the value.
     Reserve(u64),
     /// Replace the value by a sum of owned or borrowed accumulators.
     Sum {
@@ -896,8 +894,8 @@ impl Operation {
     }
 }
 
-/// Check the standard traits and sign queries against the oracle, on stored copies so
-/// that observing never changes the tested history.
+/// Check the standard traits and sign queries against the oracle, on stored
+/// copies so that observing never changes the tested history.
 fn assert_standard_traits(actual: &Accumulator, oracle: &BigInt, step: &Step, trace: &[u8]) {
     let sign = oracle_sign(oracle);
     assert_eq!(
@@ -1007,8 +1005,8 @@ fn plain_form(oracle: &BigInt) -> Accumulator {
     plain
 }
 
-/// Check every public observation against the exact modeled value, on
-/// stored copies so that observing never changes the tested history.
+/// Check every public observation against the exact modeled value, on stored
+/// copies so that observing never changes the tested history.
 fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u64, trace: &[u8]) {
     assert_value(actual, oracle);
     assert_value(&actual.stored_copy(), oracle);
@@ -1086,7 +1084,8 @@ fn assert_observations(actual: &Accumulator, oracle: &BigInt, comparison_bits: u
     actual.stored().assert_invariants(trace);
 }
 
-/// Bias one primitive type toward its endpoints while retaining arbitrary values.
+/// Bias one primitive type toward its endpoints while retaining arbitrary
+/// values.
 macro_rules! primitive_strategy {
     ($integer:ty, $variant:path) => {
         prop_oneof![
@@ -1126,11 +1125,11 @@ fn arb_shift_value(maximum: u64) -> BoxedStrategy<u64> {
     arb_shift_value_in(0, maximum)
 }
 
-/// Generate shifts in `minimum..=maximum`, at and between every
-/// representation boundary in that range.
+/// Generate shifts in `minimum..=maximum`, at and between every representation
+/// boundary in that range.
 ///
-/// Bounding the range here, rather than filtering [`arb_shift_value`],
-/// rejects no draws, so no case count exhausts proptest's reject limit.
+/// Bounding the range here, rather than filtering [`arb_shift_value`], rejects
+/// no draws, so no case count exhausts proptest's reject limit.
 fn arb_shift_value_in(minimum: u64, maximum: u64) -> BoxedStrategy<u64> {
     let boundaries: Vec<u64> = [
         0, 1, 29, 30, 31, 32, 33, 63, 64, 65, 95, 96, 97, 127, 128, 129, 191, 192, 193, 255, 256,
@@ -1183,8 +1182,8 @@ fn arb_limbs() -> BoxedStrategy<Vec<u64>> {
     .boxed()
 }
 
-/// Generate operands in both storage modes and around each transition, each
-/// one negated or not.
+/// Generate operands in both storage modes and around each transition, each one
+/// negated or not.
 fn arb_operand() -> BoxedStrategy<Operand> {
     prop_oneof![
         3 => arb_unnegated_operand(),
@@ -1193,8 +1192,8 @@ fn arb_operand() -> BoxedStrategy<Operand> {
     .boxed()
 }
 
-/// Generate operands in both storage modes and around each transition,
-/// without a negation.
+/// Generate operands in both storage modes and around each transition, without
+/// a negation.
 fn arb_unnegated_operand() -> BoxedStrategy<Operand> {
     prop_oneof![
         3 => arb_primitive().prop_map(Operand::Primitive),

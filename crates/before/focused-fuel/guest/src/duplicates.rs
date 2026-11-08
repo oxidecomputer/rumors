@@ -3,8 +3,8 @@
 //! Every n-ary join, meet, hull, union, and intersection fold drops an input
 //! that shares its predecessor's buffer before its balanced counter reads it.
 //! Each probe folds `x` and then `copies` clones of `d`, a version concurrent
-//! with `x`, all sharing one buffer, and checks that the result equals the
-//! fold of `x` with one copy.
+//! with `x`, all sharing one buffer, and checks that the result equals the fold
+//! of `x` with one copy.
 
 use std::fmt::Debug;
 use std::iter::{once, repeat_n};
@@ -14,8 +14,8 @@ use focused_fuel_protocol::Probe;
 
 use crate::measured;
 
-/// Builds the duplicate fixture over `N` shares of the seed: a shared
-/// history, and `x` and `d`, each one tick on a different share past it.
+/// Builds the duplicate fixture over `N` shares of the seed: a shared history,
+/// and `x` and `d`, each one tick on a different share past it.
 ///
 /// The shares tick different counts, so the history keeps a stored width that
 /// grows with the share count rather than normalizing to one uniform leaf.
@@ -63,9 +63,9 @@ fn versions<R: PartialEq + Debug>(
     )
 }
 
-/// Measures `fold` over the span from the history to `x` and `copies`
-/// copies of the span from the history to `d`, checking the result against
-/// the fold over one copy.
+/// Measures `fold` over the span from the history to `x` and `copies` copies of
+/// the span from the history to `d`, checking the result against the fold over
+/// one copy.
 fn spans<R: PartialEq + Debug>(
     shares: usize,
     copies: usize,

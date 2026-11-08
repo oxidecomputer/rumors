@@ -26,10 +26,10 @@
 //!   to be concurrent with one endpoint, that endpoint can be dropped, but the
 //!   other still distinguishes concurrency with one endpoint from concurrency
 //!   with both.
-//! - [`dominance`] asks only whether `lo <= probe` and `hi <= probe`. Failure of
-//!   the first condition decides [`Dominance::Before`] immediately. Failure of
-//!   the second drops `hi`; `lo` then distinguishes
-//!   [`Dominance::Between`] from [`Dominance::Before`].
+//! - [`dominance`] asks only whether `lo <= probe` and `hi <= probe`. Failure
+//!   of the first condition decides [`Dominance::Before`] immediately. Failure
+//!   of the second drops `hi`; `lo` then distinguishes [`Dominance::Between`]
+//!   from [`Dominance::Before`].
 //! - [`precedence`] is the mirror image: it asks whether `probe <= hi` and
 //!   `probe <= lo`, and can drop whichever endpoint no longer affects that
 //!   distinction.
@@ -117,13 +117,13 @@ impl<'a> BoundSide<'a> {
 /// Place a probe stream against an ordered span's endpoint streams at full
 /// resolution, each stream decoded once.
 ///
-/// `lo` and `hi` must satisfy `lo <= hi` (`Span`'s construction
-/// contract); the verdict is unspecified otherwise.
+/// `lo` and `hi` must satisfy `lo <= hi` (`Span`'s construction contract); the
+/// verdict is unspecified otherwise.
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::partial_cmp`],
-/// on all three operands.
+/// The canonical-stream contract of [`Version::partial_cmp`], on all three
+/// operands.
 pub fn span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
     /// Either endpoint's decided concurrency drops its own cursor while the
     /// other still sweeps.
@@ -171,16 +171,16 @@ pub fn span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
 
 /// Coarsen [`span`] to how much of the span the probe dominates.
 ///
-/// If `lo <= probe` fails, the answer is immediately [`Dominance::Before`].
-/// If `hi <= probe` fails, the end cursor can be dropped while the start
-/// relation distinguishes the remaining outcomes.
+/// If `lo <= probe` fails, the answer is immediately [`Dominance::Before`]. If
+/// `hi <= probe` fails, the end cursor can be dropped while the start relation
+/// distinguishes the remaining outcomes.
 ///
 /// The same operand contract as [`span`].
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::partial_cmp`],
-/// on all three operands.
+/// The canonical-stream contract of [`Version::partial_cmp`], on all three
+/// operands.
 pub fn dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance {
     walk(
         probe,
@@ -222,15 +222,15 @@ pub fn dominance(probe: &Version, lo: &Version, hi: &Version) -> Dominance {
 
 /// Coarsen [`span`] to how much of the span the probe precedes.
 ///
-/// This mirrors [`dominance`]: failure of `probe <= hi` determines After,
-/// while failure of `probe <= lo` lets the walk drop the start cursor.
+/// This mirrors [`dominance`]: failure of `probe <= hi` determines After, while
+/// failure of `probe <= lo` lets the walk drop the start cursor.
 ///
 /// The same operand contract as [`span`].
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::partial_cmp`],
-/// on all three operands.
+/// The canonical-stream contract of [`Version::partial_cmp`], on all three
+/// operands.
 pub fn precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedence {
     walk(
         probe,
@@ -278,8 +278,8 @@ pub fn precedence(probe: &Version, lo: &Version, hi: &Version) -> Precedence {
 ///
 /// # Panics
 ///
-/// The canonical-stream contract of [`Version::partial_cmp`],
-/// on all three operands.
+/// The canonical-stream contract of [`Version::partial_cmp`], on all three
+/// operands.
 pub fn contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
     walk(
         probe,
@@ -323,8 +323,8 @@ pub fn contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
 /// final answer, keep the endpoint, or drop it. `finish` maps the relations
 /// left at exhaustion.
 ///
-/// A dropped endpoint and a fully traversed concurrent endpoint both flatten
-/// to `None`. A hook may therefore drop an endpoint only after the ordering
+/// A dropped endpoint and a fully traversed concurrent endpoint both flatten to
+/// `None`. A hook may therefore drop an endpoint only after the ordering
 /// inspected by its `finish` arm has been permanently refuted.
 fn walk<V>(
     probe: &Version,

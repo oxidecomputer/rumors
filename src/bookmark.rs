@@ -1,7 +1,8 @@
 //! Restart bookkeeping that limits growth of message versions.
 //!
 //! Applications provide opaque byte storage through [`Bookmark`]. The crate
-//! owns the record format and the rules for recycling a departed peer's identity.
+//! owns the record format and the rules for recycling a departed peer's
+//! identity.
 //!
 //! A peer's identity is lost when it crashes, and everyone's versions grow
 //! until that identity is recycled. The bookmark exists so a restart can resume
@@ -54,26 +55,27 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// Persistent restart bookkeeping that limits growth of message versions.
 ///
 /// When peers disappear without retiring, their internal bookkeeping can make
-/// [`Version`]s larger. Reusing a bookmark across restarts lets
-/// Rumors recover and recycle that bookkeeping as it catches up with the network.
-/// This is an optimization: peers can join and gossip without bookmarks.
+/// [`Version`]s larger. Reusing a bookmark across restarts lets Rumors recover
+/// and recycle that bookkeeping as it catches up with the network. This is an
+/// optimization: peers can join and gossip without bookmarks.
 ///
 /// The application stores opaque bytes. Rumors owns their format; implement
-/// [`load`](Self::load) and [`store`](Self::store) to read and atomically replace
-/// them. A bookmark stores no messages. Recover those by joining and gossiping.
+/// [`load`](Self::load) and [`store`](Self::store) to read and atomically
+/// replace them. A bookmark stores no messages. Recover those by joining and
+/// gossiping.
 ///
 /// # Restarting a peer
 ///
 /// Join again with the same bookmark selected through
 /// [`Bootstrap::bookmark`](crate::Bootstrap::bookmark), or attach it through
-/// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining.
-/// Rumors handles recovery automatically during subsequent gossip.
+/// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining. Rumors
+/// handles recovery automatically during subsequent gossip.
 ///
 /// Each peer has an internal *identity* used to generate distinct message
 /// versions. The bookmark records that identity and the progress of its own
-/// writes. Rumors can reclaim a prior incarnation's identity once it has
-/// caught up with those writes; it need not recover every message that the
-/// prior incarnation had merely observed.
+/// writes. Rumors can reclaim a prior incarnation's identity once it has caught
+/// up with those writes; it need not recover every message that the prior
+/// incarnation had merely observed.
 ///
 /// Reclamation happens when Rumors updates the bookmark, and ordinary gossip
 /// updates it only to record local progress before exchanging locally
@@ -106,7 +108,8 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// - Use one bookmark for one peer across its restarts. Never share it between
 ///   concurrently live peers or duplicate it to start another peer.
 /// - Replace the record atomically, and never roll back a successful store. A
-///   stale but valid record can cause versions to be reused and corrupt the set.
+///   stale but valid record can cause versions to be reused and corrupt the
+///   set.
 /// - Preserve the complete record across restarts; Rumors handles retention.
 ///
 /// Use `conformance::bookmark` from a dev-dependency with the `conformance`
@@ -148,10 +151,10 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 ///
 /// A crash before a new peer's bookmark is persisted can still lose the
 /// opportunity to recycle its identity. This affects version size, not messages
-/// already replicated elsewhere. Retirement and bookmarks reduce version growth;
-/// they do not guarantee that versions stay a fixed size. Spread bootstrap
-/// requests across established peers: long chains of joins or repeated joins
-/// through a single provider also increase version size.
+/// already replicated elsewhere. Retirement and bookmarks reduce version
+/// growth; they do not guarantee that versions stay a fixed size. Spread
+/// bootstrap requests across established peers: long chains of joins or
+/// repeated joins through a single provider also increase version size.
 ///
 /// If a session fails after it writes its bookmark and the peer crashes before
 /// another session shares those writes, no live peer holds what the record
@@ -162,11 +165,10 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// Retirement removes the departing identity from the local bookmark before
 /// sending it. If the transfer then fails or is cancelled, that bookmark cannot
 /// recover the removed identity. Recovery depends on what reached the recipient
-/// and its bookmark; see [`Retire::Retired`](crate::Retire::Retired).
-/// Serving a bootstrap removes the donated identity the same way. If that
-/// session fails before sending, the identity returns to the live peer and is
-/// recorded again at its next checkpoint; a crash before this occurs would drop
-/// it forever.
+/// and its bookmark; see [`Retire::Retired`](crate::Retire::Retired). Serving a
+/// bootstrap removes the donated identity the same way. If that session fails
+/// before sending, the identity returns to the live peer and is recorded again
+/// at its next checkpoint; a crash before this occurs would drop it forever.
 pub trait Bookmark {
     /// Failure to open or replace the stored bytes.
     type Error: std::error::Error + Send + Sync + 'static;
@@ -196,9 +198,8 @@ pub trait Bookmark {
     /// overwrite a later successful store: stale records can permit version
     /// reuse and corrupt the gossip set. A future leaked instead of dropped
     /// counts as cancelled: once the application reclaims its peer
-    /// ([`Rumors::try_into_peer`](crate::Rumors::try_into_peer)), later
-    /// stores proceed while any work the leaked store started may still be
-    /// running.
+    /// ([`Rumors::try_into_peer`](crate::Rumors::try_into_peer)), later stores
+    /// proceed while any work the leaked store started may still be running.
     fn store(&self, bytes: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -250,9 +251,9 @@ impl Bookmark for NoBookmark {
 /// permanently gone from the record. A release that races a checkpoint just
 /// defers reclamation to the next one.
 ///
-/// A session future leaked instead of dropped never releases its
-/// reservation, which would pause reclamation for the replica's lifetime.
-/// Reclaiming the peer from its handles forgets such reservations
+/// A session future leaked instead of dropped never releases its reservation,
+/// which would pause reclamation for the replica's lifetime. Reclaiming the
+/// peer from its handles forgets such reservations
 /// ([`release_abandoned`](Self::release_abandoned)).
 #[derive(Default)]
 pub(crate) struct Reservations(Arc<()>);
@@ -270,7 +271,8 @@ pub(crate) struct Reservation {
 
 /// Count the speculative forks that are outstanding.
 impl Reservations {
-    /// Reserve a fork, pausing reclamation until the returned reservation drops.
+    /// Reserve a fork, pausing reclamation until the returned reservation
+    /// drops.
     pub(crate) fn reserve(&mut self) -> Reservation {
         Reservation {
             _hold: Arc::clone(&self.0),
@@ -283,11 +285,11 @@ impl Reservations {
     /// be dropped again, such as on a peer just reclaimed from its handles. A
     /// reservation still outstanding there belongs to a leaked future, and
     /// forgetting it cannot hand a party out twice. That future's fork was
-    /// never sent, because a session releases its reservation before it
-    /// writes the first byte of the fork, and the future can never send the
-    /// fork or rejoin it now. So no live peer holds that region or ever will,
-    /// and a checkpoint that reclaims it from an identity still recording it
-    /// gives it to the live party alone.
+    /// never sent, because a session releases its reservation before it writes
+    /// the first byte of the fork, and the future can never send the fork or
+    /// rejoin it now. So no live peer holds that region or ever will, and a
+    /// checkpoint that reclaims it from an identity still recording it gives it
+    /// to the live party alone.
     pub(crate) fn release_abandoned(&mut self) {
         *self = Self::default();
     }
@@ -298,21 +300,21 @@ impl Reservations {
     }
 }
 
-/// One peer view's hold on its bookmark: the storage and record it shares
-/// with every [`Rumors`](crate::Rumors) clone, behind the session lock, and
-/// the size limit to store under, which is read without that lock.
+/// One peer view's hold on its bookmark: the storage and record it shares with
+/// every [`Rumors`](crate::Rumors) clone, behind the session lock, and the size
+/// limit to store under, which is read without that lock.
 ///
 /// The limit is a setting of the peer, like its memory budget: only an
-/// exclusively owned [`Peer`](crate::Peer) can change it, and every view
-/// shared from that peer copies it. Keeping it outside the lock means that
-/// configuring the limit, or replacing the storage, never waits on the lock,
-/// so neither depends on whether some session future still holds it.
+/// exclusively owned [`Peer`](crate::Peer) can change it, and every view shared
+/// from that peer copies it. Keeping it outside the lock means that configuring
+/// the limit, or replacing the storage, never waits on the lock, so neither
+/// depends on whether some session future still holds it.
 pub(crate) struct BookmarkHandle<B> {
-    /// Maximum encoded record size, including its frame: at least the size
-    /// of an empty record.
+    /// Maximum encoded record size, including its frame: at least the size of
+    /// an empty record.
     size_limit: usize,
-    /// The storage and its cached record, locked from a session's load
-    /// through its store.
+    /// The storage and its cached record, locked from a session's load through
+    /// its store.
     state: Arc<Mutex<Bookmarked<B>>>,
 }
 
@@ -364,14 +366,13 @@ impl<B> BookmarkHandle<B> {
     /// holds it.
     ///
     /// A session future leaked (with `mem::forget`, say) instead of dropped
-    /// never runs its lock's destructor, so the lock stays held and every
-    /// later [`lock`](Self::lock) waits forever. While other views exist, a
-    /// held lock cannot be told apart from a slow store. So call this only
-    /// where no live future can hold the lock, such as on a peer just
-    /// reclaimed from its handles, where this view is also the only one. A
-    /// rebuild needs that: only the sole owner of the lock can take the
-    /// record out of it. If another view remains, this leaves the lock as it
-    /// is.
+    /// never runs its lock's destructor, so the lock stays held and every later
+    /// [`lock`](Self::lock) waits forever. While other views exist, a held lock
+    /// cannot be told apart from a slow store. So call this only where no live
+    /// future can hold the lock, such as on a peer just reclaimed from its
+    /// handles, where this view is also the only one. A rebuild needs that:
+    /// only the sole owner of the lock can take the record out of it. If
+    /// another view remains, this leaves the lock as it is.
     ///
     /// A fresh lock around the same record leaves what a cancellation at the
     /// same await would leave: every change to the record happens between
@@ -399,8 +400,8 @@ impl<B> BookmarkHandle<B> {
     }
 }
 
-/// Exclusive use of a peer's bookmark, from loading the record through
-/// storing it.
+/// Exclusive use of a peer's bookmark, from loading the record through storing
+/// it.
 pub(crate) struct LockedBookmark<'a, B> {
     /// The storage and record, held until this lock drops.
     state: MutexGuard<'a, Bookmarked<B>>,
@@ -426,8 +427,8 @@ impl<B: Bookmark> LockedBookmark<'_, B> {
 pub(crate) struct Bookmarked<B> {
     /// Application-owned storage for the encoded record.
     persist: B,
-    /// The record in memory: absent before the first load, and again after
-    /// any store that did not confirm success.
+    /// The record in memory: absent before the first load, and again after any
+    /// store that did not confirm success.
     cache: Option<Cache>,
 }
 
@@ -450,9 +451,9 @@ struct Checkpoint {
     frontier: Version,
     /// The size limit the checkpoint's record was encoded under.
     ///
-    /// Encoding the same record under another limit can keep a different
-    /// set of identities, so a checkpoint is current only under the limit it
-    /// was stored under.
+    /// Encoding the same record under another limit can keep a different set of
+    /// identities, so a checkpoint is current only under the limit it was
+    /// stored under.
     size_limit: usize,
 }
 
@@ -547,9 +548,9 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
         })))
     }
 
-    /// Remove before sending: take a donation out of every identity, and
-    /// return the future that stores the record, which the session awaits
-    /// before the donation leaves the process.
+    /// Remove before sending: take a donation out of every identity, and return
+    /// the future that stores the record, which the session awaits before the
+    /// donation leaves the process.
     #[must_use = "make bookmark changes durable before the session transmits"]
     pub(crate) fn donate(
         mut self,
@@ -564,9 +565,9 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
     /// that stores the record.
     ///
     /// Attachment reclaims nothing, because a failed attachment hands the peer
-    /// back without a bookmark, and a region reclaimed then would write
-    /// without ever being recorded. So attachment is not a checkpoint, and the
-    /// first session still reclaims.
+    /// back without a bookmark, and a region reclaimed then would write without
+    /// ever being recorded. So attachment is not a checkpoint, and the first
+    /// session still reclaims.
     #[must_use = "make bookmark changes durable before the session transmits"]
     pub(crate) fn attach(
         mut self,
@@ -581,8 +582,8 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
         self.store(None)
     }
 
-    /// Whether the last store checkpointed exactly this live state, under
-    /// this update's size limit.
+    /// Whether the last store checkpointed exactly this live state, under this
+    /// update's size limit.
     fn checkpointed(&self, party: &Party, frontier: &Version) -> bool {
         self.cache().durable.as_ref().is_some_and(|checkpoint| {
             checkpoint.size_limit == self.size_limit

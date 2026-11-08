@@ -1,5 +1,5 @@
-//! `doctor`: what this host can do, and for each thing it cannot, why and
-//! what to change.
+//! `doctor`: what this host can do, and for each thing it cannot, why and what
+//! to change.
 
 use std::process::Command;
 
@@ -20,8 +20,8 @@ struct Check {
     fix: Option<String>,
 }
 
-/// Runs `script` with `sh` inside a throwaway sandbox like the one
-/// emulation uses, returning its standard error on failure.
+/// Runs `script` with `sh` inside a throwaway sandbox like the one emulation
+/// uses, returning its standard error on failure.
 fn in_sandbox(script: &str) -> Result<(), String> {
     let mut command = Command::new("unshare");
     if !is_root() {
@@ -43,8 +43,8 @@ fn installed(program: &str, probe: &str) -> bool {
     Command::new(program).arg(probe).output().is_ok()
 }
 
-/// Runs every check, prints the verdicts, and returns whether emulation
-/// mode can run here.
+/// Runs every check, prints the verdicts, and returns whether emulation mode
+/// can run here.
 pub fn doctor() -> bool {
     let environment = match Environment::capture() {
         Ok(environment) => environment,

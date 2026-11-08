@@ -9,10 +9,10 @@ use tempfile::NamedTempFile;
 /// Replaces the file at `path` with `bytes` in one rename, or leaves it
 /// untouched.
 ///
-/// The bytes go first to a temporary file in `path`'s directory, so the
-/// rename stays on one filesystem, and reach the disk before the rename, so a
-/// crash cannot leave an empty file in `path`'s place. The temporary file
-/// deletes itself if the write or the rename fails.
+/// The bytes go first to a temporary file in `path`'s directory, so the rename
+/// stays on one filesystem, and reach the disk before the rename, so a crash
+/// cannot leave an empty file in `path`'s place. The temporary file deletes
+/// itself if the write or the rename fails.
 ///
 /// # Errors
 ///

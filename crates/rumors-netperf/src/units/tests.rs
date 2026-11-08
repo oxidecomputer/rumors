@@ -33,9 +33,8 @@ proptest! {
     }
 }
 
-/// The units scale as their names say: decimal for rates and the `kB`
-/// family, binary for the `KiB` family, and `0.1ms` is a hundred
-/// microseconds.
+/// The units scale as their names say: decimal for rates and the `kB` family,
+/// binary for the `KiB` family, and `0.1ms` is a hundred microseconds.
 #[test]
 fn units_scale_as_named() {
     assert_eq!("100Mbit".parse::<Rate>().unwrap(), Rate::Bits(100_000_000));

@@ -1,12 +1,12 @@
 //! One shared reference for the running height and client-owned differences.
 //!
 //! Let `h` be the running height, `m` the innermost minimum, and `A` the
-//! anchor. We store `gap = h - A` and each follower as `A - X`, where `X` is
-//! a fixed client value. Normally `A = m`.
+//! anchor. We store `gap = h - A` and each follower as `A - X`, where `X` is a
+//! fixed client value. Normally `A = m`.
 //!
 //! Closing a range may expose a lower minimum. Moving every stored value at
-//! each close could repeatedly traverse a wide number. Instead, keep `A`
-//! fixed and accumulate `deferred = A - m > 0`. Thus the true height gap is
+//! each close could repeatedly traverse a wide number. Instead, keep `A` fixed
+//! and accumulate `deferred = A - m > 0`. Thus the true height gap is
 //! `gap + deferred`, and the true follower is `follower - deferred`.
 //!
 //! All followers share the anchor: attaching, detaching, and moving them never
@@ -28,7 +28,8 @@ pub const FOLLOWER_SLOTS: usize = 2;
 pub(super) struct Anchor {
     /// Running height minus the anchor: `h - A`.
     gap: Accumulator,
-    /// Positive distance `A - m`; absent exactly when the anchor is the minimum.
+    /// Positive distance `A - m`; absent exactly when the anchor is the
+    /// minimum.
     deferred: Option<Accumulator>,
     /// Client values `A - X`, all relative to this same anchor.
     followers: [Option<Accumulator>; FOLLOWER_SLOTS],
@@ -77,7 +78,8 @@ impl Anchor {
         self.gap -= offset;
     }
 
-    /// Move the anchor to `h`, returning its signed distance above the old minimum.
+    /// Move the anchor to `h`, returning its signed distance above the old
+    /// minimum.
     pub(super) fn arm_at_height(&mut self) -> Accumulator {
         let offset = core::mem::take(&mut self.gap);
         self.move_by(offset)
@@ -99,9 +101,9 @@ impl Anchor {
 
     /// Finish an anchor move after the gap already refers to the new value `v`.
     ///
-    /// First add `v - A` to followers, changing `A - X` to `v - X`.
-    /// Then add the deferred `A - m` to obtain `v - m` for boundary updates.
-    /// The merge consumes the narrower value and retains the wider buffer.
+    /// First add `v - A` to followers, changing `A - X` to `v - X`. Then add
+    /// the deferred `A - m` to obtain `v - m` for boundary updates. The merge
+    /// consumes the narrower value and retains the wider buffer.
     fn move_by(&mut self, mut offset: Accumulator) -> Accumulator {
         for follower in self.followers.iter_mut().flatten() {
             *follower += &offset;
@@ -112,7 +114,8 @@ impl Anchor {
         offset
     }
 
-    /// Compare the running height with the true minimum, resolving only if needed.
+    /// Compare the running height with the true minimum, resolving only if
+    /// needed.
     ///
     /// With no deferred distance, the sign of `h - A` is the answer. Otherwise
     /// `A > m`, so any height at or above `A` is above `m`. A height below `A`
@@ -121,8 +124,8 @@ impl Anchor {
     /// That shortcut relies on the deferred distance `A - m` being strictly
     /// positive, which holds because it only ever sums boundaries, each
     /// positive by the precondition of
-    /// [`Boundary::from_positive`](super::boundary::Boundary::from_positive).
-    /// A zero distance would answer `Greater` for a height equal to the minimum.
+    /// [`Boundary::from_positive`](super::boundary::Boundary::from_positive). A
+    /// zero distance would answer `Greater` for a height equal to the minimum.
     pub(super) fn compare_height(&mut self) -> Ordering {
         let sign = self.gap.sign();
         if self.deferred.is_none() {
@@ -164,19 +167,22 @@ impl Anchor {
         self.gap.sign()
     }
 
-    /// Certify the gap's sign when adding any word-sized offset cannot change it.
+    /// Certify the gap's sign when adding any word-sized offset cannot change
+    /// it.
     pub(super) fn gap_dominates_word(&self) -> Option<Ordering> {
         self.gap.cmp_zero_stable_under(64)
     }
 
-    /// Make the current height a confirmed new minimum and return `old_min - h`.
+    /// Make the current height a confirmed new minimum and return
+    /// `old_min - h`.
     pub(super) fn undercut_here(&mut self) -> Accumulator {
         let mut decrease = core::mem::take(&mut self.gap);
         decrease = -decrease;
         self.lower_by(decrease)
     }
 
-    /// Apply a confirmed undercut at `h + offset` without first folding the gap.
+    /// Apply a confirmed undercut at `h + offset` without first folding the
+    /// gap.
     ///
     /// The gap is left at zero while the returned decrease propagates through
     /// boundaries. The caller then restores `h - (h + offset)` with
@@ -188,10 +194,11 @@ impl Anchor {
         self.lower_by(decrease)
     }
 
-    /// Restore the running-height reference after an offset emission became the anchor.
+    /// Restore the running-height reference after an offset emission became the
+    /// anchor.
     ///
-    /// The new anchor is `v = h + offset`, so `h - v = -offset`. The caller
-    /// has already moved the old gap into the decrease; no wide value is copied.
+    /// The new anchor is `v = h + offset`, so `h - v = -offset`. The caller has
+    /// already moved the old gap into the decrease; no wide value is copied.
     pub(super) fn set_gap_below_offset(&mut self, offset: &BigInt) {
         let mut gap = Accumulator::new();
         gap -= offset;
@@ -227,11 +234,13 @@ impl Anchor {
         });
     }
 
-    /// Move the anchor to the true minimum, updating all relative values together.
+    /// Move the anchor to the true minimum, updating all relative values
+    /// together.
     ///
     /// Adding `A - m` makes the gap `h - m`; subtracting it makes followers
     /// `m - X`. The gap merge reads the narrower buffer. The fixed number of
-    /// followers adds at most a constant multiple of the consumed distance's width.
+    /// followers adds at most a constant multiple of the consumed distance's
+    /// width.
     pub(super) fn resolve(&mut self) {
         let Some(deferred) = self.deferred.take() else {
             return;

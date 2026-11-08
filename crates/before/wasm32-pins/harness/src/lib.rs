@@ -1,8 +1,8 @@
 //! Runs checks inside a fresh instance of the 32-bit guest.
 //!
 //! Wasm linear memory grows but does not shrink. A fresh instance therefore
-//! prevents one large check from becoming the next check's baseline. The
-//! engine and compiled module are shared because compilation is expensive.
+//! prevents one large check from becoming the next check's baseline. The engine
+//! and compiled module are shared because compilation is expensive.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -24,18 +24,18 @@ pub enum Outcome {
     /// [`Trap::UnreachableCodeReached`], so the trap alone cannot tell them
     /// apart. `panic` separates them in one direction only.
     ///
-    /// - `Some` always means the guest panicked. It holds the panic's
-    ///   message; a message longer than 1,024 bytes keeps its longest prefix
-    ///   that ends on a character boundary within that limit.
+    /// - `Some` always means the guest panicked. It holds the panic's message;
+    ///   a message longer than 1,024 bytes keeps its longest prefix that ends
+    ///   on a character boundary within that limit.
     /// - `None` means no panic reached the guest's panic hook. Usually the
-    ///   guest ran out of memory. A panic raised after memory is exhausted
-    ///   also reads `None` when its message has runtime arguments, as every
-    ///   `expect` message and `Result::unwrap`'s do (`Option::unwrap`'s does
-    ///   not), because std allocates to format such a message before it runs
-    ///   the hook.
+    ///   guest ran out of memory. A panic raised after memory is exhausted also
+    ///   reads `None` when its message has runtime arguments, as every `expect`
+    ///   message and `Result::unwrap`'s do (`Option::unwrap`'s does not),
+    ///   because std allocates to format such a message before it runs the
+    ///   hook.
     ///
-    /// A pin that expects a panic can therefore fail spuriously once memory
-    /// is exhausted, but it never passes when the guest did not panic.
+    /// A pin that expects a panic can therefore fail spuriously once memory is
+    /// exhausted, but it never passes when the guest did not panic.
     Trapped {
         /// The wasm trap that ended the check.
         trap: Trap,
@@ -81,8 +81,8 @@ pub fn run_raw(check: u32, a: u64, b: u64) -> Outcome {
 
 /// Reads the panic message the guest recorded before it trapped, if any.
 ///
-/// Wasmtime permits calls into an instance after one of its calls trapped,
-/// and the guest keeps the record in static memory, so it survives the trap.
+/// Wasmtime permits calls into an instance after one of its calls trapped, and
+/// the guest keeps the record in static memory, so it survives the trap.
 fn recorded_panic(instance: &Instance, store: &mut Store<()>) -> Option<String> {
     let mut export = |name| {
         instance
@@ -106,14 +106,14 @@ fn recorded_panic(instance: &Instance, store: &mut Store<()>) -> Option<String> 
     Some(String::from_utf8(message).expect("the guest records UTF-8 cut at a character boundary"))
 }
 
-/// The environment variable naming the compiled guest module; the
-/// `wasm32-pins` recipe sets it after building the guest.
+/// The environment variable naming the compiled guest module; the `wasm32-pins`
+/// recipe sets it after building the guest.
 const GUEST_ENV: &str = "WASM32_PINS_GUEST_WASM";
 
 /// Returns the path of the compiled guest module, which [`GUEST_ENV`] names.
 ///
-/// No default location stands in for the variable: a guest found there
-/// could predate the tree under test, and the pins would judge it instead.
+/// No default location stands in for the variable: a guest found there could
+/// predate the tree under test, and the pins would judge it instead.
 ///
 /// # Panics
 ///

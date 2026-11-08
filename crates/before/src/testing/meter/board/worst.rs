@@ -1,15 +1,14 @@
 //! Ranks the board's input families by measured cost for each operation.
 //!
-//! The map folds the board's normalized heap readings. It does
-//! not claim that the measured roster contains every possible worst case;
-//! complexity arguments and focused tests establish that.
+//! The map folds the board's normalized heap readings. It does not claim that
+//! the measured roster contains every possible worst case; complexity arguments
+//! and focused tests establish that.
 //!
 //! [`WORST_RANKINGS`] pins the family with the largest reading in each cell,
 //! except in the cells it declares [`TARGET_DEPENDENT`], where it checks only
-//! that some family drives the currency. Exact ties retain every family in
-//! name order. The renderer also flags a runner-up within [`NEAR_TIE_RATIO`]
-//! so a small constant difference is not mistaken for a distinct complexity
-//! class.
+//! that some family drives the currency. Exact ties retain every family in name
+//! order. The renderer also flags a runner-up within [`NEAR_TIE_RATIO`] so a
+//! small constant difference is not mistaken for a distinct complexity class.
 
 use std::collections::BTreeSet;
 use std::io::{self, Write};
@@ -19,8 +18,8 @@ use super::currency::Currency;
 use super::judge::CellResult;
 
 /// The measurement ladder's two growth sampling scales, at each of which the
-/// worst-case map is rendered and pinned: the ladder's base
-/// ([`DEFAULT_SCALE`]) and its top ([`LADDER_TOP_SCALE`]).
+/// worst-case map is rendered and pinned: the ladder's base ([`DEFAULT_SCALE`])
+/// and its top ([`LADDER_TOP_SCALE`]).
 ///
 /// The map's claim is scale-qualified because a ranking is: a shape's
 /// normalized constant carries its intercept at the default scale, and the
@@ -51,8 +50,8 @@ pub(super) struct Entry {
     pub(super) family: &'static str,
     /// The normalized constant the board judges the cell by.
     pub(super) value: f64,
-    /// Whether the cell is judged under a declared model for this
-    /// currency (rendered `*`: intended and modeled).
+    /// Whether the cell is judged under a declared model for this currency
+    /// (rendered `*`: intended and modeled).
     pub(super) modeled: bool,
 }
 
@@ -65,8 +64,8 @@ pub(super) struct CurrencyWorst {
     /// Every family at the maximum reading, sorted by name; empty when no
     /// committed shape drives the currency on this row.
     pub(super) worst: Vec<Entry>,
-    /// The best family strictly below the maximum (name-order first on an
-    /// exact tie); `None` when every other shape reads zero.
+    /// The best family strictly below the maximum (name-order first on an exact
+    /// tie); `None` when every other shape reads zero.
     pub(super) runner_up: Option<Entry>,
 }
 
@@ -222,9 +221,9 @@ pub(super) fn row(out: &mut dyn Write, op: &str, c: &CurrencyWorst) -> io::Resul
 ///
 /// `results` must be a whole board's cells in board row order: a shard merge's
 /// reconstruction of one sweep. `label` names the scale in the header (the
-/// sampling scales are [`WORST_MAP_SCALES`]; a smoke run may pass its own).
-/// The fold is a pure consumer of the board's own judged cells: no reading,
-/// family, or ceiling is recomputed here.
+/// sampling scales are [`WORST_MAP_SCALES`]; a smoke run may pass its own). The
+/// fold is a pure consumer of the board's own judged cells: no reading, family,
+/// or ceiling is recomputed here.
 pub(super) fn render_map(
     label: &str,
     scale: f64,
@@ -302,8 +301,8 @@ const VERSION_STREAM_FAMILIES: &str = concat!(
     "wide-arming,wide-step-pairs,wide-step-spine,wide-tooth-comb",
 );
 
-/// Every clock-bearing family, which is every version-bearing or
-/// party-bearing family, for cells in which all of them tie exactly.
+/// Every clock-bearing family, which is every version-bearing or party-bearing
+/// family, for cells in which all of them tie exactly.
 const CLOCK_STREAM_FAMILIES: &str = concat!(
     "alt-spine,arming-train,ascend-cliff,ascend-plateau,below-run-spine,",
     "benign,bigroot,cancelling-chain,cliff,cliff-fan,collapse-hole,",
@@ -323,21 +322,21 @@ const CLOCK_STREAM_FAMILIES: &str = concat!(
 ///
 /// Such a cell's readings are deterministic for each build target but differ
 /// between targets, so no single family is its argmax on every target; the
-/// [board's module docs](super#target-dependence) say when a reading depends
-/// on the target. The pin checks such a cell for liveness only: any
-/// live worst set matches, and a row on which every family reads zero is
-/// drift. The cell's ceilings judge its readings on every target as usual.
+/// [board's module docs](super#target-dependence) say when a reading depends on
+/// the target. The pin checks such a cell for liveness only: any live worst set
+/// matches, and a row on which every family reads zero is drift. The cell's
+/// ceilings judge its readings on every target as usual.
 ///
 /// Declare a cell target-dependent only when a target-conditional code path
 /// that the measured operation reaches changes *which family reads worst*
-/// between the 64-bit hosts the pin is taken and checked on, and name that
-/// path in a `// Target-conditional path:` comment on the line above the
-/// entry, or above its `#[cfg]` attribute when the entry is feature-gated; a
-/// test fails any marked entry without one. A reading that merely
-/// differs by target does not qualify, nor does a flip between near-equal
-/// families with no such path behind it, however small its margin: that flip
-/// is news (see [`NEAR_TIE_RATIO`]). The margin plays no part in the rule, so
-/// a qualifying cell may itself be a near-tie on some target.
+/// between the 64-bit hosts the pin is taken and checked on, and name that path
+/// in a `// Target-conditional path:` comment on the line above the entry, or
+/// above its `#[cfg]` attribute when the entry is feature-gated; a test fails
+/// any marked entry without one. A reading that merely differs by target does
+/// not qualify, nor does a flip between near-equal families with no such path
+/// behind it, however small its margin: that flip is news (see
+/// [`NEAR_TIE_RATIO`]). The margin plays no part in the rule, so a qualifying
+/// cell may itself be a near-tie on some target.
 pub(super) const TARGET_DEPENDENT: &str = "(target-dependent)";
 
 /// Expected winners as `(scale, operation, [heap])`.
@@ -684,8 +683,8 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 1])] = &[
 ///
 /// # Panics
 ///
-/// Panics if the run supplies no meter for a mapped currency: the pin is
-/// stated over every mapped currency.
+/// Panics if the run supplies no meter for a mapped currency: the pin is stated
+/// over every mapped currency.
 pub(super) fn check_scale(
     label: &str,
     map: &[OpWorst],
@@ -756,22 +755,22 @@ pub(super) fn check_scale(
     Ok(clean)
 }
 
-/// Entry-compare the live worst-case fold against the ranking pin `pins`
-/// (the committed one is [`WORST_RANKINGS`]), writing one drift line per
+/// Entry-compare the live worst-case fold against the ranking pin `pins` (the
+/// committed one is [`WORST_RANKINGS`]), writing one drift line per
 /// disagreement to `out`.
 ///
 /// `judged_at` returns one whole board's judged cells, in board row order, at
 /// each of [`WORST_MAP_SCALES`]' sampling scales: under
-/// [`Ladder::judge`](super::ladder::Ladder::judge), one ladder sweep's cells
-/// at that scale. Each scale's fold is judged by [`check_scale`].
+/// [`Ladder::judge`](super::ladder::Ladder::judge), one ladder sweep's cells at
+/// that scale. Each scale's fold is judged by [`check_scale`].
 ///
 /// Returns `Ok(true)` when every entry matches at every scale.
 ///
 /// # Panics
 ///
-/// Panics if the run supplies no meter for a mapped currency (the pin is
-/// stated over every mapped currency), or if `pins` is malformed (duplicate or
-/// unknown scale/operation keys).
+/// Panics if the run supplies no meter for a mapped currency (the pin is stated
+/// over every mapped currency), or if `pins` is malformed (duplicate or unknown
+/// scale/operation keys).
 pub(super) fn check_with(
     pins: &[(&str, &str, [&str; 1])],
     judged_at: &dyn Fn(f64) -> Vec<CellResult>,

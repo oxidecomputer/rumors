@@ -1,37 +1,36 @@
 //! Sets of bytes, and their one canonical encoding.
 //!
-//! A [`ByteSet`] holds any subset of the 256 values a `u8` can take. Its
-//! values here are radixes: a child sits under its parent at a *radix*, the
-//! byte that extends the parent's prefix to the child's, so a node has at
-//! most a fan of 256 children, each at its own radix, and a set of radixes
-//! names any choice of a node's children exactly. A backend reports the
-//! radixes of a node's children as one
+//! A [`ByteSet`] holds any subset of the 256 values a `u8` can take. Its values
+//! here are radixes: a child sits under its parent at a *radix*, the byte that
+//! extends the parent's prefix to the child's, so a node has at most a fan of
+//! 256 children, each at its own radix, and a set of radixes names any choice
+//! of a node's children exactly. A backend reports the radixes of a node's
+//! children as one
 //! ([`ErasedNode::child_radices`](super::ErasedNode::child_radices)), so the
-//! children either of two sides holds are the [`union`](ByteSet::union) of
-//! two sets, and a reply's first match carries the later children it covers
-//! as one.
+//! children either of two sides holds are the [`union`](ByteSet::union) of two
+//! sets, and a reply's first match carries the later children it covers as one.
 //!
-//! In memory a set is always a 256-bit bitmap. On the wire it is one CBOR
-//! byte string, in whichever of two spellings is shorter:
+//! In memory a set is always a 256-bit bitmap. On the wire it is one CBOR byte
+//! string, in whichever of two spellings is shorter:
 //!
-//! | Elements | Byte string |
-//! | --- | --- |
-//! | 0 to 31 | the elements, one byte each, strictly ascending |
-//! | 32 to 256 | the 32-byte bitmap |
+//! | Elements  | Byte string                                     |
+//! | --------- | ----------------------------------------------- |
+//! | 0 to 31   | the elements, one byte each, strictly ascending |
+//! | 32 to 256 | the 32-byte bitmap                              |
 //!
-//! The byte string's length tells the two spellings apart: a list is
-//! shorter than 32 bytes, and a bitmap is exactly 32. Every set has exactly
-//! one encoding, so decoding rejects every other spelling: a list that does
-//! not strictly ascend, a bitmap holding fewer than 32 elements (which the
-//! list spells), and anything longer than a bitmap. The empty set is the
-//! empty byte string.
+//! The byte string's length tells the two spellings apart: a list is shorter
+//! than 32 bytes, and a bitmap is exactly 32. Every set has exactly one
+//! encoding, so decoding rejects every other spelling: a list that does not
+//! strictly ascend, a bitmap holding fewer than 32 elements (which the list
+//! spells), and anything longer than a bitmap. The empty set is the empty byte
+//! string.
 //!
-//! In the bitmap, value `v` is bit `v % 8` of byte `v / 8`, counting bits
-//! from the least significant.
+//! In the bitmap, value `v` is bit `v % 8` of byte `v / 8`, counting bits from
+//! the least significant.
 //!
-//! The encoding lives here alone: [`ByteSet::encoded`] and
-//! [`ByteSet::decode`] give its bytes to the codec, which writes its own
-//! CBOR heads, so no other code knows how a set is spelled.
+//! The encoding lives here alone: [`ByteSet::encoded`] and [`ByteSet::decode`]
+//! give its bytes to the codec, which writes its own CBOR heads, so no other
+//! code knows how a set is spelled.
 
 use std::fmt;
 
@@ -43,18 +42,18 @@ mod tests;
 /// The bytes of a set's bitmap: one bit for every value a byte can take.
 pub const BITMAP_LEN: usize = (u8::MAX as usize + 1) / u8::BITS as usize;
 
-/// The fewest elements a set encodes as its bitmap: a list of this many
-/// would be at least as long as the bitmap.
+/// The fewest elements a set encodes as its bitmap: a list of this many would
+/// be at least as long as the bitmap.
 const BITMAP_MIN_ELEMENTS: usize = BITMAP_LEN;
 
-/// The most bytes any set encodes to: a bitmap, which the longest list,
-/// one element short of it, never exceeds.
+/// The most bytes any set encodes to: a bitmap, which the longest list, one
+/// element short of it, never exceeds.
 pub const MAX_ENCODED_LEN: usize = BITMAP_LEN;
 
 /// A set of bytes, held as a 256-bit bitmap.
 ///
-/// The [`Default`] set is empty. Iteration yields the elements in
-/// ascending order.
+/// The [`Default`] set is empty. Iteration yields the elements in ascending
+/// order.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ByteSet(BitArray<[u8; BITMAP_LEN], Lsb0>);
 
@@ -104,12 +103,12 @@ impl ByteSet {
         })
     }
 
-    /// The set's canonical encoding: its elements in ascending order when
-    /// it has fewer than 32, its bitmap otherwise (the module docs give
-    /// the schema).
+    /// The set's canonical encoding: its elements in ascending order when it
+    /// has fewer than 32, its bitmap otherwise (the module docs give the
+    /// schema).
     ///
-    /// The encoding is at most [`MAX_ENCODED_LEN`] bytes. A codec writes it
-    /// as the content of one CBOR byte string.
+    /// The encoding is at most [`MAX_ENCODED_LEN`] bytes. A codec writes it as
+    /// the content of one CBOR byte string.
     pub fn encoded(&self) -> Encoded {
         let mut bytes = [0; MAX_ENCODED_LEN];
         let len = if self.len() < BITMAP_MIN_ELEMENTS {
@@ -126,15 +125,15 @@ impl ByteSet {
         Encoded { bytes, len }
     }
 
-    /// Decode a set from the content of its CBOR byte string, accepting
-    /// only its canonical encoding.
+    /// Decode a set from the content of its CBOR byte string, accepting only
+    /// its canonical encoding.
     ///
     /// # Errors
     ///
-    /// Returns [`ByteSetError::Unordered`] if a list shorter than a bitmap
-    /// does not strictly ascend, [`ByteSetError::SparseBitmap`] if a bitmap
-    /// holds fewer than 32 elements, and [`ByteSetError::TooLong`] if the
-    /// content is longer than a bitmap.
+    /// Returns [`ByteSetError::Unordered`] if a list shorter than a bitmap does
+    /// not strictly ascend, [`ByteSetError::SparseBitmap`] if a bitmap holds
+    /// fewer than 32 elements, and [`ByteSetError::TooLong`] if the content is
+    /// longer than a bitmap.
     pub fn decode(bytes: &[u8]) -> Result<Self, ByteSetError> {
         match bytes.len() {
             len if len < BITMAP_LEN => {
@@ -193,8 +192,8 @@ impl fmt::Debug for ByteSet {
     }
 }
 
-/// A set's canonical encoding, held inline: at most [`MAX_ENCODED_LEN`]
-/// bytes ([`ByteSet::encoded`]).
+/// A set's canonical encoding, held inline: at most [`MAX_ENCODED_LEN`] bytes
+/// ([`ByteSet::encoded`]).
 #[derive(Clone, Copy, Debug)]
 pub struct Encoded {
     /// The encoding, in its first `len` bytes.
@@ -224,8 +223,8 @@ pub enum ByteSetError {
         /// The element out of order.
         value: u8,
     },
-    /// A bitmap holds fewer elements than a bitmap encodes, a set the
-    /// list spells instead.
+    /// A bitmap holds fewer elements than a bitmap encodes, a set the list
+    /// spells instead.
     #[error("a set bitmap holds {len} elements; fewer than 32 are spelled as a list")]
     SparseBitmap {
         /// The elements the bitmap holds.

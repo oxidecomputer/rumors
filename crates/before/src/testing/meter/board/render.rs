@@ -29,8 +29,8 @@ pub struct Summary {
     pub red: usize,
 }
 
-/// Render one liveness declaration's floor value: the committed minimum, or
-/// `-` for a not-applicable column.
+/// Render one liveness declaration's floor value: the committed minimum, or `-`
+/// for a not-applicable column.
 fn floor_value(liveness: Liveness) -> String {
     match liveness {
         Liveness::Floor { min, .. } => min.to_string(),
@@ -42,10 +42,9 @@ fn floor_value(liveness: Liveness) -> String {
 /// fixed order.
 ///
 /// An `exponent` red is a scaling-class finding; a `constant` red is a
-/// proportionality finding at
-/// exponent ~1; a `floor` red is a liveness vacuity (a meter not watching the
-/// work) or a stale declared model; an `uncalibrated` red is a cell its
-/// per-cell table omits, awaiting a recalibration.
+/// proportionality finding at exponent ~1; a `floor` red is a liveness vacuity
+/// (a meter not watching the work) or a stale declared model; an `uncalibrated`
+/// red is a cell its per-cell table omits, awaiting a recalibration.
 fn mechanism(red: &[&'static str]) -> String {
     let mut kinds = Vec::new();
     if red.iter().any(|label| label.contains("exponent")) {
@@ -75,8 +74,8 @@ fn measured(results: &[CellResult]) -> ByCurrency<bool> {
     })
 }
 
-/// One currency's ceiling, as the matrix's preamble states it: its
-/// board-wide ceiling, and the per-cell table that tightens it, if any.
+/// One currency's ceiling, as the matrix's preamble states it: its board-wide
+/// ceiling, and the per-cell table that tightens it, if any.
 ///
 /// A currency whose table does not hold for the run's architecture is judged
 /// without one, and the text names the missing table.
@@ -117,9 +116,8 @@ pub(super) fn ceiling_text(currency: Currency, calibration: &Calibration) -> Str
 /// Render one result row, with a column for each `measured` currency.
 ///
 /// The byte range is the cell's denominator. The `flr` column shows the larger
-/// scale's committed liveness floors
-/// per judged column (`-` where not applicable; derivations in the legend above
-/// the matrix).
+/// scale's committed liveness floors per judged column (`-` where not
+/// applicable; derivations in the legend above the matrix).
 fn row(out: &mut dyn Write, r: &CellResult, measured: &ByCurrency<bool>) -> io::Result<()> {
     let verdict = if r.red.is_empty() { "GREEN" } else { "RED" };
     // An exponent the guards leave unjudged renders -.-- : printing the
@@ -254,13 +252,13 @@ pub(super) fn build_pair(kind: FamilyId, sampling: Sampling) -> (FamilyData, Fam
     )
 }
 
-/// Measure one grid cell's two samples, or nothing, where the family's
-/// bundle supplies no operand for the operation's signature.
+/// Measure one grid cell's two samples, or nothing, where the family's bundle
+/// supplies no operand for the operation's signature.
 ///
 /// The board's one measurement discipline, driven by every shard child (the
 /// `shard` module): single-threaded, the cell at the scaled size and its
-/// double, the peak-heap counter reset between samples. Judgment stays with
-/// the parent that merges the children's samples.
+/// double, the peak-heap counter reset between samples. Judgment stays with the
+/// parent that merges the children's samples.
 pub(super) fn measure_cell(
     meters: &Meters,
     op: &Op,

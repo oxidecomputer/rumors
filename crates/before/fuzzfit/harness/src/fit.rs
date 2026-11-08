@@ -1,43 +1,43 @@
-//! Log-log regression over (denominator, fuel) samples: the calibration
-//! leg's fitter.
+//! Log-log regression over (denominator, fuel) samples: the calibration leg's
+//! fitter.
 //!
 //! Each measured operation gets one fitted line of `log₁₀ fuel` against
 //! `log₁₀ denom_bits`, with two *residual widths* — the maximum positive
-//! residual (the ceiling's distance from the line) and the maximum
-//! negative residual magnitude (the floor's) — recorded alongside. The
-//! widths are what make the line a *band*: enforcement asserts membership
-//! in `line − (width_below + margin) ..= line + (width_above + margin)`,
-//! so the fit's looseness is explicit and committed, never implicit in a
-//! tolerance constant chosen after the fact.
+//! residual (the ceiling's distance from the line) and the maximum negative
+//! residual magnitude (the floor's) — recorded alongside. The widths are what
+//! make the line a *band*: enforcement asserts membership in
+//! `line − (width_below + margin) ..= line + (width_above + margin)`, so the
+//! fit's looseness is explicit and committed, never implicit in a tolerance
+//! constant chosen after the fact.
 //!
 //! # The two widths do different jobs
 //!
-//! The ceiling carries the asymptotic claim (above it is a regression
-//! flag); the floor carries liveness (below it is a dead meter or an
-//! unmeasured path). Pricing them separately matters because the residual
-//! cloud is one-sidedly heavy: at every size, fast-path steps (an early
-//! comparison exit, a join whose operand shapes coalesce) undercut the
-//! median law by decades, while full-path work sits near it. A single
-//! symmetric max-|residual| width would let that cheap mass inflate the
-//! *ceiling* — pricing the regression flag off the fast paths — until a
-//! superlinear mechanism's whole in-range excess fits inside it.
+//! The ceiling carries the asymptotic claim (above it is a regression flag);
+//! the floor carries liveness (below it is a dead meter or an unmeasured path).
+//! Pricing them separately matters because the residual cloud is one-sidedly
+//! heavy: at every size, fast-path steps (an early comparison exit, a join
+//! whose operand shapes coalesce) undercut the median law by decades, while
+//! full-path work sits near it. A single symmetric max-|residual| width would
+//! let that cheap mass inflate the *ceiling* — pricing the regression flag off
+//! the fast paths — until a superlinear mechanism's whole in-range excess fits
+//! inside it.
 //!
 //! # Medians in, spikes out
 //!
-//! Per-step fuel is heteroscedastic: at every size, a cheap-mass of
-//! fast-path steps coexists with amortization spikes (a tick that pays a
-//! deferred normalization), and ordinary least squares over the raw cloud
-//! lets that mass drag the slope far from the median law (readings up to
-//! +0.4 slope on flat-median kernels). The slope is therefore fitted over
-//! *half-decade bucket medians* — the stable location statistic per size —
-//! while the widths are still taken over *all* samples against that line,
-//! so bounded amortization spikes land inside the committed band and only
-//! unbounded (asymptotic) departures escape it.
+//! Per-step fuel is heteroscedastic: at every size, a cheap-mass of fast-path
+//! steps coexists with amortization spikes (a tick that pays a deferred
+//! normalization), and ordinary least squares over the raw cloud lets that mass
+//! drag the slope far from the median law (readings up to +0.4 slope on
+//! flat-median kernels). The slope is therefore fitted over *half-decade bucket
+//! medians* — the stable location statistic per size — while the widths are
+//! still taken over *all* samples against that line, so bounded amortization
+//! spikes land inside the committed band and only unbounded (asymptotic)
+//! departures escape it.
 //!
-//! Operations whose sampled denominators span less than a decade, or fewer
-//! than three buckets, cannot support a slope estimate; they classify as
-//! *constant* bands — slope 0, centered on the mean log-fuel — which is
-//! also the expected reading for genuinely O(1) rows.
+//! Operations whose sampled denominators span less than a decade, or fewer than
+//! three buckets, cannot support a slope estimate; they classify as *constant*
+//! bands — slope 0, centered on the mean log-fuel — which is also the expected
+//! reading for genuinely O(1) rows.
 
 use std::collections::BTreeMap;
 
@@ -50,12 +50,11 @@ pub struct Fit {
     pub slope: f64,
     /// Fitted intercept: `log₁₀ fuel` at `denom_bits = 1`.
     pub intercept: f64,
-    /// Maximum positive residual of the whole corpus against the line:
-    /// the ceiling's distance (the regression flag's threshold rides on
-    /// this side).
+    /// Maximum positive residual of the whole corpus against the line: the
+    /// ceiling's distance (the regression flag's threshold rides on this side).
     pub width_above: f64,
-    /// Maximum negative residual magnitude: the floor's distance (the
-    /// liveness flag's threshold rides on this side).
+    /// Maximum negative residual magnitude: the floor's distance (the liveness
+    /// flag's threshold rides on this side).
     pub width_below: f64,
     /// Sample count behind the fit.
     pub samples: usize,
@@ -71,13 +70,13 @@ pub struct Fit {
 /// Preferred lower operand size for fitting a size-dependent fuel law.
 ///
 /// When at least two samples reach this floor, [`fit`] excludes smaller
-/// operands so constant call overhead does not dominate the slope. Otherwise
-/// it fits the available samples. Selected bootstrap operations also have
+/// operands so constant call overhead does not dominate the slope. Otherwise it
+/// fits the available samples. Selected bootstrap operations also have
 /// [`crate::bands::SMALL_BANDS`], fitted separately with [`fit_constant`].
 pub const FIT_FLOOR_BITS: u64 = 128;
 
-/// Minimum denominator decades a slope estimate needs; narrower clouds
-/// classify constant.
+/// Minimum denominator decades a slope estimate needs; narrower clouds classify
+/// constant.
 const MIN_DECADES: f64 = 1.0;
 
 /// Buckets per decade of denominator (bucket medians are the fit's inputs).
@@ -91,10 +90,10 @@ const MIN_BUCKETS: usize = 3;
 
 /// Fit one kernel's samples. `None` when fewer than 2 samples exist.
 ///
-/// Samples below [`FIT_FLOOR_BITS`] are dropped first when at least two
-/// samples remain above the floor (a slope needs two points); otherwise
-/// the full sample set is fitted — a kernel sampled only below the floor
-/// fits over what it has and classifies constant.
+/// Samples below [`FIT_FLOOR_BITS`] are dropped first when at least two samples
+/// remain above the floor (a slope needs two points); otherwise the full sample
+/// set is fitted — a kernel sampled only below the floor fits over what it has
+/// and classifies constant.
 pub fn fit(samples: &[(u64, u64)]) -> Option<Fit> {
     let floored: Vec<(u64, u64)> = samples
         .iter()
@@ -166,25 +165,23 @@ pub fn fit(samples: &[(u64, u64)]) -> Option<Fit> {
     })
 }
 
-/// Fit one kernel's sub-floor samples as a constant band: slope 0,
-/// intercept the mean `log₁₀` fuel, widths the maximum residuals on each
-/// side. `None` when fewer than 2 samples exist.
+/// Fit one kernel's sub-floor samples as a constant band: slope 0, intercept
+/// the mean `log₁₀` fuel, widths the maximum residuals on each side. `None`
+/// when fewer than 2 samples exist.
 ///
-/// The constant classification is by construction, not by span test:
-/// below [`FIT_FLOOR_BITS`] the cost law *is* the constant-overhead
-/// regime (the reason the floor exists — see its doc), so a slope fitted
-/// there would read overhead decay as an asymptote. The band therefore
-/// prices the region's whole spread — one level, two measured widths —
-/// and a bounded regression inside the region reads Above the ceiling
-/// while a dead meter reads Below the floor, exactly the seed bands'
-/// template.
+/// The constant classification is by construction, not by span test: below
+/// [`FIT_FLOOR_BITS`] the cost law *is* the constant-overhead regime (the
+/// reason the floor exists — see its doc), so a slope fitted there would read
+/// overhead decay as an asymptote. The band therefore prices the region's whole
+/// spread — one level, two measured widths — and a bounded regression inside
+/// the region reads Above the ceiling while a dead meter reads Below the floor,
+/// exactly the seed bands' template.
 ///
 /// # Panics
 ///
-/// Panics on a sample at or above [`FIT_FLOOR_BITS`]: sub-floor samples
-/// are the caller's contract, and a floored sample folded into the
-/// constant level would silently widen the band toward the size-law
-/// regime it must not price.
+/// Panics on a sample at or above [`FIT_FLOOR_BITS`]: sub-floor samples are the
+/// caller's contract, and a floored sample folded into the constant level would
+/// silently widen the band toward the size-law regime it must not price.
 pub fn fit_constant(samples: &[(u64, u64)]) -> Option<Fit> {
     if samples.len() < 2 {
         return None;
@@ -217,15 +214,14 @@ pub fn fit_constant(samples: &[(u64, u64)]) -> Option<Fit> {
 /// Returns the largest residual above the line and the largest residual
 /// magnitude below it, `(width_above, width_below)`, each at least `+0.0`.
 ///
-/// Each width starts at `+0.0` and is replaced only by a strictly larger
-/// value, so it is either that `+0.0` or positive, never `-0.0`. `f64::max`
-/// would not guarantee this: it may return either zero when both arguments
-/// are zeros, and a sample lying exactly on the line has a residual of
-/// `+0.0`, whose negation is `-0.0`. With both operands computed at run
-/// time, as in a fold, x86-64 code returns `-0.0` there and aarch64 code
-/// `+0.0`. The calibrator prints these widths into `bands.rs`, where `-0.0`
-/// reads `-0.000000`, so the file would otherwise depend on the host that
-/// wrote it.
+/// Each width starts at `+0.0` and is replaced only by a strictly larger value,
+/// so it is either that `+0.0` or positive, never `-0.0`. `f64::max` would not
+/// guarantee this: it may return either zero when both arguments are zeros, and
+/// a sample lying exactly on the line has a residual of `+0.0`, whose negation
+/// is `-0.0`. With both operands computed at run time, as in a fold, x86-64
+/// code returns `-0.0` there and aarch64 code `+0.0`. The calibrator prints
+/// these widths into `bands.rs`, where `-0.0` reads `-0.000000`, so the file
+/// would otherwise depend on the host that wrote it.
 fn residual_widths(residuals: impl Iterator<Item = f64>) -> (f64, f64) {
     residuals.fold((0.0, 0.0), |(above, below), residual| {
         (
@@ -235,16 +231,16 @@ fn residual_widths(residuals: impl Iterator<Item = f64>) -> (f64, f64) {
     })
 }
 
-/// The largest disagreement, in `log₁₀ fuel`, between a fresh fit's line
-/// and a pinned band's line over the fresh fit's own denominator range.
+/// The largest disagreement, in `log₁₀ fuel`, between a fresh fit's line and a
+/// pinned band's line over the fresh fit's own denominator range.
 ///
-/// Both lines are affine in `log₁₀ d`, so the maximum over the interval
-/// is attained at an endpoint. This is the staleness cross-check's
-/// distance: the pin is computable two ways — the committed constants and
-/// a fresh fit of the same deterministic sample stream — and a divergence
-/// beyond tolerance means the pin no longer describes the code that is
-/// running (a toolchain shift, a kernel change, a generator-population
-/// change) and demands a deliberate re-pin, never a silent drift.
+/// Both lines are affine in `log₁₀ d`, so the maximum over the interval is
+/// attained at an endpoint. This is the staleness cross-check's distance: the
+/// pin is computable two ways — the committed constants and a fresh fit of the
+/// same deterministic sample stream — and a divergence beyond tolerance means
+/// the pin no longer describes the code that is running (a toolchain shift, a
+/// kernel change, a generator-population change) and demands a deliberate
+/// re-pin, never a silent drift.
 pub fn line_divergence(f: &Fit, band: &Band) -> f64 {
     [f.min_denom, f.max_denom]
         .into_iter()

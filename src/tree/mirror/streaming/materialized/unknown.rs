@@ -1,5 +1,5 @@
-//! The deletion-honoring filter: prune one subtree to what a counterparty
-//! is missing.
+//! The deletion-honoring filter: prune one subtree to what a counterparty is
+//! missing.
 //!
 //! This is the streaming counterpart of
 //! [`traverse::unknown`](crate::tree::traverse::unknown): it prunes a single
@@ -14,9 +14,9 @@
 //! single recursing node, so it stays constant-memory and reusable across the
 //! in-memory and persistent backends alike.
 //!
-//! The walk runs on erased nodes, its level named by its prefix's byte
-//! length: one instantiation per backend, where a height-typed recursion
-//! would instantiate one per level. Each recursive call boxes its future
+//! The walk runs on erased nodes, its level named by its prefix's byte length:
+//! one instantiation per backend, where a height-typed recursion would
+//! instantiate one per level. Each recursive call boxes its future
 //! ([`BoxFuture`]) so the future type stays finite. The prefix bounds recursion
 //! to the tree's key depth, so stack use cannot grow with input size.
 
@@ -39,33 +39,31 @@ use crate::{
 };
 
 /// True iff a node's whole subtree is causally at or before `version`: a
-/// counterparty at that version either has everything under it or deleted
-/// it — either way, nothing under it needs to travel.
+/// counterparty at that version either has everything under it or deleted it —
+/// either way, nothing under it needs to travel.
 ///
-/// A concurrent ceiling is beyond the known-at range and is *not* known:
-/// it carries history the counterparty has never seen.
+/// A concurrent ceiling is beyond the known-at range and is *not* known: it
+/// carries history the counterparty has never seen.
 pub(super) fn known(node: &impl ErasedNode, version: &Version) -> bool {
     contained(node.span().hi(), version)
 }
 
-/// Classify a subtree from its memoized version bounds without
-/// descending: how much of the node's `[floor, ceiling]` span the
-/// counterparty's version dominates *is* the knowledge verdict.
+/// Classify a subtree from its memoized version bounds without descending: how
+/// much of the node's `[floor, ceiling]` span the counterparty's version
+/// dominates *is* the knowledge verdict.
 ///
-/// [`Before`](Dominance::Before) — the floor is beyond or
-/// beside `known` — means the whole subtree is unknown;
-/// [`After`](Dominance::After) — the ceiling is within
-/// `known`'s past — means it is all already known; and
-/// [`Between`](Dominance::Between) means mixed, so the
-/// caller descends.
+/// [`Before`](Dominance::Before) — the floor is beyond or beside `known` —
+/// means the whole subtree is unknown; [`After`](Dominance::After) — the
+/// ceiling is within `known`'s past — means it is all already known; and
+/// [`Between`](Dominance::Between) means mixed, so the caller descends.
 ///
-/// The backend hands out its own stored bounds ([`ErasedNode::span`]) and
-/// the span answers in one fused walk that decodes `known` once, where
-/// placing the two bounds separately would decode it once per bound;
-/// the span's ordering is the backend's construction-time obligation,
-/// so no validating comparison is paid per classification. The cheap
-/// unknown-subtree exit survives the fusion: `floor <= known` refuted
-/// is the whole verdict, decided at the first refuting interval.
+/// The backend hands out its own stored bounds ([`ErasedNode::span`]) and the
+/// span answers in one fused walk that decodes `known` once, where placing the
+/// two bounds separately would decode it once per bound; the span's ordering is
+/// the backend's construction-time obligation, so no validating comparison is
+/// paid per classification. The cheap unknown-subtree exit survives the fusion:
+/// `floor <= known` refuted is the whole verdict, decided at the first refuting
+/// interval.
 fn knowledge(node: &impl ErasedNode, known: &Version) -> Dominance {
     node.span().dominance(known)
 }
@@ -73,11 +71,11 @@ fn knowledge(node: &impl ErasedNode, known: &Version) -> Dominance {
 /// Prune one subtree to what a counterparty at `known` is missing, honoring
 /// deletions; `None` when nothing under it is missing.
 ///
-/// Every leaf the filter drops is a deletion honored locally, so each
-/// verdict site credits the drop to `stats` as
-/// [`messages_shed`](crate::SessionStats::messages_shed): one per dropped
-/// leaf, a whole subtree's exact leaf count when the cached version bounds
-/// prune it without descending.
+/// Every leaf the filter drops is a deletion honored locally, so each verdict
+/// site credits the drop to `stats` as
+/// [`messages_shed`](crate::SessionStats::messages_shed): one per dropped leaf,
+/// a whole subtree's exact leaf count when the cached version bounds prune it
+/// without descending.
 pub(super) fn unknown<'a, B>(
     backend: &'a B,
     known: &'a Version,

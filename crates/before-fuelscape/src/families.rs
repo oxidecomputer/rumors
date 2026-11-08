@@ -2,14 +2,13 @@
 //! `before::testing::meter`, rendered as marked points on the same axes as the
 //! uniform cloud.
 //!
-//! Uniform sampling audits the bulk; the engineered corners are
-//! measure-zero to it. The atlas therefore marks the committed family
-//! generators explicitly — the same generators the amplification board
-//! prices — so one canvas shows where the
-//! adversarial frontier sits relative to the population. Families are
-//! ramped by doubling their main knob and keeping the points whose encoded
-//! size lands inside the plotted span; the x-coordinate is the same
-//! measure as the cloud's (total encoded input bytes).
+//! Uniform sampling audits the bulk; the engineered corners are measure-zero to
+//! it. The atlas therefore marks the committed family generators explicitly —
+//! the same generators the amplification board prices — so one canvas shows
+//! where the adversarial frontier sits relative to the population. Families are
+//! ramped by doubling their main knob and keeping the points whose encoded size
+//! lands inside the plotted span; the x-coordinate is the same measure as the
+//! cloud's (total encoded input bytes).
 
 use before::testing::meter::registry::Shape;
 use before::testing::meter::{Encoding, MIN_DEFERRED_ARMING_DIGITS};
@@ -28,10 +27,9 @@ pub struct FamilyInput {
     pub inputs: Vec<Vec<u8>>,
     /// The arity handed to the row's measure function.
     ///
-    /// [`ramp`] defaults it to the operand count, which every
-    /// host-drawn row either equals or ignores; the guest-split
-    /// party-fold row's families override it with their declared share
-    /// count.
+    /// [`ramp`] defaults it to the operand count, which every host-drawn row
+    /// either equals or ignores; the guest-split party-fold row's families
+    /// override it with their declared share count.
     pub arity: usize,
 }
 
@@ -46,9 +44,9 @@ fn party_bytes(p: &Encoding) -> Vec<u8> {
     p.bytes.clone()
 }
 
-/// Ramp `gen` over doubling knobs, keeping points whose total encoded size
-/// fits `max_bytes`. Generators whose smallest output already exceeds the
-/// span contribute nothing (the caller's span, not the family, decides).
+/// Ramp `gen` over doubling knobs, keeping points whose total encoded size fits
+/// `max_bytes`. Generators whose smallest output already exceeds the span
+/// contribute nothing (the caller's span, not the family, decides).
 fn ramp(
     family: &'static str,
     max_bytes: usize,
@@ -77,17 +75,17 @@ fn ramp(
     out
 }
 
-/// The staggered fold population's version operands, encoded in the
-/// committed bit-reversed feed order (the order is load-bearing: it is
-/// what realizes the intermediate swell at every reduction level).
+/// The staggered fold population's version operands, encoded in the committed
+/// bit-reversed feed order (the order is load-bearing: it is what realizes the
+/// intermediate swell at every reduction level).
 fn stagger_versions(n: usize, m: usize) -> Vec<Vec<u8>> {
     let (versions, _) = Shape::StaggerPopulation.population(n, m);
     versions.iter().map(version_bytes).collect()
 }
 
-/// The overlay inputs for an operation, within the plotted span: keyed by
-/// the row's operand signature, except the slice rows, whose committed
-/// fold-cure families are per-operation ([`slice_overlays`]).
+/// The overlay inputs for an operation, within the plotted span: keyed by the
+/// row's operand signature, except the slice rows, whose committed fold-cure
+/// families are per-operation ([`slice_overlays`]).
 ///
 /// Rows with the same signature share the same families. Each overlay point
 /// passes through the row's own preparation and measured operation.
@@ -400,18 +398,16 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
     out
 }
 
-/// The clock-fold rows' committed families (one party, then the version
-/// riders each row composes into disjoint clocks, reconciles, or
-/// receives).
+/// The clock-fold rows' committed families (one party, then the version riders
+/// each row composes into disjoint clocks, reconciles, or receives).
 ///
-/// The committed stagger population adapted to the fold's version
-/// halves, ramped along both committed band axes as the version folds'
-/// families are: operand size at a fixed labeled arity, and arity at a
-/// fixed block count — every ramp point a fixed, labeled shape whose
-/// reading compares across commits. The arity ramp is what lets the
-/// marked frontier trace the fold's log-k factor; the size-only ramps
-/// trace `D` at their fixed count. The composed clock families' cross
-/// rides as the non-stagger shape.
+/// The committed stagger population adapted to the fold's version halves,
+/// ramped along both committed band axes as the version folds' families are:
+/// operand size at a fixed labeled arity, and arity at a fixed block count —
+/// every ramp point a fixed, labeled shape whose reading compares across
+/// commits. The arity ramp is what lets the marked frontier trace the fold's
+/// log-k factor; the size-only ramps trace `D` at their fixed count. The
+/// composed clock families' cross rides as the non-stagger shape.
 fn clock_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
     let mut out = Vec::new();
     out.extend(ramp("scattered_id × stagger (n=4)", max_bytes, |t| {
@@ -438,16 +434,16 @@ fn clock_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
     out
 }
 
-/// The declared share count of the party-fold row's committed overlay
-/// points, stated in every family label.
+/// The declared share count of the party-fold row's committed overlay points,
+/// stated in every family label.
 ///
-/// The bulk cloud carries the drawn-arity axis, and these points keep
-/// one fixed arity so their readings compare across commits.
+/// The bulk cloud carries the drawn-arity axis, and these points keep one fixed
+/// arity so their readings compare across commits.
 const PARTY_FOLD_OVERLAY_SHARES: usize = 8;
 
-/// The party-fold row's committed families: the committed id shapes,
-/// each split into and re-merged from [`PARTY_FOLD_OVERLAY_SHARES`]
-/// balanced shares by the row's measure.
+/// The party-fold row's committed families: the committed id shapes, each split
+/// into and re-merged from [`PARTY_FOLD_OVERLAY_SHARES`] balanced shares by the
+/// row's measure.
 fn party_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
     let mut out = Vec::new();
     out.extend(ramp("scattered_id (k=8)", max_bytes, |t| {
@@ -468,12 +464,12 @@ fn party_fold_overlays(max_bytes: usize) -> Vec<FamilyInput> {
     out
 }
 
-/// The staggered fold populations (bit-reversed feed order preserved),
-/// ramped along both committed band axes: arity at a fixed block
-/// count, and operand size at a fixed arity.
+/// The staggered fold populations (bit-reversed feed order preserved), ramped
+/// along both committed band axes: arity at a fixed block count, and operand
+/// size at a fixed arity.
 ///
-/// The ramp doubles `t` from 1, so `n = 2t` and `m = t` are always the
-/// powers of two the generators require.
+/// The ramp doubles `t` from 1, so `n = 2t` and `m = t` are always the powers
+/// of two the generators require.
 fn stagger_ramps(max_bytes: usize) -> Vec<FamilyInput> {
     let mut out = Vec::new();
     out.extend(ramp("stagger arity (m=4)", max_bytes, |t| {
@@ -485,9 +481,8 @@ fn stagger_ramps(max_bytes: usize) -> Vec<FamilyInput> {
     out
 }
 
-/// The meet-shade population on the committed diagonal `d = k` (one
-/// dense carrier, `k − 1` dominating plateau shades, carrier fed
-/// first).
+/// The meet-shade population on the committed diagonal `d = k` (one dense
+/// carrier, `k − 1` dominating plateau shades, carrier fed first).
 fn meet_shade_ramp(max_bytes: usize) -> Vec<FamilyInput> {
     ramp("meet_shade (d=k)", max_bytes, |t| {
         let d = 2 * t;

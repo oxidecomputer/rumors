@@ -20,8 +20,8 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// Intersect with a query of the same polarity and restore normal form.
     ///
     /// The merged floor is the join and the merged ceiling is the meet. A hole
-    /// is discarded when the merged interval cannot reach it or a hole from
-    /// the other operand subtracts a superset.
+    /// is discarded when the merged interval cannot reach it or a hole from the
+    /// other operand subtracts a superset.
     ///
     /// Each input already holds an antichain, so only holes from opposite
     /// operands need comparison. A hole outside every realizable version is

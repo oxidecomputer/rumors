@@ -38,10 +38,9 @@
 //! requests, whatever other threads do.
 //!
 //! The same property is the hazard to keep in mind: work that a measured
-//! closure hands to another thread (a pool, a spawned task, a runtime's
-//! worker) never reaches the reading. Keep measured work on the measuring
-//! thread, as a synchronous call or a future driven by `pollster::block_on`
-//! does.
+//! closure hands to another thread (a pool, a spawned task, a runtime's worker)
+//! never reaches the reading. Keep measured work on the measuring thread, as a
+//! synchronous call or a future driven by `pollster::block_on` does.
 //!
 //! # What a reading counts
 //!
@@ -52,20 +51,20 @@
 //! peak counter, restricted to one thread:
 //!
 //! - Only successful requests count; a failed request changes nothing.
-//! - A reallocation counts as allocating the new block and then freeing the
-//!   old one, so the peak includes both blocks whether or not the system
-//!   resizes in place. Readings therefore never depend on the system
-//!   allocator's in-place behavior.
+//! - A reallocation counts as allocating the new block and then freeing the old
+//!   one, so the peak includes both blocks whether or not the system resizes in
+//!   place. Readings therefore never depend on the system allocator's in-place
+//!   behavior.
 //! - Freeing a block lowers the net bytes of the thread that frees it,
 //!   whichever thread allocated it. A closure that drops an input built before
 //!   its reading began reads a negative net, as does one that frees a block
 //!   another thread allocated.
 //! - A request is *over-aligned* when its alignment exceeds
 //!   [`OVER_ALIGNED_ABOVE`], two machine words. [`System`] serves every
-//!   over-aligned request through the platform's aligned-allocation entry
-//!   point (`posix_memalign` or its equivalent) rather than `malloc`. Some
-//!   platforms serve that entry point far more slowly than `malloc`, so the
-//!   count prices a cost that byte totals do not show.
+//!   over-aligned request through the platform's aligned-allocation entry point
+//!   (`posix_memalign` or its equivalent) rather than `malloc`. Some platforms
+//!   serve that entry point far more slowly than `malloc`, so the count prices
+//!   a cost that byte totals do not show.
 //!
 //! # Installation
 //!
@@ -77,18 +76,18 @@
 //! binaries keep whatever allocator they install.
 //!
 //! Every thread keeps its ledger from its first allocator request, whether or
-//! not anything reads it. The cost is a few thread-local additions per allocator
-//! call.
+//! not anything reads it. The cost is a few thread-local additions per
+//! allocator call.
 //!
 //! # Limits
 //!
 //! - Counters saturate rather than wrap, so an overflowed quantity never reads
 //!   as a small one. On 64-bit targets no test can allocate enough to reach
-//!   saturation. On 32-bit targets, `bytes_allocated` counts cumulative
-//!   traffic and saturates after 4 GiB of it, however little is live at once.
-//! - On targets without native thread-local storage, each thread's ledger has
-//!   a destructor that runs as the thread exits. A request made during or
-//!   after it, from another thread-local destructor, reaches no reading. The
+//!   saturation. On 32-bit targets, `bytes_allocated` counts cumulative traffic
+//!   and saturates after 4 GiB of it, however little is live at once.
+//! - On targets without native thread-local storage, each thread's ledger has a
+//!   destructor that runs as the thread exits. A request made during or after
+//!   it, from another thread-local destructor, reaches no reading. The
 //!   allocator cannot report the miss by panicking, because a global allocator
 //!   must not unwind.
 
@@ -112,10 +111,10 @@ pub use trace::{
 /// [`System`] trusts `malloc` to align blocks to at most two machine words on
 /// every target, and serves any request aligned beyond what it trusts through
 /// the platform's aligned-allocation entry point. Every request
-/// [`Stats::over_aligned`] counts therefore takes that path. The converse
-/// does not hold: a target whose `malloc` the standard library trusts for
-/// less, or a layout whose alignment exceeds its size, also reaches the
-/// aligned path below this threshold, uncounted.
+/// [`Stats::over_aligned`] counts therefore takes that path. The converse does
+/// not hold: a target whose `malloc` the standard library trusts for less, or a
+/// layout whose alignment exceeds its size, also reaches the aligned path below
+/// this threshold, uncounted.
 pub const OVER_ALIGNED_ABOVE: usize = 2 * size_of::<usize>();
 
 /// Allocator traffic and heap use recorded on one thread over one reading.
@@ -128,13 +127,13 @@ pub struct Stats {
     pub allocations: usize,
     /// Successful reallocation requests.
     pub reallocations: usize,
-    /// Successful allocation and reallocation requests whose alignment
-    /// exceeds [`OVER_ALIGNED_ABOVE`].
+    /// Successful allocation and reallocation requests whose alignment exceeds
+    /// [`OVER_ALIGNED_ABOVE`].
     ///
     /// A reallocation keeps its block's alignment, and the system allocator
-    /// serves an over-aligned one as a fresh aligned allocation and a copy,
-    /// so each request counted here reaches the aligned-allocation entry
-    /// point once.
+    /// serves an over-aligned one as a fresh aligned allocation and a copy, so
+    /// each request counted here reaches the aligned-allocation entry point
+    /// once.
     pub over_aligned: usize,
     /// Bytes requested by fresh allocations and by reallocation growth.
     ///
@@ -142,8 +141,8 @@ pub struct Stats {
     /// capacity at once and growing to it incrementally have the same total.
     pub bytes_allocated: usize,
     /// The highest [`net_bytes`](Self::net_bytes) reached during the reading,
-    /// with both blocks of a reallocation counted; zero if net bytes never
-    /// rose above their starting level.
+    /// with both blocks of a reallocation counted; zero if net bytes never rose
+    /// above their starting level.
     pub peak_bytes: usize,
     /// Bytes allocated minus bytes freed: the heap the reading's work left
     /// live, negative when it freed more than it allocated.
@@ -169,8 +168,8 @@ impl Stats {
         self.grow(layout.size());
     }
 
-    /// Records a successful reallocation of a block with `layout` to
-    /// `new_size` bytes.
+    /// Records a successful reallocation of a block with `layout` to `new_size`
+    /// bytes.
     ///
     /// The new block is counted live before the old one is released, so the
     /// peak covers the moment a moving reallocation holds both.
@@ -214,8 +213,8 @@ impl Stats {
     /// Returns the reading of this reading's work followed by `later`'s.
     ///
     /// Counts and net bytes add. The peak is the higher of this reading's own
-    /// peak and `later`'s peak, raised by the net level `later` started from.
-    /// A reading's peak is never below its net bytes, so the combined peak is
+    /// peak and `later`'s peak, raised by the net level `later` started from. A
+    /// reading's peak is never below its net bytes, so the combined peak is
     /// never below the combined net.
     fn then(self, later: Self) -> Self {
         let later_peak = self.net_bytes.saturating_add_unsigned(later.peak_bytes);
@@ -336,22 +335,23 @@ impl Drop for Enclosing {
     }
 }
 
-/// Runs `f` and returns what the calling thread's ledger recorded while it
-/// ran, with `f`'s result.
+/// Runs `f` and returns what the calling thread's ledger recorded while it ran,
+/// with `f`'s result.
 ///
 /// Allocator requests from other threads are excluded, so the measured work
-/// must stay on this thread (see [the crate docs](crate#why-each-thread-keeps-its-own-ledger)).
+/// must stay on this thread (see [the crate
+/// docs](crate#why-each-thread-keeps-its-own-ledger)).
 ///
 /// Measurements nest. An enclosing measurement, or a reading begun by
 /// [`reset`], still receives everything `f` records, exactly as if this call
-/// were absent. Calling [`reset`] inside `f` restarts this measurement, and
-/// the work before that reset reaches neither this measurement nor any
-/// enclosing reading.
+/// were absent. Calling [`reset`] inside `f` restarts this measurement, and the
+/// work before that reset reaches neither this measurement nor any enclosing
+/// reading.
 ///
 /// # Panics
 ///
-/// A panic in `f` propagates, after the enclosing reading is restored. Like
-/// any `thread_local!` access, `measure` also panics when called from a
+/// A panic in `f` propagates, after the enclosing reading is restored. Like any
+/// `thread_local!` access, `measure` also panics when called from a
 /// thread-local destructor after this thread's ledger is gone.
 pub fn measure<T>(f: impl FnOnce() -> T) -> (Stats, T) {
     let enclosing = Enclosing(LEDGER.replace(Stats::EMPTY));

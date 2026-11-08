@@ -2,9 +2,9 @@
 //!
 //! [`over_pipe`] runs both endpoints' walks and proxies, each endpoint's walk
 //! admitting its work against that endpoint's budget, under the closed-world
-//! poller, which reports a
-//! stall whenever every task waits with no wake arranged. Suites drive
-//! whole remote sessions through it rather than assembling their own.
+//! poller, which reports a stall whenever every task waits with no wake
+//! arranged. Suites drive whole remote sessions through it rather than
+//! assembling their own.
 
 use std::convert::Infallible;
 
@@ -36,18 +36,17 @@ pub const AMPLE: usize = 1 << 20;
 
 /// What one endpoint's ledger admits its work against in a test session.
 ///
-/// Suites name the configuration at every session they drive, since a
-/// budget of zero with the walk's bounds and the serial configuration admit
-/// differently.
+/// Suites name the configuration at every session they drive, since a budget of
+/// zero with the walk's bounds and the serial configuration admit differently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionLedger {
     /// This budget, beside the walk's bound for each kind and depth of unit
-    /// ([`Handshaking::budget`]): a budget of zero still pipelines within
-    /// the bounds.
+    /// ([`Handshaking::budget`]): a budget of zero still pipelines within the
+    /// bounds.
     Budget(usize),
     /// The serial configuration ([`Handshaking::serial`]): a budget of zero
-    /// with every bound zero, admitting one unit of each kind and depth at
-    /// a time, the configuration the liveness argument rests on at its most
+    /// with every bound zero, admitting one unit of each kind and depth at a
+    /// time, the configuration the liveness argument rests on at its most
     /// serial.
     Serial,
 }
@@ -65,18 +64,16 @@ impl SessionLedger {
     }
 }
 
-/// One endpoint's reconciled tree, or the failure of whichever of its walk
-/// and proxy raised one.
+/// One endpoint's reconciled tree, or the failure of whichever of its walk and
+/// proxy raised one.
 pub type Endpoint =
     Result<Root, MirrorError<MaterializedError<Infallible>, RemoteError<Infallible>>>;
 
-/// Reconcile a pair over one in-memory connection whose directions each
-/// buffer `buffer` bytes; the poller's verdict when the session stopped
-/// first.
+/// Reconcile a pair over one in-memory connection whose directions each buffer
+/// `buffer` bytes; the poller's verdict when the session stopped first.
 ///
 /// Each endpoint's walk admits its work against the ledger its entry in
-/// `budgets` gives ([`SessionLedger`]); both endpoints decode payloads as
-/// `T`.
+/// `budgets` gives ([`SessionLedger`]); both endpoints decode payloads as `T`.
 pub fn over_pipe<T>(
     pair: (Root, Root),
     budgets: [SessionLedger; 2],
@@ -101,8 +98,8 @@ where
     session::<T>(pair, budgets, buffer, observers).0
 }
 
-/// [`over_pipe`], also returning both endpoints' ledgers, in the pair's
-/// order, which outlive the session for a test to read.
+/// [`over_pipe`], also returning both endpoints' ledgers, in the pair's order,
+/// which outlive the session for a test to read.
 pub fn over_pipe_keeping_ledgers<T>(
     pair: (Root, Root),
     budgets: [SessionLedger; 2],
@@ -114,8 +111,8 @@ where
     session::<T>(pair, budgets, buffer, &Attachment::default())
 }
 
-/// The session [`observed_over_pipe`] and [`over_pipe_keeping_ledgers`]
-/// run, with both endpoints' ledgers beside its outcome.
+/// The session [`observed_over_pipe`] and [`over_pipe_keeping_ledgers`] run,
+/// with both endpoints' ledgers beside its outcome.
 fn session<T>(
     pair: (Root, Root),
     budgets: [SessionLedger; 2],

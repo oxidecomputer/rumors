@@ -11,23 +11,22 @@
 //! - [`Protocol`](Error::Protocol): report a bug with its context and
 //!   diagnostic source. Individual protocol checks stay private.
 //!
-//! Public error enums are non-exhaustive when new checks may add variants.
-//! A closed enum reserves its variant roster as part of the contract.
+//! Public error enums are non-exhaustive when new checks may add variants. A
+//! closed enum reserves its variant roster as part of the contract.
 //!
-//! A failed or cancelled session leaves its connection at an unknown
-//! position. Discard the connection before retrying: a later session on it
-//! gets no typed warning, and can fail in any way or misread the stale
-//! bytes.
+//! A failed or cancelled session leaves its connection at an unknown position.
+//! Discard the connection before retrying: a later session on it gets no typed
+//! warning, and can fail in any way or misread the stale bytes.
 //!
 //! Failure does not guarantee unchanged state. On an existing replica, a
 //! failure in [`Phase::Completion`] leaves local work committed but the peer's
-//! commit unconfirmed. A bootstrap served by a provider has received its
-//! whole identity before that phase, so one that fails there keeps its peer,
-//! and reports the error as a [`Connection::Lost`](crate::Connection::Lost)
-//! beside it. A bootstrap that fails earlier, or that met another
-//! bootstrapper and so received no identity, returns its builder for retry
-//! in [`Joined::Failed`](crate::Joined::Failed).
-//! [`Error::Bookmark`] can also leave restart bookkeeping awaiting persistence.
+//! commit unconfirmed. A bootstrap served by a provider has received its whole
+//! identity before that phase, so one that fails there keeps its peer, and
+//! reports the error as a [`Connection::Lost`](crate::Connection::Lost) beside
+//! it. A bootstrap that fails earlier, or that met another bootstrapper and so
+//! received no identity, returns its builder for retry in
+//! [`Joined::Failed`](crate::Joined::Failed). [`Error::Bookmark`] can also
+//! leave restart bookkeeping awaiting persistence.
 
 use std::fmt;
 
@@ -46,9 +45,9 @@ pub use session::{
 
 /// An incompatibility that prevents the peers from reconciling.
 ///
-/// Each variant carries the values needed to choose a recovery action.
-/// Retrying unchanged peers cannot resolve a mismatch; after resolving it,
-/// reconnect over a fresh connection.
+/// Each variant carries the values needed to choose a recovery action. Retrying
+/// unchanged peers cannot resolve a mismatch; after resolving it, reconnect
+/// over a fresh connection.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Mismatch {
@@ -65,8 +64,8 @@ pub enum Mismatch {
         remote_version: u64,
     },
 
-    /// Both peers were gossiping but belong to different causal universes.
-    /// Use these event bounds to apply the dominance rule described by
+    /// Both peers were gossiping but belong to different causal universes. Use
+    /// these event bounds to apply the dominance rule described by
     /// [`Peer`](crate::Peer)'s "Bootstrapping without consensus" section.
     #[error("peer belongs to network {remote_network:?}, ours is {local_network:?}")]
     #[non_exhaustive]
@@ -82,8 +81,8 @@ pub enum Mismatch {
     },
 
     /// The peers have different payload depth limits. Align
-    /// [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
-    /// across the fleet, then reconnect. No reconciliation has taken place.
+    /// [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit) across
+    /// the fleet, then reconnect. No reconciliation has taken place.
     #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
     #[non_exhaustive]
     PayloadDepth {
@@ -108,23 +107,24 @@ pub enum Error<B: Bookmark = NoBookmark> {
     Transport(TransportError),
 
     /// A protocol or implementation invariant failed. Report its context and
-    /// diagnostic source as a bug; ordinary peer departure is a transport failure.
+    /// diagnostic source as a bug; ordinary peer departure is a transport
+    /// failure.
     #[error(transparent)]
     Protocol(ProtocolViolation),
 
-    /// The peers have incompatible protocols, networks, or settings.
-    /// Resolve the mismatch before retrying on a fresh connection.
+    /// The peers have incompatible protocols, networks, or settings. Resolve
+    /// the mismatch before retrying on a fresh connection.
     #[error(transparent)]
     Mismatch(Mismatch),
 
-    /// The application's deadline ended an active wire session.
-    /// Discard the connection and reconnect. A local commit already made is
-    /// not undone, and the peer's completion may be unconfirmed.
+    /// The application's deadline ended an active wire session. Discard the
+    /// connection and reconnect. A local commit already made is not undone, and
+    /// the peer's completion may be unconfirmed.
     #[error("session deadline exceeded; discard the connection and reconnect")]
     DeadlineExceeded,
 
-    /// The application's bookmark failed to load, persist, or decode.
-    /// Repair or replace the storage before retrying.
+    /// The application's bookmark failed to load, persist, or decode. Repair or
+    /// replace the storage before retrying.
     ///
     /// Synchronization may already have started. When accepting a retirement,
     /// content has already committed before the bookmark write. It stays live,

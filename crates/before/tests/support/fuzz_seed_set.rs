@@ -1,18 +1,17 @@
 //! The fuzz seed corpus: one derivation, two consumers.
 //!
 //! `fuzz/seeds/<target>/<name>` holds canonical encodings that seed the
-//! libFuzzer corpus. Hand-authored seed bytes rot silently when the wire
-//! format moves: a stale seed fails no gate, it just stops representing
-//! the values it was written for and quietly degrades the corpus. This
-//! module is the cure: [`seed_set`] derives every seed from the live
-//! public API, the `fuzz_seeds` example writes the files, and the
-//! `fuzz_seeds` integration test re-derives and byte-compares the
-//! committed directory (names exact, no strays), so a format change
-//! turns corpus rot into a red gate with a one-command fix.
+//! libFuzzer corpus. Hand-authored seed bytes rot silently when the wire format
+//! moves: a stale seed fails no gate, it just stops representing the values it
+//! was written for and quietly degrades the corpus. This module is the cure:
+//! [`seed_set`] derives every seed from the live public API, the `fuzz_seeds`
+//! example writes the files, and the `fuzz_seeds` integration test re-derives
+//! and byte-compares the committed directory (names exact, no strays), so a
+//! format change turns corpus rot into a red gate with a one-command fix.
 //!
 //! Shared by `#[path]` inclusion from the example (the writer) and the
-//! integration test (the checker), so the two cannot drift from each
-//! other; both build against the public API only.
+//! integration test (the checker), so the two cannot drift from each other;
+//! both build against the public API only.
 
 use before::{Clock, Count, Party, Ranked, Span, Version};
 
@@ -53,10 +52,9 @@ pub struct Seed {
 
 /// Every seed file the corpus holds, derived from the live API.
 ///
-/// The decode seeds are canonical encodings and deliberate rejection
-/// witnesses. The operation and law seeds use the framing shared with their
-/// target bodies. Derivation is deterministic: it uses neither randomness nor
-/// wall-clock time.
+/// The decode seeds are canonical encodings and deliberate rejection witnesses.
+/// The operation and law seeds use the framing shared with their target bodies.
+/// Derivation is deterministic: it uses neither randomness nor wall-clock time.
 pub fn seed_set() -> Vec<Seed> {
     let mut seeds = Vec::new();
 

@@ -1,9 +1,9 @@
 //! The [`rumors::Changes`] observer: the content-free change signal.
 //!
-//! Pins the contract stated on the type: an immediate first yield, exactly
-//! one coalesced tick per observed frontier advance (however many commits
-//! that was), ticks for every kind of commit — send, redact, and a join
-//! learned by gossip — and a clean end once the set closes.
+//! Pins the contract stated on the type: an immediate first yield, exactly one
+//! coalesced tick per observed frontier advance (however many commits that
+//! was), ticks for every kind of commit — send, redact, and a join learned by
+//! gossip — and a clean end once the set closes.
 
 use rumors_testkit::common;
 
@@ -128,7 +128,8 @@ enum Op {
     Read(bool),
 }
 
-/// Interleave local and remote changes with periods in which notifications coalesce.
+/// Interleave local and remote changes with periods in which notifications
+/// coalesce.
 fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
     vec(
         prop_oneof![

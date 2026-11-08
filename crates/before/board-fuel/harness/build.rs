@@ -2,8 +2,8 @@
 //! depend on.
 //!
 //! The version is read from the root workspace's `Cargo.lock`, the version
-//! every build of the harness links. The guest's compiler, the other
-//! identity, is read from the guest module itself at run time.
+//! every build of the harness links. The guest's compiler, the other identity,
+//! is read from the guest module itself at run time.
 
 use std::path::Path;
 

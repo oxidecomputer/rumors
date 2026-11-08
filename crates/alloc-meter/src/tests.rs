@@ -37,13 +37,12 @@ pub(crate) struct Block {
 }
 
 impl Block {
-    /// Allocates `size` bytes aligned to `align`, zeroed when `zeroed` is
-    /// set.
+    /// Allocates `size` bytes aligned to `align`, zeroed when `zeroed` is set.
     ///
     /// # Panics
     ///
-    /// Panics if `size` is zero, which the allocator's contract forbids, or
-    /// if `align` is not a power of two.
+    /// Panics if `size` is zero, which the allocator's contract forbids, or if
+    /// `align` is not a power of two.
     pub(crate) fn new(size: usize, align: usize, zeroed: bool) -> Self {
         assert!(size > 0, "a block has at least one byte");
         let layout = Layout::from_size_align(size, align)
@@ -87,8 +86,7 @@ impl Drop for Block {
     }
 }
 
-/// One allocator request, aimed at a live block by position where it needs
-/// one.
+/// One allocator request, aimed at a live block by position where it needs one.
 #[derive(Clone, Copy, Debug)]
 enum Op {
     /// Allocate a fresh block of `size` bytes aligned to `align`, through
@@ -123,8 +121,8 @@ fn arb_op() -> impl Strategy<Value = Op> {
 
 /// Issues `ops` against the allocator, keeping live blocks in `blocks`.
 ///
-/// `blocks` must have spare capacity for every allocation in `ops`, so that
-/// no request but the ops' own reaches the allocator.
+/// `blocks` must have spare capacity for every allocation in `ops`, so that no
+/// request but the ops' own reaches the allocator.
 fn apply(blocks: &mut Vec<Block>, ops: &[Op]) {
     for op in ops {
         match *op {
@@ -161,14 +159,14 @@ struct Live {
     align: usize,
 }
 
-/// Returns the reading the counting rules predict for `ops`, starting from
-/// the blocks in `live`, and updates `live` to match.
+/// Returns the reading the counting rules predict for `ops`, starting from the
+/// blocks in `live`, and updates `live` to match.
 ///
 /// The model recomputes every level from the whole live list instead of
 /// tracking a running total, and measures each level against the total live
 /// when the reading began. A reallocation's level is taken with the new block
-/// added and the old one still present. Every allocation and reallocation of
-/// a block aligned beyond [`OVER_ALIGNED_ABOVE`] counts as over-aligned.
+/// added and the old one still present. Every allocation and reallocation of a
+/// block aligned beyond [`OVER_ALIGNED_ABOVE`] counts as over-aligned.
 fn model(live: &mut Vec<Live>, ops: &[Op]) -> Stats {
     /// Returns the live total of `live` relative to `start`.
     fn level(live: &[Live], start: usize) -> isize {
@@ -294,11 +292,11 @@ fn wait_for(step: &AtomicUsize, value: usize) {
     }
 }
 
-/// Another thread's allocations, reallocations, and frees inside a
-/// measurement change none of its fields.
+/// Another thread's allocations, reallocations, and frees inside a measurement
+/// change none of its fields.
 ///
-/// A handshake over one atomic forces the foreign thread's requests to
-/// land between the measurement's start and end, which is the interleaving a
+/// A handshake over one atomic forces the foreign thread's requests to land
+/// between the measurement's start and end, which is the interleaving a
 /// preempted test-harness thread produces only by chance. The foreign thread
 /// frees one block inside the window and keeps another past it, so a
 /// process-wide counter would misread the peak, the net, and every count.
@@ -341,8 +339,8 @@ fn foreign_thread_requests_are_excluded() {
     );
 }
 
-/// `reset` begins a reading that counts only later requests, and a block
-/// freed after the reset lowers its net even though it was allocated before.
+/// `reset` begins a reading that counts only later requests, and a block freed
+/// after the reset lowers its net even though it was allocated before.
 #[test]
 fn reset_begins_a_fresh_reading() {
     let earlier = Block::new(16, 1, false);
@@ -407,10 +405,10 @@ fn reset_inside_a_measurement_restarts_it() {
 ///
 /// A request for `isize::MAX` bytes, the largest size a byte-aligned layout
 /// admits, exceeds the address space of every 64-bit target, so the system
-/// allocator refuses both requests. A 32-bit target could grant it, so the
-/// test runs only on 64-bit targets. Each result passes through [`black_box`]
-/// before the null check, since the optimizer may otherwise assume an
-/// unobserved request succeeded and fold the check away.
+/// allocator refuses both requests. A 32-bit target could grant it, so the test
+/// runs only on 64-bit targets. Each result passes through [`black_box`] before
+/// the null check, since the optimizer may otherwise assume an unobserved
+/// request succeeded and fold the check away.
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn refused_requests_change_nothing() {

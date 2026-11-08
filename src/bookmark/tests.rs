@@ -32,8 +32,8 @@ enum Outcome {
 
 /// Owned storage with synchronous access and a one-shot store failure.
 ///
-/// `RefCell` makes this `Send` but not `Sync`: the trait's returned futures
-/// own their results and must not require sharing the bookmark itself.
+/// `RefCell` makes this `Send` but not `Sync`: the trait's returned futures own
+/// their results and must not require sharing the bookmark itself.
 #[derive(Debug, Default)]
 struct Memory {
     /// The complete record currently in storage, acknowledged or not.
@@ -75,8 +75,8 @@ impl Bookmark for Memory {
     }
 }
 
-/// The size limit the cache tests store under: large enough that encoding
-/// keeps every identity, since they test reloading rather than the bound.
+/// The size limit the cache tests store under: large enough that encoding keeps
+/// every identity, since they test reloading rather than the bound.
 const LIMIT: usize = default::BOOKMARK_SIZE_LIMIT;
 
 /// Require the public future to remain usable on an executor that needs `Send`.

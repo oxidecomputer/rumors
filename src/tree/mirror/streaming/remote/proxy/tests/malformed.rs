@@ -58,9 +58,8 @@ fn receiving_error<'a>(
         .unwrap_or_else(|error| panic!("receiver did not report the malformed frame: {error}"))
 }
 
-/// A reserved state code injected in either physical direction is
-/// reported exactly by its receiving proxy, while the other endpoint also
-/// terminates.
+/// A reserved state code injected in either physical direction is reported
+/// exactly by its receiving proxy, while the other endpoint also terminates.
 #[test]
 fn reserved_signals_propagate_through_the_full_proxy() {
     for writer in [IoSide::Left, IoSide::Right] {
@@ -88,8 +87,8 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 /// leaf-parent stream, whose grammar admits no nonempty query (nothing lies
 /// below a leaf to ask about), and the receiving proxy retains the exact
 /// placement rejection through the full stack. The corrupt side must be the
-/// elected *initiator*, the only speaker on that stream, and the pair's
-/// dispute must reach the leaf parents so that the stream carries a frame.
+/// elected *initiator*, the only speaker on that stream, and the pair's dispute
+/// must reach the leaf parents so that the stream carries a frame.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
     let (left, right, _) = leaf_parent_dispute_pair();
@@ -126,10 +125,10 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
 /// Canonical query ordering is enforced when corruption occurs inside an
 /// otherwise conforming, live proxy session.
 ///
-/// The corrupt physical side is arranged to be the elected *responder*:
-/// with the opening question riding the greeting rather than a wire
-/// frame, the responder's disputed-child listing is the one query frame
-/// every divergent session still carries.
+/// The corrupt physical side is arranged to be the elected *responder*: with
+/// the opening question riding the greeting rather than a wire frame, the
+/// responder's disputed-child listing is the one query frame every divergent
+/// session still carries.
 #[test]
 fn unordered_query_propagates_through_the_full_proxy() {
     for writer in [IoSide::Left, IoSide::Right] {
@@ -161,15 +160,15 @@ fn unordered_query_propagates_through_the_full_proxy() {
     }
 }
 
-/// A second reply manufactured after a valid reply has consumed the final
-/// scope reaches the proxy's reply-accounting check.
+/// A second reply manufactured after a valid reply has consumed the final scope
+/// reaches the proxy's reply-accounting check.
 ///
-/// The pair disputes exactly one prefix at every level, and one side owns
-/// each question, so each logical stream carries at most one reply: the
-/// corrupt side's first ending reaction ends the only reply its stream
-/// owes, and the duplicate after it is unasked, wherever the leaves' paths
-/// lie. The dispute continues below that first reply, so the corrupt side
-/// cannot complete once its receiver aborts.
+/// The pair disputes exactly one prefix at every level, and one side owns each
+/// question, so each logical stream carries at most one reply: the corrupt
+/// side's first ending reaction ends the only reply its stream owes, and the
+/// duplicate after it is unasked, wherever the leaves' paths lie. The dispute
+/// continues below that first reply, so the corrupt side cannot complete once
+/// its receiver aborts.
 #[test]
 fn duplicated_reply_is_rejected_as_unasked() {
     let (left, right, _) = leaf_parent_dispute_pair();
@@ -191,12 +190,12 @@ fn duplicated_reply_is_rejected_as_unasked() {
 }
 
 /// A repeated end-of-stream frame is a frame on a logical stream that has
-/// already ended, and the receiver rejects it as unasked, under varied
-/// chunk sizes and scheduling; neither session parks.
+/// already ended, and the receiver rejects it as unasked, under varied chunk
+/// sizes and scheduling; neither session parks.
 ///
-/// The repeated frame is its side's first stream end, and frames the
-/// receiver still needs follow it on the pipe, so the receiver's
-/// demultiplexer always reaches it before its session can complete.
+/// The repeated frame is its side's first stream end, and frames the receiver
+/// still needs follow it on the pipe, so the receiver's demultiplexer always
+/// reaches it before its session can complete.
 #[test]
 fn a_repeated_stream_end_is_rejected_as_unasked() {
     use crate::testing::{IoPlan, memory_connection, wrap_io};

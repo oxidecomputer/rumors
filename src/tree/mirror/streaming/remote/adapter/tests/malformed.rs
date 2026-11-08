@@ -32,7 +32,8 @@ use crate::tree::mirror::streaming::remote::codec::{
     DecodeLeafError, End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget,
 };
 
-/// A nonempty reply must end on its last reaction; a later bare end is ambiguous and invalid.
+/// A nonempty reply must end on its last reaction; a later bare end is
+/// ambiguous and invalid.
 #[test]
 fn bare_end_cannot_follow_reactions() {
     let path = Path::for_fixture_leaf(&Version::new());
@@ -65,7 +66,8 @@ fn bare_end_cannot_follow_reactions() {
     );
 }
 
-/// Exhausting the frame stream without an explicit boundary reports truncation, not a reply.
+/// Exhausting the frame stream without an explicit boundary reports truncation,
+/// not a reply.
 #[test]
 fn stream_exhaustion_before_a_boundary_is_truncation() {
     let path = Path::for_fixture_leaf(&Version::new());
@@ -99,10 +101,10 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
 
 /// A match past the question's fan fails at its own frame, in both directions.
 ///
-/// The scope walk is symmetric with the query arm: every positional
-/// reaction consumes one listed child, so a match after the last is
-/// rejected eagerly — at the offending frame, before the skeleton grows
-/// past the fan — rather than after the whole reply decodes.
+/// The scope walk is symmetric with the query arm: every positional reaction
+/// consumes one listed child, so a match after the last is rejected eagerly —
+/// at the offending frame, before the skeleton grows past the fan — rather than
+/// after the whole reply decodes.
 #[test]
 fn an_unpositioned_match_is_rejected_in_both_directions() {
     let path = Path::for_fixture_leaf(&Version::new());
@@ -164,8 +166,8 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
     );
 }
 
-/// The parent of a test question at branch level: a node two levels above
-/// the leaves, whose replies may match, query, and request.
+/// The parent of a test question at branch level: a node two levels above the
+/// leaves, whose replies may match, query, and request.
 fn branch_parent() -> ErasedPrefix {
     Prefix::<S<S<Z>>>::containing(&Path::for_fixture_leaf(&Version::new())).erase()
 }
@@ -223,9 +225,9 @@ fn encode_reactions(
 
 /// A reply's second match is rejected at its frame, in both directions.
 ///
-/// The reply's first match covers every later listed child that also
-/// matches, so a conforming reply carries one match at most; a second is
-/// a defect even where a listed child is left for it to take.
+/// The reply's first match covers every later listed child that also matches,
+/// so a conforming reply carries one match at most; a second is a defect even
+/// where a listed child is left for it to take.
 #[test]
 fn a_second_match_is_rejected_in_both_directions() {
     let scope = question(branch_parent(), &[1, 2]);
@@ -247,8 +249,8 @@ fn a_second_match_is_rejected_in_both_directions() {
     assert_eq!(encode_scope_error(error), ScopeError::RepeatedMatch);
 }
 
-/// Listed radixes, two to eight, and a position among them for a match
-/// that is not the last.
+/// Listed radixes, two to eight, and a position among them for a match that is
+/// not the last.
 fn listing_with_match() -> impl Strategy<Value = (Vec<u8>, usize)> {
     arb_radixes(2..=8).prop_flat_map(|radixes| {
         let radixes: Vec<u8> = radixes.into_iter().collect();
@@ -257,8 +259,8 @@ fn listing_with_match() -> impl Strategy<Value = (Vec<u8>, usize)> {
     })
 }
 
-/// The frames of a reply that requests every listed child before
-/// `position`, then matches there, covering `later`, and ends.
+/// The frames of a reply that requests every listed child before `position`,
+/// then matches there, covering `later`, and ends.
 fn match_after_requests(position: usize, later: ByteSet) -> Vec<Frame> {
     let mut frames: Vec<Frame> = (0..position)
         .map(|_| Frame::Reaction(WireReaction::Query(Vec::new()), Flow::Continue))
@@ -458,7 +460,8 @@ proptest! {
     }
 }
 
-/// Prefix-free queries require a remaining positional child in both conversion directions.
+/// Prefix-free queries require a remaining positional child in both conversion
+/// directions.
 #[test]
 fn an_unpositioned_query_is_rejected_in_both_directions() {
     let path = Path::for_fixture_leaf(&Version::new());
@@ -515,7 +518,8 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
     );
 }
 
-/// All eight leaf-query paths pin validity, error precedence, framing, and publication.
+/// All eight leaf-query paths pin validity, error precedence, framing, and
+/// publication.
 #[test]
 fn leaf_query_matrix_is_exhaustive() {
     let path = Path::for_fixture_leaf(&Version::new());
@@ -664,12 +668,13 @@ fn decode_scope_error(error: DecodeError<Infallible>) -> ScopeError {
     }
 }
 
-/// Leaf ordering is enforced between records inside one run, not only across frames.
+/// Leaf ordering is enforced between records inside one run, not only across
+/// frames.
 ///
 /// The existing ordering rejections all place their two records in separate
 /// single-record frames; here one supply run carries both records with the
-/// second preceding the first in content-path order, and the decoder must
-/// still report `LeafOrder`.
+/// second preceding the first in content-path order, and the decoder must still
+/// report `LeafOrder`.
 #[test]
 fn leaf_order_is_enforced_within_one_run() {
     let leaves = colliding_leaves(2);
@@ -705,7 +710,8 @@ fn leaf_order_is_enforced_within_one_run() {
     assert_eq!(current, <[u8; 32]>::from(leaves[0].path()));
 }
 
-/// Reply scope is enforced between records inside one run, not only across frames.
+/// Reply scope is enforced between records inside one run, not only across
+/// frames.
 ///
 /// A single supply run whose first record sits inside the reply's scope and
 /// whose second escapes it must be rejected as `LeafOutsideScope` on that
@@ -750,17 +756,16 @@ fn leaf_scope_is_enforced_within_one_run() {
     assert_eq!(actual, <[u8; 32]>::from(outside.path()));
 }
 
-/// The run body of a single empty-content record: the embedded-sequence
-/// tag wrapping an empty byte string.
+/// The run body of a single empty-content record: the embedded-sequence tag
+/// wrapping an empty byte string.
 const ZERO_LENGTH_RECORD_RUN: [u8; 3] = [0xd8, 0x3f, 0x40];
 
-/// An empty-content record passes structural validation but fails
-/// canonically.
+/// An empty-content record passes structural validation but fails canonically.
 ///
-/// A record whose byte string is empty chains exactly, so the wire
-/// accepts the run's structure; the empty content cannot hold a tagged
-/// version, so the reply decoder reports `DecodeError::Record` carrying
-/// the version decoder's `UnexpectedEof`.
+/// A record whose byte string is empty chains exactly, so the wire accepts the
+/// run's structure; the empty content cannot hold a tagged version, so the
+/// reply decoder reports `DecodeError::Record` carrying the version decoder's
+/// `UnexpectedEof`.
 #[test]
 fn a_zero_length_record_fails_as_a_version_decode_error() {
     let run = LeafRun::from_encoded(ZERO_LENGTH_RECORD_RUN.to_vec())
@@ -802,9 +807,9 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
 /// The declared version bound admits exactly the versions it covers.
 ///
 /// A supplied version encoding exactly at the peer's declared
-/// `max_version_bytes` decodes, and the same record under a declaration
-/// one byte smaller is rejected as `OversizedVersion` carrying both the
-/// declaration and the offending encoding's size.
+/// `max_version_bytes` decodes, and the same record under a declaration one
+/// byte smaller is rejected as `OversizedVersion` carrying both the declaration
+/// and the offending encoding's size.
 #[test]
 fn a_version_over_the_declared_bound_is_rejected() {
     let leaf = LeafCase::new(0, 0);
@@ -1002,8 +1007,8 @@ fn a_supply_without_a_key_is_rejected() {
     assert!(matches!(error, DecodeError::UnkeyedSupply), "got {error:?}");
 }
 
-/// One whole-root reply supplying every leaf in `cases`, as a single
-/// ascending run.
+/// One whole-root reply supplying every leaf in `cases`, as a single ascending
+/// run.
 fn whole_root_supply_reply(cases: &[LeafCase]) -> Vec<Frame> {
     let records: Vec<_> = cases
         .iter()
@@ -1057,13 +1062,12 @@ proptest! {
     }
 }
 
-/// A supply run cannot resume after a positional reaction interrupts it:
-/// the resumed run's radix does not sit above the interrupting reaction's.
+/// A supply run cannot resume after a positional reaction interrupts it: the
+/// resumed run's radix does not sit above the interrupting reaction's.
 ///
 /// Two leaves share the radix of one run. The interrupting match takes the
-/// scope's one listed child, just above the run's radix, so it is
-/// positionally valid and in radix order, and the failure isolates the
-/// resumption itself.
+/// scope's one listed child, just above the run's radix, so it is positionally
+/// valid and in radix order, and the failure isolates the resumption itself.
 #[test]
 fn a_supply_run_cannot_resume_after_another_reaction() {
     let leaves = colliding_leaves(2);

@@ -1,10 +1,9 @@
 //! Probes of comparisons, causal queries, and span verdicts over the history
 //! fixture.
 //!
-//! Every answer is checked outside the measured window against the
-//! documented meaning of the operation, computed from the directed
-//! comparisons `<=` and `>=`, which take a separate path from the walks
-//! these probes measure.
+//! Every answer is checked outside the measured window against the documented
+//! meaning of the operation, computed from the directed comparisons `<=` and
+//! `>=`, which take a separate path from the walks these probes measure.
 
 use std::cmp::Ordering;
 
@@ -75,8 +74,7 @@ pub fn compare(senders: usize, packed: u64) -> u64 {
     )
 }
 
-/// Measures `x.partial_cmp(x')`, where `x'` is the byte-equal re-decode of
-/// `x`.
+/// Measures `x.partial_cmp(x')`, where `x'` is the byte-equal re-decode of `x`.
 pub fn redecoded_compare(senders: usize, packed: u64) -> u64 {
     let [x] = History::new(senders).snapshots(packed);
     let copy = redecoded(&x);
@@ -242,8 +240,8 @@ pub fn span_contains_point(senders: usize, packed: u64) -> u64 {
     )
 }
 
-/// Measures `Span::new(lo, hi).contains(&coincident)`, where `coincident`
-/// spans the probe and its byte-equal re-decode.
+/// Measures `Span::new(lo, hi).contains(&coincident)`, where `coincident` spans
+/// the probe and its byte-equal re-decode.
 pub fn span_contains_distinct_point(senders: usize, packed: u64) -> u64 {
     let (lo, hi, probe) = span_and_probe(senders, packed);
     let span = span(&lo, &hi);

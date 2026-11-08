@@ -72,10 +72,10 @@ fn half() -> Version {
 /// `Decode::Io` is the one rich variant the bit-level error split must still
 /// deliver losslessly through `StreamBitsReader`: the prefix-free encodings pad
 /// only to the next byte boundary, so every proper byte prefix of a canonical
-/// encoding ends mid-tree or ahead of the tree's padding, and the next
-/// per-bit refill hits end-of-input. The
-/// wide value's 129-bit gamma code exceeds the 64-bit decode window, so its
-/// cuts land inside the per-bit fallback's refill loop as well as around it.
+/// encoding ends mid-tree or ahead of the tree's padding, and the next per-bit
+/// refill hits end-of-input. The wide value's 129-bit gamma code exceeds the
+/// 64-bit decode window, so its cuts land inside the per-bit fallback's refill
+/// loop as well as around it.
 #[test]
 fn truncated_borsh_stream_reports_unexpected_eof() {
     let mut party = Party::seed();
@@ -149,10 +149,10 @@ fn non_canonical_borsh_bytes_report_invalid_data() {
 ///
 /// A uniform seven-tick version encodes to eight live bits plus a whole
 /// `1000_0000` padding byte; on its first byte alone the reader entry point
-/// starves reading the absent padding byte (`UnexpectedEof`), and the
-/// slice entry point reports [`Decode::Truncated`] for the same bytes. This is
-/// the mapping the decode differential relies on: `UnexpectedEof` is
-/// exactly raw `Truncated`.
+/// starves reading the absent padding byte (`UnexpectedEof`), and the slice
+/// entry point reports [`Decode::Truncated`] for the same bytes. This is the
+/// mapping the decode differential relies on: `UnexpectedEof` is exactly raw
+/// `Truncated`.
 #[test]
 fn flush_cut_is_truncated_by_both_decoders() {
     let bytes = uniform(7u8).encode();
@@ -284,9 +284,9 @@ proptest! {
 /// `fork; fork; join` reunites two quarter-regions into `(0, 1)`, normalizing
 /// the build buffer's tree to a smaller one. The collapse sheds bits into the
 /// buffer's final byte, where an unsealed freeze would leave them for
-/// [`as_bytes`](Party::as_bytes), which borsh serializes, to carry as
-/// bytes that `Party::decode` would reject as `TrailingBits`. The chosen joins
-/// force that collapse before the round-trip assertion.
+/// [`as_bytes`](Party::as_bytes), which borsh serializes, to carry as bytes
+/// that `Party::decode` would reject as `TrailingBits`. The chosen joins force
+/// that collapse before the round-trip assertion.
 #[test]
 fn joined_party_roundtrips_through_borsh() {
     let mut left = Party::seed();
@@ -356,8 +356,9 @@ proptest! {
 
 /// The per-bit reference cursor, the wire decode's differential oracle.
 ///
-/// The definitional shape with no fast paths: a growing `BitsWriter` refilled one
-/// byte at a time, per-bit reads only, and the default per-bit `read_gamma`.
+/// The definitional shape with no fast paths: a growing `BitsWriter` refilled
+/// one byte at a time, per-bit reads only, and the default per-bit
+/// `read_gamma`.
 struct BitwiseStreamReader<'a, R> {
     reader: &'a mut R,
     bits: BitsWriter,
@@ -383,10 +384,9 @@ impl<R: Read> BitRead for BitwiseStreamReader<'_, R> {
     }
 }
 
-/// Consume a tree's padding through per-bit reads: one `1` marker, then
-/// zeros to the byte boundary, reading the whole-byte marker when the
-/// live bits end flush against a boundary, exactly as the wire cursor's
-/// `finish` does.
+/// Consume a tree's padding through per-bit reads: one `1` marker, then zeros
+/// to the byte boundary, reading the whole-byte marker when the live bits end
+/// flush against a boundary, exactly as the wire cursor's `finish` does.
 fn reference_consume_padding<R: Read>(
     cursor: &mut BitwiseStreamReader<'_, R>,
 ) -> Result<(), Decode> {
@@ -403,8 +403,8 @@ fn reference_consume_padding<R: Read>(
 
 /// Decode one event tree per-bit through [`BitwiseStreamReader`].
 ///
-/// Replicates the wire pipeline stage for stage: parse, padding
-/// consumption, truncate to the consumed live bits.
+/// Replicates the wire pipeline stage for stage: parse, padding consumption,
+/// truncate to the consumed live bits.
 fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
     let mut cursor = BitwiseStreamReader {
         reader,
@@ -421,10 +421,10 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
 
 /// Decode one id tree per-bit through [`BitwiseStreamReader`].
 ///
-/// Replicates the wire pipeline stage for stage: parse, padding
-/// consumption, truncate to the consumed live bits. The id grammar has no
-/// empty production, so the parsed id is a nonzero share, exactly as
-/// `Party::deserialize_reader` relies on.
+/// Replicates the wire pipeline stage for stage: parse, padding consumption,
+/// truncate to the consumed live bits. The id grammar has no empty production,
+/// so the parsed id is a nonzero share, exactly as `Party::deserialize_reader`
+/// relies on.
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let mut cursor = BitwiseStreamReader {
         reader,
@@ -452,7 +452,8 @@ fn assert_same_error(subject: &Error, oracle: &Error) -> Result<(), TestCaseErro
     Ok(())
 }
 
-/// Generate worst-case wire inputs from raw bytes or modified canonical encodings.
+/// Generate worst-case wire inputs from raw bytes or modified canonical
+/// encodings.
 ///
 /// Canonical encodings may be bit-flipped, truncated, or followed by bytes that
 /// only an over-read would consume.
@@ -546,14 +547,14 @@ fn reference_clock<R: Read>(reader: &mut R) -> Result<Clock, Decode> {
     Ok(Clock::from_parts(party, version))
 }
 
-/// Decode one composite key (a self-delimiting rank stream, then an
-/// version skyline) with the version leg per-bit through
-/// [`BitwiseStreamReader`] and the wire entry point's own cross-check after it.
+/// Decode one composite key (a self-delimiting rank stream, then an version
+/// skyline) with the version leg per-bit through [`BitwiseStreamReader`] and
+/// the wire entry point's own cross-check after it.
 ///
 /// The rank stream has exactly one parser, shared with the wire entry point
-/// byte for byte, so the surface this reference pins differentially is
-/// the version stream (window, refills, padding) and the composite
-/// cross-check around it.
+/// byte for byte, so the surface this reference pins differentially is the
+/// version stream (window, refills, padding) and the composite cross-check
+/// around it.
 fn reference_ranked<R: Read>(reader: &mut R) -> Result<Ranked<'static>, Decode> {
     let rank = Rank::decode_stream(|| {
         let mut byte = [0];
@@ -570,8 +571,8 @@ fn reference_ranked<R: Read>(reader: &mut R) -> Result<Ranked<'static>, Decode> 
 /// Decode one span composite per-bit through [`BitwiseStreamReader`],
 /// replicating the wire pipeline stage for stage.
 ///
-/// The stages, in the wire entry point's order: the meet's tree and padding, the
-/// fused admission walk over the join, the join's padding consumption,
+/// The stages, in the wire entry point's order: the meet's tree and padding,
+/// the fused admission walk over the join, the join's padding consumption,
 /// which outranks the pair verdict, then the verdict.
 fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
     let lo = reference_version(reader)?;
@@ -830,13 +831,12 @@ proptest! {
     }
 }
 
-/// Trees far deeper than any real id or event tree round-trip on the wire
-/// path with the parse frames grown on the heap.
+/// Trees far deeper than any real id or event tree round-trip on the wire path
+/// with the parse frames grown on the heap.
 ///
-/// A deep version and a deep party round-trip through borsh with trailing
-/// bytes intact: growing the frame stack mid-parse must disturb neither
-/// the normal-form checks the frames carry nor the cursor's byte
-/// consumption.
+/// A deep version and a deep party round-trip through borsh with trailing bytes
+/// intact: growing the frame stack mid-parse must disturb neither the
+/// normal-form checks the frames carry nor the cursor's byte consumption.
 #[test]
 fn deep_trees_roundtrip_through_borsh() {
     // Deep enough that the frame stack regrows several times mid-parse.
@@ -873,13 +873,13 @@ fn deep_trees_roundtrip_through_borsh() {
 
 // ─────────────────────────────── rank ───────────────────────────────
 
-/// A [`Rank`]'s borsh bytes are exactly its canonical encoding, with no
-/// length prefix and no second format, and the [`Ranked`] view
-/// serializes its own composite key; both round-trip.
+/// A [`Rank`]'s borsh bytes are exactly its canonical encoding, with no length
+/// prefix and no second format, and the [`Ranked`] view serializes its own
+/// composite key; both round-trip.
 ///
-/// Zero, an integral-only rank, and a deep small fraction cover the
-/// stream's three shapes (empty fraction in one byte, empty fraction
-/// spilling its close bit, multi-group fraction).
+/// Zero, an integral-only rank, and a deep small fraction cover the stream's
+/// three shapes (empty fraction in one byte, empty fraction spilling its close
+/// bit, multi-group fraction).
 #[test]
 fn rank_borsh_is_the_canonical_encoding() {
     let battery = [
@@ -908,16 +908,15 @@ fn rank_borsh_is_the_canonical_encoding() {
     );
 }
 
-/// A [`Ranked`] composite key composes inside a larger borsh stream,
-/// and its rejection classes cross the borsh boundary intact.
+/// A [`Ranked`] composite key composes inside a larger borsh stream, and its
+/// rejection classes cross the borsh boundary intact.
 ///
-/// A `(Ranked, Party, Rank)` concatenation deserializes field by
-/// field, each read consuming exactly its own bytes.
+/// A `(Ranked, Party, Rank)` concatenation deserializes field by field, each
+/// read consuming exactly its own bytes.
 ///
-/// A cut anywhere mid-composite surfaces the reader's own
-/// `UnexpectedEof`; a mismatched rank prefix crosses as `InvalidData`
-/// carrying [`Decode::NotCanonical`] (the redundancy check
-/// `Ranked::decode` documents).
+/// A cut anywhere mid-composite surfaces the reader's own `UnexpectedEof`; a
+/// mismatched rank prefix crosses as `InvalidData` carrying
+/// [`Decode::NotCanonical`] (the redundancy check `Ranked::decode` documents).
 #[test]
 fn ranked_borsh_composes_and_preserves_decode_errors() {
     let half = half();
@@ -957,8 +956,8 @@ fn ranked_borsh_composes_and_preserves_decode_errors() {
 }
 
 /// A rank stream is self-delimiting inside a larger borsh stream: a
-/// `(Rank, Version, Rank)` concatenation deserializes field by field,
-/// each read consuming exactly its own bytes.
+/// `(Rank, Version, Rank)` concatenation deserializes field by field, each read
+/// consuming exactly its own bytes.
 #[test]
 fn rank_composes_in_a_borsh_stream() {
     let a = crate::Rank::from_raw(BigUint::from(129u8), 8);
@@ -975,9 +974,9 @@ fn rank_composes_in_a_borsh_stream() {
     assert!(reader.is_empty(), "every byte belonged to some field");
 }
 
-/// A borsh rank stream cut anywhere mid-stream surfaces the reader's
-/// own `UnexpectedEof`, and a set padding bit crosses the boundary as
-/// `InvalidData` carrying the exact [`Decode`] variant.
+/// A borsh rank stream cut anywhere mid-stream surfaces the reader's own
+/// `UnexpectedEof`, and a set padding bit crosses the boundary as `InvalidData`
+/// carrying the exact [`Decode`] variant.
 #[test]
 fn rank_borsh_preserves_decode_errors() {
     let deep = crate::Rank::from_raw(BigUint::from(5u128 << 40 | 1), 40);
@@ -1037,16 +1036,14 @@ proptest! {
     }
 }
 
-/// A [`Span`](crate::Span) composite composes inside a
-/// larger borsh stream, and its rejection classes cross the borsh
-/// boundary intact.
+/// A [`Span`](crate::Span) composite composes inside a larger borsh stream, and
+/// its rejection classes cross the borsh boundary intact.
 ///
-/// A `(Span, Party, Rank)` concatenation deserializes field by field,
-/// each read consuming exactly its own bytes. A cut anywhere
-/// mid-composite surfaces the reader's own `UnexpectedEof`; a crossed
-/// composite crosses as `InvalidData` carrying
-/// [`Decode::NotCanonical`] (the fused pair validation
-/// `Span::decode` documents).
+/// A `(Span, Party, Rank)` concatenation deserializes field by field, each read
+/// consuming exactly its own bytes. A cut anywhere mid-composite surfaces the
+/// reader's own `UnexpectedEof`; a crossed composite crosses as `InvalidData`
+/// carrying [`Decode::NotCanonical`] (the fused pair validation `Span::decode`
+/// documents).
 #[test]
 fn span_borsh_composes_and_preserves_decode_errors() {
     let mut clock = Clock::seed();
@@ -1123,15 +1120,15 @@ proptest! {
     }
 }
 
-/// Every ordered pair of the six wire types composes adjacently in one
-/// borsh stream with exact parse boundaries.
+/// Every ordered pair of the six wire types composes adjacently in one borsh
+/// stream with exact parse boundaries.
 ///
-/// Self-delimitation totality across types: for each of the 36 ordered
-/// pairs `(A, B)`, serializing `a` then `b` into one stream and reading
-/// them back field by field consumes exactly the first encoding's bytes
-/// before the second begins, leaves nothing after the second, and each
-/// recovered value re-serializes to exactly its own segment, so no
-/// type's decoder can over- or under-read into a neighbor of any type.
+/// Self-delimitation totality across types: for each of the 36 ordered pairs
+/// `(A, B)`, serializing `a` then `b` into one stream and reading them back
+/// field by field consumes exactly the first encoding's bytes before the second
+/// begins, leaves nothing after the second, and each recovered value
+/// re-serializes to exactly its own segment, so no type's decoder can over- or
+/// under-read into a neighbor of any type.
 #[test]
 fn borsh_every_type_pair_composes_with_exact_boundaries() {
     // Multi-byte, structure-bearing values of each type.
@@ -1227,14 +1224,13 @@ fn borsh_every_type_pair_composes_with_exact_boundaries() {
 
 /// A malformed sequence element keeps its error class and earlier elements.
 ///
-/// A `Vec<Version>` is a length prefix and then each element's
-/// self-delimiting encoding: a set padding bit inside the middle
-/// element's final byte crosses the boundary as `InvalidData` carrying
-/// [`Decode::TrailingBits`], and a stream cut inside the middle element
-/// surfaces as the reader's own `UnexpectedEof`: the sequence context
-/// neither masks the error nor shifts its attribution, and the
-/// same corrupted stream still yields element 0 when read field by
-/// field.
+/// A `Vec<Version>` is a length prefix and then each element's self-delimiting
+/// encoding: a set padding bit inside the middle element's final byte crosses
+/// the boundary as `InvalidData` carrying [`Decode::TrailingBits`], and a
+/// stream cut inside the middle element surfaces as the reader's own
+/// `UnexpectedEof`: the sequence context neither masks the error nor shifts its
+/// attribution, and the same corrupted stream still yields element 0 when read
+/// field by field.
 #[test]
 fn borsh_sequence_defect_preserves_its_error_class() {
     use crate::testing::oracles::tree::Version as V;
@@ -1279,8 +1275,8 @@ fn borsh_sequence_defect_preserves_its_error_class() {
 /// the byte-slice decode does.
 ///
 /// The fused admission verdict detects `hi == lo` on the wire, so the
-/// deserialized endpoints share one buffer (clone identity holds) and
-/// the composite still re-serializes byte-identically.
+/// deserialized endpoints share one buffer (clone identity holds) and the
+/// composite still re-serializes byte-identically.
 #[test]
 fn span_borsh_dedups_the_coincident_span() {
     let mut clock = crate::Clock::seed();
@@ -1343,16 +1339,15 @@ fn coincident_span_keeps_borsh_container_framing() {
     );
 }
 
-/// The coincident span's padding check survives the Equal admission
-/// arm: a set padding bit in the join component's final byte rejects as
-/// `TrailingBits` through the borsh entry point.
+/// The coincident span's padding check survives the Equal admission arm: a set
+/// padding bit in the join component's final byte rejects as `TrailingBits`
+/// through the borsh entry point.
 ///
-/// The Equal arm drops the parsed join bits and stores the meet's
-/// clone, so a rewrite that settled the verdict before the cursor's
-/// final-byte padding check would accept a dirty join stream and
-/// re-encode it clean, invisible to every round-trip assert. The
-/// padding check outranks the pair verdict at this entry point exactly as the
-/// byte-slice decode orders them.
+/// The Equal arm drops the parsed join bits and stores the meet's clone, so a
+/// rewrite that settled the verdict before the cursor's final-byte padding
+/// check would accept a dirty join stream and re-encode it clean, invisible to
+/// every round-trip assert. The padding check outranks the pair verdict at this
+/// entry point exactly as the byte-slice decode orders them.
 #[test]
 fn coincident_span_borsh_rejects_tampered_join_padding() {
     use crate::testing::oracles::tree::Version as V;
@@ -1377,18 +1372,18 @@ fn coincident_span_borsh_rejects_tampered_join_padding() {
     );
 }
 
-/// A structurally whole join whose running height dips negative rejects
-/// through the borsh span entry point as `InvalidData` carrying
-/// [`Decode::NotCanonical`]: the refuted verdict subsumes the dip on the
-/// wire path too.
+/// A structurally whole join whose running height dips negative rejects through
+/// the borsh span entry point as `InvalidData` carrying
+/// [`Decode::NotCanonical`]: the refuted verdict subsumes the dip on the wire
+/// path too.
 ///
-/// The bytes are the fuzz seed set's `span_negative_join` witness: a
-/// canonical empty meet, then a join whose height dips negative: root
-/// internal `0`, left leaf height gamma(0), right leaf delta zigzag(-1),
-/// padding marker. No encode produces it, so only a constructed stream
-/// reaches the verdict's rejection arm under a `StreamBitsReader`; it rides
-/// beside [`span_wire_decode_matches_bitwise_reference`] as a direct check of
-/// that rejection path.
+/// The bytes are the fuzz seed set's `span_negative_join` witness: a canonical
+/// empty meet, then a join whose height dips negative: root internal `0`, left
+/// leaf height gamma(0), right leaf delta zigzag(-1), padding marker. No encode
+/// produces it, so only a constructed stream reaches the verdict's rejection
+/// arm under a `StreamBitsReader`; it rides beside
+/// [`span_wire_decode_matches_bitwise_reference`] as a direct check of that
+/// rejection path.
 #[test]
 fn span_borsh_rejects_negative_height_join() {
     let bytes = [Version::new().encode(), vec![0x75]].concat();
@@ -1407,15 +1402,14 @@ fn span_borsh_rejects_negative_height_join() {
     );
 }
 
-/// A join carrying a collapsible sibling pair rejects through the borsh
-/// span entry point as `InvalidData` carrying [`Decode::NotCanonical`]: the
+/// A join carrying a collapsible sibling pair rejects through the borsh span
+/// entry point as `InvalidData` carrying [`Decode::NotCanonical`]: the
 /// close-out canonicality check fires under a `StreamBitsReader` too.
 ///
-/// The bytes are a canonical empty meet, then an internal node whose two
-/// leaf children carry height 0 and delta 0, a sibling pair normal form
-/// forbids. It rides beside
-/// [`span_wire_decode_matches_bitwise_reference`] as a direct check of the
-/// final canonicality check.
+/// The bytes are a canonical empty meet, then an internal node whose two leaf
+/// children carry height 0 and delta 0, a sibling pair normal form forbids. It
+/// rides beside [`span_wire_decode_matches_bitwise_reference`] as a direct
+/// check of the final canonicality check.
 #[test]
 fn span_borsh_rejects_collapsible_join() {
     let bytes = [Version::new().encode(), vec![0b0111_1000]].concat();

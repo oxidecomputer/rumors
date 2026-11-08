@@ -1,51 +1,51 @@
-//! The wire formats of versions, parties, and ranks, written out as an
-//! encoder that spells any tree, canonical or not, and as a specification
-//! of what a strict decoder owes any byte string ([`verdict`]).
+//! The wire formats of versions, parties, and ranks, written out as an encoder
+//! that spells any tree, canonical or not, and as a specification of what a
+//! strict decoder owes any byte string ([`verdict`]).
 //!
-//! Production's writers emit only canonical encodings, so they cannot build
-//! the inputs a strict decoder exists to reject: a sibling pair that should
-//! have collapsed, or a running height below zero. This encoder spells
-//! whatever tree it is given, and it shares no code with production.
+//! Production's writers emit only canonical encodings, so they cannot build the
+//! inputs a strict decoder exists to reject: a sibling pair that should have
+//! collapsed, or a running height below zero. This encoder spells whatever tree
+//! it is given, and it shares no code with production.
 //!
-//! Only the rank format has a full public specification, the `rank` module
-//! doc, which [`rank_bits`] transcribes. No public doc states the version or
-//! party bit layout: the party layout here follows the private
-//! `party::io::writer` module doc, and the version layout (tag polarity,
-//! gamma codes, and the zigzag mapping of height changes) follows production's
-//! version writer and payload decoder. Production is therefore the de facto
-//! authority for those layouts, and this module's tests calibrate its
-//! canonical spellings against production's encoders. What the encoder adds
-//! is independence where it matters to a decoder test: it spells
-//! non-canonical trees, which no production writer can.
+//! Only the rank format has a full public specification, the `rank` module doc,
+//! which [`rank_bits`] transcribes. No public doc states the version or party
+//! bit layout: the party layout here follows the private `party::io::writer`
+//! module doc, and the version layout (tag polarity, gamma codes, and the
+//! zigzag mapping of height changes) follows production's version writer and
+//! payload decoder. Production is therefore the de facto authority for those
+//! layouts, and this module's tests calibrate its canonical spellings against
+//! production's encoders. What the encoder adds is independence where it
+//! matters to a decoder test: it spells non-canonical trees, which no
+//! production writer can.
 //!
 //! [`Version::from_oracle`] and [`Party::from_oracle`] read recursive-oracle
-//! trees, which a test may lower from production values through the bridge;
-//! the encoding itself never consults production.
+//! trees, which a test may lower from production values through the bridge; the
+//! encoding itself never consults production.
 //!
 //! # Flat trees
 //!
 //! Both tree types here are *flat*: a full binary tree given by its leaves,
-//! left to right, each with its depth and its value. A leaf at depth `d`
-//! covers an interval of width `2⁻ᵈ` of the unit interval, and consecutive
-//! leaves cover consecutive intervals, so a flat tree is also a step function
-//! over `[0, 1)`. A depth list describes a full binary tree exactly when a
-//! preorder traversal that opens branches down to each listed depth places
-//! every leaf and ends with no slot left open ([`preorder`]).
+//! left to right, each with its depth and its value. A leaf at depth `d` covers
+//! an interval of width `2⁻ᵈ` of the unit interval, and consecutive leaves
+//! cover consecutive intervals, so a flat tree is also a step function over
+//! `[0, 1)`. A depth list describes a full binary tree exactly when a preorder
+//! traversal that opens branches down to each listed depth places every leaf
+//! and ends with no slot left open ([`preorder`]).
 //!
 //! Unlike a boxed tree, a flat tree has no recursive structure, so every
-//! operation below is a loop, and no depth can exhaust the stack in a
-//! traversal or in a drop.
+//! operation below is a loop, and no depth can exhaust the stack in a traversal
+//! or in a drop.
 //!
 //! # The formats
 //!
 //! - A *version stream* lists the tree in preorder: a `0` for each branch, a
 //!   `1` for each leaf followed by an Elias gamma code. The first leaf's code
-//!   is its height plus one; each later leaf's is its zigzag-coded change
-//!   from the previous leaf's height (`2d` for a rise `d ≥ 0`, `2|d| - 1`
-//!   for a fall), plus one.
-//! - A *party stream* lists the tree in preorder, two bits per node: an
-//!   owned leaf is `00`; a branch is its two children's presence bits, and a
-//!   child whose whole subtree is unowned is absent and spelled by nothing.
+//!   is its height plus one; each later leaf's is its zigzag-coded change from
+//!   the previous leaf's height (`2d` for a rise `d ≥ 0`, `2|d| - 1` for a
+//!   fall), plus one.
+//! - A *party stream* lists the tree in preorder, two bits per node: an owned
+//!   leaf is `00`; a branch is its two children's presence bits, and a child
+//!   whose whole subtree is unowned is absent and spelled by nothing.
 //! - Both streams are *sealed* ([`seal`]): a `1` marker bit follows the live
 //!   bits, and zero bits fill the last byte.
 //! - A *rank stream* ([`rank_bits`]) closes itself with a `0` bit after its
@@ -56,13 +56,12 @@
 //! A version's spelling is canonical when its flat tree is normal (no two
 //! sibling leaves share a height, [`Version::normalized`]) and no height is
 //! negative. A party's spelling is canonical when no two sibling leaves are
-//! both owned. An unowned pair has no spelling of its own: an unowned
-//! subtree is absent from the stream, so a party with an uncollapsed unowned
-//! pair spells exactly what its normal form spells. A rank's spelling is
-//! canonical when its numerator is odd or its exponent is zero
-//! ([`normalize_rank`]). The encoder spells non-canonical versions, parties,
-//! and ranks just as faithfully, which is what the near-valid generators need
-//! from it.
+//! both owned. An unowned pair has no spelling of its own: an unowned subtree
+//! is absent from the stream, so a party with an uncollapsed unowned pair
+//! spells exactly what its normal form spells. A rank's spelling is canonical
+//! when its numerator is odd or its exponent is zero ([`normalize_rank`]). The
+//! encoder spells non-canonical versions, parties, and ranks just as
+//! faithfully, which is what the near-valid generators need from it.
 
 use num_bigint::{BigInt, BigUint, Sign};
 
@@ -91,8 +90,8 @@ pub(crate) fn pack(bits: &[bool]) -> Vec<u8> {
         .collect()
 }
 
-/// Seals a version or party stream: its live bits, a `1` marker bit, then
-/// zero bits to the byte boundary.
+/// Seals a version or party stream: its live bits, a `1` marker bit, then zero
+/// bits to the byte boundary.
 pub(crate) fn seal(bits: &[bool]) -> Vec<u8> {
     let mut sealed = bits.to_vec();
     sealed.push(true);
@@ -108,8 +107,8 @@ fn push_gamma(n: &BigUint, out: &mut Vec<bool>) {
     out.extend((0..width).rev().map(|i| m.bit(i)));
 }
 
-/// The zigzag code of a height change: `2d` for a rise `d ≥ 0` and
-/// `2|d| - 1` for a fall.
+/// The zigzag code of a height change: `2d` for a rise `d ≥ 0` and `2|d| - 1`
+/// for a fall.
 fn zigzag(change: &BigInt) -> BigUint {
     let doubled = change.magnitude() << 1u32;
     if change.sign() == Sign::Minus {
@@ -130,14 +129,14 @@ enum Step {
     Leaf(usize),
 }
 
-/// The preorder steps of the full binary tree whose leaves, left to right,
-/// have `depths`, or `None` if no full binary tree has them.
+/// The preorder steps of the full binary tree whose leaves, left to right, have
+/// `depths`, or `None` if no full binary tree has them.
 ///
 /// The traversal keeps the depths of the right children still to be filled.
-/// Each leaf fills the next open slot, after opening branches from the
-/// slot's depth down to its own; a leaf shallower than its slot, a leaf after
-/// the last slot is filled, or a slot left open at the end means the list
-/// describes no tree.
+/// Each leaf fills the next open slot, after opening branches from the slot's
+/// depth down to its own; a leaf shallower than its slot, a leaf after the last
+/// slot is filled, or a slot left open at the end means the list describes no
+/// tree.
 fn preorder(depths: impl IntoIterator<Item = u64>) -> Option<Vec<Step>> {
     let mut steps = Vec::new();
     let mut open_right = Vec::new();
@@ -168,10 +167,10 @@ fn is_tree<T>(leaves: &[(u64, T)]) -> bool {
 
 /// A version as a flat tree of absolute leaf heights.
 ///
-/// Heights are signed so that a tree can carry the negative running height
-/// a strict decoder must reject. Unlike the recursive oracle's
-/// [`tree::Version`], which stores relative bases on every node, a leaf here
-/// stores the absolute height the wire format's payloads are differences of.
+/// Heights are signed so that a tree can carry the negative running height a
+/// strict decoder must reject. Unlike the recursive oracle's [`tree::Version`],
+/// which stores relative bases on every node, a leaf here stores the absolute
+/// height the wire format's payloads are differences of.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Version {
     /// The leaves, left to right, each as its depth and absolute height.
@@ -244,8 +243,8 @@ impl Version {
         out
     }
 
-    /// The sealed version stream: canonical exactly when this version is
-    /// normal and no height is negative.
+    /// The sealed version stream: canonical exactly when this version is normal
+    /// and no height is negative.
     ///
     /// # Panics
     ///
@@ -324,8 +323,8 @@ impl Party {
     ///
     /// The tree is rebuilt as an arena, whose preorder construction numbers
     /// every child after its parent, so one reverse pass finds which subtrees
-    /// own anything. The emitting traversal then writes each branch's
-    /// presence bits and visits only the present children.
+    /// own anything. The emitting traversal then writes each branch's presence
+    /// bits and visits only the present children.
     ///
     /// # Panics
     ///
@@ -419,8 +418,8 @@ impl Party {
 
 // ───────────────────────────── ranks ─────────────────────────────
 
-/// Normalizes the rank `num / 2^exp`: cancels the factors of two the
-/// numerator and denominator share, and gives zero the exponent zero.
+/// Normalizes the rank `num / 2^exp`: cancels the factors of two the numerator
+/// and denominator share, and gives zero the exponent zero.
 pub(crate) fn normalize_rank(num: BigUint, exp: u64) -> (BigUint, u64) {
     match num.trailing_zeros() {
         None => (BigUint::ZERO, 0),
@@ -435,10 +434,10 @@ pub(crate) fn normalize_rank(num: BigUint, exp: u64) -> (BigUint, u64) {
 /// bit.
 ///
 /// With `I` the integral part, `m = I + 1`, `w = bits(m)`, and
-/// `rho = bits(w) - 1`, the stream is `rho` ones, a zero, the `rho` low bits
-/// of `w`, and the `w - 1` low bits of `m`. The fraction digits follow in
-/// groups of eight, each group after a `1` opener and the last zero-filled,
-/// and a `0` closes the fraction.
+/// `rho = bits(w) - 1`, the stream is `rho` ones, a zero, the `rho` low bits of
+/// `w`, and the `w - 1` low bits of `m`. The fraction digits follow in groups
+/// of eight, each group after a `1` opener and the last zero-filled, and a `0`
+/// closes the fraction.
 pub(crate) fn rank_bits(num: &BigUint, exp: u64) -> Vec<bool> {
     let m = (num >> exp) + 1u32;
     let w = m.bits();

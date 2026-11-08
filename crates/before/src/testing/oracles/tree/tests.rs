@@ -3,8 +3,8 @@
 //! These establish that the recursive oracle is a faithful (if suboptimal)
 //! realization of the paper, so it can be trusted as differential ground truth.
 //! Values are generated via operations from a seed (always valid, normal-form,
-//! and, for populations, pairwise party-disjoint), never by fabricating
-//! trees directly, which might violate normality.
+//! and, for populations, pairwise party-disjoint), never by fabricating trees
+//! directly, which might violate normality.
 
 use std::cmp::Ordering;
 use std::sync::Arc;

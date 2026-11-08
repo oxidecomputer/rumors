@@ -3,42 +3,40 @@
 //! gallery — or replay rendering from a persisted dump without measuring.
 //!
 //! Positional arguments filter the roster the way `cargo bench` filters
-//! benchmarks: each argument selects every operation whose name contains
-//! it as a substring, and the run surveys the union (roster order, no
-//! duplicates). No arguments surveys the whole roster. A filter that
-//! matches no operation is an error naming the available operations —
-//! never a silent empty run ([`before_fuelscape::select`] owns and pins
-//! these semantics).
+//! benchmarks: each argument selects every operation whose name contains it as
+//! a substring, and the run surveys the union (roster order, no duplicates). No
+//! arguments surveys the whole roster. A filter that matches no operation is an
+//! error naming the available operations — never a silent empty run
+//! ([`before_fuelscape::select`] owns and pins these semantics).
 //!
-//! The flags, their defaults, and which combine with which are
-//! documented by the command itself: `--help` (the [`Args`] struct is
-//! their single source). Three modes share the binary: a measuring
-//! survey (the default), `--render-from <dump>` (replay a dump's SVGs
-//! and gallery, no guest), and `--compact-from <dump>` (derive the
-//! compact widget dataset `before`'s doc build consumes, no guest).
+//! The flags, their defaults, and which combine with which are documented by
+//! the command itself: `--help` (the [`Args`] struct is their single source).
+//! Three modes share the binary: a measuring survey (the default),
+//! `--render-from <dump>` (replay a dump's SVGs and gallery, no guest), and
+//! `--compact-from <dump>` (derive the compact widget dataset `before`'s doc
+//! build consumes, no guest).
 //!
-//! Provenance: the `FUELSCAPE_TIP` environment variable (the recipe
-//! passes `git rev-parse HEAD`) is stamped into every measuring run's
-//! render; runs without it stamp `untracked`. A replay stamps the meta
-//! recorded in the dump, never the current environment: the figures
-//! describe the run that measured, whatever commit re-renders them.
+//! Provenance: the `FUELSCAPE_TIP` environment variable (the recipe passes
+//! `git rev-parse HEAD`) is stamped into every measuring run's render; runs
+//! without it stamp `untracked`. A replay stamps the meta recorded in the dump,
+//! never the current environment: the figures describe the run that measured,
+//! whatever commit re-renders them.
 //!
-//! The run is a pure function of (guest wasm, plan): every cell's RNG is
-//! seeded from its coordinates, so two runs of the same plan on the same
-//! guest emit byte-identical measurements in any execution order — and
-//! the dump, being those measurements verbatim, inherits the same
-//! guarantee. Rendering is a pure function of (measured data, font
-//! scale), so a replay from a dump is byte-identical to the measuring
-//! run's own renders at the same font scale. Wall times printed per
-//! operation are information for the operator, never an input to
-//! anything. The count tables build concurrently, one progress bar
+//! The run is a pure function of (guest wasm, plan): every cell's RNG is seeded
+//! from its coordinates, so two runs of the same plan on the same guest emit
+//! byte-identical measurements in any execution order — and the dump, being
+//! those measurements verbatim, inherits the same guarantee. Rendering is a
+//! pure function of (measured data, font scale), so a replay from a dump is
+//! byte-identical to the measuring run's own renders at the same font scale.
+//! Wall times printed per operation are information for the operator, never an
+//! input to anything. The count tables build concurrently, one progress bar
 //! each; their entry counts are deterministic.
 //!
-//! Panels sample [`CONCURRENT_PANELS`] at a time, each with a progress
-//! sub-bar under a run-total bar (tty only; a redirected run keeps the
-//! plain lines). Completion lines print in completion order — panel
-//! wall times overlap — while the gallery and the dump index keep
-//! roster order, and the measurements themselves stay order-free.
+//! Panels sample [`CONCURRENT_PANELS`] at a time, each with a progress sub-bar
+//! under a run-total bar (tty only; a redirected run keeps the plain lines).
+//! Completion lines print in completion order — panel wall times overlap —
+//! while the gallery and the dump index keep roster order, and the measurements
+//! themselves stay order-free.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -46,15 +44,15 @@ use std::time::Instant;
 use before_fuelscape::dump::{self, DumpWriter};
 use clap::Parser;
 
-/// The sampler is allocator-bound under the system allocator;
-/// mimalloc's per-thread heaps keep the workers on the cores.
+/// The sampler is allocator-bound under the system allocator; mimalloc's
+/// per-thread heaps keep the workers on the cores.
 ///
-/// The storm is a fresh wasmtime store per sample and big-integer
-/// temporaries per rejection draw, across every worker, against one
-/// global malloc mutex. Fuel readings are indifferent: the meter
-/// counts guest instructions. mimalloc's C runtime faults on illumos
-/// (startup segfault), so the gate matches the manifest's: an illumos
-/// launcher preloads libumem for the same relief.
+/// The storm is a fresh wasmtime store per sample and big-integer temporaries
+/// per rejection draw, across every worker, against one global malloc mutex.
+/// Fuel readings are indifferent: the meter counts guest instructions.
+/// mimalloc's C runtime faults on illumos (startup segfault), so the gate
+/// matches the manifest's: an illumos launcher preloads libumem for the same
+/// relief.
 #[cfg(not(target_os = "illumos"))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -68,25 +66,24 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 /// Panels sampled concurrently.
 ///
-/// Each panel's own samples already fan out on the shared rayon pool,
-/// so this bounds only how many panels' serial phases (overlay points,
-/// render, dump append) overlap — and how many sub-bars the progress
-/// display carries at once.
+/// Each panel's own samples already fan out on the shared rayon pool, so this
+/// bounds only how many panels' serial phases (overlay points, render, dump
+/// append) overlap — and how many sub-bars the progress display carries at
+/// once.
 const CONCURRENT_PANELS: usize = 1;
 
 /// Survey the roster's fuel landscape, or replay a recorded dump.
 ///
-/// The mode exclusions (a replay or a compaction takes no measuring
-/// flags) are declared per argument, so clap reports a conflicting
-/// invocation instead of a mode silently ignoring a flag.
+/// The mode exclusions (a replay or a compaction takes no measuring flags) are
+/// declared per argument, so clap reports a conflicting invocation instead of a
+/// mode silently ignoring a flag.
 #[derive(Parser)]
 struct Args {
-    /// Substring filters selecting roster operations, `cargo bench`
-    /// style (union, roster order); none selects the whole roster
+    /// Substring filters selecting roster operations, `cargo bench` style
+    /// (union, roster order); none selects the whole roster
     #[arg(conflicts_with_all = ["render_from", "compact_from"])]
     filters: Vec<String>,
-    /// Print the selected operations' names, one per line, without
-    /// measuring
+    /// Print the selected operations' names, one per line, without measuring
     #[arg(long, conflicts_with_all = ["render_from", "compact_from"])]
     list: bool,
     /// Samples per size column, on average
@@ -101,16 +98,16 @@ struct Args {
     /// Output directory
     #[arg(long, default_value = "target/fuelscape")]
     out: PathBuf,
-    /// Persist every selected operation's raw atlas as JSON beside the
-    /// SVGs (the dump layout `--render-from` and `--compact-from` read)
+    /// Persist every selected operation's raw atlas as JSON beside the SVGs
+    /// (the dump layout `--render-from` and `--compact-from` read)
     #[arg(long, conflicts_with_all = ["render_from", "compact_from"])]
     dump: bool,
-    /// Skip measurement: load a dump (its atlas.json or the directory
-    /// holding it) and render its SVGs and gallery into --out
+    /// Skip measurement: load a dump (its atlas.json or the directory holding
+    /// it) and render its SVGs and gallery into --out
     #[arg(long, value_name = "DUMP")]
     render_from: Option<PathBuf>,
-    /// Skip measurement: load a dump and write the compact widget
-    /// dataset (the layout before's doc build consumes) into --out
+    /// Skip measurement: load a dump and write the compact widget dataset (the
+    /// layout before's doc build consumes) into --out
     #[arg(long, value_name = "DUMP", conflicts_with_all = ["render_from", "font_scale"])]
     compact_from: Option<PathBuf>,
     /// Scale all SVG text, for print

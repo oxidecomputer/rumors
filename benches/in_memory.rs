@@ -5,27 +5,27 @@
 //!
 //! These cover the operations that mutate or read a rumor set entirely in
 //! memory: everything except [`gossip`](rumors::Rumors::gossip), which
-//! serializes onto the wire (see `gossip_grid.rs` and `gossip_fixed.rs`).
-//! The message payload is `()`, whose encoding is one CBOR null byte, so each
-//! measurement reflects the tree / clock / hashing work rather than the cost
-//! of serializing a payload.
+//! serializes onto the wire (see `gossip_grid.rs` and `gossip_fixed.rs`). The
+//! message payload is `()`, whose encoding is one CBOR null byte, so each
+//! measurement reflects the tree / clock / hashing work rather than the cost of
+//! serializing a payload.
 //!
 //! Although [`rumors::Rumors`] also drives asynchronous synchronization, every
 //! operation measured here completes synchronously and needs no runtime.
 //!
 //! # What's measured
 //!
-//! - `batch_insert`: build a rumor set of size N from empty in one batch
-//!   commit (insert throughput, averaged over the 0..N growth curve).
+//! - `batch_insert`: build a rumor set of size N from empty in one batch commit
+//!   (insert throughput, averaged over the 0..N growth curve).
 //! - `iter`: a full live-message traversal of a size-N snapshot.
 //! - `redact`: forget all N messages of a size-N set in one batch commit.
 //! - `range_delta`: iterate the causal delta of size D above a checkpoint in a
-//!   size-N set — the version-bounds pruning claim: cost should track D
-//!   plus the pruning frontier, not N.
+//!   size-N set — the version-bounds pruning claim: cost should track D plus
+//!   the pruning frontier, not N.
 //! - `observer_replay`: drain a fresh [`UnorderedMessages`] observer over a
 //!   size-N set (the genesis-replay pass every new observer pays).
-//! - `observer_delta`: one observer pass over a size-D delta in a size-N
-//!   set (the steady-state cost of an up-to-date observer catching up).
+//! - `observer_delta`: one observer pass over a size-D delta in a size-N set
+//!   (the steady-state cost of an up-to-date observer catching up).
 //! - `causal_replay` / `causal_delta`: the same two sweeps through a
 //!   [`CausalMessages`] observer — the column-for-column price of causal
 //!   delivery's rank-ordered staging over the plain passes.
@@ -76,8 +76,8 @@ fn drain<S: Stream + Unpin>(observer: &mut S) -> usize {
 
 /// `batch_insert`: insert N messages into an empty set in one batch commit.
 ///
-/// Set construction and destruction are untimed. The measured body contains
-/// one `send_all` call that inserts all N messages into an empty set.
+/// Set construction and destruction are untimed. The measured body contains one
+/// `send_all` call that inserts all N messages into an empty set.
 fn bench_batch_insert(c: &mut Criterion) {
     let mut group = c.benchmark_group("batch_insert");
     for &n in SIZES {
@@ -99,9 +99,9 @@ fn bench_batch_insert(c: &mut Criterion) {
 
 /// `iter`: traverse every live message in a size-N snapshot.
 ///
-/// The set and snapshot are built once (untimed) and shared across
-/// iterations; the snapshot is a cheap copy-on-write view, so this measures
-/// the walk itself.
+/// The set and snapshot are built once (untimed) and shared across iterations;
+/// the snapshot is a cheap copy-on-write view, so this measures the walk
+/// itself.
 fn bench_iter(c: &mut Criterion) {
     let mut group = c.benchmark_group("iter");
     for &n in SIZES {
@@ -150,7 +150,8 @@ fn bench_redact(c: &mut Criterion) {
     group.finish();
 }
 
-/// A size-`n` set whose last `delta` messages sit above the returned checkpoint.
+/// A size-`n` set whose last `delta` messages sit above the returned
+/// checkpoint.
 fn build_with_checkpoint(n: usize, delta: usize) -> (Rumors<()>, Version) {
     let rumors = empty_set();
     send_units(&rumors, n - delta);
@@ -161,11 +162,11 @@ fn build_with_checkpoint(n: usize, delta: usize) -> (Rumors<()>, Version) {
 
 /// `range_delta`: iterate the causal delta above a checkpoint.
 ///
-/// Throughput is charged against the delta, not the set size: the
-/// memoized version bounds let the walk prune everything the checkpoint
-/// dominates, so a small delta against a large snapshot should cost the
-/// delta plus the pruning frontier, not the tree. Comparing one column
-/// (fixed delta) across set sizes is exactly that claim under measurement.
+/// Throughput is charged against the delta, not the set size: the memoized
+/// version bounds let the walk prune everything the checkpoint dominates, so a
+/// small delta against a large snapshot should cost the delta plus the pruning
+/// frontier, not the tree. Comparing one column (fixed delta) across set sizes
+/// is exactly that claim under measurement.
 fn bench_range_delta(c: &mut Criterion) {
     let mut group = c.benchmark_group("range_delta");
     for &n in SIZES {
@@ -197,8 +198,8 @@ fn bench_range_delta(c: &mut Criterion) {
 
 /// `observer_replay`: a fresh observer's genesis pass over a size-N set.
 ///
-/// Subscribing is cheap; the cost is the first drain, which walks every
-/// live leaf once. This is what a new consumer pays to catch up.
+/// Subscribing is cheap; the cost is the first drain, which walks every live
+/// leaf once. This is what a new consumer pays to catch up.
 fn bench_observer_replay(c: &mut Criterion) {
     let mut group = c.benchmark_group("observer_replay");
     for &n in SIZES {
@@ -218,8 +219,8 @@ fn bench_observer_replay(c: &mut Criterion) {
 /// `observer_delta`: one pass over a size-D delta in a size-N set.
 ///
 /// The observer subscribes from the pre-delta checkpoint, so each iteration's
-/// drain is the steady-state cost of an up-to-date observer catching up on
-/// D new messages — like `range_delta`, this should track D, not N.
+/// drain is the steady-state cost of an up-to-date observer catching up on D
+/// new messages — like `range_delta`, this should track D, not N.
 fn bench_observer_delta(c: &mut Criterion) {
     let mut group = c.benchmark_group("observer_delta");
     for &n in SIZES {
@@ -244,13 +245,13 @@ fn bench_observer_delta(c: &mut Criterion) {
     group.finish();
 }
 
-/// `causal_replay`: a fresh causal observer's genesis pass over a size-N
-/// set: the price of causal delivery on top of [`bench_observer_replay`]'s
-/// plain pass.
+/// `causal_replay`: a fresh causal observer's genesis pass over a size-N set:
+/// the price of causal delivery on top of [`bench_observer_replay`]'s plain
+/// pass.
 ///
 /// Reordering must buffer, so the causal pass stages every leaf in a
-/// rank-ordered map before the first item comes out; comparing the two
-/// groups column-for-column is the cost of that staging.
+/// rank-ordered map before the first item comes out; comparing the two groups
+/// column-for-column is the cost of that staging.
 fn bench_causal_replay(c: &mut Criterion) {
     let mut group = c.benchmark_group("causal_replay");
     for &n in SIZES {
@@ -267,9 +268,9 @@ fn bench_causal_replay(c: &mut Criterion) {
     group.finish();
 }
 
-/// `causal_delta`: one causal pass over a size-D delta in a size-N set —
-/// the steady-state twin of [`bench_observer_delta`], staging only the
-/// delta, so this too should track D, not N.
+/// `causal_delta`: one causal pass over a size-D delta in a size-N set — the
+/// steady-state twin of [`bench_observer_delta`], staging only the delta, so
+/// this too should track D, not N.
 fn bench_causal_delta(c: &mut Criterion) {
     let mut group = c.benchmark_group("causal_delta");
     for &n in SIZES {
@@ -297,8 +298,8 @@ fn bench_causal_delta(c: &mut Criterion) {
 /// `get`: a point lookup by version — one `O(depth)` descent, never a scan.
 ///
 /// Lookups go through [`snapshot`](Rumors::snapshot), so the timed body pays
-/// for acquiring the root handle plus the descent: the whole per-call cost
-/// of a point read through the public API.
+/// for acquiring the root handle plus the descent: the whole per-call cost of a
+/// point read through the public API.
 fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
     for &n in SIZES {

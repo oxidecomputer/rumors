@@ -72,10 +72,9 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
 
     /// Queue every message `messages` yields.
     ///
-    /// Call [`send`](Self::send) on each message until the first error.
-    /// Earlier messages remain queued; later messages are not drawn from
-    /// the iterator. Propagating the error out of the batch closure cancels
-    /// the whole batch.
+    /// Call [`send`](Self::send) on each message until the first error. Earlier
+    /// messages remain queued; later messages are not drawn from the iterator.
+    /// Propagating the error out of the batch closure cancels the whole batch.
     ///
     /// # Panics
     ///
@@ -92,9 +91,9 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
 
     /// Queue a redaction of every version `versions` yields.
     ///
-    /// Equivalent to calling [`redact`](Self::redact) on each in turn;
-    /// versions not held at commit time are no-ops, and
-    /// [`Committed::redacted`] counts the rest.
+    /// Equivalent to calling [`redact`](Self::redact) on each in turn; versions
+    /// not held at commit time are no-ops, and [`Committed::redacted`] counts
+    /// the rest.
     pub fn redact_all<I>(&mut self, versions: I)
     where
         I: IntoIterator,
@@ -145,7 +144,7 @@ pub struct Committed<R> {
     /// the batch committed. A version it never received, or had already
     /// redacted, adds nothing, and nor does a second redaction of one version
     /// in the same batch. A redaction that removes nothing changes nothing,
-    /// here or elsewhere: a message this replica never received is live if
-    /// it arrives later, and a message it already redacted stays redacted.
+    /// here or elsewhere: a message this replica never received is live if it
+    /// arrives later, and a message it already redacted stays redacted.
     pub redacted: usize,
 }

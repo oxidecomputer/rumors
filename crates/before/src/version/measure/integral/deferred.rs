@@ -2,15 +2,15 @@
 //!
 //! An entry records a height and the width *preceding* it. Its height applies
 //! to every later entry's width. A final zero-height entry supplies the width
-//! after the last deferral. The answer is therefore `sum(P_i * w_j, i < j)`.
-//! No pair has `j = 0`, so the first entry's width enters no product, and
-//! none is collected: that entry records a zero width.
+//! after the last deferral. The answer is therefore `sum(P_i * w_j, i < j)`. No
+//! pair has `j = 0`, so the first entry's width enters no product, and none is
+//! collected: that entry records a zero width.
 //!
 //! A reduction over adjacent entry groups computes this sum without revisiting
-//! each suffix: an internal node adds the sum of its left heights times the
-//! sum of its right widths. Every ordered pair crosses exactly one split.
-//! Signed heights can cancel before a product; sparse widths remain compact
-//! when adjacent intervals combine.
+//! each suffix: an internal node adds the sum of its left heights times the sum
+//! of its right widths. Every ordered pair crosses exactly one split. Signed
+//! heights can cancel before a product; sparse widths remain compact when
+//! adjacent intervals combine.
 
 use num_bigint::BigInt;
 use suanpan::Accumulator;
@@ -25,16 +25,19 @@ pub struct DeferredIntegral {
     entries: Vec<Entry>,
 }
 
-/// A deferred height and the interval between this deferral and its predecessor.
+/// A deferred height and the interval between this deferral and its
+/// predecessor.
 struct Entry {
-    /// Applies to subsequent intervals; its preceding interval is already settled.
+    /// Applies to subsequent intervals; its preceding interval is already
+    /// settled.
     height: BigInt,
     /// Width behind this entry, retained separately from its power-of-two
     /// scale; zero for the first entry.
     width: ScaledWidth,
 }
 
-/// Collect relative widths during the sweep, then settle all future contributions together.
+/// Collect relative widths during the sweep, then settle all future
+/// contributions together.
 impl DeferredIntegral {
     /// Begin without deferred heights or accumulated interval widths.
     pub fn new() -> Self {
@@ -75,7 +78,8 @@ impl DeferredIntegral {
         self.width.clear();
     }
 
-    /// Add every deferred contribution after the final segment width has arrived.
+    /// Add every deferred contribution after the final segment width has
+    /// arrived.
     pub fn finish(&mut self, total: &mut Accumulator) {
         debug_assert!(
             !self.is_empty(),
@@ -99,15 +103,19 @@ impl DeferredIntegral {
 
 /// The summed heights and widths of a contiguous range of entries.
 struct Aggregate {
-    /// Signed sums allow large opposing heights to cancel before multiplication.
+    /// Signed sums allow large opposing heights to cancel before
+    /// multiplication.
     heights: Accumulator,
-    /// Balanced sparse digits compact contiguous interval widths during merging.
+    /// Balanced sparse digits compact contiguous interval widths during
+    /// merging.
     widths: SparseWidth,
 }
 
-/// Preserve boundary order while combining a pair of completed reduction groups.
+/// Preserve boundary order while combining a pair of completed reduction
+/// groups.
 impl Aggregate {
-    /// Convert one entry into the representations used throughout the reduction.
+    /// Convert one entry into the representations used throughout the
+    /// reduction.
     fn new(height: &BigInt, width: &ScaledWidth) -> Self {
         let mut heights = Accumulator::new();
         heights += height;
@@ -144,8 +152,8 @@ impl Aggregate {
     /// integrator's bound, costs polynomially more than linear (Toom-3,
     /// `Θ(n^log₃5)`, at large sizes). The products' costs therefore fall
     /// geometrically down the tree and sum to the order of the root's product.
-    /// The argument needs that polynomial gap: an `M` growing only as
-    /// `n log n` would leave a factor of the tree's depth.
+    /// The argument needs that polynomial gap: an `M` growing only as `n log n`
+    /// would leave a factor of the tree's depth.
     fn reduce(leaves: Vec<Self>, total: &mut Accumulator) {
         let mut prefix = Vec::with_capacity(leaves.len() + 1);
         let mut running = 0u64;
@@ -190,12 +198,12 @@ impl Aggregate {
 
     /// Split `[lo, hi)` at its weight midpoint, keeping both halves nonempty.
     ///
-    /// The left half ends just after the leaf containing the midpoint. If
-    /// that leaf makes the left half heavier than half the range, the next
-    /// split either halves the weight or isolates that heavy leaf. Thus a
-    /// non-leaf path halves its weight at least every two levels. Tree depth
-    /// is bounded by `2 * log2(total weight) + 2`, not by log entry count:
-    /// exponentially growing leaf weights can produce a chain of splits.
+    /// The left half ends just after the leaf containing the midpoint. If that
+    /// leaf makes the left half heavier than half the range, the next split
+    /// either halves the weight or isolates that heavy leaf. Thus a non-leaf
+    /// path halves its weight at least every two levels. Tree depth is bounded
+    /// by `2 * log2(total weight) + 2`, not by log entry count: exponentially
+    /// growing leaf weights can produce a chain of splits.
     fn split(prefix: &[u64], lo: usize, hi: usize) -> usize {
         let target = (prefix[lo] + prefix[hi]).div_ceil(2);
         (lo + 1 + prefix[lo + 1..hi].partition_point(|&p| p < target)).min(hi - 1)

@@ -3,28 +3,27 @@
 //! Each function names one edge in the protocol dataflow. Keeping capacity
 //! choices here makes them reviewable alongside the exact item type and keeps
 //! queue arithmetic out of the walk itself. Every edge carries the erased
-//! payload vocabulary — one channel-machinery instantiation per backend —
-//! and keeps its height as the runtime [`QueueRole`] label the walk
-//! threads through (the instrumented diagnostics and capacity tests key
-//! on it). The one typed exception is [`leaf_requests`], whose item is a
-//! leaf's single-height path with its charge ([`LeafRequest`]).
+//! payload vocabulary — one channel-machinery instantiation per backend — and
+//! keeps its height as the runtime [`QueueRole`] label the walk threads through
+//! (the instrumented diagnostics and capacity tests key on it). The one typed
+//! exception is [`leaf_requests`], whose item is a leaf's single-height path
+//! with its charge ([`LeafRequest`]).
 //!
 //! Recursive query and resolution queues rely on two halves of the walk's
 //! progress invariant: publish a scope's resolution before sending the work
 //! that fulfills its `Pending` slots, then launch all such work before
 //! publishing the enclosing parent resolution. That ordering makes one slot
-//! *sufficient* for those queues — the liveness floor — but a bounded edge
-//! only slows the walk: everything they hold is charged on the endpoint's
-//! ledger when admission grants it
+//! *sufficient* for those queues — the liveness floor — but a bounded edge only
+//! slows the walk: everything they hold is charged on the endpoint's ledger
+//! when admission grants it
 //! ([`ledger`](crate::tree::mirror::streaming::ledger)), so they are
-//! [`UNBOUNDED`]. The constructors below document the separate cardinality
-//! or flow argument for every remaining edge that one slot would serve.
-//! An edge that hands its consumer one item at a time has
-//! [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge does not
-//! park its producer. The outgoing replies' edge holds as many chunks as
-//! one taken chunk can make its stage hand on ([`OUTGOING_REPLY_CHUNKS`]),
-//! for batching alone. Only the inter-level return boundary needs a fan
-//! for progress.
+//! [`UNBOUNDED`]. The constructors below document the separate cardinality or
+//! flow argument for every remaining edge that one slot would serve. An edge
+//! that hands its consumer one item at a time has [`HANDOFF_CAPACITY`] slots,
+//! so that a send into an empty edge does not park its producer. The outgoing
+//! replies' edge holds as many chunks as one taken chunk can make its stage
+//! hand on ([`OUTGOING_REPLY_CHUNKS`]), for batching alone. Only the
+//! inter-level return boundary needs a fan for progress.
 
 use futures::{StreamExt as _, stream};
 
@@ -48,37 +47,35 @@ fn ok_channel<T, E>(role: QueueRole, capacity: usize) -> (Sender<T>, OkReceiverS
     (sender, receiver.map(Ok))
 }
 
-/// The reply chunks the outgoing replies' edge holds
-/// ([`outgoing_responses`]): a fan, [`FAN`].
+/// The reply chunks the outgoing replies' edge holds ([`outgoing_responses`]):
+/// a fan, [`FAN`].
 ///
-/// The capacity follows from what one input makes a walk stage produce. A
-/// stage takes one chunk of the peer's reply at a time, at most a fan of
-/// reactions, and answers every reaction of it that disputes a child
-/// before it takes the next chunk, so it hands on at most a fan of answers
-/// per taken chunk. Each answer ends in one last chunk, and an answer that
-/// asks nothing is that chunk alone, so with a fan of slots a stage hands
-/// on all of a taken chunk's answers of that kind without waiting on the
-/// edge's consumer. An answer that asks questions ends a chunk at each
-/// question, handed on once its question is admitted. A smaller edge would
-/// hand a taken chunk's answers over in several waves, each a few chunks
-/// for the encoder and a small write for the pipe.
+/// The capacity follows from what one input makes a walk stage produce. A stage
+/// takes one chunk of the peer's reply at a time, at most a fan of reactions,
+/// and answers every reaction of it that disputes a child before it takes the
+/// next chunk, so it hands on at most a fan of answers per taken chunk. Each
+/// answer ends in one last chunk, and an answer that asks nothing is that chunk
+/// alone, so with a fan of slots a stage hands on all of a taken chunk's
+/// answers of that kind without waiting on the edge's consumer. An answer that
+/// asks questions ends a chunk at each question, handed on once its question is
+/// admitted. A smaller edge would hand a taken chunk's answers over in several
+/// waves, each a few chunks for the encoder and a small write for the pipe.
 ///
 /// A channel allocates a node for each chunk it holds, never for a slot it
 /// leaves empty, so the capacity reserves no memory by itself.
 ///
 /// The remote proxy's scope queue counts these beside a fan: its encoder
-/// dequeues a reply's scope before it takes the reply's chunks from this
-/// edge, so each chunk queued here can stand for one scope not yet
-/// dequeued.
+/// dequeues a reply's scope before it takes the reply's chunks from this edge,
+/// so each chunk queued here can stand for one scope not yet dequeued.
 pub(crate) const OUTGOING_REPLY_CHUNKS: usize = FAN;
 
 /// Buffer outgoing protocol replies, [`OUTGOING_REPLY_CHUNKS`] chunks deep.
 ///
-/// A blocked producer has already made a reply available to the
-/// counterparty, and consuming that reply is sufficient to release the
-/// producer, so one slot is the liveness floor. More slots retain whole
-/// messages without breaking another dependency, so the edge holds as many
-/// chunks as one taken chunk's answers can hand on together.
+/// A blocked producer has already made a reply available to the counterparty,
+/// and consuming that reply is sufficient to release the producer, so one slot
+/// is the liveness floor. More slots retain whole messages without breaking
+/// another dependency, so the edge holds as many chunks as one taken chunk's
+/// answers can hand on together.
 pub(super) fn outgoing_responses<B, H>() -> (
     Sender<Result<Reply<B::Erased>, Error<B::Error>>>,
     ReplyResultStream<B, H, Error<B::Error>>,
@@ -105,19 +102,18 @@ where
 /// has processed every reaction in the reply.
 ///
 /// Capacity `FAN` therefore lets every child completion enqueue while the walk
-/// finishes the reaction loop. When admission takes one answer of a depth at
-/// a time, as it does in the serial configuration, the walk admits each
-/// answer only once the previous answered child is assembled, so every
-/// child but the last does complete first; the capacity tests' witness
-/// (`capacity_stress_witness_requires_inter_level_fan`) stalls one slot
-/// short of that. Once the parent resolution arrives, assembly drains the
-/// completions in order, so the bound does not multiply with tree width or
-/// depth.
+/// finishes the reaction loop. When admission takes one answer of a depth at a
+/// time, as it does in the serial configuration, the walk admits each answer
+/// only once the previous answered child is assembled, so every child but the
+/// last does complete first; the capacity tests' witness
+/// (`capacity_stress_witness_requires_inter_level_fan`) stalls one slot short
+/// of that. Once the parent resolution arrives, assembly drains the completions
+/// in order, so the bound does not multiply with tree width or depth.
 ///
 /// **One full fan is this edge's hard floor, not a tunable.** Unlike the
 /// unbounded edges, whose one-slot floor is deadlock-free by the ordering
-/// invariants, shrinking this queue below what a fan's completions need
-/// stalls a session.
+/// invariants, shrinking this queue below what a fan's completions need stalls
+/// a session.
 pub(super) fn assembly_level_returns<B>(
     height: usize,
 ) -> (
@@ -132,9 +128,9 @@ where
 
 /// Carry the initiator's single root query.
 ///
-/// The opening emits exactly one query for the root scope, so the edge
-/// never holds a second item; its [`HANDOFF_CAPACITY`] slots leave room
-/// behind that one send, which therefore does not park.
+/// The opening emits exactly one query for the root scope, so the edge never
+/// holds a second item; its [`HANDOFF_CAPACITY`] slots leave room behind that
+/// one send, which therefore does not park.
 pub(super) fn initiator_root_query<B>() -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
     B: Backend<Node<Z>: Leaf>,
@@ -177,10 +173,9 @@ where
 
 /// Carry the responder's single root resolution.
 ///
-/// The responder processes exactly one opening request and therefore
-/// publishes exactly one resolution for the root scope; the edge's
-/// [`HANDOFF_CAPACITY`] slots leave room behind that one send, which
-/// therefore does not park.
+/// The responder processes exactly one opening request and therefore publishes
+/// exactly one resolution for the root scope; the edge's [`HANDOFF_CAPACITY`]
+/// slots leave room behind that one send, which therefore does not park.
 pub(super) fn responder_root_resolution<B>() -> (
     Sender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
@@ -199,8 +194,8 @@ where
 /// The root resolution is visible before its child queries are sent, so its
 /// assembler can consume each return as it arrives. No later return is needed
 /// to unlock the consumer of the buffered one, so one slot is the liveness
-/// floor; with [`HANDOFF_CAPACITY`] slots, a return sent while the
-/// assembler keeps up does not park.
+/// floor; with [`HANDOFF_CAPACITY`] slots, a return sent while the assembler
+/// keeps up does not park.
 pub(super) fn responder_root_returns<B>() -> (
     Sender<Option<B::Erased>>,
     OkReceiverStream<Option<B::Erased>, Error<B::Error>>,
@@ -216,12 +211,12 @@ where
 
 /// Buffer the child queries emitted by one internal walk.
 ///
-/// `height` is the children's height: the walk's dependent queries descend
-/// to it, and it labels the edge.
+/// `height` is the children's height: the walk's dependent queries descend to
+/// it, and it labels the edge.
 ///
 /// The corresponding child resolution is published first, so one slot is the
-/// liveness floor. Its occupancy is the number of disputed scopes awaiting
-/// wire replies at this height, which admission, not this queue, bounds.
+/// liveness floor. Its occupancy is the number of disputed scopes awaiting wire
+/// replies at this height, which admission, not this queue, bounds.
 pub(super) fn internal_child_queries<B>(
     height: usize,
 ) -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)

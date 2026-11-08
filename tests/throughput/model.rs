@@ -1,12 +1,12 @@
-//! The link model's own timing and delivery, against values computed by
-//! hand and against the paused-clock latency link.
+//! The link model's own timing and delivery, against values computed by hand
+//! and against the paused-clock latency link.
 //!
 //! The session suites read their verdicts from [`Link`]'s timing, so these
-//! tests pin that timing on traffic simple enough to compute exactly: a
-//! one-way transfer, a chain of request-response exchanges, a transfer
-//! whose reader pauses, and arbitrary concurrent traffic for delivery. The
-//! last test checks the model's latency-only link against an independent
-//! implementation of the same quantity on Tokio's paused clock.
+//! tests pin that timing on traffic simple enough to compute exactly: a one-way
+//! transfer, a chain of request-response exchanges, a transfer whose reader
+//! pauses, and arbitrary concurrent traffic for delivery. The last test checks
+//! the model's latency-only link against an independent implementation of the
+//! same quantity on Tokio's paused clock.
 
 use std::future::poll_fn;
 use std::task::Poll;
@@ -44,9 +44,9 @@ async fn read_in_chunks(mut read: impl AsyncRead + Unpin, buffer: usize) -> Vec<
     }
 }
 
-/// Writes `sent` through `end` in chunks of at most `chunk` bytes while
-/// reading what the peer sends in reads of at most `buffer` bytes, and
-/// returns what it read.
+/// Writes `sent` through `end` in chunks of at most `chunk` bytes while reading
+/// what the peer sends in reads of at most `buffer` bytes, and returns what it
+/// read.
 async fn write_and_read(end: End, sent: &[u8], chunk: usize, buffer: usize) -> Vec<u8> {
     let ((), received) = tokio::join!(
         write_in_chunks(end.write, sent, chunk),
@@ -55,11 +55,11 @@ async fn write_and_read(end: End, sent: &[u8], chunk: usize, buffer: usize) -> V
     received
 }
 
-/// Waits until `link`'s clock reaches `resume_at`, then reads to end of
-/// stream, and returns what it read with the time of its first read.
+/// Waits until `link`'s clock reaches `resume_at`, then reads to end of stream,
+/// and returns what it read with the time of its first read.
 ///
-/// The wait registers no waker: it relies on a sibling future of the same
-/// task, joined with it, being woken while the clock runs.
+/// The wait registers no waker: it relies on a sibling future of the same task,
+/// joined with it, being woken while the clock runs.
 async fn read_after(read: impl AsyncRead + Unpin, link: Link, resume_at: u64) -> (Vec<u8>, u64) {
     poll_fn(|_| {
         if link.now() >= resume_at {
@@ -73,8 +73,8 @@ async fn read_after(read: impl AsyncRead + Unpin, link: Link, resume_at: u64) ->
     (read_in_chunks(read, 1 << 16).await, resumed)
 }
 
-/// Generates a link: a bandwidth-delay product, an unsent limit up to twice
-/// it, and whether it serializes.
+/// Generates a link: a bandwidth-delay product, an unsent limit up to twice it,
+/// and whether it serializes.
 fn arb_link() -> impl Strategy<Value = LinkConfig> {
     (1u64..200_000, 0u64..=2, any::<bool>()).prop_map(|(half, limit_products, latency_only)| {
         let config = LinkConfig::with_bdp(2 * half).with_unsent_limit(limit_products * 2 * half);
@@ -240,13 +240,13 @@ proptest! {
     }
 }
 
-/// A divergent session's critical path on the latency-only link, in
-/// one-way hops, equals the hops the paused-clock latency link measures for
-/// the same pair: two implementations of one quantity agree.
+/// A divergent session's critical path on the latency-only link, in one-way
+/// hops, equals the hops the paused-clock latency link measures for the same
+/// pair: two implementations of one quantity agree.
 ///
 /// Both runs reconcile the same deterministic pair, 500 disjoint messages a
-/// side with an unlimited budget, so nothing but each link's notion of a
-/// hop separates them.
+/// side with an unlimited budget, so nothing but each link's notion of a hop
+/// separates them.
 #[test]
 fn latency_only_hops_match_the_paused_clock() {
     const MESSAGES: u64 = 500;

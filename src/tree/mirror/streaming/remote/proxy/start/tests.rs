@@ -1,16 +1,16 @@
 //! Ingress validation of the control-stream greeting decoder.
 //!
-//! The greeting is one peer-controlled item arriving on the control
-//! stream — the embedded-item tag wrapping a byte string of the greeting
-//! map — whose structural validation lives in [`receive`]: deterministic
-//! heads, the exact key roster, and the same canonical-order rule the
-//! frame codec applies to a wire query, applied at the greeting ingress.
+//! The greeting is one peer-controlled item arriving on the control stream —
+//! the embedded-item tag wrapping a byte string of the greeting map — whose
+//! structural validation lives in [`receive`]: deterministic heads, the exact
+//! key roster, and the same canonical-order rule the frame codec applies to a
+//! wire query, applied at the greeting ingress.
 //!
-//! The scripted-fault harness edits only frames and passes the greeting
-//! through untouched, so this ingress is exercised here directly: crafted
-//! control-stream bytes must surface the
-//! typed greeting errors ([`Error::GreetingRead`] for truncation and
-//! declared-length mismatches, [`Error::GreetingListing`] for canonical-order violations,
+//! The scripted-fault harness edits only frames and passes the greeting through
+//! untouched, so this ingress is exercised here directly: crafted
+//! control-stream bytes must surface the typed greeting errors
+//! ([`Error::GreetingRead`] for truncation and declared-length mismatches,
+//! [`Error::GreetingListing`] for canonical-order violations,
 //! [`Error::GreetingDecode`] for malformed items), never a panic, and a
 //! canonical greeting must decode intact.
 
@@ -32,8 +32,8 @@ use crate::tree::mirror::streaming::remote::codec::greeting::{
 };
 use crate::tree::typed::Hash;
 
-/// Wrap raw content exactly as the greeting item does: the embedded-item
-/// tag, then a byte string of the content.
+/// Wrap raw content exactly as the greeting item does: the embedded-item tag,
+/// then a byte string of the content.
 fn raw_item(content: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::new();
     cbor::write_tag(&mut bytes, TAG_EMBEDDED_ITEM);
@@ -42,9 +42,9 @@ fn raw_item(content: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// A greeting whose sizes are zero and whose listing is caller-selected;
-/// the encoder trusts its caller, so a non-canonical listing synthesizes
-/// wire violations directly.
+/// A greeting whose sizes are zero and whose listing is caller-selected; the
+/// encoder trusts its caller, so a non-canonical listing synthesizes wire
+/// violations directly.
 fn greeting(listing: Vec<Listed>) -> Vec<u8> {
     encode_greeting(&Greeting {
         version: Version::new(),
@@ -72,10 +72,9 @@ fn content_of(item: &[u8]) -> Vec<u8> {
 
 /// A greeting cut inside the item's heads fails as a typed read error.
 ///
-/// The tag and byte-string heads are the first peer-controlled bytes of
-/// the greeting; a peer that closes mid-head must surface
-/// [`Error::GreetingRead`] with `UnexpectedEof` — never a hang waiting on
-/// bytes that cannot arrive.
+/// The tag and byte-string heads are the first peer-controlled bytes of the
+/// greeting; a peer that closes mid-head must surface [`Error::GreetingRead`]
+/// with `UnexpectedEof` — never a hang waiting on bytes that cannot arrive.
 #[pollster::test]
 async fn truncated_item_head_is_a_typed_read_error() {
     let result = receive_greeting(&[0xd8]).await.map(|_| ());
@@ -90,10 +89,9 @@ async fn truncated_item_head_is_a_typed_read_error() {
 /// A greeting item declaring more bytes than the stream carries fails as a
 /// typed read error.
 ///
-/// An over-declared byte-string head makes the item's exact read run off
-/// the end of the peer's bytes; the mismatch must surface
-/// [`Error::GreetingRead`] with `UnexpectedEof`, never a partially filled
-/// item handed to the decoder.
+/// An over-declared byte-string head makes the item's exact read run off the
+/// end of the peer's bytes; the mismatch must surface [`Error::GreetingRead`]
+/// with `UnexpectedEof`, never a partially filled item handed to the decoder.
 #[pollster::test]
 async fn over_declared_item_length_is_a_typed_read_error() {
     let mut bytes = Vec::new();
@@ -112,10 +110,10 @@ async fn over_declared_item_length_is_a_typed_read_error() {
 
 /// An empty greeting item fails as a typed decode error.
 ///
-/// An item whose byte string is empty carries no map at all; it must
-/// surface [`Error::GreetingDecode`] with the head defect (the map's
-/// content ends before its opening head) — the under-declared degenerate
-/// case, distinct from the transport-level truncations above.
+/// An item whose byte string is empty carries no map at all; it must surface
+/// [`Error::GreetingDecode`] with the head defect (the map's content ends
+/// before its opening head) — the under-declared degenerate case, distinct from
+/// the transport-level truncations above.
 #[pollster::test]
 async fn empty_item_is_a_typed_decode_error() {
     let result = receive_greeting(&raw_item(&[])).await.map(|_| ());
@@ -130,8 +128,8 @@ async fn empty_item_is_a_typed_decode_error() {
     );
 }
 
-/// A control stream opening with anything but the embedded-item tag fails
-/// as a typed decode error.
+/// A control stream opening with anything but the embedded-item tag fails as a
+/// typed decode error.
 ///
 /// The tag is the greeting's identity on the wire: a bare map (however
 /// well-formed inside) is not the greeting's one spelling.
@@ -154,10 +152,9 @@ async fn untagged_greeting_is_a_typed_decode_error() {
 
 /// A greeting item with bytes after its map fails as a typed decode error.
 ///
-/// The greeting decode is canonical: the item must contain exactly one
-/// map, so trailing bytes surface [`Error::GreetingDecode`] rather than
-/// being silently dropped (which would let two encodings name one
-/// greeting).
+/// The greeting decode is canonical: the item must contain exactly one map, so
+/// trailing bytes surface [`Error::GreetingDecode`] rather than being silently
+/// dropped (which would let two encodings name one greeting).
 #[pollster::test]
 async fn trailing_item_bytes_are_rejected() {
     let item = greeting(Vec::new());
@@ -176,11 +173,11 @@ async fn trailing_item_bytes_are_rejected() {
     );
 }
 
-/// A greeting whose stream ends inside the item's content fails as a
-/// typed read error.
+/// A greeting whose stream ends inside the item's content fails as a typed read
+/// error.
 ///
-/// The byte-string head promised more content than arrived: the exact
-/// read runs off the stream's end, a transport-level truncation.
+/// The byte-string head promised more content than arrived: the exact read runs
+/// off the stream's end, a transport-level truncation.
 #[pollster::test]
 async fn cut_item_content_is_a_typed_read_error() {
     let item = greeting(Vec::new());
@@ -246,9 +243,9 @@ async fn invalid_version_atom_is_a_typed_decode_error() {
 
 /// A listing whose radixes descend is rejected as [`Error::GreetingListing`].
 ///
-/// The canonical strictly-ascending radix order is the rule positional
-/// pairing rests on; an out-of-order peer listing must die at the greeting
-/// with the exact violating pair, before any scope is built from it.
+/// The canonical strictly-ascending radix order is the rule positional pairing
+/// rests on; an out-of-order peer listing must die at the greeting with the
+/// exact violating pair, before any scope is built from it.
 #[pollster::test]
 async fn unordered_listing_is_rejected() {
     let item = greeting(vec![
@@ -272,8 +269,8 @@ async fn unordered_listing_is_rejected() {
 /// A listing repeating a radix is rejected as [`Error::GreetingListing`].
 ///
 /// Strictly ascending means duplicates are non-canonical too: equal adjacent
-/// radixes trip the same greeting-time order check as a descending pair,
-/// with both offending radixes reported.
+/// radixes trip the same greeting-time order check as a descending pair, with
+/// both offending radixes reported.
 #[pollster::test]
 async fn duplicate_listing_radix_is_rejected() {
     let item = greeting(vec![
@@ -296,9 +293,9 @@ async fn duplicate_listing_radix_is_rejected() {
 
 /// A greeting map whose content is cut short fails as a typed decode error.
 ///
-/// The greeting's byte string ends inside the map's final entry; the cut
-/// must surface [`Error::GreetingDecode`] with the head defect — a typed
-/// greeting failure, never a panic and never a partially parsed greeting.
+/// The greeting's byte string ends inside the map's final entry; the cut must
+/// surface [`Error::GreetingDecode`] with the head defect — a typed greeting
+/// failure, never a panic and never a partially parsed greeting.
 #[pollster::test]
 async fn truncated_map_content_is_rejected() {
     let item = greeting(vec![
@@ -322,10 +319,10 @@ async fn truncated_map_content_is_rejected() {
 
 /// A canonical greeting with an empty listing decodes intact.
 ///
-/// The empty listing is a legal greeting — an empty tree's root fan — and
-/// the validation path must pass it through: the decoded greeting carries
-/// the sent fields and the empty listing, exercising the success arm of the
-/// same ingress the rejection tests pin.
+/// The empty listing is a legal greeting — an empty tree's root fan — and the
+/// validation path must pass it through: the decoded greeting carries the sent
+/// fields and the empty listing, exercising the success arm of the same ingress
+/// the rejection tests pin.
 #[pollster::test]
 async fn empty_listing_greeting_decodes() {
     let mut version = Version::new();

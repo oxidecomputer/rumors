@@ -27,12 +27,12 @@ fn fuel_sample(fuel: u64) -> Sample {
 
 /// The merge refuses fuel readings from any deal but one cell per shard.
 ///
-/// State outside the heap, such as a lazily initialized static, carries
-/// from one cell to the next within an instance, so a cell measured after
-/// others in the same instance could read what they left behind; only
-/// [`max_useful_shards`] shards give every cell its own instance. The
-/// refusal fires before the merge's completeness check, so a single
-/// well-formed cell line from one shard suffices to reach it.
+/// State outside the heap, such as a lazily initialized static, carries from
+/// one cell to the next within an instance, so a cell measured after others in
+/// the same instance could read what they left behind; only
+/// [`max_useful_shards`] shards give every cell its own instance. The refusal
+/// fires before the merge's completeness check, so a single well-formed cell
+/// line from one shard suffices to reach it.
 #[test]
 #[should_panic(expected = "fuel readings from 1 shards")]
 fn merge_refuses_fuel_readings_from_shared_instances() {

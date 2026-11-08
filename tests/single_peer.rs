@@ -244,8 +244,8 @@ divided_proptest! {
 }
 
 /// A value whose serialization fails on demand, so a test can fire
-/// [`rumors::Batch::send`]'s documented serialization panic at a chosen
-/// point mid-batch.
+/// [`rumors::Batch::send`]'s documented serialization panic at a chosen point
+/// mid-batch.
 #[derive(Debug, PartialEq, Eq)]
 struct Explosive {
     value: u64,
@@ -343,9 +343,9 @@ divided_proptest! {
     }
 }
 
-/// Pure CBOR array nesting from a type satisfying the payload contract:
-/// each layer is a one-element array, the innermost empty. `nested(n)`
-/// is `n` layers deep.
+/// Pure CBOR array nesting from a type satisfying the payload contract: each
+/// layer is a one-element array, the innermost empty. `nested(n)` is `n` layers
+/// deep.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Arr(Vec<Arr>);
 

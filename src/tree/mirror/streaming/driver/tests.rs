@@ -36,15 +36,15 @@ fn standalone_session_error_is_preserved() {
 /// The longest report sequence [`first_report_wins_across_routes`] exhausts.
 const MAX_REPORTS: usize = 4;
 
-/// For every sequence of reports from either route, up to [`MAX_REPORTS`]
-/// long, the session fails with the first report, and no later report
-/// blocks its reporter.
+/// For every sequence of reports from either route, up to [`MAX_REPORTS`] long,
+/// the session fails with the first report, and no later report blocks its
+/// reporter.
 ///
 /// Each sequence is the bits of `mask` below its `length`: a set bit reports
-/// through the right route, a clear bit through the left. Each report
-/// carries its position, so the result names which report won. Every report
-/// is a synchronous call that returns before the session is first polled, so
-/// a report that waited for room would hang the test rather than return.
+/// through the right route, a clear bit through the left. Each report carries
+/// its position, so the result names which report won. Every report is a
+/// synchronous call that returns before the session is first polled, so a
+/// report that waited for room would hang the test rather than return.
 #[test]
 fn first_report_wins_across_routes() {
     for length in 1..=MAX_REPORTS {

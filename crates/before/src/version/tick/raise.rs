@@ -2,15 +2,16 @@
 //!
 //! The main tick walk chooses the cheapest place to raise. Its cost first
 //! minimizes the number of new version branches, then the depth; ties choose
-//! the right child. That walk records the chosen direction at each party
-//! branch in a [`Route`], so applying the raise does not repeat the search.
+//! the right child. That walk records the chosen direction at each party branch
+//! in a [`Route`], so applying the raise does not repeat the search.
 //!
 //! [`Raise`] replays the route in three phases:
 //!
 //! 1. Descend to the chosen version leaf, copying complete subtrees that occur
 //!    before it and retaining which right subtrees must be copied afterward.
 //! 2. Raise the leaf by all requested ticks. If the party continues below that
-//!    leaf, expand it into the required subtree and emit the new sibling leaves.
+//!    leaf, expand it into the required subtree and emit the new sibling
+//!    leaves.
 //! 3. Copy the retained right subtrees and finish the canonical version.
 //!
 //! Version leaves after the first store differences from their predecessor.
@@ -53,8 +54,8 @@ enum Repair<'a> {
 
 /// The three height adjustments [`PayloadAdjustment::write`] applies.
 ///
-/// The selected leaf's height increases, changing either an absolute payload
-/// or a delta. Its successor, if any, needs the opposite delta adjustment to
+/// The selected leaf's height increases, changing either an absolute payload or
+/// a delta. Its successor, if any, needs the opposite delta adjustment to
 /// retain its own height. That successor cannot be the first leaf, so an
 /// absolute payload never needs a downward adjustment.
 #[derive(Clone, Copy)]

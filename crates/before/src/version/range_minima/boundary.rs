@@ -1,8 +1,9 @@
-//! Positive differences between adjacent minima, and how a decrease crosses them.
+//! Positive differences between adjacent minima, and how a decrease crosses
+//! them.
 //!
 //! If `b = inner_min - outer_min` and the inner minimum falls by `d`, the
-//! difference `b - d` determines both new minima. A positive result retains
-//! the outer minimum and a smaller boundary. Zero joins the minima. A negative
+//! difference `b - d` determines both new minima. A positive result retains the
+//! outer minimum and a smaller boundary. Zero joins the minima. A negative
 //! result lowers the outer minimum too, by `d - b`.
 //!
 //! A surviving wide value must not be scanned for every small decrease.
@@ -34,8 +35,8 @@ pub(super) enum Signed {
 
 /// A strictly positive value.
 ///
-/// Only this module constructs one, and only where it has just established
-/// the sign: [`Signed::of`], or the order [`Accumulator::abs_diff`] reports.
+/// Only this module constructs one, and only where it has just established the
+/// sign: [`Signed::of`], or the order [`Accumulator::abs_diff`] reports.
 pub(super) struct Positive(Accumulator);
 
 /// Classify a difference with one comparison against zero.
@@ -67,11 +68,11 @@ impl Boundary {
     /// The minimum tracker's cost argument rests on every push and pop of a
     /// boundary costing a constant, whatever its width: storage copies a wide
     /// boundary only when a later push covers it and its working width is
-    /// bounded, and otherwise moves it unread until a drop crosses and
-    /// consumes it. A wider difference therefore stays `Wide` even if its
-    /// value would fit a word. Converting it would read its top through the
-    /// accumulator's stability query, compacting the top only to learn that it
-    /// does not fit, once for every boundary pushed.
+    /// bounded, and otherwise moves it unread until a drop crosses and consumes
+    /// it. A wider difference therefore stays `Wide` even if its value would
+    /// fit a word. Converting it would read its top through the accumulator's
+    /// stability query, compacting the top only to learn that it does not fit,
+    /// once for every boundary pushed.
     pub(super) fn from_positive(Positive(difference): Positive) -> Self {
         if difference.stored_bits() > 64 {
             return Self::Wide(difference);

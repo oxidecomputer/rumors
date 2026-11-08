@@ -28,7 +28,8 @@ pub(crate) struct Value {
     ///
     /// While this is `Some`, `digits` is empty or contains only zeros.
     pub(crate) small: Option<i128>,
-    /// Retained digit storage and its written positions, active when `small` is `None`.
+    /// Retained digit storage and its written positions, active when `small` is
+    /// `None`.
     pub(crate) digits: Digits,
 }
 
@@ -50,8 +51,7 @@ impl Value {
         self.small = Some(0);
     }
 
-    /// Reserve storage for values up to `bits` bits wide, if it can be
-    /// honored.
+    /// Reserve storage for values up to `bits` bits wide, if it can be honored.
     pub(crate) fn reserve_bits(&mut self, bits: u64) {
         // A position count beyond `usize` can never be allocated, so
         // saturating sends it to the same refusal as any oversized request.
@@ -175,15 +175,15 @@ impl Value {
         }
     }
 
-    /// Narrow a shift count, returning `None` for a zero shifted by `2^64`
-    /// bits or more, which deposits nothing.
+    /// Narrow a shift count, returning `None` for a zero shifted by `2^64` bits
+    /// or more, which deposits nothing.
     ///
     /// # Panics
     ///
     /// Panics if the value is nonzero and the count is `2^64` or more. Such a
     /// value starts above digit position `2^59`, a 4 EiB buffer that no
-    /// allocator can supply, so we panic before anything is written rather
-    /// than in the allocator.
+    /// allocator can supply, so we panic before anything is written rather than
+    /// in the allocator.
     pub(crate) fn addressable_shift(&mut self, shift: u128) -> Option<u64> {
         let shift = u64::try_from(shift).ok();
         assert!(
@@ -193,12 +193,12 @@ impl Value {
         shift
     }
 
-    /// Multiply by `2^shift`, retaining the small representation whenever it fits.
+    /// Multiply by `2^shift`, retaining the small representation whenever it
+    /// fits.
     ///
     /// A shift of `2^64` bits or more is accepted only for zero. A value held
-    /// in digits moves into new digits through [`shifted`](Self::shifted),
-    /// the one definition of a digit-held shift that every spelling of `<<`
-    /// shares.
+    /// in digits moves into new digits through [`shifted`](Self::shifted), the
+    /// one definition of a digit-held shift that every spelling of `<<` shares.
     pub(crate) fn shift_left(&mut self, shift: u128) {
         if shift == 0 || self.is_known_zero() {
             return;
@@ -238,14 +238,14 @@ impl Value {
     /// value shifts a small copy of itself. A value held in digits is compared
     /// with zero, which compacts its top, and its magnitude then streams into
     /// the new value's zeroed digits, normalized as it goes and with the
-    /// value's sign, in one pass that leaves this value's stored digits as
-    /// they are. The new digits sum to the value, with their flag clear. That
+    /// value's sign, in one pass that leaves this value's stored digits as they
+    /// are. The new digits sum to the value, with their flag clear. That
     /// deposit is an update of one sign into zeroed storage, which leaves the
     /// new digits *sign-led*, as the crate's cost argument for updates of one
     /// sign defines it: the top digit has the value's sign, and no digit
-    /// opposes that sign by more than half the base.
-    /// Depositing the stored digits as they stand would instead copy their
-    /// mixed signs into the new value.
+    /// opposes that sign by more than half the base. Depositing the stored
+    /// digits as they stand would instead copy their mixed signs into the new
+    /// value.
     ///
     /// # Panics
     ///

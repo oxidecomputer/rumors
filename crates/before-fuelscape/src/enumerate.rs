@@ -1,15 +1,14 @@
 //! Exhaustive enumeration of the encoded grammars at small sizes.
 //!
 //! The adequacy pins need ground truth the samplers cannot supply about
-//! themselves: every member of an exact-size input space, listed by brute
-//! force straight from the grammar rules (no counting tables anywhere in
-//! this module, so a table bug cannot hide here). The tests compare these
-//! listings against the counting tables, against the real decoders' accept
-//! sets over all short byte strings, and against the samplers' draw
-//! frequencies.
+//! themselves: every member of an exact-size input space, listed by brute force
+//! straight from the grammar rules (no counting tables anywhere in this module,
+//! so a table bug cannot hide here). The tests compare these listings against
+//! the counting tables, against the real decoders' accept sets over all short
+//! byte strings, and against the samplers' draw frequencies.
 //!
-//! Enumeration is exponential in the bit length by design; callers stay in
-//! the low twenties of bits.
+//! Enumeration is exponential in the bit length by design; callers stay in the
+//! low twenties of bits.
 
 /// One enumerated version-grammar member.
 pub struct VersionMember {
@@ -24,12 +23,12 @@ pub struct VersionMember {
 
 impl VersionMember {
     /// Whether every running leaf height stays nonnegative — the one
-    /// canonical-form rule the sibling-rule family does not enforce, so
-    /// this filter cuts the enumeration down to exactly the streams
+    /// canonical-form rule the sibling-rule family does not enforce, so this
+    /// filter cuts the enumeration down to exactly the streams
     /// `Version::decode` accepts.
     ///
-    /// The first leaf's value is its absolute height; each later value is
-    /// a zigzag delta (`2m -> +m`, `2m - 1 -> -m`).
+    /// The first leaf's value is its absolute height; each later value is a
+    /// zigzag delta (`2m -> +m`, `2m - 1 -> -m`).
     pub fn heights_nonnegative(&self) -> bool {
         let mut height: i128 = 0;
         for (i, &v) in self.values.iter().enumerate() {
@@ -62,10 +61,9 @@ fn gamma_bits(bits: &mut Vec<bool>, v: u64) {
 
 /// Every version-grammar subtree of exactly `n` bits.
 ///
-/// The preorder flag-plus-gamma coding under the sibling rule (an
-/// internal node's two bare-leaf children may not carry a zero right
-/// code), heights unconstrained — filter with
-/// [`VersionMember::heights_nonnegative`].
+/// The preorder flag-plus-gamma coding under the sibling rule (an internal
+/// node's two bare-leaf children may not carry a zero right code), heights
+/// unconstrained — filter with [`VersionMember::heights_nonnegative`].
 pub fn version_subtrees(n: usize) -> Vec<VersionMember> {
     let mut out = Vec::new();
     // A bare leaf: flag 1 plus one gamma bucket, n = 2k + 2.
@@ -114,9 +112,9 @@ pub fn version_subtrees(n: usize) -> Vec<VersionMember> {
     out
 }
 
-/// Every canonical id subtree of exactly `n` bits: 2-bit presence tags,
-/// no node with two terminal children. The `bool` is "this subtree is the
-/// bare terminal".
+/// Every canonical id subtree of exactly `n` bits: 2-bit presence tags, no node
+/// with two terminal children. The `bool` is "this subtree is the bare
+/// terminal".
 pub fn party_subtrees(n: usize) -> Vec<(Vec<bool>, bool)> {
     let mut out = Vec::new();
     if n == 2 {

@@ -12,8 +12,8 @@ use crate::testing::oracles::tree::Version as Tree;
 
 /// A leaf height from one of four width bands.
 ///
-/// The bands are small, a little past the record allowance, around one
-/// machine word, and on either side of
+/// The bands are small, a little past the record allowance, around one machine
+/// word, and on either side of
 /// [`INLINE_CHUNK_BITS`](super::heights::INLINE_CHUNK_BITS), where a buried
 /// chunk stops being copied.
 fn arb_height() -> impl Strategy<Value = BigUint> {
@@ -46,21 +46,20 @@ fn arb_tree() -> impl Strategy<Value = Tree> {
     ]
 }
 
-/// A tree whose reference above the bottom one goes negative, is stacked
-/// below the top, and is popped again.
+/// A tree whose reference above the bottom one goes negative, is stacked below
+/// the top, and is popped again.
 ///
-/// With `W = 2^lift` and `i = W + 3`, the leaves are `0, W, W + 1`, then
-/// `i`, `i + 64`, `i + 65`, `closes − 1` more leaves at `i + 65`, then `W + 2`,
-/// `W + 2 + 2^20`, `W + 3 + 2^20`. The step to `W + 1` freezes a reference
-/// `R`, which keeps the records of `W + 1`, `i`, and `i + 64`: three leaves.
-/// The step to `i + 65` freezes again, burying `R`. The record of `i` then
-/// settles with `closes` closes, since `i` is the minimum of a left chain
-/// of `closes` nodes, so `R`'s coefficient falls to `2 − closes`; the chain's
-/// later leaves sit level with `i + 65`, so no freeze in between merges
-/// leaves back into `R`'s count. The leaf
-/// `W + 2` undercuts it and records at the newer top, and the step to
-/// `W + 3 + 2^20` freezes once more, stacking `R`'s negative coefficient;
-/// settling `W + 2`'s record releases that top and pops it.
+/// With `W = 2^lift` and `i = W + 3`, the leaves are `0, W, W + 1`, then `i`,
+/// `i + 64`, `i + 65`, `closes − 1` more leaves at `i + 65`, then `W + 2`,
+/// `W + 2 + 2^20`, `W + 3 + 2^20`. The step to `W + 1` freezes a reference `R`,
+/// which keeps the records of `W + 1`, `i`, and `i + 64`: three leaves. The
+/// step to `i + 65` freezes again, burying `R`. The record of `i` then settles
+/// with `closes` closes, since `i` is the minimum of a left chain of `closes`
+/// nodes, so `R`'s coefficient falls to `2 − closes`; the chain's later leaves
+/// sit level with `i + 65`, so no freeze in between merges leaves back into
+/// `R`'s count. The leaf `W + 2` undercuts it and records at the newer top, and
+/// the step to `W + 3 + 2^20` freezes once more, stacking `R`'s negative
+/// coefficient; settling `W + 2`'s record releases that top and pops it.
 ///
 /// # Panics
 ///
@@ -105,8 +104,8 @@ fn negative_coefficient_tree(closes: usize, lift: usize) -> Tree {
 /// stacks a negative coefficient below the top and later pops it.
 ///
 /// The coefficient stack stores signed values as zigzag codes; this shape is
-/// the one that stores and restores a negative value, at every close count
-/// and lift.
+/// the one that stores and restores a negative value, at every close count and
+/// lift.
 #[test]
 fn a_negative_stacked_coefficient_settles_exactly() {
     proptest!(|(closes in 3usize..24, lift in 5usize..400)| {
@@ -139,27 +138,26 @@ fn counters() -> [u64; 6] {
 /// stacked below the top and popped again, and more than one reference buried
 /// at once.
 ///
-/// The reach check rests on measured per-case reach rates, not on a
-/// derivation from [`arb_tree`]'s weights: only the stacked and popped
-/// coefficients have an arm built to reach them, and the other paths arise
-/// in random trees. Over 4000 drawn trees, the cases reaching each path
-/// were:
+/// The reach check rests on measured per-case reach rates, not on a derivation
+/// from [`arb_tree`]'s weights: only the stacked and popped coefficients have
+/// an arm built to reach them, and the other paths arise in random trees. Over
+/// 4000 drawn trees, the cases reaching each path were:
 ///
-/// | Path | Cases |
-/// |---|---|
-/// | record-trigger freezes | 2444 |
-/// | merges to the newer neighbour | 1333 |
-/// | merges to the older neighbour | 2634 |
-/// | wide chunks | 581 |
-/// | a stacked negative coefficient | 1018 |
-/// | a popped negative coefficient | 1018 |
-/// | two references buried at once | 1150 |
+/// | Path                           | Cases |
+/// |--------------------------------|-------|
+/// | record-trigger freezes         | 2444  |
+/// | merges to the newer neighbour  | 1333  |
+/// | merges to the older neighbour  | 2634  |
+/// | wide chunks                    | 581   |
+/// | a stacked negative coefficient | 1018  |
+/// | a popped negative coefficient  | 1018  |
+/// | two references buried at once  | 1150  |
 ///
-/// At the rarest rate, wide chunks in about 14.5% of cases, a run of
-/// proptest's default 256 cases misses a path with probability about
-/// `2^−58`, and about `2^−50` even at a rate three standard errors lower.
-/// The run takes the configured case count, so a lowered `PROPTEST_CASES`
-/// raises that probability.
+/// At the rarest rate, wide chunks in about 14.5% of cases, a run of proptest's
+/// default 256 cases misses a path with probability about `2^−58`, and about
+/// `2^−50` even at a rate three standard errors lower. The run takes the
+/// configured case count, so a lowered `PROPTEST_CASES` raises that
+/// probability.
 #[test]
 fn min_ticks_matches_the_tree_oracle_across_reference_paths() {
     let before = counters();
@@ -189,13 +187,13 @@ fn min_ticks_matches_the_tree_oracle_across_reference_paths() {
 }
 
 /// The board's wide-step pair spine, at the step width the board samples,
-/// buries a chunk in the whole-accumulator form at every second level past
-/// the first pair, and `min_ticks` still equals the tree oracle there.
+/// buries a chunk in the whole-accumulator form at every second level past the
+/// first pair, and `min_ticks` still equals the tree oracle there.
 ///
-/// The board samples this family at that step so that the one width
-/// threshold among the references, where copying a buried chunk gives way
-/// to moving it whole, is crossed on every sampled size, and so that every
-/// record offset at a wide level is stored on its own rather than packed.
+/// The board samples this family at that step so that the one width threshold
+/// among the references, where copying a buried chunk gives way to moving it
+/// whole, is crossed on every sampled size, and so that every record offset at
+/// a wide level is stored on its own rather than packed.
 #[test]
 fn wide_step_pairs_bury_whole_chunks_at_every_second_level() {
     use super::heights::INLINE_CHUNK_BITS;
@@ -232,10 +230,10 @@ fn wide_step_pairs_bury_whole_chunks_at_every_second_level() {
 /// [`UNREAD_FREEZE_BITS`] beyond its leaf's change, on a spine where that
 /// condition holds at every second level.
 ///
-/// On the wide-step pair spine at a `2^320` step, each one-tick level follows
-/// a 321-bit step, so the live change is far wider than the one-tick change
-/// and freezes. Freezing it unread saves reading the drift that the freeze
-/// moves whole; a fold that read it first would pass the excess bound here.
+/// On the wide-step pair spine at a `2^320` step, each one-tick level follows a
+/// 321-bit step, so the live change is far wider than the one-tick change and
+/// freezes. Freezing it unread saves reading the drift that the freeze moves
+/// whole; a fold that read it first would pass the excess bound here.
 #[test]
 fn a_live_change_far_wider_than_its_delta_freezes_unread() {
     use crate::testing::meter::registry::Shape;

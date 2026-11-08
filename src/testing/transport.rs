@@ -42,12 +42,12 @@ pub enum FaultUnit {
 
 /// One transport failure injected after a precise successful prefix.
 ///
-/// A read fault fires in place of the first *payload-bearing* read beyond
-/// the prefix: end-of-stream probes pass through untouched. This keeps
-/// "would the fault fire?" a function of the clean run's successful-read
-/// counts alone: the pipe reads for a clean goodbye at every session
-/// boundary, so attempts-after-last-success are structural and must not
-/// trip an operations-counted fault.
+/// A read fault fires in place of the first *payload-bearing* read beyond the
+/// prefix: end-of-stream probes pass through untouched. This keeps "would the
+/// fault fire?" a function of the clean run's successful-read counts alone: the
+/// pipe reads for a clean goodbye at every session boundary, so
+/// attempts-after-last-success are structural and must not trip an
+/// operations-counted fault.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IoFault {
     /// Surface which fails.
@@ -90,9 +90,8 @@ pub struct IoPlan {
     /// Whether the writer takes vectored writes across their slices.
     ///
     /// A vectored writer takes up to `write_chunk` bytes across a write's
-    /// slices as one operation, as a TCP socket does. Otherwise it takes
-    /// only a vectored write's first nonempty slice, as the trait's default
-    /// does.
+    /// slices as one operation, as a TCP socket does. Otherwise it takes only a
+    /// vectored write's first nonempty slice, as the trait's default does.
     pub vectored: bool,
     /// Optional failure after a successful operation or byte prefix.
     pub fault: Option<IoFault>,
@@ -370,10 +369,9 @@ impl<W: AsyncWrite + Unpin> AdversarialWrite<W> {
     /// Admit one write offering `offered` bytes through the shared adversity
     /// state.
     ///
-    /// The state suspends the write, fails it, or takes at most
-    /// `write_chunk` of the bytes, which `hold` copies into the flush buffer
-    /// when writes are held until a flush, and `forward` writes to the inner
-    /// writer otherwise.
+    /// The state suspends the write, fails it, or takes at most `write_chunk`
+    /// of the bytes, which `hold` copies into the flush buffer when writes are
+    /// held until a flush, and `forward` writes to the inner writer otherwise.
     fn poll_admit(
         &mut self,
         cx: &mut Context<'_>,
@@ -457,8 +455,8 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
         )
     }
 
-    /// Admit one vectored write: across slices when vectored, and as its
-    /// first nonempty slice otherwise.
+    /// Admit one vectored write: across slices when vectored, and as its first
+    /// nonempty slice otherwise.
     fn poll_write_vectored(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -543,9 +541,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
 
 /// Wrap one endpoint's ordered transport halves and retain its observations.
 ///
-/// The adversarial reader models the transport, so its fragmentation,
-/// delays, and faults apply to the transport's reads; the session reads
-/// through a `BufReader` over it, as it requires of every read half.
+/// The adversarial reader models the transport, so its fragmentation, delays,
+/// and faults apply to the transport's reads; the session reads through a
+/// `BufReader` over it, as it requires of every read half.
 pub fn wrap_io<R, W>(
     side: Side,
     plan: IoPlan,

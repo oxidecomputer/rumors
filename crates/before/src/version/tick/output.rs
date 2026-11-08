@@ -1,14 +1,14 @@
 //! Builds a simplified version only after it diverges from the input.
 //!
 //! The tick walk compares each simplified leaf with the input it replaces.
-//! While they match, [`Output`] records only the end of the shared prefix.
-//! The first difference copies that prefix into a [`VersionWriter`] and subsequent
-//! leaves build the simplified version normally. If no difference appears,
-//! no simplified output is allocated.
+//! While they match, [`Output`] records only the end of the shared prefix. The
+//! first difference copies that prefix into a [`VersionWriter`] and subsequent
+//! leaves build the simplified version normally. If no difference appears, no
+//! simplified output is allocated.
 //!
 //! A difference means either different topology or a different payload at the
-//! same leaf. This distinction matters for the first leaf, whose payload is
-//! an absolute height rather than a delta.
+//! same leaf. This distinction matters for the first leaf, whose payload is an
+//! absolute height rather than a delta.
 
 use crate::version::io::regions::VersionSubtreeReader;
 use crate::version::io::tree::VersionTreeReader;
@@ -47,11 +47,11 @@ impl Output {
         matches!(self, Output::Unstarted | Output::Verbatim { .. })
     }
 
-    /// Whether no leaf has been emitted or matched: the next emission is
-    /// the output's first leaf, coded absolute rather than as a delta.
+    /// Whether no leaf has been emitted or matched: the next emission is the
+    /// output's first leaf, coded absolute rather than as a delta.
     ///
-    /// Read before a divergence materializes the prefix: [`Output::Built`]
-    /// does not record whether it was entered empty.
+    /// Read before a divergence materializes the prefix: [`Output::Built`] does
+    /// not record whether it was entered empty.
     pub fn is_unstarted(&self) -> bool {
         matches!(self, Output::Unstarted)
     }
@@ -74,8 +74,8 @@ impl Output {
     ///
     /// # Panics
     ///
-    /// Panics on a verbatim walk, unreachable there: matched emissions
-    /// return before their bodies, and diverging ones materialize first.
+    /// Panics on a verbatim walk, unreachable there: matched emissions return
+    /// before their bodies, and diverging ones materialize first.
     fn writer(&mut self) -> &mut VersionWriter {
         match self {
             Output::Built(writer) => writer,
@@ -163,7 +163,8 @@ impl Output {
         *self = Output::Built(builder);
     }
 
-    /// Return the built stream, or `None` if the complete version was unchanged.
+    /// Return the built stream, or `None` if the complete version was
+    /// unchanged.
     pub fn finish(self, version: &Version) -> Option<Version> {
         let matched_end = match self {
             Output::Built(builder) => return Some(builder.finish()),

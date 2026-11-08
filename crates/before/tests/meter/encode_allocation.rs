@@ -78,8 +78,8 @@ fn history(clocks: usize, steps: &[Step]) -> History {
     }
 }
 
-/// The reading of an encoder that allocates its output once, at exactly
-/// `len` bytes, and returns it.
+/// The reading of an encoder that allocates its output once, at exactly `len`
+/// bytes, and returns it.
 fn one_allocation_of(len: usize) -> Stats {
     Stats {
         allocations: 1,
@@ -149,8 +149,8 @@ where
     })
 }
 
-/// The serde entry points, each given `value` serialized: postcard and
-/// ciborium read the binary form, and serde_json the human-readable one.
+/// The serde entry points, each given `value` serialized: postcard and ciborium
+/// read the binary form, and serde_json the human-readable one.
 #[cfg(feature = "serde")]
 fn serde_entry_points<T: Serialize + DeserializeOwned>(value: &T) -> Vec<EntryPoint<T>> {
     let postcard = postcard::to_allocvec(value).expect("postcard serializes the value");
@@ -199,8 +199,8 @@ fn heap_held<P>(make: impl FnOnce() -> P) -> (usize, P) {
     (held, value)
 }
 
-/// Decodes through each entry point, extracts one part with `take`, and
-/// records a failure for each part holding more heap than `budget` allows it.
+/// Decodes through each entry point, extracts one part with `take`, and records
+/// a failure for each part holding more heap than `budget` allows it.
 fn check_part<T, P>(
     entry_points: &[EntryPoint<T>],
     part: &str,

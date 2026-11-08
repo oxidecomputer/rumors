@@ -1,19 +1,19 @@
 //! Every session in a process of its own.
 //!
-//! A large session leaves the allocator in a state that slows the next
-//! large session in the same process. On illumos, a second session of 10⁷
-//! messages, run in the process that had just freed the first one's heap of
-//! about 20 GB, took about six times as long as the same session in a fresh
-//! process, the time going to libumem's `vmem_xalloc` while the session
-//! built its fixture. So every mode that runs sessions starts each one in a
-//! child process of this executable, through the hidden `session` command,
-//! which takes the session's [`Job`] as JSON.
+//! A large session leaves the allocator in a state that slows the next large
+//! session in the same process. On illumos, a second session of 10⁷ messages,
+//! run in the process that had just freed the first one's heap of about 20 GB,
+//! took about six times as long as the same session in a fresh process, the
+//! time going to libumem's `vmem_xalloc` while the session built its fixture.
+//! So every mode that runs sessions starts each one in a child process of this
+//! executable, through the hidden `session` command, which takes the session's
+//! [`Job`] as JSON.
 //!
-//! The child runs the job and prints its JSON document as the one line of
-//! its standard output; the parent appends that line verbatim, so a record
-//! reads the same whichever process ran it. The child's progress goes to
-//! the standard error it shares with the parent. Sessions still run
-//! `--jobs` at a time: each thread of the parent's pool waits on one child.
+//! The child runs the job and prints its JSON document as the one line of its
+//! standard output; the parent appends that line verbatim, so a record reads
+//! the same whichever process ran it. The child's progress goes to the standard
+//! error it shares with the parent. Sessions still run `--jobs` at a time: each
+//! thread of the parent's pool waits on one child.
 
 use std::process::{Command, Stdio};
 
@@ -80,13 +80,13 @@ impl Job {
         }
     }
 
-    /// Runs the job in a child process of this executable and returns the
-    /// JSON document it printed.
+    /// Runs the job in a child process of this executable and returns the JSON
+    /// document it printed.
     ///
     /// # Errors
     ///
-    /// If this executable cannot be found or started, if the child fails,
-    /// or if it prints anything but one line.
+    /// If this executable cannot be found or started, if the child fails, or if
+    /// it prints anything but one line.
     pub fn run_in_child(&self) -> Result<String, String> {
         let job = serde_json::to_string(self).expect("a job serializes");
         let program = std::env::current_exe()

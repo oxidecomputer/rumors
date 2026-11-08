@@ -1,16 +1,16 @@
-//! The update the stored digits receive: an update of the value with the
-//! flag applied.
+//! The update the stored digits receive: an update of the value with the flag
+//! applied.
 
 use crate::accumulator::operand::Update;
 
-/// An update of the value with the flag applied, as the stored digits
-/// receive it.
+/// An update of the value with the flag applied, as the stored digits receive
+/// it.
 ///
 /// The field is private to this module, so the only way to make one from an
 /// [`Update`] is [`new`](Self::new), which takes the flag and applies it;
-/// [`reversed`](Self::reversed) reverses one already made. A deposit path
-/// that takes a `StoredUpdate` therefore receives an update whose flag was
-/// applied exactly once, where the value-level [`Update`] entered.
+/// [`reversed`](Self::reversed) reverses one already made. A deposit path that
+/// takes a `StoredUpdate` therefore receives an update whose flag was applied
+/// exactly once, where the value-level [`Update`] entered.
 #[derive(Clone, Copy)]
 pub(super) struct StoredUpdate(Update);
 

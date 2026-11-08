@@ -14,7 +14,8 @@ fn rng(salt: u64) -> ChaChaRng {
     ChaChaRng::seed_from_u64(SEED.wrapping_add(salt))
 }
 
-/// `tick`: advance this clock's own component. Destructive; fresh per iteration.
+/// `tick`: advance this clock's own component. Destructive; fresh per
+/// iteration.
 fn bench_tick(c: &mut Criterion) {
     let mut g = c.benchmark_group("clock/tick");
     let mut r = rng(1);
@@ -72,7 +73,8 @@ fn bench_fork(c: &mut Criterion) {
     g.finish();
 }
 
-/// `join`: absorb a disjoint clock (party + history). Both operands consumed; fresh pair.
+/// `join`: absorb a disjoint clock (party + history). Both operands consumed;
+/// fresh pair.
 fn bench_join(c: &mut Criterion) {
     let mut g = c.benchmark_group("clock/join");
     let mut r = rng(3);
@@ -105,8 +107,8 @@ fn bench_join(c: &mut Criterion) {
     g.finish();
 }
 
-/// `sync`: reconcile two clocks (merge histories, re-split the merged party). Mutates
-/// both; fresh pair per iteration.
+/// `sync`: reconcile two clocks (merge histories, re-split the merged party).
+/// Mutates both; fresh pair per iteration.
 fn bench_sync(c: &mut Criterion) {
     let mut g = c.benchmark_group("clock/sync");
     let mut r = rng(4);
@@ -139,7 +141,8 @@ fn bench_sync(c: &mut Criterion) {
     g.finish();
 }
 
-/// `send`: tick, then snapshot the history to transmit. Destructive; fresh per iteration.
+/// `send`: tick, then snapshot the history to transmit. Destructive; fresh per
+/// iteration.
 fn bench_send(c: &mut Criterion) {
     let mut g = c.benchmark_group("clock/send");
     let mut r = rng(5);
@@ -165,8 +168,9 @@ fn bench_send(c: &mut Criterion) {
     g.finish();
 }
 
-/// `receive`: merge an incoming message, then tick. The message is consumed; the clock is
-/// mutated. Both operands fresh per iteration (the message clones cheaply in setup).
+/// `receive`: merge an incoming message, then tick. The message is consumed;
+/// the clock is mutated. Both operands fresh per iteration (the message clones
+/// cheaply in setup).
 fn bench_receive(c: &mut Criterion) {
     let mut g = c.benchmark_group("clock/receive");
     let mut r = rng(6);

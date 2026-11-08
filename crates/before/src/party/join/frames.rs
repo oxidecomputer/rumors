@@ -19,8 +19,8 @@ pub enum Frame {
 ///
 /// A pending right child retains the two operand-presence bits needed to resume
 /// the walk. A pending close retains only whether the left output was owned,
-/// which is the one fact normalization needs. The consuming cursors
-/// retain their own positions, so the stack stores no offsets or values.
+/// which is the one fact normalization needs. The consuming cursors retain
+/// their own positions, so the stack stores no offsets or values.
 pub struct Frames(BitStack);
 
 impl Frames {

@@ -1,59 +1,58 @@
 //! Judges `before`'s focused cost claims in Wasmtime fuel.
 //!
-//! The amplification board scales each committed family's operands and
-//! judges every operation's growth against them. Some cost claims cannot be
-//! stated that way: that an operation's cost does not depend on a parameter
-//! (a clone fast path at any operand size, an early exit at any tail length),
-//! that one entry point costs another plus a fixed amount, that a fused walk
-//! costs less than the composition it replaces, or that a cost grows along an
-//! axis no board family scales. This crate states each such claim as a
-//! relation between fuel readings of the same guest, so no fuel number is
-//! committed anywhere, and a toolchain or Wasmtime change cannot move a
-//! claim's verdict unless it changes how the measured operations compare.
+//! The amplification board scales each committed family's operands and judges
+//! every operation's growth against them. Some cost claims cannot be stated
+//! that way: that an operation's cost does not depend on a parameter (a clone
+//! fast path at any operand size, an early exit at any tail length), that one
+//! entry point costs another plus a fixed amount, that a fused walk costs less
+//! than the composition it replaces, or that a cost grows along an axis no
+//! board family scales. This crate states each such claim as a relation between
+//! fuel readings of the same guest, so no fuel number is committed anywhere,
+//! and a toolchain or Wasmtime change cannot move a claim's verdict unless it
+//! changes how the measured operations compare.
 //!
 //! [`measure`] runs one [`Probe`] in a fresh instance of the compiled guest
-//! (`focused-fuel-guest`), under the fuel board's operator prices, and
-//! returns the fuel its measured window consumed. The guest checks every
-//! operation's answer outside that window: against an independent value
-//! where the probe has one (a documented relation, a closed form, or the
-//! answer of a different path), and otherwise against the same operation's
-//! public answer taken before the window, which shows only that the measured
-//! call agrees with it. Each probe's doc says which. The suites under
-//! `tests/` state the claims; `just focused-fuel` builds the guest and runs
-//! them.
+//! (`focused-fuel-guest`), under the fuel board's operator prices, and returns
+//! the fuel its measured window consumed. The guest checks every operation's
+//! answer outside that window: against an independent value where the probe has
+//! one (a documented relation, a closed form, or the answer of a different
+//! path), and otherwise against the same operation's public answer taken before
+//! the window, which shows only that the measured call agrees with it. Each
+//! probe's doc says which. The suites under `tests/` state the claims;
+//! `just focused-fuel` builds the guest and runs them.
 //!
 //! # Forms
 //!
-//! Every claim takes one of these forms, which its test's doc comment names
-//! by the label in parentheses:
+//! Every claim takes one of these forms, which its test's doc comment names by
+//! the label in parentheses:
 //!
 //! - *Equal fuel* (F-eq): the readings are identical at every value of a
 //!   parameter the operation's cost must not depend on ([`assert_equal`]).
 //! - *Equal difference* (F-diff): one operation's reading minus another's is
 //!   identical at every size, so the first costs the second plus an amount
 //!   independent of size ([`assert_equal_difference`]).
-//! - *Strict saving* (F-lt): one operation reads strictly less than another
-//!   on the same operands ([`assert_less`]), and where the claim is that the
-//!   saved work scales with the operands, the saving grows with them
+//! - *Strict saving* (F-lt): one operation reads strictly less than another on
+//!   the same operands ([`assert_less`]), and where the claim is that the saved
+//!   work scales with the operands, the saving grows with them
 //!   ([`assert_saving_grows`]).
-//! - *Flat per unit* (F-lin): fuel per unit of work at a larger size is at
-//!   most 1.25 times fuel per unit at the smaller size ([`assert_flat`]). A
-//!   claim whose own band differs states it, with its rationale, beside the
-//!   test ([`assert_flat_within`]).
-//! - *No product term* (F-mix): over a two-by-two grid of two parameters,
-//!   the mixed second difference is at most a tenth of the top cell, which
-//!   any cost additive in the parameters meets and a product of them does not
-//!   ([`assert_no_product`]). Where a product would hide under that tenth,
-//!   the claim derives a bound on the mixed difference from the mechanism
-//!   instead and states it beside the test ([`assert_mixed_below`]).
+//! - *Flat per unit* (F-lin): fuel per unit of work at a larger size is at most
+//!   1.25 times fuel per unit at the smaller size ([`assert_flat`]). A claim
+//!   whose own band differs states it, with its rationale, beside the test
+//!   ([`assert_flat_within`]).
+//! - *No product term* (F-mix): over a two-by-two grid of two parameters, the
+//!   mixed second difference is at most a tenth of the top cell, which any cost
+//!   additive in the parameters meets and a product of them does not
+//!   ([`assert_no_product`]). Where a product would hide under that tenth, the
+//!   claim derives a bound on the mixed difference from the mechanism instead
+//!   and states it beside the test ([`assert_mixed_below`]).
 //! - *Growth floor* (F-grow): fuel grows by at least a stated factor across a
 //!   stated growth of the input ([`assert_grows`]).
-//! - *Different paths* (F-ne): two readings differ, showing that two calls
-//!   take different paths, where the direction of the difference is not part
-//!   of the claim ([`assert_differ`]).
-//! - *Derived bound* (F-bound): a reading stays within a bound derived from
-//!   the operation's mechanism, stated beside the test; where the bound is
-//!   another operation's reading, [`assert_at_most`] checks it.
+//! - *Different paths* (F-ne): two readings differ, showing that two calls take
+//!   different paths, where the direction of the difference is not part of the
+//!   claim ([`assert_differ`]).
+//! - *Derived bound* (F-bound): a reading stays within a bound derived from the
+//!   operation's mechanism, stated beside the test; where the bound is another
+//!   operation's reading, [`assert_at_most`] checks it.
 //!
 //! Every checker prints its readings on a `MEASURED` line, so a failure and a
 //! thin margin can be read from the test's output.
@@ -125,14 +124,14 @@ fn compiled() -> &'static Compiled {
 /// # Panics
 ///
 /// Panics if the guest traps, naming the panic message it recorded: a wrong
-/// answer from the measured operation, or parameters the probe cannot use.
-/// Also panics if the guest does not know the probe.
+/// answer from the measured operation, or parameters the probe cannot use. Also
+/// panics if the guest does not know the probe.
 pub fn measure(probe: Probe, a: u64, b: u64) -> u64 {
     run(probe, a, b).0
 }
 
-/// Measures `probe` as [`measure`] does and returns its fuel with the units
-/// of work the probe states, such as its operands' encoded bytes.
+/// Measures `probe` as [`measure`] does and returns its fuel with the units of
+/// work the probe states, such as its operands' encoded bytes.
 ///
 /// # Panics
 ///
@@ -143,8 +142,8 @@ pub fn measure_per(probe: Probe, a: u64, b: u64) -> (u64, u64) {
     (fuel, units)
 }
 
-/// Runs `probe` in a fresh guest instance and returns its fuel and the units
-/// it states, zero if none.
+/// Runs `probe` in a fresh guest instance and returns its fuel and the units it
+/// states, zero if none.
 fn run(probe: Probe, a: u64, b: u64) -> (u64, u64) {
     let Compiled { engine, module } = compiled();
     let mut store = Store::new(engine, ());
@@ -185,8 +184,8 @@ pub fn measure_at(probe: Probe, sizes: &[u64]) -> Vec<u64> {
     sizes.iter().map(|&a| measure(probe, a, 0)).collect()
 }
 
-/// Asserts the *equal fuel* form: `probe` reads the same fuel at every value
-/// of `a` in `sizes`, with `b` zero, and returns that reading.
+/// Asserts the *equal fuel* form: `probe` reads the same fuel at every value of
+/// `a` in `sizes`, with `b` zero, and returns that reading.
 ///
 /// # Panics
 ///
@@ -206,10 +205,9 @@ pub fn assert_equal(probe: Probe, sizes: &[u64]) -> u64 {
     readings[0]
 }
 
-/// Asserts the *equal difference* form: `probe` minus `reference`, each a
-/// probe with its parameter `b`, both at the same `a`, is the same at every
-/// value of `a` in `sizes`, and returns that difference, which may be
-/// negative.
+/// Asserts the *equal difference* form: `probe` minus `reference`, each a probe
+/// with its parameter `b`, both at the same `a`, is the same at every value of
+/// `a` in `sizes`, and returns that difference, which may be negative.
 ///
 /// # Panics
 ///
@@ -240,8 +238,8 @@ pub fn assert_equal_difference(
     differences[0]
 }
 
-/// Asserts the *strict saving* form: `smaller` is strictly less than
-/// `larger`, with `name` describing the comparison.
+/// Asserts the *strict saving* form: `smaller` is strictly less than `larger`,
+/// with `name` describing the comparison.
 ///
 /// # Panics
 ///
@@ -278,9 +276,9 @@ pub fn assert_at_most(name: &str, reading: u64, bound: u64) {
 /// reading of the row is strictly less than the second, and the saving, the
 /// second minus the first, grows strictly from each size to the next.
 ///
-/// Each row is `(size, smaller, larger)`, in increasing size. A growing
-/// saving shows that the work saved scales with the operands, as a stream
-/// decoded once instead of twice does, rather than being a fixed cost.
+/// Each row is `(size, smaller, larger)`, in increasing size. A growing saving
+/// shows that the work saved scales with the operands, as a stream decoded once
+/// instead of twice does, rather than being a fixed cost.
 ///
 /// # Panics
 ///
@@ -337,13 +335,13 @@ pub fn assert_flat_within(name: &str, small: (u64, u64), large: (u64, u64), band
     );
 }
 
-/// Asserts the *no product term* form over `grid`, the readings at
-/// `(x, y)`, `(2x, y)`, `(x, 2y)`, and `(2x, 2y)` in that order: the mixed
-/// second difference is at most a tenth of the top cell.
+/// Asserts the *no product term* form over `grid`, the readings at `(x, y)`,
+/// `(2x, y)`, `(x, 2y)`, and `(2x, 2y)` in that order: the mixed second
+/// difference is at most a tenth of the top cell.
 ///
 /// A cost `p·x + q·y + r` has a mixed second difference of zero, and a cost
-/// `s·x·y` one of a quarter of the top cell, so the bound tells them apart
-/// with room for amortized costs that wobble between cells.
+/// `s·x·y` one of a quarter of the top cell, so the bound tells them apart with
+/// room for amortized costs that wobble between cells.
 ///
 /// # Panics
 ///
@@ -362,9 +360,9 @@ pub fn assert_no_product(name: &str, grid: [u64; 4]) {
 /// Asserts the *no product term* form with a derived bound: the mixed second
 /// difference over `grid` is below `bound`.
 ///
-/// `grid` holds the readings at `(x, y)`, `(2x, y)`, `(x, y')`, and
-/// `(2x, y')` in that order, and the claim derives `bound` from the smallest
-/// product term it rules out.
+/// `grid` holds the readings at `(x, y)`, `(2x, y)`, `(x, y')`, and `(2x, y')`
+/// in that order, and the claim derives `bound` from the smallest product term
+/// it rules out.
 ///
 /// # Panics
 ///
@@ -393,8 +391,7 @@ pub fn assert_differ(name: &str, first: u64, second: u64) {
     );
 }
 
-/// Asserts the *growth floor* form: `large` is at least `factor` times
-/// `small`.
+/// Asserts the *growth floor* form: `large` is at least `factor` times `small`.
 ///
 /// # Panics
 ///

@@ -1,13 +1,13 @@
 //! Outbound protocol replies rendered as wire replies, chunk by chunk.
 //!
-//! Each question's record publishes right after the frame carrying it is in
-//! the multiplexer's channel, so the decoder holds the record before the
-//! peer can answer, even while the rest of the reply waits for its chunks.
-//! Publishing never waits: the record queue is unbounded, so the encoder
-//! never stops partway through a reply on the decoder's account. Nor does it
-//! wait for the multiplexer to write the frames: the decoder that consumes a
-//! record waits for it only when a reply to it has arrived, by which time
-//! the encoder is past the frame carrying its question.
+//! Each question's record publishes right after the frame carrying it is in the
+//! multiplexer's channel, so the decoder holds the record before the peer can
+//! answer, even while the rest of the reply waits for its chunks. Publishing
+//! never waits: the record queue is unbounded, so the encoder never stops
+//! partway through a reply on the decoder's account. Nor does it wait for the
+//! multiplexer to write the frames: the decoder that consumes a record waits
+//! for it only when a reply to it has arrived, by which time the encoder is
+//! past the frame carrying its question.
 //!
 //! Every encoder here consumes the erased vocabulary. The [`Work`](super::Work)
 //! method that spawns it erases and boxes its typed request stream, so each
@@ -38,7 +38,8 @@ use crate::tree::{
 
 use super::{Derived, Outstanding, progress::Progress};
 
-/// Encode local leaf replies, optionally publishing the leaf questions they ask.
+/// Encode local leaf replies, optionally publishing the leaf questions they
+/// ask.
 // The arguments are the stage's dataflow and the session's run limits,
 // one per concern.
 #[allow(clippy::too_many_arguments)]
@@ -81,8 +82,8 @@ where
 
 /// Encode non-leaf replies, publishing each question after its frame.
 ///
-/// `question_height` is the derived questions' height, one under the
-/// replies this encoder renders.
+/// `question_height` is the derived questions' height, one under the replies
+/// this encoder renders.
 // The argument list is the stage's dataflow, one edge per argument;
 // bundling edges into a struct would only rename the arity.
 #[allow(clippy::too_many_arguments)]
@@ -118,22 +119,21 @@ where
     finish(requests, outgoing).await
 }
 
-/// Consume the local initiator's opening and publish its scope, bounded by
-/// the `responder`'s grandchild count of its root.
+/// Consume the local initiator's opening and publish its scope, bounded by the
+/// `responder`'s grandchild count of its root.
 ///
 /// The opening writes nothing: its one query's content, the local root-fan
 /// listing, already crossed inside the greeting, which flushed before the
 /// descent began. The "wire before internal publication" order is therefore
-/// satisfied vacuously, and the question publishes at once, with the
-/// record's charge and the reply's room the opening's one question carries.
+/// satisfied vacuously, and the question publishes at once, with the record's
+/// charge and the reply's room the opening's one question carries.
 ///
 /// # Errors
 ///
-/// An opening that carries no question fails with
-/// [`Error::MissingOpening`], and one that carries a second question, or
-/// that a further reply follows, with [`Error::ExtraOpening`]: either is a
-/// local invariant failure, since the walk's opening is that one
-/// question.
+/// An opening that carries no question fails with [`Error::MissingOpening`],
+/// and one that carries a second question, or that a further reply follows,
+/// with [`Error::ExtraOpening`]: either is a local invariant failure, since the
+/// walk's opening is that one question.
 pub async fn opening<B>(
     mut requests: BoxRequests<B::Erased>,
     mut questions: Records,
@@ -170,12 +170,12 @@ where
     Ok(())
 }
 
-/// Hand every frame of one reply, its chunks taken from `requests` up to
-/// the last, to the multiplexer through `encoder`, publishing each
-/// question's record to `questions`, at `height`, right after its frame.
+/// Hand every frame of one reply, its chunks taken from `requests` up to the
+/// last, to the multiplexer through `encoder`, publishing each question's
+/// record to `questions`, at `height`, right after its frame.
 ///
-/// A reply that asks a question where `questions` is absent, the
-/// initiator's final answers, fails the session.
+/// A reply that asks a question where `questions` is absent, the initiator's
+/// final answers, fails the session.
 async fn write_reply<B>(
     outgoing: &mut Outgoing,
     requests: &mut BoxRequests<B::Erased>,
@@ -210,8 +210,7 @@ where
     }
 }
 
-/// Where an encoder publishes the records of the questions its replies
-/// ask.
+/// Where an encoder publishes the records of the questions its replies ask.
 pub struct Records {
     /// The decoder's queue of records.
     sender: Sender<Outstanding>,
@@ -223,12 +222,11 @@ impl Records {
         Self { sender }
     }
 
-    /// Publish one question's record, `scope`, with its charge and the
-    /// room its reply parks in, or await cancellation if the record's
-    /// consumer has gone.
+    /// Publish one question's record, `scope`, with its charge and the room its
+    /// reply parks in, or await cancellation if the record's consumer has gone.
     ///
-    /// The walk built `record` and `room` out of the question's grant, and
-    /// the chunk carrying the question handed them over.
+    /// The walk built `record` and `room` out of the question's grant, and the
+    /// chunk carrying the question handed them over.
     async fn publish(&mut self, scope: Scope, record: Charge, room: Charge) {
         let outstanding = Outstanding {
             scope,
@@ -253,8 +251,8 @@ where
     Ok(())
 }
 
-/// Hand one adapter frame, with the charge and the permit it carries, to
-/// the multiplexer and release its optional question afterward.
+/// Hand one adapter frame, with the charge and the permit it carries, to the
+/// multiplexer and release its optional question afterward.
 async fn write_encoded<E>(
     outgoing: &mut Outgoing,
     encoded: Encoded,

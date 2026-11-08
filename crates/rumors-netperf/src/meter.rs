@@ -3,29 +3,29 @@
 //!
 //! # The heap meter
 //!
-//! The binary installs [`peak_alloc::PeakAlloc`] as its global allocator.
-//! It forwards every request to the system allocator and keeps two
-//! process-wide counters, live bytes and their peak, at the cost of two
-//! uncontended atomic operations per allocation and one per free. A peer
-//! process runs its session on one thread, so the counters see exactly the
-//! session's own heap. The peak resets just before the session starts, so
-//! it reports the most the session held, not the fixture build's peak.
+//! The binary installs [`peak_alloc::PeakAlloc`] as its global allocator. It
+//! forwards every request to the system allocator and keeps two process-wide
+//! counters, live bytes and their peak, at the cost of two uncontended atomic
+//! operations per allocation and one per free. A peer process runs its session
+//! on one thread, so the counters see exactly the session's own heap. The peak
+//! resets just before the session starts, so it reports the most the session
+//! held, not the fixture build's peak.
 //!
 //! # Resident memory
 //!
 //! On Linux the process also resets the kernel's resident high-water mark
 //! (writing `5` to `/proc/self/clear_refs`) and reads `VmHWM` after the
-//! session. Resident memory includes pages the allocator holds without
-//! using, so it is never smaller than the heap the session needed; it is
-//! what a deployment's memory limit actually meets.
+//! session. Resident memory includes pages the allocator holds without using,
+//! so it is never smaller than the heap the session needed; it is what a
+//! deployment's memory limit actually meets.
 //!
 //! # Another process's preparation
 //!
-//! The orchestrator also reads each peer process's resident high-water
-//! mark and CPU time from outside, once its preparation finishes
-//! ([`process_usage`]). The process is fresh, so its high-water mark is
-//! the most it held while building or joining its replica: the bytes the
-//! run's memory bound accounts for.
+//! The orchestrator also reads each peer process's resident high-water mark and
+//! CPU time from outside, once its preparation finishes ([`process_usage`]).
+//! The process is fresh, so its high-water mark is the most it held while
+//! building or joining its replica: the bytes the run's memory bound accounts
+//! for.
 
 use std::fs;
 use std::time::Duration;
@@ -47,8 +47,8 @@ pub struct Mark {
     system: Duration,
     /// Live heap bytes.
     heap: usize,
-    /// Segments this network namespace retransmitted so far, where the
-    /// platform exposes the count.
+    /// Segments this network namespace retransmitted so far, where the platform
+    /// exposes the count.
     retransmits: Option<u64>,
 }
 
@@ -120,8 +120,8 @@ fn cpu() -> (Duration, Duration) {
     }
 }
 
-/// What another process used from its start until now: its resident
-/// high-water mark and its CPU time, as Linux reports them.
+/// What another process used from its start until now: its resident high-water
+/// mark and its CPU time, as Linux reports them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProcessUsage {
     /// The resident high-water mark, in bytes.
@@ -158,8 +158,8 @@ pub fn process_usage(pid: u32) -> Option<ProcessUsage> {
     })
 }
 
-/// Resets the kernel's resident high-water mark for this process, where
-/// the platform supports it (Linux 4.0 and later).
+/// Resets the kernel's resident high-water mark for this process, where the
+/// platform supports it (Linux 4.0 and later).
 fn reset_rss_peak() {
     if cfg!(target_os = "linux") {
         // A kernel without the reset leaves the mark at the process's
@@ -176,13 +176,13 @@ fn rss_peak() -> Option<u64> {
     Some(kib * 1024)
 }
 
-/// The TCP segments retransmitted in this process's network namespace so
-/// far, from `/proc/self/net/snmp`, on Linux.
+/// The TCP segments retransmitted in this process's network namespace so far,
+/// from `/proc/self/net/snmp`, on Linux.
 ///
-/// In emulation mode each peer has a namespace of its own with one
-/// connection in it, so the count is that connection's. In pair mode the
-/// namespace is the host's, and the count includes every other connection
-/// the host carries; the report says which.
+/// In emulation mode each peer has a namespace of its own with one connection
+/// in it, so the count is that connection's. In pair mode the namespace is the
+/// host's, and the count includes every other connection the host carries; the
+/// report says which.
 pub fn retransmitted_segments() -> Option<u64> {
     let snmp = fs::read_to_string("/proc/self/net/snmp").ok()?;
     let mut tcp = snmp.lines().filter(|line| line.starts_with("Tcp:"));

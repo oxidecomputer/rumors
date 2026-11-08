@@ -11,8 +11,8 @@ use crate::testing::oracles::tree;
 use crate::{Clock, Party, Rank, Version};
 
 /// Render a bit stream most-significant-bit-first as a string of `'0'`/`'1'`,
-/// the same order the stored integer code and preorder encoding emit. Empty stream
-/// renders as `""`.
+/// the same order the stored integer code and preorder encoding emit. Empty
+/// stream renders as `""`.
 fn bits_to_string(mut bits: BitsReader<'_>) -> String {
     let mut rendered = String::new();
     while bits.position() < bits.len() {
@@ -25,7 +25,8 @@ fn bits_to_string(mut bits: BitsReader<'_>) -> String {
     rendered
 }
 
-/// Render bytes as space-separated two-digit hex, e.g. `[0x80, 0x01]` -> `"80 01"`.
+/// Render bytes as space-separated two-digit hex, e.g. `[0x80, 0x01]` ->
+/// `"80 01"`.
 fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -34,7 +35,8 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         .join(" ")
 }
 
-/// One Elias-gamma row: `n` then its code as an MSB-first bit string and the bit count.
+/// One Elias-gamma row: `n` then its code as an MSB-first bit string and the
+/// bit count.
 fn gamma_row(n: u64) -> String {
     let mut bits = BitsWriter::new();
     bits.write_gamma(&BigUint::from(n));
@@ -49,10 +51,10 @@ fn gamma_row(n: u64) -> String {
 /// Elias-gamma code of `m = n + 1`: `floor(log2 m)` leading zeros, then `m` in
 /// `floor(log2 m) + 1` bits MSB-first.
 ///
-/// The golden table pins the layout across
-/// magnitudes: powers of two and their neighbours (where the unary prefix grows), plus
-/// a value past `u64::MAX` to witness the arbitrary-width code: the integer
-/// magnitude has no cap, so the code must extend cleanly beyond 64 bits.
+/// The golden table pins the layout across magnitudes: powers of two and their
+/// neighbours (where the unary prefix grows), plus a value past `u64::MAX` to
+/// witness the arbitrary-width code: the integer magnitude has no cap, so the
+/// code must extend cleanly beyond 64 bits.
 #[test]
 fn gamma_bit_layout_table() {
     let small: String = [0u64, 1, 2, 3, 4, 5, 6, 7, 8, 15, 16, 17, 255, 256]
@@ -114,11 +116,11 @@ fn version_block(v: &Version) -> String {
     )
 }
 
-/// Canonical encoded forms of representative `Party` values: the seed (whole space), a
-/// single fork, and a deeper asymmetric id.
+/// Canonical encoded forms of representative `Party` values: the seed (whole
+/// space), a single fork, and a deeper asymmetric id.
 ///
-/// Pins both the unpadded bit stream and the
-/// padded bytes, so any change to the preorder id encoding or its padding shows up here.
+/// Pins both the unpadded bit stream and the padded bytes, so any change to the
+/// preorder id encoding or its padding shows up here.
 #[test]
 fn party_canonical_forms() {
     let seed = Party::seed();
@@ -147,9 +149,9 @@ fn party_canonical_forms() {
     ");
 }
 
-/// Canonical encoded forms of representative `Version` values: the empty event (seed
-/// version `0`), a flat leaf with a multi-bit base, and a node with an asymmetric event
-/// subtree.
+/// Canonical encoded forms of representative `Version` values: the empty event
+/// (seed version `0`), a flat leaf with a multi-bit base, and a node with an
+/// asymmetric event subtree.
 ///
 /// Pins the event encoding (per-node base via the gamma code) and its padding.
 #[test]
@@ -208,8 +210,8 @@ fn clock_canonical_form() {
 }
 
 /// One rank rendering row: a label and the rendered `Display`, after checking
-/// that `Debug` renders the same text for this row's rank, so the snapshot
-/// pins both renderings.
+/// that `Debug` renders the same text for this row's rank, so the snapshot pins
+/// both renderings.
 fn rank_row(label: &str, r: &Rank) -> String {
     assert_eq!(
         format!("{r}"),
@@ -267,11 +269,11 @@ fn rank_rendered_forms() {
 
 /// The error types' rendered `Display` strings, pinned verbatim.
 ///
-/// These strings are the crate's error representation (what a caller's
-/// logs and wrapped error chains show), so a wording change must be a
-/// deliberate re-pin here, never a silent drift. `Decode::Io`'s rendering
-/// wraps the underlying `std::io::Error`'s own Display output, which std
-/// owns, so its row pins only the crate-owned prefix.
+/// These strings are the crate's error representation (what a caller's logs and
+/// wrapped error chains show), so a wording change must be a deliberate re-pin
+/// here, never a silent drift. `Decode::Io`'s rendering wraps the underlying
+/// `std::io::Error`'s own Display output, which std owns, so its row pins only
+/// the crate-owned prefix.
 #[test]
 fn error_display_strings() {
     let block = [

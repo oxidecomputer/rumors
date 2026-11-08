@@ -13,25 +13,25 @@
 //! that board rows declare beside themselves. All the measured ones follow one
 //! rule.
 //!
-//! The rule inverts the judge's test. The board finds a sample within a
-//! ceiling `C` when the sample's reading is at most the ceiling's intercept
-//! plus `C` times the sample's denominator. The intercept is
-//! [`HEAP_INTERCEPT_BYTES`] for heap ceilings. The denominator is the quantity the ceiling is stated per, which
-//! its doc names; a fixed bound's denominator is one. Each sample therefore
-//! admits every `C` of at least `(reading - intercept) / denominator`. The
-//! rule takes the largest such value over every sample the release-profile
-//! acceptance board judges, at every sampling of its ladder, adds 25%
-//! headroom, and rounds up to a whole number. That is,
-//! `C = ceil(1.25 * max((reading - intercept) / denominator))`.
+//! The rule inverts the judge's test. The board finds a sample within a ceiling
+//! `C` when the sample's reading is at most the ceiling's intercept plus `C`
+//! times the sample's denominator. The intercept is [`HEAP_INTERCEPT_BYTES`]
+//! for heap ceilings. The denominator is the quantity the ceiling is stated
+//! per, which its doc names; a fixed bound's denominator is one. Each sample
+//! therefore admits every `C` of at least
+//! `(reading - intercept) / denominator`. The rule takes the largest such value
+//! over every sample the release-profile acceptance board judges, at every
+//! sampling of its ladder, adds 25% headroom, and rounds up to a whole number.
+//! That is, `C = ceil(1.25 * max((reading - intercept) / denominator))`.
 //!
 //! Subtracting the intercept lets one rule serve every ceiling. Fixed
 //! allocations dominate a small sample's reading, and the intercept already
 //! covers them, so the proportional term need not. A small sample whose
 //! allocations grow with its input still enters the derivation in full.
 //!
-//! The board-wide ceilings here are outer bounds. Beneath them, every cell
-//! also carries ceilings derived by the same rule from its own readings alone,
-//! with 10% headroom (the `cell_ceilings` module).
+//! The board-wide ceilings here are outer bounds. Beneath them, every cell also
+//! carries ceilings derived by the same rule from its own readings alone, with
+//! 10% headroom (the `cell_ceilings` module).
 
 /// Green requires every meter's scaling exponent at or below this.
 ///
@@ -63,8 +63,9 @@ pub const HEAP_INTERCEPT_BYTES: usize = 1_024;
 ///
 /// Inline storage, buffer doubling, and numeric formatting algorithms produce
 /// allocation thresholds on the finite ladder. Clamping the fit at this
-/// resolution accommodates these transitions. Growth below this resolution is not judged
-/// by the fit; every raw peak still faces the tighter affine ceiling above.
+/// resolution accommodates these transitions. Growth below this resolution is
+/// not judged by the fit; every raw peak still faces the tighter affine ceiling
+/// above.
 pub const HEAP_TREND_RESOLUTION_BYTES: usize = 4_096;
 
 /// Additive term in every fuel ceiling: the instructions a sample may execute
@@ -72,11 +73,11 @@ pub const HEAP_TREND_RESOLUTION_BYTES: usize = 4_096;
 ///
 /// A cell's smallest samples carry work that does not scale with their few
 /// input bytes (allocator requests, and setup of the operation's cursors and
-/// accumulators): about a thousand instructions at the median cell, measured
-/// by extrapolating the line through each cell's two smallest samples to an
-/// empty input. Without an allowance, that work divided by a handful of bytes
-/// would set the cell's per-unit ceiling, which then admits many times the
-/// fuel its large samples read.
+/// accumulators): about a thousand instructions at the median cell, measured by
+/// extrapolating the line through each cell's two smallest samples to an empty
+/// input. Without an allowance, that work divided by a handful of bytes would
+/// set the cell's per-unit ceiling, which then admits many times the fuel its
+/// large samples read.
 ///
 /// The value trades two kinds of looseness. Lowering it lets fixed costs set
 /// more cells' ceilings: with no allowance, the per-cell rule's ceiling admits
@@ -90,10 +91,10 @@ pub const FUEL_INTERCEPT: u64 = 1_000;
 /// Resolution of the fuel growth fit, in instructions.
 ///
 /// A cell that does almost nothing can step between fixed costs as its input
-/// crosses a machine-word width, such as a comparison leaving a word-sized
-/// fast path, and a step of a few hundred instructions across a few bytes of
-/// input reads as a steep exponent. Clamping the fit at this resolution, as the
-/// heap fit is clamped at [`HEAP_TREND_RESOLUTION_BYTES`], leaves such steps
+/// crosses a machine-word width, such as a comparison leaving a word-sized fast
+/// path, and a step of a few hundred instructions across a few bytes of input
+/// reads as a steep exponent. Clamping the fit at this resolution, as the heap
+/// fit is clamped at [`HEAP_TREND_RESOLUTION_BYTES`], leaves such steps
 /// unjudged by the fit; every reading still faces the cell's fuel ceiling.
 pub const FUEL_TREND_RESOLUTION: u64 = 1_000;
 
@@ -103,15 +104,15 @@ pub const FUEL_TREND_RESOLUTION: u64 = 1_000;
 /// sizes dominate them, but the affine bound must still hold.
 pub const SMALL_INPUT_SCALE: f64 = 0.01;
 
-/// Magnitudes at most this wide may legitimately be held in machine words, so
-/// a result this narrow may use inline storage and has no heap floor.
+/// Magnitudes at most this wide may legitimately be held in machine words, so a
+/// result this narrow may use inline storage and has no heap floor.
 pub const MACHINE_WORD_MAGNITUDE_BITS: u64 = 128;
 
 /// The fixed count the `version_ticks` cell registers per measurement.
 ///
-/// Holding the count fixed makes input size the cell's only scaling
-/// variable. The count is large enough that an implementation which loops
-/// over ticks cannot hide that work in a fixed cost.
+/// Holding the count fixed makes input size the cell's only scaling variable.
+/// The count is large enough that an implementation which loops over ticks
+/// cannot hide that work in a fixed cost.
 pub const TICKS_BOARD_COUNT: u64 = 512;
 
 /// Exponent legs are fitted only where the denominator pair grows at least this
@@ -124,59 +125,56 @@ pub const TICKS_BOARD_COUNT: u64 = 512;
 /// proportional limits and liveness floors.
 pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 
-/// Heap ceiling for materializing the output-dominated comb-scatter
-/// projection, in bytes per total-I/O byte.
+/// Heap ceiling for materializing the output-dominated comb-scatter projection,
+/// in bytes per total-I/O byte.
 ///
 /// The version writer holds a constant number of stream-sized buffers: its
-/// output, and, once a wide payload first collapses, the separate topology
-/// and payload streams that it interleaves once at the end. Each buffer grows
-/// by doubling, and sealing reallocates it to its exact size, which the heap
-/// meter counts beside the old buffer. Those buffers alone would bound the
-/// heap at five times the output, but the writer also keeps per-level
-/// stacks of branch directions and payload lengths, which that account does
-/// not bound per output byte, so the ceiling is measured by the module's
-/// rule rather than derived; the comb-scatter projection with its knob just
-/// past a power of two reads highest. The exponent remains judged
-/// independently.
+/// output, and, once a wide payload first collapses, the separate topology and
+/// payload streams that it interleaves once at the end. Each buffer grows by
+/// doubling, and sealing reallocates it to its exact size, which the heap meter
+/// counts beside the old buffer. Those buffers alone would bound the heap at
+/// five times the output, but the writer also keeps per-level stacks of branch
+/// directions and payload lengths, which that account does not bound per output
+/// byte, so the ceiling is measured by the module's rule rather than derived;
+/// the comb-scatter projection with its knob just past a power of two reads
+/// highest. The exponent remains judged independently.
 pub const COMB_SCATTER_PROJECTION_HEAP_BYTES_PER_IO_BYTE: f64 = 7.0;
 
 /// Heap ceiling for deserializing an owned serde buffer or a borsh stream, in
 /// bytes per input byte.
 ///
-/// Unlike this module's other ceilings, this one is derived from the
-/// decoder's mechanism rather than measured. For `n` input bytes, of which
-/// `p` are payload codes:
+/// Unlike this module's other ceilings, this one is derived from the decoder's
+/// mechanism rather than measured. For `n` input bytes, of which `p` are
+/// payload codes:
 ///
 /// - **The stream buffer.** A borsh decoder reads each part's stream into a
-///   byte vector of its own, which grows by doubling and which the decoded
-///   part seals to its length at the end. Its capacity stays below twice
-///   the bytes read, and a growth step or the final seal holds the old block
-///   and the new one together: at most `3n` during a reallocation, and `2n`
-///   between them. Serde takes the input allocation instead: a party or
-///   version keeps it, sealed, and a clock or span copies its second part's
-///   bytes into a vector of their own and seals the first part to its
-///   length, at most `n` bytes while no parser state is live, which costs
-///   less.
+///   byte vector of its own, which grows by doubling and which the decoded part
+///   seals to its length at the end. Its capacity stays below twice the bytes
+///   read, and a growth step or the final seal holds the old block and the new
+///   one together: at most `3n` during a reallocation, and `2n` between them.
+///   Serde takes the input allocation instead: a party or version keeps it,
+///   sealed, and a clock or span copies its second part's bytes into a vector
+///   of their own and seals the first part to its length, at most `n` bytes
+///   while no parser state is live, which costs less.
 /// - **The numeric state.** A payload's gamma code spends two input bits per
 ///   value bit, so the codes hold at most `p/2` bytes of value. The decoded
-///   code holds at most `p/2` bytes, and the running height stores each
-///   32-bit digit in 8 bytes, so it holds at most `p` bytes; its capacity
-///   stays below `2p`, and a growth step holds both blocks: `3p`.
-/// - **The two never reallocate together.** The buffer grows only while a
-///   byte is read and the height only after a code is complete, so the peak
-///   is at most `max(3n + p/2 + 2p, 2n + p/2 + 3p)`, which is `5.5n` when
-///   every byte is payload, `p = n`.
+///   code holds at most `p/2` bytes, and the running height stores each 32-bit
+///   digit in 8 bytes, so it holds at most `p` bytes; its capacity stays below
+///   `2p`, and a growth step holds both blocks: `3p`.
+/// - **The two never reallocate together.** The buffer grows only while a byte
+///   is read and the height only after a code is complete, so the peak is at
+///   most `max(3n + p/2 + 2p, 2n + p/2 + 3p)`, which is `5.5n` when every byte
+///   is payload, `p = n`.
 ///
-/// Topology costs the parser two bits of stack per open ancestor: four with
-/// the stack's spare capacity, and six while it reallocates, more per flag
-/// bit than the payload's state per code bit. But every open ancestor also
-/// forces a later right child, a leaf flag and a code of at least one bit,
-/// so each spends at least three input bits, and the stack costs at most two
-/// bits per input bit, within the 2.5 the bound leaves beside a reallocating
-/// buffer; so topology never raises the bound. A composite's first part (a
-/// clock's party, a span's lower endpoint) is sealed to its own length before
-/// the second part streams, so it costs one byte per byte in place of its
-/// buffer's three. The
+/// Topology costs the parser two bits of stack per open ancestor: four with the
+/// stack's spare capacity, and six while it reallocates, more per flag bit than
+/// the payload's state per code bit. But every open ancestor also forces a
+/// later right child, a leaf flag and a code of at least one bit, so each
+/// spends at least three input bits, and the stack costs at most two bits per
+/// input bit, within the 2.5 the bound leaves beside a reallocating buffer; so
+/// topology never raises the bound. A composite's first part (a clock's party,
+/// a span's lower endpoint) is sealed to its own length before the second part
+/// streams, so it costs one byte per byte in place of its buffer's three. The
 /// bound's constant terms (minimum capacities, a carry digit) lie within
 /// [`HEAP_INTERCEPT_BYTES`]. A one-leaf version whose stream and digit count
 /// both sit just past a power of two reaches the bound: its stream buffer at
@@ -199,8 +197,8 @@ pub const RANKED_DESERIALIZE_HEAP_BYTES_PER_INPUT_BYTE: f64 = 9.0;
 
 /// Heap ceiling for evaluating a query, in bytes per operand byte.
 ///
-/// Evaluation keeps one cursor and comparison state per bound. Small bounds
-/// may therefore have much greater overhead than other `before` values. This
+/// Evaluation keeps one cursor and comparison state per bound. Small bounds may
+/// therefore have much greater overhead than other `before` values. This
 /// operation-specific limit excludes evaluation from the general heap ceiling
 /// while retaining the board's linear-growth check.
 ///
@@ -217,5 +215,6 @@ pub const DEFAULT_SCALE: f64 = 1.0;
 /// The top sampling scale of the measurement ladder.
 ///
 /// Along with the base scale, this supplies four sizes for the growth fit, from
-/// the base scale's smaller size to this scale's larger one. Ordinary development runs use the base scale.
+/// the base scale's smaller size to this scale's larger one. Ordinary
+/// development runs use the base scale.
 pub const LADDER_TOP_SCALE: f64 = 4.0;

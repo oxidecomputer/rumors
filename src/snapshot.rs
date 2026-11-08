@@ -48,8 +48,8 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
         self.tree.latest()
     }
 
-    /// The floor of the *live* messages' versions: every live message's
-    /// version contains it.
+    /// The floor of the *live* messages' versions: every live message's version
+    /// contains it.
     ///
     /// Returns `None` when `self.is_empty()` (unlike [`latest`](Self::latest),
     /// which is advanced by all operations and always returns a [`Version`]).
@@ -69,8 +69,8 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     }
 
     /// Returns the digest of the Merkle root over the live messages: a MAC
-    /// under the network's hash key, equal for any two replicas of one
-    /// network that hold equal live sets.
+    /// under the network's hash key, equal for any two replicas of one network
+    /// that hold equal live sets.
     ///
     /// Test support for checking the tree's comparison signal. Use snapshot
     /// equality or the read methods in application code.
@@ -84,12 +84,12 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
         self.tree.contains(version)
     }
 
-    /// Looks up the live message stamped with `version` (for example, a
-    /// version an observer yielded earlier). Returns `None` when no live
-    /// message carries it — never sent here, or since redacted.
+    /// Looks up the live message stamped with `version` (for example, a version
+    /// an observer yielded earlier). Returns `None` when no live message
+    /// carries it — never sent here, or since redacted.
     ///
-    /// The yielded handle is an owned reference bump into the shared
-    /// storage: cheap to take, and it keeps the message alive on its own.
+    /// The yielded handle is an owned reference bump into the shared storage:
+    /// cheap to take, and it keeps the message alive on its own.
     pub fn get(&self, version: &Version) -> Option<Arc<T>> {
         self.tree.get(version)
     }
@@ -105,8 +105,8 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     }
 
     /// Iterates every live message as `(&Version, Arc<T>)` — the version
-    /// borrowed from the snapshot, the payload an owned handle into the
-    /// shared storage.
+    /// borrowed from the snapshot, the payload an owned handle into the shared
+    /// storage.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes
@@ -131,8 +131,8 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// The query is anything [`Into`] a [`causally::Query`]: an expression
     /// built from the [`causally`] vocabulary (`range(causally::since(&s))`,
     /// `range(causally::delta(&s, &e))`, `range(causally::after(&s) &
-    /// causally::before(&e))`, ...), a [`Span`](before::Span), or a
-    /// [`Version`] (the singleton query admitting exactly that version).
+    /// causally::before(&e))`, ...), a [`Span`](before::Span), or a [`Version`]
+    /// (the singleton query admitting exactly that version).
     ///
     /// Iterating a small causal delta against a large snapshot costs work
     /// proportional to the delta, not the snapshot.
@@ -141,9 +141,9 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// [`ExactSizeIterator`]: how many messages the query admits is unknown
     /// until they are visited.
     ///
-    /// As with [`iter`](Self::iter), order is unspecified and does *not*
-    /// follow the causal order: filtering by versions does not mean yielding
-    /// in version order. Sort by [`Version::ranked`] for a deterministic total
+    /// As with [`iter`](Self::iter), order is unspecified and does *not* follow
+    /// the causal order: filtering by versions does not mean yielding in
+    /// version order. Sort by [`Version::ranked`] for a deterministic total
     /// order that places causes before their effects.
     ///
     /// # Examples

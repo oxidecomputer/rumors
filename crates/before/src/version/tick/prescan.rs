@@ -9,12 +9,12 @@
 //!
 //! The pre-scan computes only minima, without building the simplified version.
 //! It reports values to [`RangeMinima`] as if it were emitting leaves. An owned
-//! left child can be omitted from those reports: simplification raises it to
-//! at least its right sibling's minimum, so it cannot lower the branch's
-//! minimum. An owned right child is handled after the left has been scanned:
-//! report its old maximum if that already reaches the left minimum, or omit
-//! the replacement leaf when it would equal that known minimum. Unowned
-//! regions retain their input heights.
+//! left child can be omitted from those reports: simplification raises it to at
+//! least its right sibling's minimum, so it cannot lower the branch's minimum.
+//! An owned right child is handled after the left has been scanned: report its
+//! old maximum if that already reaches the left minimum, or omit the
+//! replacement leaf when it would equal that known minimum. Unowned regions
+//! retain their input heights.
 //!
 //! Memo entries are reserved when lookaheads are encountered, in the order the
 //! main walk will read them, but their minima become known when ranges close.
@@ -114,8 +114,8 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// or suspends its branch in [`Frames`]; ascent resumes branches after a
     /// child closes. `level` counts nested lookaheads, not tree depth. The
     /// pre-scan starts at a partially owned right sibling after the left
-    /// subtree has been consumed. It therefore begins after the version's
-    /// first payload, and every payload it reads is a signed delta.
+    /// subtree has been consumed. It therefore begins after the version's first
+    /// payload, and every payload it reads is a signed delta.
     pub fn run(&mut self, party: &mut PartyReader) -> u64 {
         let mut frames = Frames::new();
         let mut level: u64 = 1;
@@ -251,9 +251,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// The enclosing branch's minimum now equals the completed right range's
     /// minimum: the omitted owned left child cannot lower it. The relative
     /// reference in `REL_FOLLOWER` therefore gives the completed minimum minus
-    /// the preceding reference. A later lookahead at the same level stores
-    /// that difference immediately. The first at a deeper level suspends the
-    /// outer reference until the enclosing lookahead's minimum is final.
+    /// the preceding reference. A later lookahead at the same level stores that
+    /// difference immediately. The first at a deeper level suspends the outer
+    /// reference until the enclosing lookahead's minimum is final.
     pub fn record(&mut self, slot: usize, level: u64) {
         // Memo entries store differences between true minima. Resolve the
         // temporary reference before retaining such a difference.
@@ -350,9 +350,9 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// Read one leaf delta and advance the minimum tracker's input height.
     ///
     /// Decodes unconditionally as a zigzag-coded leaf-to-leaf delta: the
-    /// stream's absolute first payload, the one coded as a height, is
-    /// behind every scan's entry ([`run`](Self::run)'s doc), so the scan
-    /// never reads it.
+    /// stream's absolute first payload, the one coded as a height, is behind
+    /// every scan's entry ([`run`](Self::run)'s doc), so the scan never reads
+    /// it.
     fn payload(&mut self) -> BigInt {
         let code = self.cursor.payload();
         let delta = PayloadKind::Delta.decode(code);

@@ -3,15 +3,15 @@
 //!
 //! Fuel is only as stable as its price list. Wasmtime 47 charged nothing per
 //! byte for `memory.copy` and `memory.fill`, and Wasmtime 48 charges one, so
-//! the same guest reads differently under each, and a quadratic run of
-//! element moves inside a `Vec` is visible under only one of them. The
-//! harness therefore builds the whole table itself: a flat cost for every
-//! operator in Wasmtime's own operator list, and every operand-proportional
-//! cost by name. A Wasmtime release that adds a variable cost fails to compile
-//! here until the new cost is priced. One that adds an operator compiles, and
-//! the new operator is priced 1 like any other; the operator count that
-//! [`render_costs`] records in the calibration's provenance then changes, so
-//! the run refuses to judge until the ceilings are recalibrated.
+//! the same guest reads differently under each, and a quadratic run of element
+//! moves inside a `Vec` is visible under only one of them. The harness
+//! therefore builds the whole table itself: a flat cost for every operator in
+//! Wasmtime's own operator list, and every operand-proportional cost by name. A
+//! Wasmtime release that adds a variable cost fails to compile here until the
+//! new cost is priced. One that adds an operator compiles, and the new operator
+//! is priced 1 like any other; the operator count that [`render_costs`] records
+//! in the calibration's provenance then changes, so the run refuses to judge
+//! until the ceilings are recalibrated.
 //!
 //! [`render_costs`] summarizes a table for the calibration's provenance, so
 //! ceilings calibrated under one table are refused under another.
@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 use wasmtime::wasmparser::for_each_operator;
 use wasmtime::{OperatorCost, VariableOperatorCost};
 
-/// The operators priced at zero: those that generate no machine code of
-/// their own.
+/// The operators priced at zero: those that generate no machine code of their
+/// own.
 ///
 /// `Nop` and `Drop` compile to nothing, and the structured control markers
 /// (`Block`, `Loop`, `Else`, `End`) and the function-ending `Return` and
@@ -94,8 +94,8 @@ macro_rules! define_costs {
 
 for_each_operator!(define_costs);
 
-/// Summarizes `cost` in one line: each flat cost with the operators it
-/// prices (the most common cost as a count), then the variable costs.
+/// Summarizes `cost` in one line: each flat cost with the operators it prices
+/// (the most common cost as a count), then the variable costs.
 ///
 /// Two tables render alike exactly when they price every operator alike.
 pub fn render_costs(cost: &OperatorCost) -> String {

@@ -48,9 +48,8 @@ fn serial() -> Ledger {
     Ledger::new(0, Bounds::ZERO)
 }
 
-/// Every kind and depth has its own index within the ledger's counts: no
-/// two share one, so a change to one kind and depth's `held` never moves
-/// another's.
+/// Every kind and depth has its own index within the ledger's counts: no two
+/// share one, so a change to one kind and depth's `held` never moves another's.
 #[test]
 fn every_kind_and_depth_has_its_own_index() {
     let mut indices = BTreeSet::new();
@@ -66,16 +65,16 @@ fn every_kind_and_depth_has_its_own_index() {
     }
 }
 
-/// A unit that fits within its kind and depth's bound, beside what it
-/// already holds, is exempt: admitted at a budget of zero, adding nothing
-/// to the excess.
+/// A unit that fits within its kind and depth's bound, beside what it already
+/// holds, is exempt: admitted at a budget of zero, adding nothing to the
+/// excess.
 ///
-/// One byte beyond the bound needs room, and the kind and depth admits
-/// again once a release makes the unit fit.
+/// One byte beyond the bound needs room, and the kind and depth admits again
+/// once a release makes the unit fit.
 ///
 /// With a bound of 100 B at `(answer, 3)`, a 60 B unit and then a 40 B unit
-/// fit; a 1 B unit would hold 101 B and waits; dropping the 40 B unit lets
-/// it fit beside the 60 B one.
+/// fit; a 1 B unit would hold 101 B and waits; dropping the 40 B unit lets it
+/// fit beside the 60 B one.
 #[test]
 fn a_unit_within_its_bound_asks_nothing_of_the_budget() {
     let ledger = Ledger::new(0, bounds(&[(Unit::Answer, 3, 100)]));
@@ -93,15 +92,15 @@ fn a_unit_within_its_bound_asks_nothing_of_the_budget() {
     drop((first, third));
 }
 
-/// A unit beyond its bound asks the budget only for what it adds to its
-/// kind and depth's excess, and waits exactly while the excess with it
-/// added exceeds the budget.
+/// A unit beyond its bound asks the budget only for what it adds to its kind
+/// and depth's excess, and waits exactly while the excess with it added exceeds
+/// the budget.
 ///
-/// With a bound of 100 B at `(question, 5)` and a budget of 50 B: a 60 B
-/// unit is exempt; an 80 B unit brings the kind and depth to 140 B, an
-/// excess of 40 B, which fits; a 20 B unit would bring the excess to 60 B
-/// and waits. Dropping the 60 B unit leaves 80 B, so the 20 B unit then
-/// fits within the bound beside them and is admitted, exempt.
+/// With a bound of 100 B at `(question, 5)` and a budget of 50 B: a 60 B unit
+/// is exempt; an 80 B unit brings the kind and depth to 140 B, an excess of 40
+/// B, which fits; a 20 B unit would bring the excess to 60 B and waits.
+/// Dropping the 60 B unit leaves 80 B, so the 20 B unit then fits within the
+/// bound beside them and is admitted, exempt.
 #[test]
 fn a_unit_beyond_its_bound_needs_room_for_its_excess() {
     let ledger = Ledger::new(50, bounds(&[(Unit::Question, 5, 100)]));
@@ -123,9 +122,8 @@ fn a_unit_beyond_its_bound_needs_room_for_its_excess() {
 }
 
 /// In the serial configuration a waiting unit is admitted in the critical
-/// section that returns the last byte its kind and depth holds, and not
-/// before: a part split off a grant holds the kind and depth like the
-/// grant.
+/// section that returns the last byte its kind and depth holds, and not before:
+/// a part split off a grant holds the kind and depth like the grant.
 #[test]
 fn a_waiter_is_admitted_as_its_kind_and_depth_empties() {
     let ledger = serial();
@@ -147,12 +145,12 @@ fn a_waiter_is_admitted_as_its_kind_and_depth_empties() {
 /// A unit that would fit within its kind and depth's bound waits behind an
 /// earlier waiter of its kind and depth, and is admitted only after it.
 ///
-/// With a bound of 100 B at `(answer, 3)` and a budget of zero: a 60 B unit
-/// is exempt; a 70 B unit would bring the kind and depth to 130 B and waits
-/// for room; a 40 B unit would fit beside the 60 B one, but asked after the
-/// 70 B unit, so it waits too. Dropping the 60 B unit admits the 70 B unit,
-/// beside which the 40 B unit does not fit, so it is admitted only once the
-/// 70 B unit drops.
+/// With a bound of 100 B at `(answer, 3)` and a budget of zero: a 60 B unit is
+/// exempt; a 70 B unit would bring the kind and depth to 130 B and waits for
+/// room; a 40 B unit would fit beside the 60 B one, but asked after the 70 B
+/// unit, so it waits too. Dropping the 60 B unit admits the 70 B unit, beside
+/// which the 40 B unit does not fit, so it is admitted only once the 70 B unit
+/// drops.
 #[test]
 fn a_unit_that_fits_waits_behind_an_earlier_unit_of_its_kind_and_depth() {
     let ledger = Ledger::new(0, bounds(&[(Unit::Answer, 3, 100)]));
@@ -177,14 +175,14 @@ fn a_unit_that_fits_waits_behind_an_earlier_unit_of_its_kind_and_depth() {
     );
 }
 
-/// An item built beyond its grant is charged in full to the grant's kind
-/// and depth, raising its excess by what falls beyond the bound, and
-/// returns in full.
+/// An item built beyond its grant is charged in full to the grant's kind and
+/// depth, raising its excess by what falls beyond the bound, and returns in
+/// full.
 ///
-/// With a bound of 10 B at `(answer, 1)` and a budget of 100 B: a 10 B
-/// grant builds a 15 B item, so the kind and depth holds 15 B, 5 B beyond
-/// its bound, and 5 B fell short. A 30 B grant, admitted against the budget,
-/// builds a 50 B item: 65 B held, an excess of 55 B, and 25 B short in all.
+/// With a bound of 10 B at `(answer, 1)` and a budget of 100 B: a 10 B grant
+/// builds a 15 B item, so the kind and depth holds 15 B, 5 B beyond its bound,
+/// and 5 B fell short. A 30 B grant, admitted against the budget, builds a 50 B
+/// item: 65 B held, an excess of 55 B, and 25 B short in all.
 #[test]
 fn an_item_beyond_its_grant_is_counted_in_full() {
     let ledger = Ledger::new(100, bounds(&[(Unit::Answer, 1, 10)]));
@@ -220,13 +218,12 @@ fn an_item_beyond_its_grant_is_counted_in_full() {
 }
 
 /// A deeper unit waiting for room closes the budget to every shallower unit
-/// that needs room, but never to an exempt one, and a withdrawal reopens
-/// it.
+/// that needs room, but never to an exempt one, and a withdrawal reopens it.
 ///
-/// Bounds of 10 B at `(question, 9)`, `(question, 2)` and `(answer, 2)`,
-/// and a budget of 100 B: a second depth-9 question of 500 B waits for room;
-/// a second depth-2 question of 10 B would fit the budget but waits behind
-/// it; a depth-2 answer at an empty kind and depth is admitted past both.
+/// Bounds of 10 B at `(question, 9)`, `(question, 2)` and `(answer, 2)`, and a
+/// budget of 100 B: a second depth-9 question of 500 B waits for room; a second
+/// depth-2 question of 10 B would fit the budget but waits behind it; a depth-2
+/// answer at an empty kind and depth is admitted past both.
 #[test]
 fn deeper_work_comes_first_for_the_budget() {
     let ledger = Ledger::new(
@@ -256,16 +253,16 @@ fn deeper_work_comes_first_for_the_budget() {
     drop((deep_first, shallow_first));
 }
 
-/// A deeper unit that waits for room needs none of it: once the earlier
-/// units of its own kind and depth release theirs, it is exempt, whatever
-/// holds the budget.
+/// A deeper unit that waits for room needs none of it: once the earlier units
+/// of its own kind and depth release theirs, it is exempt, whatever holds the
+/// budget.
 ///
-/// With a bound of 500 B at `(question, 9)` and a budget of 100 B, a second
-/// 500 B depth-9 question waits for room and closes the budget to a depth-2
-/// question that needs 60 B of it. Releasing the first depth-9 question
-/// empties its kind and depth, so the waiting one is admitted at step 1,
-/// adding no excess, and the depth-2 question is then admitted against the
-/// budget in the same critical section.
+/// With a bound of 500 B at `(question, 9)` and a budget of 100 B, a second 500
+/// B depth-9 question waits for room and closes the budget to a depth-2
+/// question that needs 60 B of it. Releasing the first depth-9 question empties
+/// its kind and depth, so the waiting one is admitted at step 1, adding no
+/// excess, and the depth-2 question is then admitted against the budget in the
+/// same critical section.
 #[test]
 fn a_deeper_waiter_is_admitted_by_its_own_kind_and_depth() {
     let ledger = Ledger::new(
@@ -290,9 +287,9 @@ fn a_deeper_waiter_is_admitted_by_its_own_kind_and_depth() {
 
 /// An answer's own bytes never hold back its questions.
 ///
-/// At a budget of zero with zero bounds, a question at an empty kind and
-/// depth is admitted beside an answer holding any amount, and a later
-/// question waits only for the earlier questions of its kind and depth.
+/// At a budget of zero with zero bounds, a question at an empty kind and depth
+/// is admitted beside an answer holding any amount, and a later question waits
+/// only for the earlier questions of its kind and depth.
 #[test]
 fn an_answer_never_holds_back_its_questions() {
     let ledger = serial();
@@ -312,16 +309,16 @@ fn an_answer_never_holds_back_its_questions() {
     drop(answer);
 }
 
-/// The invitation share never refuses an exempt question, however its
-/// depth's pace prices the claim, and a question it refuses becomes exempt
-/// once its depth's earlier questions release theirs.
+/// The invitation share never refuses an exempt question, however its depth's
+/// pace prices the claim, and a question it refuses becomes exempt once its
+/// depth's earlier questions release theirs.
 ///
 /// An answer at depth 4 keeps 1,000,000 B for a finished depth-3 reply
-/// predicted to need 1 B, a pace of a million. With a budget of 100 B and
-/// zero bounds for questions, a depth-3 question needing 50 B is admitted at
-/// its empty kind and depth; a second one passes the room check but its
-/// claim, `10 + 10 + 1,000,000 · 50`, does not fit, so it waits for the
-/// depth's replies, until the first question's release makes it exempt.
+/// predicted to need 1 B, a pace of a million. With a budget of 100 B and zero
+/// bounds for questions, a depth-3 question needing 50 B is admitted at its
+/// empty kind and depth; a second one passes the room check but its claim,
+/// `10 + 10 + 1,000,000 · 50`, does not fit, so it waits for the depth's
+/// replies, until the first question's release makes it exempt.
 #[test]
 fn a_lone_question_is_never_held_back_by_its_share() {
     let ledger = Ledger::new(100, bounds(&[(Unit::Answer, 4, 1_000_000)]));
@@ -346,22 +343,21 @@ fn a_lone_question_is_never_held_back_by_its_share() {
     drop((answer, second));
 }
 
-/// A question under the invitation share waits while its claim does not
-/// fit beside its depth's outstanding claims, though its excess fits the
-/// budget.
+/// A question under the invitation share waits while its claim does not fit
+/// beside its depth's outstanding claims, though its excess fits the budget.
 ///
-/// Its depth's claims shrink only as its stage finishes their replies, not
-/// as their room returns, and a shallower unit still takes the budget past
-/// the waiting question.
+/// Its depth's claims shrink only as its stage finishes their replies, not as
+/// their room returns, and a shallower unit still takes the budget past the
+/// waiting question.
 ///
-/// With a budget of 1,000 B, bounds of 10 B for depth-3 and depth-1
-/// questions and 900 B for depth-4 answers, and the pace at one: beside an
-/// exempt 10 B question, a 100 B question whose reply needs 900 B claims the
-/// whole budget, `100 + 900 = 1,000`. A second such question would bring the
-/// depth's claims to 2,000 B, and still to 1,900 B once the first one's room
-/// returns, since the first reply is unfinished. Once it finishes, having
-/// built a 900 B answer one level down, the pace is `900 / 900`, one, and
-/// the second question's claim fits alone.
+/// With a budget of 1,000 B, bounds of 10 B for depth-3 and depth-1 questions
+/// and 900 B for depth-4 answers, and the pace at one: beside an exempt 10 B
+/// question, a 100 B question whose reply needs 900 B claims the whole budget,
+/// `100 + 900 = 1,000`. A second such question would bring the depth's claims
+/// to 2,000 B, and still to 1,900 B once the first one's room returns, since
+/// the first reply is unfinished. Once it finishes, having built a 900 B answer
+/// one level down, the pace is `900 / 900`, one, and the second question's
+/// claim fits alone.
 #[test]
 fn a_claim_holds_until_its_reply_finishes() {
     let ledger = Ledger::new(
@@ -407,10 +403,10 @@ fn a_claim_holds_until_its_reply_finishes() {
 /// question whose claim fits at a pace of one.
 ///
 /// Before any depth-3 reply finishes, the pace is one. A finished reply
-/// predicted to need 300 B whose processing built a 600 B answer one level
-/// down sets it to `600 / 300`, two. A 100 B question needing 500 B then
-/// claims `100 + 2 · 500 = 1,100` B, over the 1,000 B budget, though
-/// `100 + 500` would fit.
+/// predicted to need 300 B whose processing built a 600 B answer one level down
+/// sets it to `600 / 300`, two. A 100 B question needing 500 B then claims
+/// `100 + 2 · 500 = 1,100` B, over the 1,000 B budget, though `100 + 500` would
+/// fit.
 #[test]
 fn a_pace_above_one_holds_back_what_one_admits() {
     let ledger = Ledger::new(
@@ -473,8 +469,8 @@ fn a_withdrawn_unit_returns_its_grant() {
     );
 }
 
-/// The depths the admission proptests ask questions under the invitation
-/// share at.
+/// The depths the admission proptests ask questions under the invitation share
+/// at.
 ///
 /// The walk never mixes the two kinds of question at one depth: the root's
 /// question and leaf requests are admitted outside the share, every other
@@ -507,11 +503,11 @@ fn arb_bounds() -> impl Strategy<Value = Bounds> {
 /// One operation on a ledger's admissions.
 #[derive(Clone, Debug)]
 enum Op {
-    /// Ask to admit a unit of the kind, at the depth, of the bytes, outside
-    /// the invitation share.
+    /// Ask to admit a unit of the kind, at the depth, of the bytes, outside the
+    /// invitation share.
     Admit(Unit, usize, usize),
-    /// Ask to admit a question at the depth, of the bytes, under the
-    /// invitation share with the need.
+    /// Ask to admit a question at the depth, of the bytes, under the invitation
+    /// share with the need.
     Invite(usize, usize, usize),
     /// Finish the reply of the unfinished invitation at the index.
     Finish(usize),
@@ -544,9 +540,9 @@ fn arb_op() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// The bytes a unit of `unit` kind at `depth` asks for: `bytes`, or at most
-/// its bound when grants keep `within` their bounds, as the walk's do
-/// (premise (P1)).
+/// The bytes a unit of `unit` kind at `depth` asks for: `bytes`, or at most its
+/// bound when grants keep `within` their bounds, as the walk's do (premise
+/// (P1)).
 fn asked(bounds: &Bounds, within: bool, unit: Unit, depth: usize, bytes: usize) -> usize {
     if within {
         bytes.min(bounds.of(unit, depth))
@@ -571,16 +567,14 @@ struct Waiting {
     order: usize,
 }
 
-/// An admitted question under the invitation share whose reply is
-/// unfinished.
+/// An admitted question under the invitation share whose reply is unfinished.
 #[derive(Clone, Copy)]
 struct Invitation {
     /// The depth of the scope it asks about.
     depth: usize,
     /// Its need, which it claimed if `claimed`.
     need: usize,
-    /// Whether it claimed its need: granted against the budget, not
-    /// exempt.
+    /// Whether it claimed its need: granted against the budget, not exempt.
     claimed: bool,
 }
 
@@ -820,19 +814,19 @@ proptest! {
     }
 }
 
-/// One waiting unit of a generated critical section: its kind, depth,
-/// grant, and its need if the invitation share governs it.
+/// One waiting unit of a generated critical section: its kind, depth, grant,
+/// and its need if the invitation share governs it.
 type Asking = (Unit, usize, u32, Option<usize>);
 
 /// For each unit of `asking`, in the order a critical section decides them,
-/// whether one critical section at `budget` grants it, starting from the
-/// state the other arguments give.
+/// whether one critical section at `budget` grants it, starting from the state
+/// the other arguments give.
 ///
-/// The ledger has `bounds`; each kind and depth in `holding` holds its
-/// bytes, and each depth's outstanding claims and pace sums are those
-/// `share` gives, as `(claimed, predicted, actual)`. The units of `asking`
-/// asked in their order. The critical section is the one every release
-/// runs ([`admit_waiting`]).
+/// The ledger has `bounds`; each kind and depth in `holding` holds its bytes,
+/// and each depth's outstanding claims and pace sums are those `share` gives,
+/// as `(claimed, predicted, actual)`. The units of `asking` asked in their
+/// order. The critical section is the one every release runs
+/// ([`admit_waiting`]).
 fn decided(
     budget: usize,
     bounds: Bounds,
@@ -882,9 +876,8 @@ fn decided(
     granted
 }
 
-/// A generated unit of a critical section: an answer or a question outside
-/// the share at any tested depth, or a question under the share at
-/// [`SHARED`].
+/// A generated unit of a critical section: an answer or a question outside the
+/// share at any tested depth, or a question under the share at [`SHARED`].
 fn arb_asking() -> impl Strategy<Value = Asking> {
     prop_oneof![
         (TESTED, 0..600u32).prop_map(|(depth, bytes)| (Unit::Answer, depth, bytes, None)),
@@ -945,20 +938,20 @@ proptest! {
 struct Run {
     /// Units that waited for admission.
     waited: u64,
-    /// For each unit admitted, in order, its place among the units asked
-    /// for and whether it claimed under the invitation share.
+    /// For each unit admitted, in order, its place among the units asked for
+    /// and whether it claimed under the invitation share.
     grants: Vec<(usize, bool)>,
-    /// The ledger's largest excess after any operation: with every grant
-    /// within its bound, only grants against the budget raise the excess,
-    /// so this is the largest `E′` any room check that admitted weighed.
+    /// The ledger's largest excess after any operation: with every grant within
+    /// its bound, only grants against the budget raise the excess, so this is
+    /// the largest `E′` any room check that admitted weighed.
     excess_peak: usize,
     /// The largest sum any invitation share check weighed.
     share_peak: usize,
 }
 
-/// Runs `ops` on a ledger with `budget` and `bounds`, as the admission
-/// proptest does with every grant kept within its bound, leaving any unit
-/// it does not admit waiting to the end.
+/// Runs `ops` on a ledger with `budget` and `bounds`, as the admission proptest
+/// does with every grant kept within its bound, leaving any unit it does not
+/// admit waiting to the end.
 fn run(budget: usize, bounds: Bounds, ops: &[Op]) -> Run {
     let ledger = Ledger::new(budget, bounds);
     let mut live: Vec<Charge> = Vec::new();
@@ -1061,11 +1054,11 @@ proptest! {
 ///
 /// That is what keeps the claims nested. A need prices only the answers one
 /// level down, so a question's room and an answer's bytes each enter one
-/// depth's sum at most; the root's answers enter none, since no question
-/// asks about a scope above the root. Every kind and depth is tried with two
-/// units on an unlimited ledger, then a finished reply at every depth, after
-/// which what each depth's questions hold and each depth's pace show which
-/// depths saw the units.
+/// depth's sum at most; the root's answers enter none, since no question asks
+/// about a scope above the root. Every kind and depth is tried with two units
+/// on an unlimited ledger, then a finished reply at every depth, after which
+/// what each depth's questions hold and each depth's pace show which depths saw
+/// the units.
 #[test]
 fn no_unit_counts_toward_two_depths_checks() {
     for unit in [Unit::Answer, Unit::Question] {
@@ -1092,9 +1085,9 @@ fn no_unit_counts_toward_two_depths_checks() {
     }
 }
 
-/// How long a unit may wait for its kind and depth, which other threads
-/// keep emptying, before the handoff test calls the wait lost: far beyond
-/// the microseconds each holder keeps it.
+/// How long a unit may wait for its kind and depth, which other threads keep
+/// emptying, before the handoff test calls the wait lost: far beyond the
+/// microseconds each holder keeps it.
 const HANDOFF_PATIENCE: Duration = Duration::from_secs(30);
 
 /// A waker that unparks the thread awaiting an admission.
@@ -1107,8 +1100,7 @@ impl Wake for Unpark {
     }
 }
 
-/// Await `admit` on this thread, parking between polls, and return its
-/// grant.
+/// Await `admit` on this thread, parking between polls, and return its grant.
 ///
 /// # Panics
 ///
@@ -1129,23 +1121,23 @@ fn await_admission(mut admit: Admit) -> Charge {
     }
 }
 
-/// In the serial configuration, units of one kind and depth on several
-/// threads hold it in turn, without a lost wakeup.
+/// In the serial configuration, units of one kind and depth on several threads
+/// hold it in turn, without a lost wakeup.
 ///
-/// Each is admitted only in the critical section that returns the last
-/// byte its predecessor's charges held.
+/// Each is admitted only in the critical section that returns the last byte its
+/// predecessor's charges held.
 ///
-/// Each holder splits its grant, drops one part itself and sends the other
-/// to a thread that drops it, so the kind and depth empties on whichever
-/// thread releases its last charge. No two holders overlap, and every unit
-/// is admitted.
+/// Each holder splits its grant, drops one part itself and sends the other to a
+/// thread that drops it, so the kind and depth empties on whichever thread
+/// releases its last charge. No two holders overlap, and every unit is
+/// admitted.
 ///
-/// Each holder finds the ledger holding exactly its own grant. A drop
-/// returns its bytes and decides the waiters under the admission queue's
-/// lock, and the next grant is made under that lock and reaches its holder
-/// through it, so the total the holder reads is ordered by the lock alone:
-/// had a unit been admitted outside the critical section that returned its
-/// predecessor's last bytes, it could find them still held.
+/// Each holder finds the ledger holding exactly its own grant. A drop returns
+/// its bytes and decides the waiters under the admission queue's lock, and the
+/// next grant is made under that lock and reaches its holder through it, so the
+/// total the holder reads is ordered by the lock alone: had a unit been
+/// admitted outside the critical section that returned its predecessor's last
+/// bytes, it could find them still held.
 #[test]
 fn units_pass_between_threads_and_wait_for_the_last_byte() {
     const THREADS: usize = 8;
@@ -1188,13 +1180,13 @@ enum PaceOp {
     Admit(Unit, usize, usize),
     /// Build an item of this many bytes out of the live grant at the index.
     Take(usize, usize),
-    /// Keep only this many bytes of the live grant at the index, returning
-    /// the rest unused.
+    /// Keep only this many bytes of the live grant at the index, returning the
+    /// rest unused.
     Keep(usize, usize),
     /// Drop the live grant at the index, returning what it still holds.
     Drop(usize),
-    /// Note that a reply to a question at the depth finished processing,
-    /// with the need.
+    /// Note that a reply to a question at the depth finished processing, with
+    /// the need.
     Processed(usize, usize),
 }
 

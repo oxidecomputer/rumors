@@ -9,17 +9,16 @@
 //! nearby digits without first normalizing the entire integer. Subtraction is
 //! the same operation with negative contributions.
 //!
-//! The value is that sum, or its negation when a flag kept beside the digits
-//! is set, so negation flips the flag and writes no digit. The flag lives at
-//! the boundary of [`Digits`]: its public methods take contributions and
-//! return signs of the value, and apply the flag once there. An update
-//! applies the flag to its [`Update`] before depositing, producing a
-//! [`StoredUpdate`], which the deposit paths require; a read applies it to the
-//! sign it returns; and an operand read applies the operand's flag to the
-//! update it deposits with. Carrying, the scan behind a comparison with zero,
-//! normalizing, and the written set work on the stored digits alone and
-//! never see the flag. Activation and a clear reset the flag, and a copy
-//! keeps it.
+//! The value is that sum, or its negation when a flag kept beside the digits is
+//! set, so negation flips the flag and writes no digit. The flag lives at the
+//! boundary of [`Digits`]: its public methods take contributions and return
+//! signs of the value, and apply the flag once there. An update applies the
+//! flag to its [`Update`] before depositing, producing a [`StoredUpdate`],
+//! which the deposit paths require; a read applies it to the sign it returns;
+//! and an operand read applies the operand's flag to the update it deposits
+//! with. Carrying, the scan behind a comparison with zero, normalizing, and the
+//! written set work on the stored digits alone and never see the flag.
+//! Activation and a clear reset the flag, and a copy keeps it.
 //!
 //! Every nonzero contribution enters through [`Digits::add_stored_at`]. If
 //! adding at one position takes its digit outside the permitted range,
@@ -40,10 +39,9 @@
 //!
 //! The first bounds ordinary reads. The second lets a scaled read omit a known
 //! zero prefix. The third lets a descending scan cross a large shift in one
-//! step instead of visiting every intervening zero. These are properties of
-//! the stored form, not of the normalized magnitude. [`costs`] derives the
-//! crate's time and space bounds from them and from the written set's
-//! structure.
+//! step instead of visiting every intervening zero. These are properties of the
+//! stored form, not of the normalized magnitude. [`costs`] derives the crate's
+//! time and space bounds from them and from the written set's structure.
 //!
 //! Comparisons with zero scan downward and rewrite the part they inspect, so
 //! the same cancellation is not paid for twice. A magnitude read likewise
@@ -72,19 +70,19 @@ const DIGIT_LIMIT: i128 = 1 << (DIGIT_BITS + 1);
 /// Bias that rounds a carry so its remainder lies in `[-2^31, 2^31)`.
 const RECENTER_BIAS: i128 = 1 << (DIGIT_BITS - 1);
 
-/// Redundant signed digits, a flag that negates their sum, and the bounds
-/// that keep scans proportional.
+/// Redundant signed digits, a flag that negates their sum, and the bounds that
+/// keep scans proportional.
 ///
 /// The buffer may be empty while the accumulator uses its small representation.
 /// Activating this representation creates digit zero if necessary; thereafter
-/// every arithmetic or read method has a nonempty buffer.
-/// A clear leaves all allocated digits zero and keeps the buffer for reuse.
+/// every arithmetic or read method has a nonempty buffer. A clear leaves all
+/// allocated digits zero and keeps the buffer for reuse.
 #[derive(Clone)]
 pub struct Digits {
     /// Little-endian coefficients of powers of `2^32`.
     digits: Vec<i64>,
-    /// Whether the value is the negation of the digits' sum rather than the
-    /// sum itself.
+    /// Whether the value is the negation of the digits' sum rather than the sum
+    /// itself.
     ///
     /// [`negate`](Self::negate) flips it, and [`activate`](Self::activate),
     /// [`clear`](Self::clear), and [`discard`](Self::discard) reset it, so it
@@ -98,8 +96,8 @@ pub struct Digits {
     /// Cancellation does not raise this bound. A comparison with zero also
     /// deposits through `add_stored_at`, and may lower it by one digit.
     lowest_written: usize,
-    /// Positions that updates have written, so a descending scan can cross
-    /// the unwritten zeros between them in one step.
+    /// Positions that updates have written, so a descending scan can cross the
+    /// unwritten zeros between them in one step.
     ///
     /// At every completed operation:
     ///
@@ -111,12 +109,11 @@ pub struct Digits {
     /// - while the buffer holds digits, the set holds position zero and
     ///   `highest_nonzero`, so a descent always finds a position to stop at;
     /// - apart from position zero, the set holds nothing below
-    ///   `lowest_written`, so every position a normalizing read clears from
-    ///   the set lies in the span its pass rewrote, which pays for clearing
-    ///   it.
+    ///   `lowest_written`, so every position a normalizing read clears from the
+    ///   set lies in the span its pass rewrote, which pays for clearing it.
     ///
-    /// Storage left by `clear` holds exactly position zero; storage emptied
-    /// by [`discard`](Self::discard) holds nothing. Every set this field holds
+    /// Storage left by `clear` holds exactly position zero; storage emptied by
+    /// [`discard`](Self::discard) holds nothing. Every set this field holds
     /// receives position zero as its first insertion, from
     /// [`activate`](Self::activate) or [`copy_into`](Self::copy_into); the
     /// set's [`clear`](WrittenPositions::clear) requires that.
@@ -140,12 +137,12 @@ impl Digits {
     ///
     /// Every retained digit must already be zero. Inactive storage is either
     /// fresh, and so empty, or left by [`clear`](Self::clear), which zeroes
-    /// every digit the written set holds, and so every nonzero one.
-    /// Activation reinitializes only the scan metadata, so a stale digit would
-    /// enter the next value. After a clear,
-    /// `pooled_reuse_after_clear_matches_the_oracle` checks the reused
-    /// accumulator against an oracle, and `complete_surface_matches_bigint`
-    /// checks that the idle buffer holds only zeros.
+    /// every digit the written set holds, and so every nonzero one. Activation
+    /// reinitializes only the scan metadata, so a stale digit would enter the
+    /// next value. After a clear, `pooled_reuse_after_clear_matches_the_oracle`
+    /// checks the reused accumulator against an oracle, and
+    /// `complete_surface_matches_bigint` checks that the idle buffer holds only
+    /// zeros.
     pub fn activate(&mut self) {
         if self.digits.is_empty() {
             self.digits.reserve_exact(1);
@@ -180,15 +177,14 @@ impl Digits {
     /// stored digits' sum: `update` itself, or its reverse when the flag is
     /// set.
     ///
-    /// Every deposit path takes the result, so each update has the flag
-    /// applied once, where it enters.
+    /// Every deposit path takes the result, so each update has the flag applied
+    /// once, where it enters.
     fn to_stored(&self, update: Update) -> StoredUpdate {
         StoredUpdate::new(update, self.negated)
     }
 
-    /// Return the update that applies `update` of this value through its
-    /// stored digits' sum: `update` itself, or its reverse when the flag is
-    /// set.
+    /// Return the update that applies `update` of this value through its stored
+    /// digits' sum: `update` itself, or its reverse when the flag is set.
     ///
     /// An operand read deposits the operand's stored digits with this update.
     fn oriented(&self, update: Update) -> Update {
@@ -199,9 +195,9 @@ impl Digits {
         }
     }
 
-    /// Convert between the sign of the stored digits' sum and the value's
-    /// sign, which are opposite when the flag is set and equal when it is
-    /// clear, and both `Equal` at zero; the conversion is its own inverse.
+    /// Convert between the sign of the stored digits' sum and the value's sign,
+    /// which are opposite when the flag is set and equal when it is clear, and
+    /// both `Equal` at zero; the conversion is its own inverse.
     fn orient(&self, sign: Ordering) -> Ordering {
         if self.negated {
             sign.reverse()
@@ -226,11 +222,10 @@ impl Digits {
     /// Make `target` hold this stored prefix and flag as freshly written
     /// digits, reusing `target`'s allocation when it suffices.
     ///
-    /// The copy holds no digits above the stored prefix, so its retained
-    /// length is the prefix's. Its metadata records the copy's own writes
-    /// rather than the source's history, so it is valid for any source;
-    /// `clone` normalizes the source first, so the copy carries no
-    /// cancellation.
+    /// The copy holds no digits above the stored prefix, so its retained length
+    /// is the prefix's. Its metadata records the copy's own writes rather than
+    /// the source's history, so it is valid for any source; `clone` normalizes
+    /// the source first, so the copy carries no cancellation.
     pub fn copy_into(&self, target: &mut Digits) {
         self.debug_assert_valid();
         let prefix = self.stored_digits();
@@ -255,12 +250,12 @@ impl Digits {
         target.debug_assert_valid();
     }
 
-    /// Discard every digit and the written set, so that the storage is
-    /// inactive and empty, retaining only the buffer's capacity.
+    /// Discard every digit and the written set, so that the storage is inactive
+    /// and empty, retaining only the buffer's capacity.
     ///
     /// The written set is replaced rather than cleared, releasing any bitset,
-    /// because the storage this leaves behaves as new: the next write grows
-    /// the buffer from position zero.
+    /// because the storage this leaves behaves as new: the next write grows the
+    /// buffer from position zero.
     pub fn discard(&mut self) {
         self.digits.clear();
         self.negated = false;
@@ -299,16 +294,16 @@ impl Digits {
         self.negated = !self.negated;
     }
 
-    /// Zero every digit, clear the flag, and reduce the written set to
-    /// position zero, keeping the buffer and the set's storage.
+    /// Zero every digit, clear the flag, and reduce the written set to position
+    /// zero, keeping the buffer and the set's storage.
     ///
     /// Only the positions the set holds are zeroed: every digit above
-    /// `highest_nonzero` is zero, and so is every digit at or below it that
-    /// the set does not hold, as the field `written` guarantees. Each held
-    /// position was put there by a write, which pays for zeroing it once, so a
-    /// clear costs amortized O(1), however wide the positions it zeroes lie
-    /// apart; the written set's [`clear`](WrittenPositions::clear) explains
-    /// the cost of finding them.
+    /// `highest_nonzero` is zero, and so is every digit at or below it that the
+    /// set does not hold, as the field `written` guarantees. Each held position
+    /// was put there by a write, which pays for zeroing it once, so a clear
+    /// costs amortized O(1), however wide the positions it zeroes lie apart;
+    /// the written set's [`clear`](WrittenPositions::clear) explains the cost
+    /// of finding them.
     pub fn clear(&mut self) {
         self.debug_assert_valid();
         let digits = &mut self.digits;
@@ -335,12 +330,12 @@ impl Digits {
         self.lowest_written.min(self.highest_nonzero)
     }
 
-    /// Add a nonzero contribution to the value at `position`, applying the
-    /// flag to it.
+    /// Add a nonzero contribution to the value at `position`, applying the flag
+    /// to it.
     ///
     /// Callers supply a nonzero contribution of magnitude at most `2^96`, as
-    /// [`add_stored_at`](Self::add_stored_at) requires. The flag is tested by
-    /// a branch, and the negating path kept out of line, because the flag is
+    /// [`add_stored_at`](Self::add_stored_at) requires. The flag is tested by a
+    /// branch, and the negating path kept out of line, because the flag is
     /// usually clear: computing the negation and selecting would cost every
     /// unflagged deposit a 128-bit negation it discards.
     pub fn add_at(&mut self, position: usize, contribution: i128) {
@@ -351,8 +346,8 @@ impl Digits {
         }
     }
 
-    /// Add the negation of a nonzero contribution to the stored digits' sum
-    /// at `position`: [`add_at`](Self::add_at)'s path for flagged digits.
+    /// Add the negation of a nonzero contribution to the stored digits' sum at
+    /// `position`: [`add_at`](Self::add_at)'s path for flagged digits.
     #[cold]
     #[inline(never)]
     fn add_negated_at(&mut self, position: usize, contribution: i128) {
@@ -444,14 +439,15 @@ impl Digits {
 
     /// Descend from a zero top digit to the highest nonzero one.
     ///
-    /// A position is visited only after an update has written through it, and
-    /// a gap of unwritten zeros is crossed in one query. Thus the descent is
+    /// A position is visited only after an update has written through it, and a
+    /// gap of unwritten zeros is crossed in one query. Thus the descent is
     /// charged to preceding writes rather than to the numeric distance between
     /// positions. The positions it passes leave the written set together once
     /// it stops, since a query below a position ignores everything above it.
     ///
     /// Kept out of line so that a write whose top digit stays nonzero, the
-    /// common case, carries only the test in [`trim_high_zeros`](Self::trim_high_zeros).
+    /// common case, carries only the test in
+    /// [`trim_high_zeros`](Self::trim_high_zeros).
     #[inline(never)]
     fn descend_to_nonzero(&mut self) {
         while self.highest_nonzero > 0 && self.digits[self.highest_nonzero] == 0 {

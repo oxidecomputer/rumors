@@ -58,8 +58,8 @@ impl<H: Height> Node for typed::View<H> {
     }
 }
 
-/// Read comparison metadata without a height marker, viewing the stored
-/// node from the coordinate each query names.
+/// Read comparison metadata without a height marker, viewing the stored node
+/// from the coordinate each query names.
 impl ErasedNode for typed::ErasedView {
     /// Borrow the subtree's ordered version bounds.
     fn span(&self) -> Span<'_> {
@@ -80,20 +80,19 @@ impl ErasedNode for typed::ErasedView {
         self.len()
     }
 
-    /// Derive the grandchild count at `at` from the stored aggregate and
-    /// the visible path.
+    /// Derive the grandchild count at `at` from the stored aggregate and the
+    /// visible path.
     fn grandchild_count(&self, at: &ErasedPrefix) -> usize {
         self.at(at).grandchild_count()
     }
 
-    /// Count the children listing this node at `at` yields, from its
-    /// shape.
+    /// Count the children listing this node at `at` yields, from its shape.
     fn child_count(&self, at: &ErasedPrefix) -> usize {
         self.at(at).child_count()
     }
 
-    /// Read the digest, child count and grandchild count at `at` from one
-    /// view of the stored node, placed once.
+    /// Read the digest, child count and grandchild count at `at` from one view
+    /// of the stored node, placed once.
     ///
     /// For the session-budget meter, the whole read is hashing's own work
     /// ([`Holding::Hashing`]), as [`hash`](ErasedNode::hash) is: the counts
@@ -109,8 +108,8 @@ impl ErasedNode for typed::ErasedView {
         })
     }
 
-    /// Collect the radices listing this node at `at` yields, from its fan
-    /// or its visible path, in one pass with no handle cloned.
+    /// Collect the radices listing this node at `at` yields, from its fan or
+    /// its visible path, in one pass with no handle cloned.
     fn child_radices(&self, at: &ErasedPrefix) -> ByteSet {
         self.at(at).child_radices().collect()
     }
@@ -132,21 +131,21 @@ impl Leaf for typed::View<Z> {
     }
 }
 
-/// The in-memory backend: [`typed::View`] handles over the crate's own
-/// tree, each the size of a stored node's handle.
+/// The in-memory backend: [`typed::View`] handles over the crate's own tree,
+/// each the size of a stored node's handle.
 ///
 /// Zero-sized — the handles carry all the state — so the cloneable-handle
-/// contract of [`Backend`] is satisfied by `Copy`. Its nodes are immutable
-/// and shared, and it takes no locks, so its operations never wait on other
-/// session work.
+/// contract of [`Backend`] is satisfied by `Copy`. Its nodes are immutable and
+/// shared, and it takes no locks, so its operations never wait on other session
+/// work.
 ///
 /// Each handle is a view of a stored node from one level of its compressed
-/// path, so listing a compressed node's one child shares the node rather
-/// than copying it, and listing allocates nothing beyond the handles it
-/// yields. Reassembly builds a node from a view only where the view joins a
-/// new branch. A handle holds the stored node alone: the level it views
-/// the node from is its height, a type at [`Node`](Backend::Node), and the
-/// coordinate the session keeps beside it at [`Erased`](Backend::Erased).
+/// path, so listing a compressed node's one child shares the node rather than
+/// copying it, and listing allocates nothing beyond the handles it yields.
+/// Reassembly builds a node from a view only where the view joins a new branch.
+/// A handle holds the stored node alone: the level it views the node from is
+/// its height, a type at [`Node`](Backend::Node), and the coordinate the
+/// session keeps beside it at [`Erased`](Backend::Erased).
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Local;
 
@@ -156,9 +155,9 @@ impl Backend for Local {
     type Node<H: Height> = typed::View<H>;
     /// Use the erased view: the stored node, shared by every height.
     ///
-    /// The typed view is a phantom tag over the same stored node, so
-    /// erasure is a field move, and restoration a move, after checking the
-    /// coordinate in debug builds.
+    /// The typed view is a phantom tag over the same stored node, so erasure is
+    /// a field move, and restoration a move, after checking the coordinate in
+    /// debug builds.
     type Erased = typed::ErasedView;
     /// In-memory tree operations cannot fail.
     type Error = Infallible;
@@ -168,8 +167,8 @@ impl Backend for Local {
         node.erase()
     }
 
-    /// Restore a node's phantom height tag from its coordinate, checking
-    /// the coordinate against the stored node's path bytes in debug builds
+    /// Restore a node's phantom height tag from its coordinate, checking the
+    /// coordinate against the stored node's path bytes in debug builds
     /// ([`typed::View::placed`]).
     fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H> {
         typed::View::placed(at, erased)
@@ -192,8 +191,8 @@ impl Backend for Local {
         children
     }
 
-    /// Assemble one in-memory branch from its surviving children, returning
-    /// the original node whole when they are its own.
+    /// Assemble one in-memory branch from its surviving children, returning the
+    /// original node whole when they are its own.
     fn parent<H>(
         self,
         _prefix: Prefix<S<H>>,
@@ -236,15 +235,15 @@ impl Backend for Local {
         leaves
     }
 
-    /// Build each same-prefix leaf run as one in-memory subtree, one leaf
-    /// at a time.
+    /// Build each same-prefix leaf run as one in-memory subtree, one leaf at a
+    /// time.
     ///
-    /// Each run builds over its open right spine ([`SortedRun`]), so a
-    /// subtree of any size assembles in transient memory bounded by one fan
-    /// per path byte, and each node is built once, with its whole
-    /// compressed prefix: one node per branch point and one per leaf. The
-    /// default level-by-level fold would instead rebuild a node at every
-    /// virtual level a compressed path spans.
+    /// Each run builds over its open right spine ([`SortedRun`]), so a subtree
+    /// of any size assembles in transient memory bounded by one fan per path
+    /// byte, and each node is built once, with its whole compressed prefix: one
+    /// node per branch point and one per leaf. The default level-by-level fold
+    /// would instead rebuild a node at every virtual level a compressed path
+    /// spans.
     fn assemble<'a, H: Convert>(
         self,
         leaves: BoxNodeStream<'a, Self, Z>,
@@ -302,8 +301,8 @@ impl From<tree::Root> for Root<Local> {
 impl From<Root<Local>> for tree::Root {
     /// Move the ceiling, and build the root's node from its view.
     ///
-    /// A root has no path above it to hide, so its view is whole, and
-    /// building its node returns the stored node itself.
+    /// A root has no path above it to hide, so its view is whole, and building
+    /// its node returns the stored node itself.
     fn from(root: Root<Local>) -> Self {
         let Root { ceiling, root } = root;
         tree::Root {

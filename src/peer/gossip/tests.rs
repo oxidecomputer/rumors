@@ -36,8 +36,8 @@ use crate::{Error, Network, Peer, default};
 /// Both sides exchange markers over a one-byte transport without deadlock.
 ///
 /// Each side writes and flushes before its read resolves, so the exchange
-/// completes even when the transport holds a single byte in flight; both
-/// sides return `Ok`, the mutual completion certificate.
+/// completes even when the transport holds a single byte in flight; both sides
+/// return `Ok`, the mutual completion certificate.
 #[test]
 fn concurrent_exchange_is_symmetric() {
     let (left_io, right_io) = duplex(1);
@@ -88,8 +88,8 @@ proptest! {
     }
 }
 
-/// Reading the marker consumes exactly the marker's bytes, leaving later
-/// bytes untouched.
+/// Reading the marker consumes exactly the marker's bytes, leaving later bytes
+/// untouched.
 ///
 /// A next session's preamble may already sit behind the marker on a reused
 /// connection; the epilogue must not slurp it. After a clean exchange the
@@ -116,8 +116,8 @@ fn bytes_after_the_marker_stay_untouched() {
 ///
 /// The fixture uses the normal send and redact paths: redaction advances the
 /// frontier and leaves no tombstone, so sending and then redacting `events`
-/// messages leaves an empty root with an `events`-tick version. The donor
-/// that builds it founds the network `network` names.
+/// messages leaves an empty root with an `events`-tick version. The donor that
+/// builds it founds the network `network` names.
 fn redacted_history_root(network: NetworkSeed, events: u64) -> tree::Root {
     let donor = network.peer::<u64>();
     donor
@@ -134,13 +134,13 @@ fn redacted_history_root(network: NetworkSeed, events: u64) -> tree::Root {
     donor.inner.borrow().tree.clone().root
 }
 
-/// Drive one session as a bootstrap claimant whose greeting version comes
-/// from `root` instead of a newborn's empty version.
+/// Drive one session as a bootstrap claimant whose greeting version comes from
+/// `root` instead of a newborn's empty version.
 ///
 /// This is the bootstrap join's wire flow with the one deviation under test:
 /// the preamble declares [`Network::BOOTSTRAP`] while the greeting declares
-/// `root`'s causal frontier. Returns the donated party and the reconciled
-/// tree if the counterparty serves the session to completion.
+/// `root`'s causal frontier. Returns the donated party and the reconciled tree
+/// if the counterparty serves the session to completion.
 async fn claim_bootstrap_with_root(
     end: &mut MemoryEnd,
     root: tree::Root,
@@ -497,7 +497,8 @@ struct HoldCompletion<W> {
     reached: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
-/// Pause only at completion so the test can expire an already-committed session.
+/// Pause only at completion so the test can expire an already-committed
+/// session.
 impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldCompletion<W> {
     /// Write normally until the session tries to send its completion marker.
     fn poll_write(

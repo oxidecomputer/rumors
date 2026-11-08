@@ -217,7 +217,8 @@ impl Model {
         Delta { reads, writes }
     }
 
-    /// Checkpoint if needed, then persist the enlarged identity after absorption.
+    /// Checkpoint if needed, then persist the enlarged identity after
+    /// absorption.
     fn absorb_retire(&mut self) -> Delta {
         let reads = usize::from(!self.loaded);
         let writes = 1 + usize::from(self.pending);
@@ -226,7 +227,8 @@ impl Model {
         Delta { reads, writes }
     }
 
-    /// Predict the final checkpoint and removal of the subject's whole identity.
+    /// Predict the final checkpoint and removal of the subject's whole
+    /// identity.
     fn retire_subject(&self) -> Delta {
         Delta {
             reads: usize::from(!self.loaded),
@@ -244,7 +246,8 @@ enum Origin {
     Bootstrap,
 }
 
-/// One operation in a peer's lifetime; unavailable helpers or messages are skipped.
+/// One operation in a peer's lifetime; unavailable helpers or messages are
+/// skipped.
 #[derive(Debug, Clone)]
 enum Op {
     /// Insert a fresh local message.
@@ -265,7 +268,8 @@ enum Op {
     Absorb(usize),
 }
 
-/// Mix local edits, remote edits, and lifecycle operations in generated scripts.
+/// Mix local edits, remote edits, and lifecycle operations in generated
+/// scripts.
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
         3 => Just(Op::Send),
@@ -357,7 +361,8 @@ impl World {
         assert_eq!(actual, expected, "unexpected bookmark I/O for {op:?}");
     }
 
-    /// Apply an operation and return its predicted I/O, including zero for edits.
+    /// Apply an operation and return its predicted I/O, including zero for
+    /// edits.
     async fn apply(&mut self, op: &Op) -> Delta {
         match op {
             Op::Send => {

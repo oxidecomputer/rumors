@@ -1,9 +1,9 @@
 //! Calibration of the census's view against the flat model.
 //!
-//! The census trusts two readings of a pool: [`Grid`]'s height vectors on
-//! the common refinement, and [`Grid::order_view`]'s reduction of them. Each
-//! property here compares a reading with the flat model's own answers on
-//! deep pools, whose heights reach thousands of bits. The census's exactness
+//! The census trusts two readings of a pool: [`Grid`]'s height vectors on the
+//! common refinement, and [`Grid::order_view`]'s reduction of them. Each
+//! property here compares a reading with the flat model's own answers on deep
+//! pools, whose heights reach thousands of bits. The census's exactness
 //! argument itself is checked against a brute force in `causally`'s census
 //! tests.
 
@@ -15,8 +15,8 @@ use crate::testing::oracles::flat::Version;
 use crate::testing::property::divided_proptest;
 use crate::testing::shape_rows::Leaf;
 
-/// A deep triple as flat versions, with every pairwise join and meet the
-/// flat model computes, inputs first.
+/// A deep triple as flat versions, with every pairwise join and meet the flat
+/// model computes, inputs first.
 fn closed_pool((a, b, c): (Version, Version, Version)) -> Vec<Version> {
     let inputs = [a, b, c];
     let mut pool = inputs.to_vec();

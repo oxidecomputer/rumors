@@ -76,9 +76,9 @@ fn empty_trace_fails_the_divergent_session_floor() {
     trace.assert_covers_divergent_session();
 }
 
-/// The least a divergent session records meets the floor: the responder
-/// proxy's opening wire frame, its question, and the answer its walk takes,
-/// and the initiator proxy's greeting-seeded opening reply.
+/// The least a divergent session records meets the floor: the responder proxy's
+/// opening wire frame, its question, and the answer its walk takes, and the
+/// initiator proxy's greeting-seeded opening reply.
 #[test]
 fn minimal_divergent_session_meets_the_floor() {
     let (_, trace) = with_trace(|| {
@@ -103,9 +103,8 @@ fn accepts_take_after_published_question() {
     trace.assert_takes_answer_published_questions();
 }
 
-/// A taken answer with no question published under its label answers
-/// nothing: the stage taking it and the encoder disagree about the
-/// question's height.
+/// A taken answer with no question published under its label answers nothing:
+/// the stage taking it and the encoder disagree about the question's height.
 #[test]
 #[should_panic(expected = "has no published question to answer")]
 fn rejects_take_before_published_question() {
@@ -125,9 +124,9 @@ fn rejects_take_answering_the_other_endpoints_question() {
     trace.assert_takes_answer_published_questions();
 }
 
-/// Terminal answers may complete while an internal answer still publishes
-/// leaf scopes: their questions belong to independent height-zero and
-/// height-one queues.
+/// Terminal answers may complete while an internal answer still publishes leaf
+/// scopes: their questions belong to independent height-zero and height-one
+/// queues.
 #[test]
 fn accepts_terminal_answer_during_internal_scope_publication() {
     let (_, trace) = with_trace(|| {
@@ -143,8 +142,8 @@ fn accepts_terminal_answer_during_internal_scope_publication() {
     trace.assert_takes_answer_published_questions();
 }
 
-/// Walk and terminal leaf publications use independent ledgers even when
-/// their height-zero activity interleaves on one endpoint.
+/// Walk and terminal leaf publications use independent ledgers even when their
+/// height-zero activity interleaves on one endpoint.
 #[test]
 fn accepts_overlapping_walk_and_terminal_leaf_publications() {
     let (_, trace) = with_trace(|| {
@@ -177,9 +176,8 @@ fn rejects_parent_take_answering_a_leaf_question() {
     trace.assert_takes_answer_published_questions();
 }
 
-/// Exactly one greeting-seeded opening reply per endpoint answers the
-/// greeting itself; a second answer taken at the root has no question to
-/// answer.
+/// Exactly one greeting-seeded opening reply per endpoint answers the greeting
+/// itself; a second answer taken at the root has no question to answer.
 #[test]
 #[should_panic(expected = "has no published question to answer")]
 fn rejects_a_second_greeting_seeded_opening() {
@@ -190,8 +188,8 @@ fn rejects_a_second_greeting_seeded_opening() {
     trace.assert_takes_answer_published_questions();
 }
 
-/// A question published and never taken leaves the session unbalanced:
-/// some endpoint asked it and never consumed an answer.
+/// A question published and never taken leaves the session unbalanced: some
+/// endpoint asked it and never consumed an answer.
 #[test]
 #[should_panic(expected = "published 2 questions at height 1 but took 1 answers")]
 fn rejects_a_published_question_never_taken() {

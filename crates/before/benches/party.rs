@@ -1,6 +1,6 @@
 //! `Party` benchmarks: the optimized binary implementation against the naive
-//! recursive oracle, on the same randomized trees (see `common`). Codec ops have no
-//! oracle counterpart and are timed for the impl alone.
+//! recursive oracle, on the same randomized trees (see `common`). Codec ops
+//! have no oracle counterpart and are timed for the impl alone.
 
 use before::Party;
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
@@ -11,8 +11,8 @@ use std::hint::black_box;
 mod common;
 use common::{SEED, SIZES};
 
-/// A fresh RNG per group, each seeded off [`SEED`], so inputs are reproducible and every
-/// group sees an independent (but fixed) stream.
+/// A fresh RNG per group, each seeded off [`SEED`], so inputs are reproducible
+/// and every group sees an independent (but fixed) stream.
 fn rng(salt: u64) -> ChaChaRng {
     ChaChaRng::seed_from_u64(SEED.wrapping_add(salt))
 }
@@ -20,8 +20,8 @@ fn rng(salt: u64) -> ChaChaRng {
 /// `fork`: split a party in two.
 ///
 /// Destructive (mutates self, returns the sibling), so each iteration starts
-/// from a fresh value rebuilt in the untimed `iter_batched` setup:
-/// `decode` for the impl (not `Clone`), `clone` for the oracle.
+/// from a fresh value rebuilt in the untimed `iter_batched` setup: `decode` for
+/// the impl (not `Clone`), `clone` for the oracle.
 fn bench_fork(c: &mut Criterion) {
     let mut g = c.benchmark_group("party/fork");
     let mut r = rng(1);
@@ -47,8 +47,8 @@ fn bench_fork(c: &mut Criterion) {
     g.finish();
 }
 
-/// `join`: merge a disjoint party into self. Destructive in both operands (self mutated,
-/// other consumed), so both are rebuilt fresh per iteration.
+/// `join`: merge a disjoint party into self. Destructive in both operands (self
+/// mutated, other consumed), so both are rebuilt fresh per iteration.
 fn bench_join(c: &mut Criterion) {
     let mut g = c.benchmark_group("party/join");
     let mut r = rng(2);
@@ -81,7 +81,8 @@ fn bench_join(c: &mut Criterion) {
     g.finish();
 }
 
-/// `is_disjoint`: read-only overlap check on two disjoint parties. Built once per size.
+/// `is_disjoint`: read-only overlap check on two disjoint parties. Built once
+/// per size.
 fn bench_is_disjoint(c: &mut Criterion) {
     let mut g = c.benchmark_group("party/is_disjoint");
     let mut r = rng(3);
@@ -99,8 +100,8 @@ fn bench_is_disjoint(c: &mut Criterion) {
     g.finish();
 }
 
-/// `encode`/`decode`: the encoded byte codec. No oracle equivalent (the oracle omits the
-/// codec by design), so these are timed for the impl alone.
+/// `encode`/`decode`: the encoded byte codec. No oracle equivalent (the oracle
+/// omits the codec by design), so these are timed for the impl alone.
 fn bench_codec(c: &mut Criterion) {
     let mut g = c.benchmark_group("party/codec");
     let mut r = rng(5);

@@ -28,58 +28,57 @@ use super::charges;
 /// its exact [`Violation`]. A query reaction returns a [`Dispute`] for the
 /// caller to resolve at the next level; matches and supplies resolve locally.
 ///
-/// The resolver judges where a supply sits, not the versions it carries:
-/// the wire decoder checks each supplied leaf's version against both
-/// greetings as it reads the record (the remote adapter's `SupplyBounds`).
+/// The resolver judges where a supply sits, not the versions it carries: the
+/// wire decoder checks each supplied leaf's version against both greetings as
+/// it reads the record (the remote adapter's `SupplyBounds`).
 ///
-/// The reply's one match names the later held children that also match,
-/// which take no reaction. The resolver resolves each of them as matched
-/// when it reaches it: before pairing the next positional reaction, before
-/// a supply at a greater radix, and at the reply's end. So it infers them
-/// one at a time as it advances, keeping its resolution in radix order.
+/// The reply's one match names the later held children that also match, which
+/// take no reaction. The resolver resolves each of them as matched when it
+/// reaches it: before pairing the next positional reaction, before a supply at
+/// a greater radix, and at the reply's end. So it infers them one at a time as
+/// it advances, keeping its resolution in radix order.
 pub struct Resolver<'session, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
     /// The scope being resolved.
     prefix: ErasedPrefix,
-    /// Held children still awaiting a reaction, or covered by the reply's
-    /// match and awaiting their turn.
+    /// Held children still awaiting a reaction, or covered by the reply's match
+    /// and awaiting their turn.
     fan: std::vec::IntoIter<(u8, B::Erased)>,
     /// The held children the reply's match covers.
     covered: ByteSet,
     /// Whether the reply has carried its one match.
     matched: bool,
-    /// The node those children were listed from, which the resolution
-    /// carries to assembly.
+    /// The node those children were listed from, which the resolution carries
+    /// to assembly.
     original: Option<B::Erased>,
     /// Child resolutions accumulated in radix order.
     resolved: Vec<(u8, Resolve<B::Erased>)>,
-    /// The peer's declared-set-length ledger: every absorbed supply
-    /// charges its exact live-leaf count
-    /// ([`Violation::OverdrawnSupply`]).
+    /// The peer's declared-set-length ledger: every absorbed supply charges its
+    /// exact live-leaf count ([`Violation::OverdrawnSupply`]).
     ledger: &'session SupplyLedger,
-    /// The session's stats recorder: each absorbed supply credits its
-    /// exact live-leaf count as
+    /// The session's stats recorder: each absorbed supply credits its exact
+    /// live-leaf count as
     /// [`messages_gained`](crate::SessionStats::messages_gained).
     stats: &'session Recorder,
     /// The bound on the reply, which sized the resolution's slots.
     bound: ReplyBound,
-    /// The question's charge for its queue slot and the buffer of its
-    /// children, which `fan` walks: it returns when the resolver finishes,
-    /// once that buffer is gone and every child sits in a slot.
+    /// The question's charge for its queue slot and the buffer of its children,
+    /// which `fan` walks: it returns when the resolver finishes, once that
+    /// buffer is gone and every child sits in a slot.
     #[expect(dead_code, reason = "held for its bytes, which return when it drops")]
     question: Charge,
-    /// The part of the room the question set aside for the reply that
-    /// stayed with it, which the resolution takes: its slots.
+    /// The part of the room the question set aside for the reply that stayed
+    /// with it, which the resolution takes: its slots.
     reservation: Reserved,
     /// The bytes the records part of the question's reservation holds
-    /// ([`charges::records_room`]), which the records derived from the
-    /// reply's questions must fit.
+    /// ([`charges::records_room`]), which the records derived from the reply's
+    /// questions must fit.
     records: usize,
-    /// What the reply has held so far: its reaction slots, one per
-    /// reaction and one per child its match covers, as its bound counts
-    /// them, and the listing entries its queries carried.
+    /// What the reply has held so far: its reaction slots, one per reaction and
+    /// one per child its match covers, as its bound counts them, and the
+    /// listing entries its queries carried.
     held: ReplyBound,
     /// The bytes the records derived so far from the reply's questions hold
     /// ([`charges::derived_record_bytes`]), which the reservation's records
@@ -139,10 +138,10 @@ where
 
     /// Apply one reaction.
     ///
-    /// Matches and supplies resolve a child immediately and return `None`.
-    /// A query returns the disputed child for the caller to answer. Any
-    /// reaction that does not fit the outstanding fan returns its exact
-    /// protocol violation.
+    /// Matches and supplies resolve a child immediately and return `None`. A
+    /// query returns the disputed child for the caller to answer. Any reaction
+    /// that does not fit the outstanding fan returns its exact protocol
+    /// violation.
     pub fn react(
         &mut self,
         reaction: Reaction<B::Erased>,
@@ -221,8 +220,8 @@ where
     }
 
     /// Resolve, as matched, the covered children at the front of the fan,
-    /// stopping at the first the match does not cover or, if `before` is
-    /// given, at the first at or above that radix.
+    /// stopping at the first the match does not cover or, if `before` is given,
+    /// at the first at or above that radix.
     fn pass_covered(&mut self, before: Option<u8>) {
         while let Some((radix, _)) = self.fan.as_slice().first()
             && self.covered.contains(*radix)

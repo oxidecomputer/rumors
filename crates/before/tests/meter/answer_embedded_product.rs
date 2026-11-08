@@ -2,26 +2,23 @@
 //!
 //! The close-time settlement's wide × dense case. The plateau-puncture family
 //! `PP(w, d)` (`meter::plateau_puncture`) embeds its cost in the exact answer:
-//! every turn leaf sits on one
-//! incompressible pseudorandom plateau `x` of `w` digits, the turn
-//! positions spell a jittered mass `y` of `d` isolated digits, and
-//! the rank numerator is exactly `2·x·y + 1` — a Θ(w)-digit ×
-//! Θ(d)-term integer product bought with Θ(w + d) input bits, both
-//! factors' content beyond the settle's own balanced-digit compaction
+//! every turn leaf sits on one incompressible pseudorandom plateau `x` of `w`
+//! digits, the turn positions spell a jittered mass `y` of `d` isolated digits,
+//! and the rank numerator is exactly `2·x·y + 1` — a Θ(w)-digit × Θ(d)-term
+//! integer product bought with Θ(w + d) input bits, both factors' content
+//! beyond the settle's own balanced-digit compaction
 //! (`mul_bound_embedding_is_alive` pins exactly that). No deferral occurs (the
 //! one wide plunge parks once and no later freeze arrives), so the cost sits in
 //! the close-time product `P · segment`, outside the deferred reduction:
-//! computing the answer *is* one wide × dense multiplication, which
-//! the shipped settle delegates whole to the backend at its
-//! multiplication bound `M(|v|)`. The floor is a reduction, not a
-//! bet on this instance: the same constructor embeds `2·x·y + 1` for
-//! arbitrary factors (`meter::puncture_product`; the query fold's
-//! `arbitrary_factors_embed_their_product_in_exact_rank` proptest
-//! pins it), so any fold that answers exactly multiplies arbitrary
-//! input-funded integers — `Ω(M(|v|))` floors every settle and the
-//! `# Complexity` claims' worst case can never reach `O(|v|)` while
-//! integer multiplication is superlinear. The fold's densified images
-//! read flat per byte.
+//! computing the answer *is* one wide × dense multiplication, which the shipped
+//! settle delegates whole to the backend at its multiplication bound `M(|v|)`.
+//! The floor is a reduction, not a bet on this instance: the same constructor
+//! embeds `2·x·y + 1` for arbitrary factors (`meter::puncture_product`; the
+//! query fold's `arbitrary_factors_embed_their_product_in_exact_rank` proptest
+//! pins it), so any fold that answers exactly multiplies arbitrary input-funded
+//! integers — `Ω(M(|v|))` floors every settle and the `# Complexity` claims'
+//! worst case can never reach `O(|v|)` while integer multiplication is
+//! superlinear. The fold's densified images read flat per byte.
 
 use super::min_ticks_from_big;
 use before::testing::meter;
@@ -41,13 +38,12 @@ fn binary_rank_text(num: &BigUint, exp: usize) -> String {
     digits
 }
 
-/// One public `Version::rank` run over `PP(s, s)`: input bytes and the
-/// densify counter over the rank body alone.
+/// One public `Version::rank` run over `PP(s, s)`: input bytes and the densify
+/// counter over the rank body alone.
 ///
-/// Carries the `min_ticks` closed form (`s · x + 1` over the
-/// committed factors) as the generator's semantic leg, and the
-/// exact-rank leg (the answer is the product `2·x·y + 1` — the
-/// `Ω(M(|v|))` mandate's witness).
+/// Carries the `min_ticks` closed form (`s · x + 1` over the committed factors)
+/// as the generator's semantic leg, and the exact-rank leg (the answer is the
+/// product `2·x·y + 1` — the `Ω(M(|v|))` mandate's witness).
 fn run(s: usize) -> (u64, u64) {
     let v = Shape::PlateauPuncture.build2(s, s).version();
     let bytes = v.encode().len() as u64;
@@ -74,31 +70,29 @@ fn run(s: usize) -> (u64, u64) {
     (bytes, densified)
 }
 
-/// Plateau digits (and turn count) of the band's small run (the
-/// large run doubles both).
+/// Plateau digits (and turn count) of the band's small run (the large run
+/// doubles both).
 const PLATEAU_PUNCTURE_SMALL: usize = 500;
 
-/// Absolute two-scale densify ceilings for rank on the
-/// plateau-puncture family: the measured record ×1.25, rounded up (the
-/// record and every re-pin's movement live in the pin commits).
+/// Absolute two-scale densify ceilings for rank on the plateau-puncture family:
+/// the measured record ×1.25, rounded up (the record and every re-pin's
+/// movement live in the pin commits).
 ///
-/// Flat per encoded byte across the doubling: the close-time settle
-/// densifies the jittered punctured mass, whose span scales with the
-/// turn count exactly as the input does. The position axis — an image
-/// sized by a cluster's absolute digit index — is isolated (and
-/// killed) by the hoisted-window band, where spans stay fixed as
-/// positions grow.
+/// Flat per encoded byte across the doubling: the close-time settle densifies
+/// the jittered punctured mass, whose span scales with the turn count exactly
+/// as the input does. The position axis — an image sized by a cluster's
+/// absolute digit index — is isolated (and killed) by the hoisted-window band,
+/// where spans stay fixed as positions grow.
 const PLATEAU_PUNCTURE_DENSIFY_CEILINGS: (u64, u64) = (2_580, 5_158);
 
-/// rank's densified-image fill is flat per byte on the plateau-puncture
-/// family: the densify column stays within ×1.25 per byte across a
-/// `PP(s, s)` doubling, under absolute two-scale ceilings.
+/// rank's densified-image fill is flat per byte on the plateau-puncture family:
+/// the densify column stays within ×1.25 per byte across a `PP(s, s)` doubling,
+/// under absolute two-scale ceilings.
 ///
 /// Flat in the fold's own fill, never in total work: the answer-embedded
-/// product runs inside the backend at the multiplication bound (the
-/// exact-rank leg in [`run`] proves the answer is still the product). The
-/// fold's time on this family is judged in fuel by the board's
-/// `version_rank` cell.
+/// product runs inside the backend at the multiplication bound (the exact-rank
+/// leg in [`run`] proves the answer is still the product). The fold's time on
+/// this family is judged in fuel by the board's `version_rank` cell.
 #[test]
 fn rank_plateau_puncture_densify_is_flat_per_unit() {
     let (small_bytes, small) = run(PLATEAU_PUNCTURE_SMALL);

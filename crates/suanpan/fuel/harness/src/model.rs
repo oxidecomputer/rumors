@@ -12,24 +12,23 @@
 //! bounds each operation by `c · (1 + in + out + Δh + σ · log₆₄(h + 1))`, in
 //! 64-bit words: `in` the words it reads from operands, `out` the words it
 //! produces, `Δh` how far it raises its storage's width `h`, and `σ` 1 for an
-//! update at a nonzero shift. Composite steps are charged part by part, as
-//! the derivation decomposes them: a clone and then an owned operator, a
-//! negation and then an addition, one addition per term of a sum.
+//! update at a nonzero shift. Composite steps are charged part by part, as the
+//! derivation decomposes them: a clone and then an owned operator, a negation
+//! and then an addition, one addition per term of a sum.
 //!
 //! The rules define `h` as the highest bit written since the storage began,
-//! which only the implementation sees. The model tracks the running maximum
-//! of the value's width instead. An update writes no higher than a few
-//! digits above the wider of the value before and after it (`suanpan`'s cost
+//! which only the implementation sees. The model tracks the running maximum of
+//! the value's width instead. An update writes no higher than a few digits
+//! above the wider of the value before and after it (`suanpan`'s cost
 //! derivation, "Where updates write"), so the two differ by a constant. An
 //! owned operator keeps the storage of the operand with more stored digits;
-//! where the model cannot tell which that is, it takes the lower storage
-//! width (see `owned_height`). So the modeled `h` never exceeds the
-//! implementation's by more than a constant, and where the model is unsure
-//! it errs low, charging growth that may not happen rather than missing
-//! growth that does. That is the direction the property needs: the charge
-//! decides whether a skeleton's steady repetition charges any term that
-//! grows with the unit, and it states readings per unit of charge in failure
-//! messages.
+//! where the model cannot tell which that is, it takes the lower storage width
+//! (see `owned_height`). So the modeled `h` never exceeds the implementation's
+//! by more than a constant, and where the model is unsure it errs low, charging
+//! growth that may not happen rather than missing growth that does. That is the
+//! direction the property needs: the charge decides whether a skeleton's steady
+//! repetition charges any term that grows with the unit, and it states readings
+//! per unit of charge in failure messages.
 
 use std::cmp::Ordering;
 
@@ -56,7 +55,8 @@ pub struct Charge {
 }
 
 impl Charge {
-    /// Returns the charge in words: `1 + in + out + Δh / 64 + σ · log₆₄(h + 1)`.
+    /// Returns the charge in words:
+    /// `1 + in + out + Δh / 64 + σ · log₆₄(h + 1)`.
     pub fn words(&self) -> f64 {
         let logarithm = if self.shifted {
             ((self.height_bits + 1) as f64).log(64.0)
@@ -69,32 +69,31 @@ impl Charge {
             + logarithm
     }
 
-    /// Returns the terms that grow with the operands' sizes: `in`, `out`,
-    /// and `Δh`, the terms a step without one charges the same at every
-    /// unit.
+    /// Returns the terms that grow with the operands' sizes: `in`, `out`, and
+    /// `Δh`, the terms a step without one charges the same at every unit.
     pub fn sized_terms(&self) -> (u64, u64, u64) {
         (self.input_words, self.output_words, self.growth_bits)
     }
 }
 
-/// The hard regimes one step realized, each measured against the unit `u`
-/// the model was built with.
+/// The hard regimes one step realized, each measured against the unit `u` the
+/// model was built with.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Events {
     /// An additive step whose receiver and contribution were nonzero with
     /// opposite signs.
     pub mixed_sign: bool,
-    /// An additive step whose result is at least `u / 2` bits narrower than
-    /// the wider of its receiver and contribution.
+    /// An additive step whose result is at least `u / 2` bits narrower than the
+    /// wider of its receiver and contribution.
     pub cancellation: bool,
-    /// A mixed-sign step whose result holds a run of one bits at least
-    /// `u / 2` longer than the longest run in its receiver or contribution:
-    /// a borrow that crossed a long span of digits.
+    /// A mixed-sign step whose result holds a run of one bits at least `u / 2`
+    /// longer than the longest run in its receiver or contribution: a borrow
+    /// that crossed a long span of digits.
     pub borrow_run: bool,
     /// A step that raised its storage's width by at least `u / 2` bits.
     pub growth: bool,
-    /// A step after which the receiver's magnitude holds a run of at least
-    /// `u` zero bits between two one bits: a sparse high digit.
+    /// A step after which the receiver's magnitude holds a run of at least `u`
+    /// zero bits between two one bits: a sparse high digit.
     pub sparse: bool,
     /// An update at a nonzero shift.
     pub shifted: bool,
@@ -107,9 +106,9 @@ pub struct Record {
     pub charge: Charge,
     /// The observation word the guest must report for the step.
     pub observation: u64,
-    /// Whether the guest may report `cmp_zero_stable_under`'s refusal
-    /// instead: that method's `None` claims nothing, so it is a correct
-    /// answer whatever the value, and only an order is a promise.
+    /// Whether the guest may report `cmp_zero_stable_under`'s refusal instead:
+    /// that method's `None` claims nothing, so it is a correct answer whatever
+    /// the value, and only an order is a promise.
     pub may_refuse: bool,
     /// A floor on the fuel the step spends.
     ///
@@ -147,8 +146,8 @@ pub fn width(value: &BigInt) -> u64 {
     value.bits()
 }
 
-/// Returns the words the rules count for reading or producing a value of
-/// `bits` bits: `1 + bits / 64`.
+/// Returns the words the rules count for reading or producing a value of `bits`
+/// bits: `1 + bits / 64`.
 fn words(bits: u64) -> u64 {
     1 + bits / 64
 }
@@ -217,8 +216,8 @@ fn longest_ones_in(mut word: u64) -> u64 {
     length
 }
 
-/// The longest run of one bits and the longest run of zero bits strictly
-/// inside a magnitude (between its lowest and highest one bits).
+/// The longest run of one bits and the longest run of zero bits strictly inside
+/// a magnitude (between its lowest and highest one bits).
 fn runs(value: &BigInt) -> (u64, u64) {
     let (mut longest_ones, mut longest_inner_zeros) = (0u64, 0u64);
     // The runs of ones and of zeros that reach the top of the limbs seen so
@@ -255,8 +254,8 @@ fn runs(value: &BigInt) -> (u64, u64) {
 }
 
 impl Model {
-    /// Returns a model of a pool of zeros, measuring events against `unit`
-    /// bits and detecting them only if `census`.
+    /// Returns a model of a pool of zeros, measuring events against `unit` bits
+    /// and detecting them only if `census`.
     pub fn new(unit: u64, census: bool) -> Model {
         Model {
             unit,
@@ -676,23 +675,22 @@ impl Model {
     }
 }
 
-/// Returns the storage width an owned addition's or `abs_diff`'s result
-/// keeps, from the widths and storage widths of its receiver and its operand.
+/// Returns the storage width an owned addition's or `abs_diff`'s result keeps,
+/// from the widths and storage widths of its receiver and its operand.
 ///
 /// Both read one operand into the other's storage, choosing by stored digit
-/// counts: the receiver keeps its storage unless the operand holds more
-/// digits, after compacting whichever holds more. The operand that keeps its
-/// storage has been compacted, so its count exceeds its value's digit count
-/// by at most one, and any count is at least its value's digit count less
-/// one; so the operand that gives up its storage has at most
-/// [`DIGIT_SLACK`] more value digits than the one that keeps it (owned
-/// addition first returns a known zero's partner, which the same bound
-/// covers). The
-/// model sees value widths, not stored forms, so when the two values' digit
-/// counts lie within [`DIGIT_SLACK`] of each other either storage may
-/// survive, and the model takes the lower storage width: that can only
-/// charge more growth later, never hide growth an implementation pays again.
-/// Beyond that slack, the operand with more digits keeps its storage.
+/// counts: the receiver keeps its storage unless the operand holds more digits,
+/// after compacting whichever holds more. The operand that keeps its storage
+/// has been compacted, so its count exceeds its value's digit count by at most
+/// one, and any count is at least its value's digit count less one; so the
+/// operand that gives up its storage has at most [`DIGIT_SLACK`] more value
+/// digits than the one that keeps it (owned addition first returns a known
+/// zero's partner, which the same bound covers). The model sees value widths,
+/// not stored forms, so when the two values' digit counts lie within
+/// [`DIGIT_SLACK`] of each other either storage may survive, and the model
+/// takes the lower storage width: that can only charge more growth later, never
+/// hide growth an implementation pays again. Beyond that slack, the operand
+/// with more digits keeps its storage.
 fn owned_height(
     receiver_width: u64,
     receiver_height: u64,
@@ -709,19 +707,19 @@ fn owned_height(
     }
 }
 
-/// How many more value digits the operand an owned addition reads can have
-/// than the operand whose storage it keeps.
+/// How many more value digits the operand an owned addition reads can have than
+/// the operand whose storage it keeps.
 const DIGIT_SLACK: u64 = 2;
 
-/// Returns the 32-bit digit positions a value of `bits` bits occupies, at
-/// least one, as an accumulator's working width counts them.
+/// Returns the 32-bit digit positions a value of `bits` bits occupies, at least
+/// one, as an accumulator's working width counts them.
 fn digits(bits: u64) -> u64 {
     bits.div_ceil(32).max(1)
 }
 
 /// Returns the member a step writes, if it writes one: the storage a step's
-/// logarithm is charged against, and the member a budget rewrite clears in
-/// the step's place.
+/// logarithm is charged against, and the member a budget rewrite clears in the
+/// step's place.
 pub fn written_member(step: &Step<impl Sized>) -> Option<Member> {
     match step {
         Step::Primitive { member, .. }

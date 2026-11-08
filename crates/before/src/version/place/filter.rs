@@ -11,11 +11,11 @@
 //! digits: the pair keeps `probe - bound` and applies later changes directly to
 //! it. This difference is private to one bound, whereas the probe height is
 //! shared by every bound. If the probe grows much wider, copying it into every
-//! private difference would multiply memory by the number of bounds. The
-//! filter therefore discards a difference before such a change and compares
-//! the two shared heights without copying either one. This policy belongs here
-//! because it controls the query walk's per-bound cache; it is not part of
-//! Version arithmetic itself.
+//! private difference would multiply memory by the number of bounds. The filter
+//! therefore discards a difference before such a change and compares the two
+//! shared heights without copying either one. This policy belongs here because
+//! it controls the query walk's per-bound cache; it is not part of Version
+//! arithmetic itself.
 //!
 //! [`advance_set`] moves all streams that reach the next shared interval
 //! boundary. Verdict handling only examines the accumulated comparison state;
@@ -30,8 +30,8 @@
 //!   whose excluded relation fails can be discarded; if only discarded holes
 //!   remain, the answer is `true`.
 //! - [`coverage`] returns [`Coverage::Empty`] when a required bound excludes
-//!   the whole span. A hole that excludes neither endpoint can be discarded;
-//!   if only discarded holes remain, the answer is [`Coverage::Full`].
+//!   the whole span. A hole that excludes neither endpoint can be discarded; if
+//!   only discarded holes remain, the answer is [`Coverage::Full`].
 //!   [`Coverage::Partial`] requires the complete walk because a required bound
 //!   can continue to leave `Empty` possible until the final interval.
 //!
@@ -40,19 +40,19 @@
 //! Every topology bit is read once and every leaf payload is decoded once. Let
 //! `k` be the number of bounds, `i` the number of constant intervals obtained
 //! by combining every stream's boundaries, `p` the payload bytes in the probe
-//! stream or streams, and `n` all input bytes. Topology work is
-//! `O(n + k·i)`; numeric work is `O(n + k·p)` because a probe delta may feed
-//! every live exact difference. The total is therefore `O(n + k·(i + p))`, or
-//! `O(k·n)` using bytes alone.
+//! stream or streams, and `n` all input bytes. Topology work is `O(n + k·i)`;
+//! numeric work is `O(n + k·p)` because a probe delta may feed every live exact
+//! difference. The total is therefore `O(n + k·(i + p))`, or `O(k·n)` using
+//! bytes alone.
 //!
 //! Auxiliary state is `O(n + k)`: the walk keeps one fixed-size record and one
 //! absolute height per bound. A private difference exists only while its two
-//! absolute heights retain similar numbers of digits, so its size is bounded
-//! by the bound height it accompanies. If a change makes the shared probe much
+//! absolute heights retain similar numbers of digits, so its size is bounded by
+//! the bound height it accompanies. If a change makes the shared probe much
 //! wider, the filter discards the difference before applying that change. When
-//! cancellation makes a height retain many leading digits that no longer
-//! affect its value, the stability comparison compacts that one shared height
-//! rather than copying it into every comparison.
+//! cancellation makes a height retain many leading digits that no longer affect
+//! its value, the stability comparison compacts that one shared height rather
+//! than copying it into every comparison.
 //!
 //! Two parts of this bound are amortized. First, an accumulator comparison may
 //! scan leading cancellation, but it compacts the digits it scans; they cannot
@@ -121,13 +121,13 @@ struct Comparison {
     directions: OrderState,
 }
 
-/// The greatest working-width lead, in bits, at which a bound keeps its
-/// private difference.
+/// The greatest working-width lead, in bits, at which a bound keeps its private
+/// difference.
 ///
 /// Heights this close cost about as much to subtract as to compare, so the
-/// difference is worth keeping; it also stays within this lead of the
-/// narrower height. A wider lead is left to `Ord`, which decides it without
-/// copying either height.
+/// difference is worth keeping; it also stays within this lead of the narrower
+/// height. A wider lead is left to `Ord`, which decides it without copying
+/// either height.
 const MAX_CLOSE_LEAD_BITS: u64 = 64;
 
 /// Whether two heights are close enough in working width to keep their
@@ -184,8 +184,8 @@ impl Comparison {
     /// Compare two nonnegative heights without copying a much wider operand.
     ///
     /// Close heights get one exact difference, which later crossings update in
-    /// place. Otherwise `Ord` decides, and its comparison of a far-wider
-    /// height asks that height's stability query rather than copying it.
+    /// place. Otherwise `Ord` decides, and its comparison of a far-wider height
+    /// asks that height's stability query rather than copying it.
     fn compare_heights(
         probe: &Accumulator,
         bound: &Accumulator,
@@ -209,10 +209,9 @@ impl Comparison {
 
 /// A coverage pair and whether it still feeds the verdict.
 ///
-/// A pair is *settled* (`live == false`) when a refutation fixed everything
-/// the verdict will ever need from it: a settled pair stops folding and
-/// reading (its stream may still advance for the other pair riding the same
-/// cursor).
+/// A pair is *settled* (`live == false`) when a refutation fixed everything the
+/// verdict will ever need from it: a settled pair stops folding and reading
+/// (its stream may still advance for the other pair riding the same cursor).
 struct GatedComparison {
     comparison: Comparison,
     live: bool,
@@ -327,11 +326,11 @@ pub fn admits<'a>(
     })
 }
 
-/// The membership walk's owned cursor set: the probe's cursor and every
-/// bound side: the walk state itself, as in the placement walk's `Cursors`.
+/// The membership walk's owned cursor set: the probe's cursor and every bound
+/// side: the walk state itself, as in the placement walk's `Cursors`.
 ///
-/// The read loop reaches the sides through the fields between advances, and
-/// the whole set steps by the overlay-advance law ([`advance_set`]).
+/// The read loop reaches the sides through the fields between advances, and the
+/// whole set steps by the overlay-advance law ([`advance_set`]).
 struct MemberCursors<'a> {
     probe: VersionRegionReader<'a>,
     /// The probe's absolute height, shared by every comparison that remains
@@ -352,8 +351,8 @@ impl MemberCursors<'_> {
 /// and into a private difference unless the step finds the heights too far
 /// apart and drops that difference. No sign is read until the whole tied group
 /// has stepped, and a read that finds no difference takes the sign from the
-/// absolute heights themselves, so a dropped difference changes no verdict.
-/// The order is fixed only so that accumulator work is reproducible.
+/// absolute heights themselves, so a dropped difference changes no verdict. The
+/// order is fixed only so that accumulator work is reproducible.
 impl CursorSet for MemberCursors<'_> {
     fn priority(&self) -> impl Iterator<Item = usize> + Clone + 'static {
         0..self.sides.len() + 1
@@ -373,9 +372,9 @@ impl CursorSet for MemberCursors<'_> {
     /// the `A` operand; a bound's step folds into its own pair as the `B`
     /// operand.
     ///
-    /// Every present side's pair reads every interval: membership never
-    /// settles a pair (a satisfied hole drops its whole side), so presence
-    /// is the only gate.
+    /// Every present side's pair reads every interval: membership never settles
+    /// a pair (a satisfied hole drops its whole side), so presence is the only
+    /// gate.
     fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => {
@@ -419,10 +418,10 @@ struct SpanSide<'a> {
 /// How much of the segment `[lo, hi]` a query's demands admit, every stream
 /// decoded once: `causally`'s [`Coverage`] verdict at the stream layer.
 ///
-/// `lo` and `hi` must satisfy `lo <= hi` (`Span`'s construction
-/// contract); the verdict is unspecified otherwise. An empty demand list is
-/// [`Coverage::Full`] at zero cost. The demand list's order is the read order
-/// per elementary interval; callers supply a deterministic order.
+/// `lo` and `hi` must satisfy `lo <= hi` (`Span`'s construction contract); the
+/// verdict is unspecified otherwise. An empty demand list is [`Coverage::Full`]
+/// at zero cost. The demand list's order is the read order per elementary
+/// interval; callers supply a deterministic order.
 ///
 /// A [`Coverage::Partial`] verdict certifies every required demand against the
 /// far endpoint: each floor ([`Demand::After`]) satisfies `floor <= hi`, and
@@ -591,8 +590,8 @@ pub fn coverage<'a>(
 }
 
 /// The coverage walk's owned cursor set: both probe endpoints' cursors, their
-/// live flags, and every bound side: the walk state itself, as in the
-/// placement walk's `Cursors`.
+/// live flags, and every bound side: the walk state itself, as in the placement
+/// walk's `Cursors`.
 ///
 /// The read loop reaches the sides through the fields between advances, and the
 /// whole set steps by the overlay-advance law ([`advance_set`]).
@@ -620,9 +619,9 @@ impl SpanCursors<'_> {
     /// Map the exhausted comparisons to the query's coverage verdict.
     ///
     /// A required comparison that settled early has already made full coverage
-    /// impossible, so only live comparisons contribute another relation here.
-    /// A surviving hole still has the endpoint relation needed to decide
-    /// whether it removes all, some, or none of the span.
+    /// impossible, so only live comparisons contribute another relation here. A
+    /// surviving hole still has the endpoint relation needed to decide whether
+    /// it removes all, some, or none of the span.
     fn finish(&self, mut full_possible: bool) -> Coverage {
         for side in self.sides.iter().flatten() {
             // A hole that covers the entire span decides emptiness. Required
@@ -698,8 +697,8 @@ impl CursorSet for SpanCursors<'_> {
         }
     }
 
-    /// An endpoint's step folds its crossing into its own live pairs as the
-    /// `A` operand; a bound's step folds into both its live pairs as the `B`
+    /// An endpoint's step folds its crossing into its own live pairs as the `A`
+    /// operand; a bound's step folds into both its live pairs as the `B`
     /// operand (settled pairs advance unread).
     fn step(&mut self, slot: usize) -> u64 {
         match slot {

@@ -1,29 +1,27 @@
 //! The height-erased seam of the streaming session: the wire vocabulary's
-//! erased twin, the typed exits, and the dispatch back into the typed
-//! backend surface.
+//! erased twin, the typed exits, and the dispatch back into the typed backend
+//! surface.
 //!
-//! The materialized walk's payloads and workers are height-uniform at
-//! runtime: nodes erase to one representation per backend
-//! ([`Backend::Erased`]), prefixes to their bytes
-//! ([`ErasedPrefix`](crate::tree::typed::ErasedPrefix)), and nothing else
-//! in a payload ever depended on the height. The walk therefore runs on
-//! erased values — one instantiation of its channels, generators, and
-//! loops per backend, instead of one per height — while the protocol
-//! schedule around it stays fully typed. This module owns the seam
-//! between the two:
+//! The materialized walk's payloads and workers are height-uniform at runtime:
+//! nodes erase to one representation per backend ([`Backend::Erased`]),
+//! prefixes to their bytes
+//! ([`ErasedPrefix`](crate::tree::typed::ErasedPrefix)), and nothing else in a
+//! payload ever depended on the height. The walk therefore runs on erased
+//! values — one instantiation of its channels, generators, and loops per
+//! backend, instead of one per height — while the protocol schedule around it
+//! stays fully typed. This module owns the seam between the two:
 //!
-//! - [`Reply`] is [`message::Reply`]'s erased twin, converted exactly at
-//!   the schedule boundary: [`super::protocol::Requests::erase`] where a
-//!   typed request stream enters a walk worker, and [`reply_channel`]'s
-//!   typed exit where a worker's responses become the schedule's typed
-//!   response stream. Both carry the one [`Reaction`] type, whose supplied
-//!   nodes stay erased, so every conversion is a phantom-tag swap that
-//!   re-tags no node.
+//! - [`Reply`] is [`message::Reply`]'s erased twin, converted exactly at the
+//!   schedule boundary: [`super::protocol::Requests::erase`] where a typed
+//!   request stream enters a walk worker, and [`reply_channel`]'s typed exit
+//!   where a worker's responses become the schedule's typed response stream.
+//!   Both carry the one [`Reaction`] type, whose supplied nodes stay erased, so
+//!   every conversion is a phantom-tag swap that re-tags no node.
 //! - [`ops`] carries erased node operations back into the height-typed
-//!   [`Backend`] surface, selecting the type-level height from the one
-//!   runtime witness every erased scope carries: its prefix's byte
-//!   length. The same prefix is the node's coordinate, which re-tagging
-//!   checks against the node in debug builds ([`Backend::assume`]).
+//!   [`Backend`] surface, selecting the type-level height from the one runtime
+//!   witness every erased scope carries: its prefix's byte length. The same
+//!   prefix is the node's coordinate, which re-tagging checks against the node
+//!   in debug builds ([`Backend::assume`]).
 //!
 //! # What the types stop proving, and what catches it instead
 //!
@@ -34,8 +32,8 @@
 //! re-tag asserts its byte length against the claimed height, the [`ops`]
 //! dispatch derives its height from that same length (so the coordinate and the
 //! witness cannot drift apart), every node re-tag checks that coordinate
-//! against the node's own path in debug builds ([`Backend::assume`]), and
-//! every channel keeps its [`QueueRole`] height label for the instrumented
+//! against the node's own path in debug builds ([`Backend::assume`]), and every
+//! channel keeps its [`QueueRole`] height label for the instrumented
 //! diagnostics. The behavioral tests exercise exactly these pairings.
 
 use std::marker::PhantomData;
@@ -59,8 +57,8 @@ use crate::tree::{
 pub(crate) struct Reply<E> {
     /// The next reactions to one earlier query, in prefix order.
     pub reactions: Vec<Reaction<E>>,
-    /// What the reply holds, charged to the endpoint that built it and
-    /// returned when its consumer has used it.
+    /// What the reply holds, charged to the endpoint that built it and returned
+    /// when its consumer has used it.
     pub charge: Charge,
     /// Whether these reactions end the reply.
     pub last: bool,
@@ -69,12 +67,12 @@ pub(crate) struct Reply<E> {
     pub carried: Carried,
 }
 
-/// The one reaction type, typed reply and erased alike: its supplied nodes
-/// are erased handles at every height ([`message::Reaction::Supply`]).
+/// The one reaction type, typed reply and erased alike: its supplied nodes are
+/// erased handles at every height ([`message::Reaction::Supply`]).
 pub(crate) use message::Reaction;
 
-/// Erase one typed reply where a schedule-typed request stream enters a
-/// walk worker: the reactions move as they are.
+/// Erase one typed reply where a schedule-typed request stream enters a walk
+/// worker: the reactions move as they are.
 pub(crate) fn erase_reply<B, H>(reply: message::Reply<B, H>) -> Reply<B::Erased>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -95,8 +93,8 @@ where
     }
 }
 
-/// Tag one erased reply with its height at the typed exit of
-/// [`reply_channel`]: the reactions move as they are.
+/// Tag one erased reply with its height at the typed exit of [`reply_channel`]:
+/// the reactions move as they are.
 ///
 /// Their supplied nodes stay erased, since the scope that decides their
 /// coordinates is known only to the reply's consumer.
@@ -120,9 +118,9 @@ where
     }
 }
 
-/// The typed exit of [`reply_channel`]: the erased receiver as a stream
-/// of schedule-typed replies. `Err` is the session's error type, passed
-/// through untouched.
+/// The typed exit of [`reply_channel`]: the erased receiver as a stream of
+/// schedule-typed replies. `Err` is the session's error type, passed through
+/// untouched.
 pub(crate) struct ReplyResultStream<B, H, Err>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -151,13 +149,12 @@ where
     }
 }
 
-/// Create the outgoing-response edge: an erased sender for the response
-/// pump, and the typed response stream the schedule consumes.
+/// Create the outgoing-response edge: an erased sender for the response pump,
+/// and the typed response stream the schedule consumes.
 ///
-/// The one edge whose two halves speak different vocabularies — erased
-/// in, typed out — and therefore the outgoing half of the walk's typed
-/// boundary. Its height parameter fixes the exit's re-tag; the erased
-/// sender needs none.
+/// The one edge whose two halves speak different vocabularies — erased in,
+/// typed out — and therefore the outgoing half of the walk's typed boundary.
+/// Its height parameter fixes the exit's re-tag; the erased sender needs none.
 pub(crate) fn reply_channel<B, H, Err>(
     role: QueueRole,
     capacity: usize,
@@ -180,15 +177,15 @@ where
     )
 }
 
-/// Erased node operations dispatched back into the height-typed
-/// [`Backend`] surface.
+/// Erased node operations dispatched back into the height-typed [`Backend`]
+/// surface.
 ///
-/// The backend's traversal operations are generic over type-level
-/// heights; an erased caller selects the height at runtime from the one
-/// witness every erased scope carries — its prefix's byte length — via a
-/// 33-arm match whose arms each instantiate one thin typed call. Deriving
-/// the height from the prefix (rather than threading a separate counter)
-/// is what keeps the coordinate and the witness structurally inseparable.
+/// The backend's traversal operations are generic over type-level heights; an
+/// erased caller selects the height at runtime from the one witness every
+/// erased scope carries — its prefix's byte length — via a 33-arm match whose
+/// arms each instantiate one thin typed call. Deriving the height from the
+/// prefix (rather than threading a separate counter) is what keeps the
+/// coordinate and the witness structurally inseparable.
 pub(crate) mod ops {
     use std::pin::pin;
 
@@ -208,8 +205,8 @@ pub(crate) mod ops {
     /// Select the type-level height matching a runtime *parent* height.
     ///
     /// `$H` is bound to the parent's height type within `$body`, and
-    /// `<$H as Pred>::Pred` names the children's. Each arm monomorphizes
-    /// the body once, so bodies must stay thin.
+    /// `<$H as Pred>::Pred` names the children's. Each arm monomorphizes the
+    /// body once, so bodies must stay thin.
     macro_rules! at_parent_height {
         ($height:expr, $H:ident => $body:expr) => {{
             seq_macro::seq!(N in 1..=32 {
@@ -222,8 +219,8 @@ pub(crate) mod ops {
         }};
     }
 
-    /// Select the type-level height matching a runtime height, leaves
-    /// included: [`at_parent_height!`] minus the nonzero premise.
+    /// Select the type-level height matching a runtime height, leaves included:
+    /// [`at_parent_height!`] minus the nonzero premise.
     macro_rules! at_height {
         ($height:expr, $H:ident => $body:expr) => {{
             seq_macro::seq!(N in 0..=32 {
@@ -235,15 +232,15 @@ pub(crate) mod ops {
         }};
     }
 
-    /// Collect one typed node's children, addressed by radix, into a
-    /// vector of capacity `count`, the number its backend reports.
+    /// Collect one typed node's children, addressed by radix, into a vector of
+    /// capacity `count`, the number its backend reports.
     ///
     /// # Errors
     ///
-    /// Returns [`CountError::ChildrenListed`] if the backend lists a
-    /// different number of children than `count`. Listing stops at the
-    /// first child beyond `count`, so the vector never grows past its
-    /// capacity. Returns [`Error::Backend`] if listing fails.
+    /// Returns [`CountError::ChildrenListed`] if the backend lists a different
+    /// number of children than `count`. Listing stops at the first child beyond
+    /// `count`, so the vector never grows past its capacity. Returns
+    /// [`Error::Backend`] if listing fails.
     async fn children_of_typed<B, H>(
         backend: &B,
         prefix: Prefix<S<H>>,
@@ -278,26 +275,25 @@ pub(crate) mod ops {
     }
 
     /// Collect one erased node's children, addressed by radix
-    /// ([`children_of_typed`], erased), into a vector of exactly their
-    /// number ([`ErasedNode::child_count`]), which a question's price
-    /// counts at its capacity.
+    /// ([`children_of_typed`], erased), into a vector of exactly their number
+    /// ([`ErasedNode::child_count`]), which a question's price counts at its
+    /// capacity.
     ///
-    /// `prefix` is the node's own prefix, its coordinate; its length names
-    /// the height the node is re-tagged at, and re-tagging checks its bytes
-    /// against the node's path ([`Backend::assume`]), so a walk cannot
-    /// explode a node at any level other than the one it sits at.
+    /// `prefix` is the node's own prefix, its coordinate; its length names the
+    /// height the node is re-tagged at, and re-tagging checks its bytes against
+    /// the node's path ([`Backend::assume`]), so a walk cannot explode a node
+    /// at any level other than the one it sits at.
     ///
     /// The backend's child count becomes the vector's capacity, so it is
-    /// checked first: a backend reading corrupted storage could report one
-    /// no node can have, or list a different number of children than it
-    /// reports.
+    /// checked first: a backend reading corrupted storage could report one no
+    /// node can have, or list a different number of children than it reports.
     ///
     /// # Errors
     ///
-    /// Returns [`CountError::Children`] if the backend reports more than a
-    /// fan of children, before listing any;
-    /// [`CountError::ChildrenListed`] if it lists a different number than
-    /// it reports; and [`Error::Backend`] if listing fails.
+    /// Returns [`CountError::Children`] if the backend reports more than a fan
+    /// of children, before listing any; [`CountError::ChildrenListed`] if it
+    /// lists a different number than it reports; and [`Error::Backend`] if
+    /// listing fails.
     pub(crate) async fn children_of<B>(
         backend: &B,
         prefix: ErasedPrefix,
@@ -327,14 +323,13 @@ pub(crate) mod ops {
         })
     }
 
-    /// Assemble one erased parent node at `prefix` from one radix-keyed
-    /// child group ([`Backend::parent`], erased).
+    /// Assemble one erased parent node at `prefix` from one radix-keyed child
+    /// group ([`Backend::parent`], erased).
     ///
-    /// `prefix` is the parent's own prefix, carrying the same
-    /// length-is-height witness as [`children_of`], and each child's
-    /// coordinate is `prefix` extended by its radix; `original` is the node
-    /// listed at `prefix` before the session explored it, if any, erased
-    /// there.
+    /// `prefix` is the parent's own prefix, carrying the same length-is-height
+    /// witness as [`children_of`], and each child's coordinate is `prefix`
+    /// extended by its radix; `original` is the node listed at `prefix` before
+    /// the session explored it, if any, erased there.
     pub(crate) async fn parent<B>(
         backend: B,
         prefix: ErasedPrefix,
@@ -366,8 +361,8 @@ pub(crate) mod ops {
     /// Walk every leaf beneath an erased node, in ascending path order
     /// ([`Backend::leaves`], erased).
     ///
-    /// The yielded leaves stay typed: `Z` is a single height, so nothing
-    /// about a leaf ever needed erasing.
+    /// The yielded leaves stay typed: `Z` is a single height, so nothing about
+    /// a leaf ever needed erasing.
     pub(crate) fn leaves<B>(
         backend: B,
         prefix: ErasedPrefix,
@@ -382,13 +377,13 @@ pub(crate) mod ops {
         })
     }
 
-    /// Assemble a strictly ascending leaf stream into erased nodes at
-    /// `height`, one per maximal same-prefix run, in run order
-    /// ([`Backend::assemble`], erased).
+    /// Assemble a strictly ascending leaf stream into erased nodes at `height`,
+    /// one per maximal same-prefix run, in run order ([`Backend::assemble`],
+    /// erased).
     ///
-    /// The one dispatch keyed by an explicit height rather than a prefix:
-    /// its input is a whole leaf stream, and the target height is the
-    /// consuming scope's — whose prefix length the caller derives it from.
+    /// The one dispatch keyed by an explicit height rather than a prefix: its
+    /// input is a whole leaf stream, and the target height is the consuming
+    /// scope's — whose prefix length the caller derives it from.
     pub(crate) fn assemble<'a, B>(
         backend: B,
         height: usize,

@@ -1,29 +1,29 @@
 //! Lazy rendering of one wire item in RFC 8949 diagnostic notation.
 //!
-//! The adapter's events carry the observed item as one text field,
-//! rendered by `cbor-diag`: extended diagnostic notation with encoding
-//! indicators, embedded-CBOR tags (24 and 63) unfolded as `<<…>>`, and
-//! nesting depth bounded by that library's default depth limit — a
-//! structural walk past the limit fails the parse, and embedded
-//! unfolds past it fall back to the plain byte-string form. On top of
-//! that depth bound, one local cap bounds the rendered length, so
-//! events stay cheap even when a megabyte supply run is observed.
+//! The adapter's events carry the observed item as one text field, rendered by
+//! `cbor-diag`: extended diagnostic notation with encoding indicators,
+//! embedded-CBOR tags (24 and 63) unfolded as `<<…>>`, and nesting depth
+//! bounded by that library's default depth limit — a structural walk past the
+//! limit fails the parse, and embedded unfolds past it fall back to the plain
+//! byte-string form. On top of that depth bound, one local cap bounds the
+//! rendered length, so events stay cheap even when a megabyte supply run is
+//! observed.
 
 use std::fmt;
 use std::fmt::Write;
 
-/// The rendered form's length cap in bytes. Once an item's rendering
-/// crosses it, the remainder elides: no observed item, however large,
-/// puts more than this in one event field.
+/// The rendered form's length cap in bytes. Once an item's rendering crosses
+/// it, the remainder elides: no observed item, however large, puts more than
+/// this in one event field.
 const LENGTH_BUDGET: usize = 2048;
 
 /// Renders a raw CBOR item in RFC 8949 diagnostic notation.
 ///
-/// Bytes that cannot be rendered as one CBOR item (undecodable,
-/// trailing bytes, or nested past the depth limit) fall back to an
-/// explicit note plus capped hex: the adapter observes, it never
-/// judges. A `Display` wrapper rather than an eager rendering, so the
-/// work runs only when a subscriber actually formats the field.
+/// Bytes that cannot be rendered as one CBOR item (undecodable, trailing bytes,
+/// or nested past the depth limit) fall back to an explicit note plus capped
+/// hex: the adapter observes, it never judges. A `Display` wrapper rather than
+/// an eager rendering, so the work runs only when a subscriber actually formats
+/// the field.
 pub(crate) struct DiagCbor<'a>(pub(crate) &'a [u8]);
 
 impl fmt::Display for DiagCbor<'_> {

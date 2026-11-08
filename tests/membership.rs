@@ -1,13 +1,12 @@
 //! Membership churn under the oracle-checked sequential engine.
 //!
-//! Mid-schedule bootstraps and retirements interleave with inserts,
-//! redactions, and gossip, every run checked against the spec-shaped
-//! oracle and the global party invariants.
+//! Mid-schedule bootstraps and retirements interleave with inserts, redactions,
+//! and gossip, every run checked against the spec-shaped oracle and the global
+//! party invariants.
 //!
-//! The engine runs one session at a time over clean wires, so every
-//! retirement commits and content is conserved exactly: unlike the
-//! chaos engine's loss accounting, the oracle equality here is
-//! unconditional.
+//! The engine runs one session at a time over clean wires, so every retirement
+//! commits and content is conserved exactly: unlike the chaos engine's loss
+//! accounting, the oracle equality here is unconditional.
 
 use rumors_testkit::common;
 
@@ -95,13 +94,12 @@ proptest! {
     }
 }
 
-/// The membership alphabet is live in the generated population: sampled
-/// under proptest's deterministic runner, the strategy emits schedules
-/// containing both mid-schedule bootstraps and retirements.
+/// The membership alphabet is live in the generated population: sampled under
+/// proptest's deterministic runner, the strategy emits schedules containing
+/// both mid-schedule bootstraps and retirements.
 ///
-/// Either could silently vanish — a weight edit, or a validity rule
-/// that drops every choice — leaving the suite green while testing no
-/// membership at all.
+/// Either could silently vanish — a weight edit, or a validity rule that drops
+/// every choice — leaving the suite green while testing no membership at all.
 #[test]
 fn membership_population_contains_churn() {
     let mut runner = TestRunner::deterministic();

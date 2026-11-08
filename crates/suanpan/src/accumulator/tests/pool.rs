@@ -10,19 +10,19 @@
 //! changes the stored form that later steps meet, as it would in a caller's
 //! program.
 //!
-//! Each member is paired with a `BigInt` oracle. After every step, every
-//! member is observed without being changed: both limb readouts, the
-//! representation invariants, known-zero soundness, and the bounds its
-//! working width places on its value. A step that asks a question (a sign, a
-//! comparison, a stability query, an in-place read, a conversion) checks the
-//! answer where it asks. Nothing else compares a member with zero, so
-//! cancellation builds up across steps until the program itself reads it.
+//! Each member is paired with a `BigInt` oracle. After every step, every member
+//! is observed without being changed: both limb readouts, the representation
+//! invariants, known-zero soundness, and the bounds its working width places on
+//! its value. A step that asks a question (a sign, a comparison, a stability
+//! query, an in-place read, a conversion) checks the answer where it asks.
+//! Nothing else compares a member with zero, so cancellation builds up across
+//! steps until the program itself reads it.
 //!
 //! Each case enables a random subset of step kinds with random weights, which
 //! is swarm testing (Groce et al., ISSTA 2012): some programs grow wide values
 //! with no clear or compacting read among them, while others repeat one
-//! interaction many times. The census at the end floors the regimes whose
-//! mass that design fixes.
+//! interaction many times. The census at the end floors the regimes whose mass
+//! that design fixes.
 
 use core::cmp::Ordering;
 use core::hash::BuildHasher;
@@ -64,8 +64,8 @@ enum OperandForm {
     /// normalizes the operand in place first.
     OwnedClone,
     /// `receiver ± take(operand)`, consuming both, so the operand's member
-    /// restarts as a new accumulator. A member that is its own operand
-    /// passes a clone instead.
+    /// restarts as a new accumulator. A member that is its own operand passes a
+    /// clone instead.
     OwnedTake,
     /// `&operand ± receiver`, consuming the receiver as the right operand.
     Reversed,
@@ -84,8 +84,8 @@ enum ReadForm {
 
 /// One instruction of a program over the pool.
 ///
-/// Every `usize` field indexes a pool member. A step's receiver and the
-/// member it reads may be the same member.
+/// Every `usize` field indexes a pool member. A step's receiver and the member
+/// it reads may be the same member.
 #[derive(Clone, Debug)]
 enum Step {
     /// `+=` a signed machine word.
@@ -139,15 +139,15 @@ enum Step {
         operand: usize,
         /// Whether to subtract rather than add.
         subtract: bool,
-        /// The scale of the [`Shifted`](OperandForm::Shifted) form, ignored
-        /// by the others.
+        /// The scale of the [`Shifted`](OperandForm::Shifted) form, ignored by
+        /// the others.
         shift: u64,
         /// How the operand is supplied.
         form: OperandForm,
     },
     /// Subtract `(2^33 − 1) · 2^(32 · index)` as two word deposits at one
-    /// digit, which leaves the extreme coefficient `−(2^33 − 1)` there when
-    /// the digit was zero. Negation makes the positive extreme.
+    /// digit, which leaves the extreme coefficient `−(2^33 − 1)` there when the
+    /// digit was zero. Negation makes the positive extreme.
     ParkExtreme {
         /// The member updated.
         member: usize,
@@ -234,8 +234,8 @@ enum Step {
         /// Whether to sum clones rather than borrows.
         cloned: bool,
     },
-    /// Replace the receiver by the magnitude of its difference from an
-    /// operand, checking the reported order.
+    /// Replace the receiver by the magnitude of its difference from an operand,
+    /// checking the reported order.
     AbsDiff {
         /// The member replaced.
         receiver: usize,
@@ -245,13 +245,12 @@ enum Step {
         /// clone it; a receiver that is its own operand is always cloned.
         take: bool,
     },
-    /// A value-neutral round of single-digit writes: `1` at `low`, if any,
-    /// then at `top` and `inner`, then `−1` at `top`, `inner`, and `low`.
+    /// A value-neutral round of single-digit writes: `1` at `low`, if any, then
+    /// at `top` and `inner`, then `−1` at `top`, `inner`, and `low`.
     ///
-    /// Each write lands above or beside a gap of unwritten positions, and
-    /// each cancellation of the top makes it descend across one. Beneath a
-    /// wider value the positions stay written, so the written set becomes
-    /// sparse.
+    /// Each write lands above or beside a gap of unwritten positions, and each
+    /// cancellation of the top makes it descend across one. Beneath a wider
+    /// value the positions stay written, so the written set becomes sparse.
     GapRound {
         /// The member written.
         member: usize,
@@ -266,9 +265,9 @@ enum Step {
 
 /// Declare [`Kind`] and [`Kind::ALL`] from one list of kinds.
 ///
-/// Generating both from the list makes `ALL` name every kind exactly once,
-/// in declaration order, which is also the order of the discriminants that
-/// index a case's swarm weights.
+/// Generating both from the list makes `ALL` name every kind exactly once, in
+/// declaration order, which is also the order of the discriminants that index a
+/// case's swarm weights.
 macro_rules! kinds {
     ($($(#[$doc:meta])* $kind:ident,)*) => {
         /// The kinds of [`Step`], in the order of a case's swarm weights.
@@ -376,8 +375,8 @@ impl Step {
 /// A generated program: each member's starting representation, then steps.
 #[derive(Clone, Debug)]
 struct Program {
-    /// Whether each member starts in the digit representation rather than
-    /// the small one.
+    /// Whether each member starts in the digit representation rather than the
+    /// small one.
     digits: [bool; POOL],
     /// The instructions, applied in order.
     steps: Vec<Step>,
@@ -410,8 +409,8 @@ fn two_members(
     }
 }
 
-/// The digit count of every accumulator whose `stored_bits` reports `bits`,
-/// if any can report it.
+/// The digit count of every accumulator whose `stored_bits` reports `bits`, if
+/// any can report it.
 ///
 /// The working width is a whole number of 32-bit digits, at least one
 /// (`Value::stored_bits`), so the widths an accumulator can report are the
@@ -431,12 +430,12 @@ fn max_magnitude(count: usize) -> UBig {
 /// Check one answer of `cmp_zero_stable_under(bits)` against its contract.
 ///
 /// `Some(order)` is the value's sign, never `Equal`, and promises that every
-/// integer of magnitude below `2^bits` leaves that order unchanged. Adding
-/// the value's own negation would make it zero, so the promise holds exactly
-/// when the magnitude is at least `2^bits`. When `bits` is a width that some
+/// integer of magnitude below `2^bits` leaves that order unchanged. Adding the
+/// value's own negation would make it zero, so the promise holds exactly when
+/// the magnitude is at least `2^bits`. When `bits` is a width that some
 /// accumulator's `stored_bits` reports, the promise extends to adding or
-/// subtracting any such accumulator, so the magnitude must exceed the
-/// largest value of that width.
+/// subtracting any such accumulator, so the magnitude must exceed the largest
+/// value of that width.
 ///
 /// `None` claims nothing about the order. When `bits` is such a width, it
 /// leaves this accumulator's working width at most 64 bits wider.
@@ -490,8 +489,8 @@ fn check_stable(
 
 /// Convert stored copies of `member` to every primitive integer type.
 ///
-/// A conversion succeeds exactly when the value fits, with the value itself;
-/// a rejection returns the same value. Copies keep the conversions' reads from
+/// A conversion succeeds exactly when the value fits, with the value itself; a
+/// rejection returns the same value. Copies keep the conversions' reads from
 /// changing the member's stored form.
 fn check_conversions(member: &Accumulator, oracle: &IBig, trace: &[u8]) {
     macro_rules! check {
@@ -898,8 +897,8 @@ fn arb_word() -> impl Strategy<Value = u64> {
     ]
 }
 
-/// Generate shift counts at digit and limb boundaries, small, arbitrary,
-/// and far enough to make values thousands of digits wide.
+/// Generate shift counts at digit and limb boundaries, small, arbitrary, and
+/// far enough to make values thousands of digits wide.
 fn arb_shift() -> impl Strategy<Value = u64> {
     prop_oneof![
         3 => 0u64..=4,
@@ -916,8 +915,7 @@ fn arb_shift() -> impl Strategy<Value = u64> {
 }
 
 /// Generate stability widths: digit-aligned, arbitrary, and far beyond any
-/// width a test value reaches, including digit-aligned widths near
-/// `u64::MAX`.
+/// width a test value reaches, including digit-aligned widths near `u64::MAX`.
 fn arb_stability_bits() -> impl Strategy<Value = u64> {
     prop_oneof![
         3 => (0u64..12).prop_map(|digits| 32 * digits),
@@ -932,9 +930,9 @@ fn arb_stability_bits() -> impl Strategy<Value = u64> {
     ]
 }
 
-/// Generate signed values within `2^33` of `k · 2^(32 d)`, for `k` in 1..=4
-/// and `d` in 1..=2, where the small form's comparison threshold and the
-/// digit boundaries lie.
+/// Generate signed values within `2^33` of `k · 2^(32 d)`, for `k` in 1..=4 and
+/// `d` in 1..=2, where the small form's comparison threshold and the digit
+/// boundaries lie.
 fn arb_near_threshold() -> impl Strategy<Value = i128> {
     (
         1i128..=4,
@@ -1116,11 +1114,11 @@ fn arb_step(kind: Kind) -> BoxedStrategy<Step> {
     }
 }
 
-/// Generate a program: starting representations, a swarm of enabled kinds
-/// with weights, then up to [`MAX_STEPS`] steps drawn from that swarm.
+/// Generate a program: starting representations, a swarm of enabled kinds with
+/// weights, then up to [`MAX_STEPS`] steps drawn from that swarm.
 ///
-/// Each kind is disabled in about a third of cases and otherwise weighted
-/// from 1 to 5; a case that disables every [`Kind::WRITERS`] kind enables
+/// Each kind is disabled in about a third of cases and otherwise weighted from
+/// 1 to 5; a case that disables every [`Kind::WRITERS`] kind enables
 /// [`Kind::Limbs`].
 fn arb_program() -> impl Strategy<Value = Program> {
     let weights = proptest::array::uniform::<_, { Kind::ALL.len() }>(
@@ -1181,12 +1179,12 @@ proptest! {
 /// positive floor from its designed mass.
 const CENSUS_PROGRAMS: u64 = 2000;
 
-/// The own width, in digits, from which the census counts a member as
-/// thousands of digits wide.
+/// The own width, in digits, from which the census counts a member as thousands
+/// of digits wide.
 const WIDE_DIGITS: usize = 1000;
 
-/// The regime cases each run of [`pool_programs_match_the_oracle`] must
-/// expect in each regime the census floors.
+/// The regime cases each run of [`pool_programs_match_the_oracle`] must expect
+/// in each regime the census floors.
 ///
 /// A defect that every regime case exposes then escapes one run with
 /// probability at most `e` to the minus this count: under a quarter of a
@@ -1197,15 +1195,15 @@ const REGIME_CASES_PER_RUN: u64 = 6;
 /// `numerator / denominator` among `samples` programs: an integer no greater
 /// than `μ − sqrt(2 μ ln 2^30)`, where `μ` is the mean count.
 ///
-/// A generator meeting its designed mass lands each program in the regime
-/// with probability at least that mass, so its count dominates a binomial
-/// count of mean `μ`, and Chernoff's lower tail bound puts it below the
-/// floor with probability at most `2^−30` per regime per run. The floor is
-/// `⌊μ⌋ − m` for the least `m` with
+/// A generator meeting its designed mass lands each program in the regime with
+/// probability at least that mass, so its count dominates a binomial count of
+/// mean `μ`, and Chernoff's lower tail bound puts it below the floor with
+/// probability at most `2^−30` per regime per run. The floor is `⌊μ⌋ − m` for
+/// the least `m` with
 /// `m² · denominator · 10⁶ ≥ 2 · 30 · 693148 · samples · numerator`, which
 /// computes the deviation with `0.693148 > ln 2` and rounds both terms down,
-/// all in exact integer arithmetic. It is the floor `before`'s generator
-/// census computes.
+/// all in exact integer arithmetic. It is the floor `before`'s generator census
+/// computes.
 fn census_floor(samples: u64, numerator: u64, denominator: u64) -> u64 {
     let (samples, numerator, denominator) = (
         u128::from(samples),
@@ -1236,45 +1234,44 @@ fn census_runner() -> TestRunner {
     })
 }
 
-/// The pool programs keep generator mass on the regimes the module doc
-/// claims whose mass the swarm's design fixes: one member passed as both
-/// operands of `&a ± &a`, and a member at least [`WIDE_DIGITS`] digits wide.
+/// The pool programs keep generator mass on the regimes the module doc claims
+/// whose mass the swarm's design fixes: one member passed as both operands of
+/// `&a ± &a`, and a member at least [`WIDE_DIGITS`] digits wide.
 ///
 /// The census samples [`arb_program`] afresh, runs each program on the pool,
-/// and requires each regime's count to meet the floor [`census_floor`]
-/// derives from its designed mass. Each mass must also give each run of
+/// and requires each regime's count to meet the floor [`census_floor`] derives
+/// from its designed mass. Each mass must also give each run of
 /// [`pool_programs_match_the_oracle`], at its configured case count,
 /// [`REGIME_CASES_PER_RUN`] programs in the regime.
 ///
 /// # Designed masses
 ///
-/// A program's kind of interest is enabled with probability `2/3`, at a
-/// weight of at least one. Each of the other twenty kinds draws weight zero
-/// a third of the time and otherwise 1 to 5, so their total has mean 40 and
-/// variance `20 · 10/3`, and by Cantelli's inequality stays below 60 with
-/// probability at least `1 − (200/3) / (200/3 + 400) = 6/7`. Enabling
-/// [`Kind::Limbs`] when every writer is disabled adds at most 3, so the kind
-/// of interest takes each step with probability at least `1/63`. A step of
-/// the regime's form, chosen with probability `q` among that kind's draws,
-/// then occurs in a program of `L` steps, `L` uniform from 1 to
-/// [`MAX_STEPS`], with probability at least
+/// A program's kind of interest is enabled with probability `2/3`, at a weight
+/// of at least one. Each of the other twenty kinds draws weight zero a third of
+/// the time and otherwise 1 to 5, so their total has mean 40 and variance
+/// `20 · 10/3`, and by Cantelli's inequality stays below 60 with probability at
+/// least `1 − (200/3) / (200/3 + 400) = 6/7`. Enabling [`Kind::Limbs`] when
+/// every writer is disabled adds at most 3, so the kind of interest takes each
+/// step with probability at least `1/63`. A step of the regime's form, chosen
+/// with probability `q` among that kind's draws, then occurs in a program of
+/// `L` steps, `L` uniform from 1 to [`MAX_STEPS`], with probability at least
 /// `E[1 − (1 − q/63)^L] = 1 − (1 − r)(1 − (1 − r)^119) / (119 r)` for
 /// `r = q/63`.
 ///
 /// - *One member as both operands*, `34/1000`: an accumulator step whose
 ///   receiver is its operand, a third of the time, in the borrowed form, a
 ///   fifth: `q = 1/15`, so at least `2/3 · 6/7 · 0.0609 ≥ 0.0348`.
-/// - *A member thousands of digits wide*, `39/1000`: a limb step with a
-///   nonzero first limb, `6/7 · (1 − 1/42 − 1/56 − 2^−63)`, at a shift of
-///   32,000 bits or more, `2/13 · 3/5`, makes some member's own width reach
-///   1000 digits: the member was already that wide, or its magnitude was
-///   below `2^31999` and the step lifts it to at least `2^31999`. So
-///   `q ≥ 0.0758`, and the mass is at least `2/3 · 6/7 · 0.0689 ≥ 0.0393`.
+/// - *A member thousands of digits wide*, `39/1000`: a limb step with a nonzero
+///   first limb, `6/7 · (1 − 1/42 − 1/56 − 2^−63)`, at a shift of 32,000 bits
+///   or more, `2/13 · 3/5`, makes some member's own width reach 1000 digits:
+///   the member was already that wide, or its magnitude was below `2^31999` and
+///   the step lifts it to at least `2^31999`. So `q ≥ 0.0758`, and the mass is
+///   at least `2/3 · 6/7 · 0.0689 ≥ 0.0393`.
 ///
-/// The module doc's other regimes, digits at the stored bound meeting reads
-/// and shifts, retained cancellation, and sparse written sets, arise only
-/// from what earlier steps left in a member, so the swarm's weights fix no
-/// mass for them, and the census does not floor them.
+/// The module doc's other regimes, digits at the stored bound meeting reads and
+/// shifts, retained cancellation, and sparse written sets, arise only from what
+/// earlier steps left in a member, so the swarm's weights fix no mass for them,
+/// and the census does not floor them.
 #[test]
 fn pool_programs_reach_their_claimed_regimes() {
     let mut runner = census_runner();

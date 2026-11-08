@@ -1,9 +1,9 @@
-//! Proptest-generated multi-peer schedules and the executor that runs
-//! them against both the live simulation and the spec-shaped oracle.
+//! Proptest-generated multi-peer schedules and the executor that runs them
+//! against both the live simulation and the spec-shaped oracle.
 //!
-//! The module separates a schedule's data model, the strategies that
-//! generate schedules, and the executors that run them, each in a submodule
-//! of its own; this module re-exports the items tests use.
+//! The module separates a schedule's data model, the strategies that generate
+//! schedules, and the executors that run them, each in a submodule of its own;
+//! this module re-exports the items tests use.
 //!
 //! When a strategy chooses an index into a fixed fleet, derive its range with
 //! `prop_flat_map` so shrinking preserves the index's meaning. Executors may

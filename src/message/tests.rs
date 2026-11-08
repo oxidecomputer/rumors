@@ -12,7 +12,8 @@ use super::{Message, PayloadCodec, PayloadDecodeError, decode_exact, encode};
 
 use serde::Serializer;
 
-/// Build tree and capture fixtures without requiring a peer or admission checks.
+/// Build tree and capture fixtures without requiring a peer or admission
+/// checks.
 impl Message {
     /// Cache a fixture payload's encoding, panicking if serialization fails.
     pub(crate) fn new<T: Serialize + Send + Sync + 'static>(message: T) -> Self {
@@ -49,8 +50,8 @@ fn assert_exact_cache(message: Message) {
 }
 
 /// A small serde payload with varied field types, so proptests exercise
-/// nontrivial serialization structure (nested containers, strings) rather
-/// than only fixed-width primitives.
+/// nontrivial serialization structure (nested containers, strings) rather than
+/// only fixed-width primitives.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct Payload {
     id: u64,
@@ -162,8 +163,8 @@ proptest! {
     }
 }
 
-/// A typed read with the wrong payload type panics: the mispairing is a
-/// crate bug, and the downcast is the tripwire that catches it.
+/// A typed read with the wrong payload type panics: the mispairing is a crate
+/// bug, and the downcast is the tripwire that catches it.
 #[test]
 #[should_panic(expected = "payload type matches")]
 fn mismatched_downcast_panics() {
@@ -171,8 +172,8 @@ fn mismatched_downcast_panics() {
     let _ = m.arc::<String>();
 }
 
-/// Pure CBOR array nesting from a type satisfying the payload contract:
-/// each layer serializes as a one-element array, the innermost empty.
+/// Pure CBOR array nesting from a type satisfying the payload contract: each
+/// layer serializes as a one-element array, the innermost empty.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Arr(Vec<Arr>);
 
@@ -208,8 +209,8 @@ proptest! {
     }
 }
 
-/// A recursive enum whose decoder counts one step per map wrapper plus
-/// one for the innermost unit variant.
+/// A recursive enum whose decoder counts one step per map wrapper plus one for
+/// the innermost unit variant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum E {
     /// The innermost unit variant.
@@ -239,8 +240,8 @@ proptest! {
     }
 }
 
-/// A payload type violating the round-trip obligation: it serializes as
-/// an integer but deserializes expecting text.
+/// A payload type violating the round-trip obligation: it serializes as an
+/// integer but deserializes expecting text.
 #[derive(Debug, PartialEq, Eq)]
 struct Lopsided;
 
@@ -260,9 +261,9 @@ impl<'de> serde::Deserialize<'de> for Lopsided {
     }
 }
 
-/// A payload type whose `Deserialize` rejects its own `Serialize` output
-/// is the typed `EncodeError::Roundtrip` at the author — the value would
-/// have failed at every receiver, and admission is that decode.
+/// A payload type whose `Deserialize` rejects its own `Serialize` output is the
+/// typed `EncodeError::Roundtrip` at the author — the value would have failed
+/// at every receiver, and admission is that decode.
 #[test]
 fn a_type_that_cannot_read_its_own_output_fails_admission() {
     let codec = PayloadCodec::new::<Lopsided>(PayloadDepthLimit::default());

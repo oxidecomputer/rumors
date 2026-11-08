@@ -5,12 +5,12 @@
 //! remainder includes hashes, versions, framing, and session setup, but no
 //! underlying transport overhead. Seeded corpora make this reproducible.
 //!
-//! The smaller fixtures pin rounded-down means at several payload sizes.
-//! The larger fixture checks the approximation after fixed and structural
-//! costs have been spread across enough messages. These are measurements of
-//! particular workloads, not a universal per-message cost: shared history,
-//! tree shape, versions, and batching all affect how much metadata accompanies
-//! each message.
+//! The smaller fixtures pin rounded-down means at several payload sizes. The
+//! larger fixture checks the approximation after fixed and structural costs
+//! have been spread across enough messages. These are measurements of
+//! particular workloads, not a universal per-message cost: shared history, tree
+//! shape, versions, and batching all affect how much metadata accompanies each
+//! message.
 
 use rumors_testkit::common;
 
@@ -38,35 +38,34 @@ const REFERENCE_PAYLOAD_LEN: usize = 98;
 /// A byte-string payload that encodes to 64 bytes.
 const MID_PAYLOAD_LEN: usize = 62;
 
-/// CBOR's byte-string header width for lengths in `24..=255`: the major
-/// type byte plus one length byte.
+/// CBOR's byte-string header width for lengths in `24..=255`: the major type
+/// byte plus one length byte.
 const CBOR_BSTR_HEADER_BYTES: usize = 2;
 
 /// The reference record's encoded payload: [`REFERENCE_PAYLOAD_LEN`] bytes
 /// behind CBOR's byte-string header.
 const REFERENCE_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + REFERENCE_PAYLOAD_LEN;
 
-/// A random `u64`'s CBOR encoding: the one-byte major-type header plus
-/// eight value bytes (every seeded draw exceeds 2³², so the width is
-/// deterministic for the minimal cell's corpus).
+/// A random `u64`'s CBOR encoding: the one-byte major-type header plus eight
+/// value bytes (every seeded draw exceeds 2³², so the width is deterministic
+/// for the minimal cell's corpus).
 const U64_ENCODED_BYTES: usize = 9;
 
-/// The small-record fixture's rounded mean falls one byte below the
-/// estimate. Smaller records amortize their shared frame headers over more
-/// messages.
+/// The small-record fixture's rounded mean falls one byte below the estimate.
+/// Smaller records amortize their shared frame headers over more messages.
 const MINIMAL_CELL_RESIDUAL: usize = 1;
 
-/// How far, in bytes per message, the large corpus's overhead may sit from
-/// the reference fixture's estimate.
+/// How far, in bytes per message, the large corpus's overhead may sit from the
+/// reference fixture's estimate.
 const TABLE_CORPUS_TOLERANCE: f64 = 3.0;
 
-/// The network every pinned calibration fixture forks: a pinned mean holds
-/// for one tree shape, and so for one network secret.
+/// The network every pinned calibration fixture forks: a pinned mean holds for
+/// one tree shape, and so for one network secret.
 const CALIBRATION_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xd15b_0a1e_c0a5_0001);
 
 /// The divisor of the case count of a property that builds a calibration
-/// fixture: one case builds and gossips tens of thousands of messages,
-/// seconds of work in a debug build, so the default count runs one case.
+/// fixture: one case builds and gossips tens of thousands of messages, seconds
+/// of work in a debug build, so the default count runs one case.
 const CALIBRATION_FIXTURE_DIVISOR: u32 = 256;
 
 /// Fork the network `network` names after shared history, then add distinct
@@ -95,9 +94,9 @@ where
     (left, right)
 }
 
-/// The end-to-end wire bytes of one session between `a` and `b`: every
-/// item, control and frame alike, both directions, counted at the write
-/// side of each end.
+/// The end-to-end wire bytes of one session between `a` and `b`: every item,
+/// control and frame alike, both directions, counted at the write side of each
+/// end.
 fn session_wire_bytes<T>(a: &Rumors<T>, b: &Rumors<T>) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -106,9 +105,9 @@ where
     a_to_b + b_to_a
 }
 
-/// The smaller fixture's mean bytes per differing message, rounded down,
-/// on the network [`CALIBRATION_NETWORK_SEED`] names.
-/// Both directions contribute writes; each new message crosses once.
+/// The smaller fixture's mean bytes per differing message, rounded down, on the
+/// network [`CALIBRATION_NETWORK_SEED`] names. Both directions contribute
+/// writes; each new message crosses once.
 fn implied_bytes_per_message<T>(make: impl FnMut(&mut ChaChaRng) -> T) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
@@ -167,7 +166,8 @@ fn minimal_records_cost_less_than_the_reference_estimate() {
     );
 }
 
-/// At 64 encoded bytes, the fixture's rounded mean equals payload plus overhead.
+/// At 64 encoded bytes, the fixture's rounded mean equals payload plus
+/// overhead.
 #[test]
 fn mid_size_records_match_the_reference_estimate() {
     let mut make = |rng: &mut ChaChaRng| {
@@ -187,18 +187,16 @@ fn mid_size_records_match_the_reference_estimate() {
     );
 }
 
-/// A large sample stays within three bytes of the table's overhead
-/// estimate.
+/// A large sample stays within three bytes of the table's overhead estimate.
 ///
-/// At 75,000 messages per side, structural costs are sufficiently amortized
-/// for this tolerance while the test remains affordable. The estimate comes
-/// from the dispute-heavier reference fixture, whose listings, each entry
-/// carrying a grandchild count, weigh more per message than this
-/// supply-dominated corpus's, so this corpus measures somewhat below it.
-/// Like the pinned means, the measurement holds for one tree shape, so the
-/// corpus forks the network [`CALIBRATION_NETWORK_SEED`] names.
-/// Check the unrounded mean: truncation would hide a material part of this
-/// error.
+/// At 75,000 messages per side, structural costs are sufficiently amortized for
+/// this tolerance while the test remains affordable. The estimate comes from
+/// the dispute-heavier reference fixture, whose listings, each entry carrying a
+/// grandchild count, weigh more per message than this supply-dominated
+/// corpus's, so this corpus measures somewhat below it. Like the pinned means,
+/// the measurement holds for one tree shape, so the corpus forks the network
+/// [`CALIBRATION_NETWORK_SEED`] names. Check the unrounded mean: truncation
+/// would hide a material part of this error.
 #[test]
 fn table_corpus_has_similar_protocol_overhead() {
     let messages = 75_000;

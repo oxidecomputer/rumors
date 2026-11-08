@@ -63,8 +63,8 @@ impl PositionalCase {
     }
 
     /// The positional reaction a conforming sender sends at `position`: a
-    /// query, the reply's first match carrying the later matches it
-    /// covers, or nothing for a later match, which that first match covers.
+    /// query, the reply's first match carrying the later matches it covers, or
+    /// nothing for a later match, which that first match covers.
     fn sent(&self, position: usize) -> Option<Sent> {
         if self.is_query(position) {
             return Some(Sent::Query);
@@ -84,8 +84,7 @@ impl PositionalCase {
         })
     }
 
-    /// The wire reaction sent at `position`, if any, a query listing
-    /// `nested`.
+    /// The wire reaction sent at `position`, if any, a query listing `nested`.
     fn wire(&self, position: usize, nested: &[Listed]) -> Option<WireReaction> {
         self.sent(position).map(|sent| match sent {
             Sent::Query => WireReaction::Query(nested.to_vec()),
@@ -303,9 +302,9 @@ where
         Ok(())
     }
 
-    /// Check that a mixed reply encoded in the chunks `cuts` selects
-    /// yields exactly the frames and publications of its whole encoding,
-    /// and that each chunk's charge rides its last frame alone.
+    /// Check that a mixed reply encoded in the chunks `cuts` selects yields
+    /// exactly the frames and publications of its whole encoding, and that each
+    /// chunk's charge rides its last frame alone.
     fn chunked_encoding_is_whole(
         leaf: &LeafCase,
         case: &PositionalCase,
@@ -498,9 +497,9 @@ where
     }
 }
 
-/// The grandchild count a case's listing gives the child at `radix`: a
-/// distinct count per position, so a question that took its bound from the
-/// wrong position fails to match.
+/// The grandchild count a case's listing gives the child at `radix`: a distinct
+/// count per position, so a question that took its bound from the wrong
+/// position fails to match.
 fn count_at(radix: u8) -> Grandchildren {
     Grandchildren::new(usize::from(radix) + 1).expect("a radix plus one is a valid count")
 }
@@ -550,12 +549,12 @@ fn mixed_reply<H: Height>(
     }
 }
 
-/// `reply`'s reactions as chunks, cut after reaction `i` wherever bit `i`
-/// of `cuts` is set but after the last, which the last chunk holds as a
-/// reply's last chunk must.
+/// `reply`'s reactions as chunks, cut after reaction `i` wherever bit `i` of
+/// `cuts` is set but after the last, which the last chunk holds as a reply's
+/// last chunk must.
 ///
-/// Chunk `i` carries a charge on `ledger` of [`chunk_charge`]`(i)` bytes,
-/// so each chunk's charge is told apart from every other's.
+/// Chunk `i` carries a charge on `ledger` of [`chunk_charge`]`(i)` bytes, so
+/// each chunk's charge is told apart from every other's.
 fn chunks(reply: Reply<Erased>, cuts: u64, ledger: &Ledger) -> Vec<Reply<Erased>> {
     let count = reply.reactions.len();
     let mut chunks = Vec::new();
@@ -580,8 +579,8 @@ fn chunks(reply: Reply<Erased>, cuts: u64, ledger: &Ledger) -> Vec<Reply<Erased>
     chunks
 }
 
-/// The bytes [`chunks`] charges its chunk at `index`: distinct for every
-/// chunk, and never zero.
+/// The bytes [`chunks`] charges its chunk at `index`: distinct for every chunk,
+/// and never zero.
 fn chunk_charge(index: usize) -> usize {
     index + 1
 }
@@ -629,8 +628,8 @@ fn mixed_publications<Q>(
     publications
 }
 
-/// Require a decoded mixed reply to preserve every reaction and supplied
-/// leaf, its reactions allocated at exactly their count.
+/// Require a decoded mixed reply to preserve every reaction and supplied leaf,
+/// its reactions allocated at exactly their count.
 fn assert_mixed_reply<H: Convert>(
     reply: &Reply<Erased>,
     case: &PositionalCase,

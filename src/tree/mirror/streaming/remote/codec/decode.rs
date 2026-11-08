@@ -60,12 +60,11 @@ pub fn decode_exact(
 }
 
 /// The synchronous oracle of the codec differential: a frame reader over
-/// `std::io::Read` that adds protocol context as soon as the signal
-/// reveals it.
+/// `std::io::Read` that adds protocol context as soon as the signal reveals it.
 ///
-/// It reads each body whole and one head at a time, the simplest shape
-/// the grammar admits, so the tests can hold the async reader's chunked
-/// reads to the same classification of every frame and every defect.
+/// It reads each body whole and one head at a time, the simplest shape the
+/// grammar admits, so the tests can hold the async reader's chunked reads to
+/// the same classification of every frame and every defect.
 #[cfg(test)]
 struct FrameDecoder<'a, R> {
     speaker: Speaker,
@@ -203,10 +202,10 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         Ok(LeafRun::from_encoded(run)?)
     }
 
-    /// Read the first record's heads inside an over-budget run, returning
-    /// the exact bytes consumed and the record content length; `None` when
-    /// they are not a record's heads (over budget, the distinction from
-    /// malformed is moot).
+    /// Read the first record's heads inside an over-budget run, returning the
+    /// exact bytes consumed and the record content length; `None` when they are
+    /// not a record's heads (over budget, the distinction from malformed is
+    /// moot).
     fn record_prefix(&mut self) -> Result<Option<(Vec<u8>, u64)>, DecodeErrorKind> {
         let mut prefix = Vec::new();
         let tag = self.head(FramePart::SupplyRun)?;
@@ -228,7 +227,8 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
             .ok_or_else(|| head_error(part, HeadReadError::Io(ErrorKind::UnexpectedEof.into())))
     }
 
-    /// Read one head inside a child listing, retaining listing-specific defects.
+    /// Read one head inside a child listing, retaining listing-specific
+    /// defects.
     fn listing_head(&mut self) -> Result<cbor::Head, DecodeErrorKind> {
         cbor::read_head_io(self.read)
             .map_err(|error| match error {
@@ -247,8 +247,8 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     }
 }
 
-/// Validate a frame's array head: a definite array of two or three items
-/// (the opener's stream and state, then a body if the state takes one).
+/// Validate a frame's array head: a definite array of two or three items (the
+/// opener's stream and state, then a body if the state takes one).
 pub(super) fn frame_arity(head: cbor::Head) -> Result<u64, DecodeErrorKind> {
     if head.major != MAJOR_ARRAY {
         return Err(DecodeErrorKind::FrameType { actual: head });
@@ -261,9 +261,9 @@ pub(super) fn frame_arity(head: cbor::Head) -> Result<u64, DecodeErrorKind> {
     Ok(head.value)
 }
 
-/// Validate an opener item's head: an unsigned int. Its range is the
-/// signal grammar's to judge ([`decode_signal`]), so an out-of-range
-/// value keeps its reserved-value taxonomy.
+/// Validate an opener item's head: an unsigned int. Its range is the signal
+/// grammar's to judge ([`decode_signal`]), so an out-of-range value keeps its
+/// reserved-value taxonomy.
 pub(super) fn opener_item(head: cbor::Head, item: OpenerItem) -> Result<u64, DecodeErrorKind> {
     if head.major != MAJOR_UINT {
         return Err(DecodeErrorKind::OpenerType { item, actual: head });
@@ -279,8 +279,8 @@ const BODIED_ARITY: u64 = 3;
 
 /// Enforce the frame array's length against its signal's body arity.
 ///
-/// A match takes a body or none: a body carries the later matches it
-/// covers, and a match covering none is body-free.
+/// A match takes a body or none: a body carries the later matches it covers,
+/// and a match covering none is body-free.
 pub(super) fn check_arity(signal: Signal, arity: u64) -> Result<(), DecodeErrorKind> {
     let expected = match signal {
         Signal::Match(_) if arity == BODIED_ARITY => BODIED_ARITY,
@@ -296,9 +296,8 @@ pub(super) fn check_arity(signal: Signal, arity: u64) -> Result<(), DecodeErrorK
     Ok(())
 }
 
-/// Open a match's body: its head must be a byte string holding a nonempty
-/// set's encoding, at most [`MAX_ENCODED_LEN`] bytes, whose length this
-/// returns.
+/// Open a match's body: its head must be a byte string holding a nonempty set's
+/// encoding, at most [`MAX_ENCODED_LEN`] bytes, whose length this returns.
 ///
 /// A match covering no later child is body-free, so an empty body is not
 /// canonical; an over-long one is rejected before any of it is read.
@@ -318,16 +317,16 @@ pub(super) fn match_set_len(head: cbor::Head) -> Result<usize, DecodeErrorKind> 
 /// Decode a match's body, the `bytes` of its set's encoding, into the later
 /// matches it covers.
 ///
-/// The set parks with the reply that carries it, so the session-budget
-/// meter counts its allocation there.
+/// The set parks with the reply that carries it, so the session-budget meter
+/// counts its allocation there.
 pub(super) fn later_matches(bytes: &[u8]) -> Result<LaterMatches, DecodeErrorKind> {
     let set = ByteSet::decode(bytes).map_err(DecodeErrorKind::InvalidMatchSet)?;
     debug_assert!(!set.is_empty(), "the body's length was checked nonzero");
     Ok(Holding::ParkedReplies.create(|| LaterMatches::new(set)))
 }
 
-/// Open a query body: its head must be a nonempty listing map (an empty
-/// query travels as its own signal), within the radix space.
+/// Open a query body: its head must be a nonempty listing map (an empty query
+/// travels as its own signal), within the radix space.
 pub(super) fn query_listing(
     head: cbor::Head,
 ) -> Result<super::frame::ListingBuilder, DecodeErrorKind> {
@@ -344,8 +343,8 @@ pub(super) fn query_listing(
         .map_err(listing_issue)
 }
 
-/// Open a supply body: the run's embedded-sequence tag and byte-string
-/// head, held to the wire's run byte cap.
+/// Open a supply body: the run's embedded-sequence tag and byte-string head,
+/// held to the wire's run byte cap.
 pub(super) fn run_head(tag: cbor::Head, body: cbor::Head) -> Result<usize, DecodeErrorKind> {
     if tag.major != cbor::MAJOR_TAG || tag.value != cbor::TAG_CBOR_SEQUENCE {
         return Err(DecodeErrorKind::SupplyTag { actual: tag });
@@ -374,8 +373,8 @@ pub(super) fn head_error(part: FramePart, error: HeadReadError) -> DecodeErrorKi
     }
 }
 
-/// Type an I/O failure by the frame part it interrupted: end-of-stream is
-/// a contextual truncation, anything else a plain read failure.
+/// Type an I/O failure by the frame part it interrupted: end-of-stream is a
+/// contextual truncation, anything else a plain read failure.
 pub(super) fn classify(part: FramePart, source: std::io::Error) -> DecodeErrorKind {
     match source.kind() {
         std::io::ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
@@ -386,8 +385,8 @@ pub(super) fn classify(part: FramePart, source: std::io::Error) -> DecodeErrorKi
     }
 }
 
-/// Interpret the opener's decoded items for `speaker`; a rejection names
-/// the stream when the stream item was valid, the direction otherwise.
+/// Interpret the opener's decoded items for `speaker`; a rejection names the
+/// stream when the stream item was valid, the direction otherwise.
 pub(super) fn decode_signal(
     speaker: Speaker,
     index: u64,

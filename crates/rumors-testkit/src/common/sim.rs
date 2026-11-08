@@ -1,36 +1,33 @@
-//! Plan-driven disruption simulation: a fleet of peers gossiping
-//! *concurrently* over fault-injected channels, with the global party
-//! invariants probed throughout.
+//! Plan-driven disruption simulation: a fleet of peers gossiping *concurrently*
+//! over fault-injected channels, with the global party invariants probed
+//! throughout.
 //!
-//! Where the `schedule` machinery executes one gossip session at a time,
-//! this engine spawns everything at once onto a multi-thread runtime:
-//! overlapping sessions between arbitrary pairs (including several sessions
-//! involving the same peer simultaneously, through cloned [`Rumors`]
-//! handles), concurrent local sends and redactions, bootstraps served over
-//! lossy wires, and a prober that re-checks global party disjointness while
-//! the chaos is in flight. Task interleaving is genuinely nondeterministic;
-//! the invariants asserted here must hold under *every* interleaving, so a
-//! failure is always a true failure even if it does not replay
-//! byte-for-byte.
+//! Where the `schedule` machinery executes one gossip session at a time, this
+//! engine spawns everything at once onto a multi-thread runtime: overlapping
+//! sessions between arbitrary pairs (including several sessions involving the
+//! same peer simultaneously, through cloned [`Rumors`] handles), concurrent
+//! local sends and redactions, bootstraps served over lossy wires, and a prober
+//! that re-checks global party disjointness while the chaos is in flight. Task
+//! interleaving is genuinely nondeterministic; the invariants asserted here
+//! must hold under *every* interleaving, so a failure is always a true failure
+//! even if it does not replay byte-for-byte.
 //!
 //! # Phases
 //!
 //! 1. **Fleet**: one seed and its clean bootstrap forks.
 //! 2. **Chaos**: every session, every activity script, and every extra
-//!    bootstrap attempt runs concurrently; channel cuts land at arbitrary
-//!    byte offsets, and endpoints vanish mid-session, via [`FaultPlan`]s.
-//!    Serving a bootstrap mid-chaos puts
-//!    the snapshot-and-fork critical section under concurrent sends from
-//!    sibling handles (see `run_boot`); a failed attempt may orphan the
-//!    served fork's id-region — counted, see below. Each peer also carries
-//!    one observer of each kind
+//!    bootstrap attempt runs concurrently; channel cuts land at arbitrary byte
+//!    offsets, and endpoints vanish mid-session, via [`FaultPlan`]s. Serving a
+//!    bootstrap mid-chaos puts the snapshot-and-fork critical section under
+//!    concurrent sends from sibling handles (see `run_boot`); a failed attempt
+//!    may orphan the served fork's id-region — counted, see below. Each peer
+//!    also carries one observer of each kind
 //!    ([`UnorderedMessages`](rumors::UnorderedMessages) and
-//!    [`CausalMessages`](rumors::CausalMessages)), drained concurrently
-//!    with the chaos and asserting the delivery contracts inline -- no
-//!    message twice, no causal inversion, and full coverage of the peer's live set
-//!    once the writers settle (see `run_observers`). This is the only
-//!    place the observers' watch-coalescing path runs against genuinely
-//!    parallel writers.
+//!    [`CausalMessages`](rumors::CausalMessages)), drained concurrently with
+//!    the chaos and asserting the delivery contracts inline -- no message
+//!    twice, no causal inversion, and full coverage of the peer's live set once
+//!    the writers settle (see `run_observers`). This is the only place the
+//!    observers' watch-coalescing path runs against genuinely parallel writers.
 //! 3. **Retire**: planned retirements over possibly-faulty wires — the only
 //!    phase that moves whole parties, exercising the
 //!    recovered/uncertain/retired algebra under fire.
@@ -40,37 +37,35 @@
 //!
 //! # The value oracle
 //!
-//! Peer-vs-peer equality ([`assert_converged`]) cannot see a bug in which
-//! every survivor agrees on the *wrong* set, so the engine also keeps a
-//! content ledger independent of the merge machinery: every inserted value
-//! is known from the plan, and every executed redaction is logged at
-//! execution time by `run_activity` — execution time because a
-//! [`Activity::Redact`] resolves its target against the peer's snapshot
-//! only when it runs, so no pre-run analysis of the plan can know which
-//! `(Version, value)` it removed. [`SimOutcome`] carries both sides of the
-//! ledger; [`assert_deletion_honored`] and [`assert_value_oracle`] check
-//! the converged fleet against it.
+//! Peer-vs-peer equality ([`assert_converged`]) cannot see a bug in which every
+//! survivor agrees on the *wrong* set, so the engine also keeps a content
+//! ledger independent of the merge machinery: every inserted value is known
+//! from the plan, and every executed redaction is logged at execution time by
+//! `run_activity` — execution time because a [`Activity::Redact`] resolves its
+//! target against the peer's snapshot only when it runs, so no pre-run analysis
+//! of the plan can know which `(Version, value)` it removed. [`SimOutcome`]
+//! carries both sides of the ledger; [`assert_deletion_honored`] and
+//! [`assert_value_oracle`] check the converged fleet against it.
 //!
 //! # Loss accounting
 //!
 //! Party id-regions can leave the live universe *legitimately* when a wire
-//! drops mid-hand-off: a bootstrap fork lost in flight, a retirement
-//! whose [`Retire::Retired`] carries a lost connection while its absorber
-//! also failed, or a peer that vanished while bootstrapping or retiring.
-//! The engine counts every such *possible* loss conservatively in
-//! [`SimOutcome::possible_losses`]. Disjointness must hold regardless;
-//! the sharper invariants -- the surviving parties fold-join back to exactly
+//! drops mid-hand-off: a bootstrap fork lost in flight, a retirement whose
+//! [`Retire::Retired`] carries a lost connection while its absorber also
+//! failed, or a peer that vanished while bootstrapping or retiring. The engine
+//! counts every such *possible* loss conservatively in
+//! [`SimOutcome::possible_losses`]. Disjointness must hold regardless; the
+//! sharper invariants -- the surviving parties fold-join back to exactly
 //! [`Party::seed`], and the converged value multiset equals the ledger's
-//! inserts minus redactions -- are asserted whenever the count is zero
-//! (which the plan generator arranges often, by disabling fault injection
-//! entirely in half its plans). Zero possible losses covers message
-//! content across faulted retires, not only id-regions: every retire arm
-//! either leaves the retiree whole ([`Retire::Recovered`]), confirms a
-//! committed absorber session — which, per [`Peer::retire`]'s contract
-//! (a session reconciles content exactly as gossip would), holds the
-//! union including the retiree's unique messages and redactions — or
-//! increments the counter; and a faulted bootstrap risks only identity
-//! space, because a newborn holds no unique content.
+//! inserts minus redactions -- are asserted whenever the count is zero (which
+//! the plan generator arranges often, by disabling fault injection entirely in
+//! half its plans). Zero possible losses covers message content across faulted
+//! retires, not only id-regions: every retire arm either leaves the retiree
+//! whole ([`Retire::Recovered`]), confirms a committed absorber session —
+//! which, per [`Peer::retire`]'s contract (a session reconciles content exactly
+//! as gossip would), holds the union including the retiree's unique messages
+//! and redactions — or increments the counter; and a faulted bootstrap risks
+//! only identity space, because a newborn holds no unique content.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -88,18 +83,17 @@ use crate::common::wire::wire_gossip_async;
 
 /// Upper bound on the byte offset at which a cut or a vanish can land.
 ///
-/// Derived from measurement, not transcribed: the envelope session —
-/// a fully-divergent pair on the generator's maximal fork lattice, each
-/// endpoint holding more unique content than an entire plan can create,
-/// every party's ticks entangled into the version bounds, at the
-/// default budget — moves fewer bytes per endpoint than this
-/// bound, and the bound stays within twice that measurement, so
-/// generated cuts and vanishes reach every byte of the envelope and keep
-/// landing inside real sessions. The envelope dominates plan sessions exactly
-/// on value count and representatively on version shapes (the boundary
+/// Derived from measurement, not transcribed: the envelope session — a
+/// fully-divergent pair on the generator's maximal fork lattice, each endpoint
+/// holding more unique content than an entire plan can create, every party's
+/// ticks entangled into the version bounds, at the default budget — moves fewer
+/// bytes per endpoint than this bound, and the bound stays within twice that
+/// measurement, so generated cuts and vanishes reach every byte of the envelope
+/// and keep landing inside real sessions. The envelope dominates plan sessions
+/// exactly on value count and representatively on version shapes (the boundary
 /// is stated at the pin); the two-sided pin is
-/// `max_cut_spans_the_envelope_session` in `tests/disruption.rs` —
-/// re-measure there before touching this number.
+/// `max_cut_spans_the_envelope_session` in `tests/disruption.rs` — re-measure
+/// there before touching this number.
 pub const MAX_CUT: usize = 3072;
 
 /// Headroom on the heal loop, as in `peer::quiesce`.
@@ -111,33 +105,33 @@ const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
 /// failing case after shrinking it.
 pub const MAX_SHRINK_TIME: u32 = 60_000;
 
-/// One concurrently-executed simulation plan. See the module docs for how
-/// the pieces are scheduled.
+/// One concurrently-executed simulation plan. See the module docs for how the
+/// pieces are scheduled.
 #[derive(Debug, Clone)]
 pub struct Plan {
     /// Fleet size built by clean bootstraps before anything else runs.
     pub n_peers: usize,
     /// Messages inserted at the seed before any fork.
     pub seed_messages: Vec<u64>,
-    /// Extra joiners bootstrapped *during* the chaos phase, one per entry;
-    /// the entry is the fault plan for the *bootstrapping* endpoint.
+    /// Extra joiners bootstrapped *during* the chaos phase, one per entry; the
+    /// entry is the fault plan for the *bootstrapping* endpoint.
     ///
-    /// Even a clean entry matters: it serves the party-fork critical
-    /// section while sibling handles are mid-send (see `run_boot`).
+    /// Even a clean entry matters: it serves the party-fork critical section
+    /// while sibling handles are mid-send (see `run_boot`).
     pub faulty_boots: Vec<FaultPlan>,
-    /// Per-peer scripts (length `n_peers`) of local sends and redactions,
-    /// run concurrently with every session.
+    /// Per-peer scripts (length `n_peers`) of local sends and redactions, run
+    /// concurrently with every session.
     pub scripts: Vec<Vec<Activity>>,
     /// Gossip sessions, all spawned at once.
     pub sessions: Vec<Session>,
     /// Retirements run after the chaos phase settles.
     pub retires: Vec<RetireOp>,
     /// Budget choices for the whole fleet: founder `i` runs at
-    /// `budgets.choice(i)`, and a newcomer bootstrapped by
-    /// `faulty_boots[j]` takes `budgets.choice(j)`.
+    /// `budgets.choice(i)`, and a newcomer bootstrapped by `faulty_boots[j]`
+    /// takes `budgets.choice(j)`.
     ///
-    /// Founders draw independently, so the chaos includes sessions
-    /// between differently-configured endpoints.
+    /// Founders draw independently, so the chaos includes sessions between
+    /// differently-configured endpoints.
     pub budgets: BudgetAssignment,
     /// The seed of the network the first founder creates.
     pub network: NetworkSeed,
@@ -148,14 +142,14 @@ pub struct Plan {
 pub enum Activity {
     /// Insert this value.
     Send(u64),
-    /// Redact the message at this index (modulo the live count) of the
-    /// peer's own snapshot at execution time — a message the application
-    /// could have observed; a no-op while the peer holds nothing.
+    /// Redact the message at this index (modulo the live count) of the peer's
+    /// own snapshot at execution time — a message the application could have
+    /// observed; a no-op while the peer holds nothing.
     Redact(usize),
 }
 
-/// One gossip session between fleet peers `a != b`, each endpoint with its
-/// own fault plan.
+/// One gossip session between fleet peers `a != b`, each endpoint with its own
+/// fault plan.
 #[derive(Debug, Clone, Copy)]
 pub struct Session {
     /// One endpoint's fleet index.
@@ -168,8 +162,8 @@ pub struct Session {
     pub fault_b: FaultPlan,
 }
 
-/// One planned retirement: `retiree` retires into `absorber` (distinct
-/// fleet indices), the retiree's endpoint faulted by `fault`.
+/// One planned retirement: `retiree` retires into `absorber` (distinct fleet
+/// indices), the retiree's endpoint faulted by `fault`.
 #[derive(Debug, Clone, Copy)]
 pub struct RetireOp {
     /// Fleet index of the peer leaving the network.
@@ -180,29 +174,28 @@ pub struct RetireOp {
     pub fault: FaultPlan,
 }
 
-/// One executed redaction, logged by `run_activity` at the moment it
-/// resolved its target, and deduplicated per [`Version`] (two peers racing
-/// to redact the same message are one redaction of it).
+/// One executed redaction, logged by `run_activity` at the moment it resolved
+/// its target, and deduplicated per [`Version`] (two peers racing to redact the
+/// same message are one redaction of it).
 #[derive(Debug, Clone)]
 pub struct Redaction {
     /// The version of the message actually redacted.
     pub version: Version,
-    /// The value that message carried, read from the redactor's snapshot
-    /// in the same pass that selected it.
+    /// The value that message carried, read from the redactor's snapshot in the
+    /// same pass that selected it.
     pub value: u64,
-    /// Whether the redaction is guaranteed present in the surviving
-    /// fleet's causal history.
+    /// Whether the redaction is guaranteed present in the surviving fleet's
+    /// causal history.
     ///
     /// Retention means some logging founder's final content reached the
     /// survivors through an unbroken chain of committed transfers
-    /// ([`lost_custody`]): it survived to the heal phase itself, or
-    /// every hop of its retire chain committed.
+    /// ([`lost_custody`]): it survived to the heal phase itself, or every hop
+    /// of its retire chain committed.
     ///
-    /// A redaction whose every logger's custody chain was broken by a
-    /// loss arm may honestly never reach the survivors, so only
-    /// retained redactions are subject to [`assert_deletion_honored`];
-    /// with [`SimOutcome::possible_losses`] zero, every redaction is
-    /// retained.
+    /// A redaction whose every logger's custody chain was broken by a loss arm
+    /// may honestly never reach the survivors, so only retained redactions are
+    /// subject to [`assert_deletion_honored`]; with
+    /// [`SimOutcome::possible_losses`] zero, every redaction is retained.
     pub retained: bool,
 }
 
@@ -211,31 +204,31 @@ pub struct Redaction {
 pub enum Transfer {
     /// The retiree recovered whole: custody never moved.
     Recovered,
-    /// The absorber committed its session: everything the retiree carried
-    /// now rides in the absorber.
+    /// The absorber committed its session: everything the retiree carried now
+    /// rides in the absorber.
     ///
-    /// Sound by [`Peer::retire`]'s contract — a retirement session
-    /// reconciles content exactly as gossip would, *then* the peer
-    /// absorbs the identity — so an absorber whose session committed has
-    /// completed the content reconciliation and holds the full union; no
-    /// commit-before-transfer ordering exists.
+    /// Sound by [`Peer::retire`]'s contract — a retirement session reconciles
+    /// content exactly as gossip would, *then* the peer absorbs the identity —
+    /// so an absorber whose session committed has completed the content
+    /// reconciliation and holds the full union; no commit-before-transfer
+    /// ordering exists.
     Committed,
-    /// The absorber's session failed: everything the retiree carried may
-    /// be gone with it.
+    /// The absorber's session failed: everything the retiree carried may be
+    /// gone with it.
     Lost,
 }
 
-/// Which founders' final content may have failed to reach the surviving
-/// fleet, given the executed retire sequence.
+/// Which founders' final content may have failed to reach the surviving fleet,
+/// given the executed retire sequence.
 ///
-/// Custody is transitive: a founder's content is retained only through
-/// an unbroken chain of committed transfers.
+/// Custody is transitive: a founder's content is retained only through an
+/// unbroken chain of committed transfers.
 ///
-/// A founder that retired into a committed absorber rides in that
-/// absorber — and is lost with it if the absorber is later dropped in a
-/// loss arm. Each slot starts carrying its own founder; a committed
-/// transfer moves the retiree's whole cargo into the absorber, a lost
-/// transfer forfeits it, and a recovery moves nothing.
+/// A founder that retired into a committed absorber rides in that absorber —
+/// and is lost with it if the absorber is later dropped in a loss arm. Each
+/// slot starts carrying its own founder; a committed transfer moves the
+/// retiree's whole cargo into the absorber, a lost transfer forfeits it, and a
+/// recovery moves nothing.
 pub fn lost_custody(n_founders: usize, transfers: &[(usize, usize, Transfer)]) -> BTreeSet<usize> {
     // carriers[slot] = the founders whose final content currently rides
     // in that slot's peer.
@@ -260,28 +253,28 @@ pub fn lost_custody(n_founders: usize, transfers: &[(usize, usize, Transfer)]) -
 pub struct SimOutcome {
     /// Every peer still alive: the fleet minus retired/consumed members.
     pub peers: Vec<Rumors<u64>>,
-    /// Conservative count of hand-offs in which an id-region *may* have
-    /// been lost in flight; see the module docs. Zero enables the sharp
+    /// Conservative count of hand-offs in which an id-region *may* have been
+    /// lost in flight; see the module docs. Zero enables the sharp
     /// seed-reconstitution and value-multiset checks.
     pub possible_losses: usize,
-    /// Every value the plan inserted anywhere: the seed's pre-fork batch
-    /// plus every [`Activity::Send`] executed by a founder's script.
+    /// Every value the plan inserted anywhere: the seed's pre-fork batch plus
+    /// every [`Activity::Send`] executed by a founder's script.
     ///
-    /// Inserts are local operations and always execute, so this side of
-    /// the ledger is known from the plan alone.
+    /// Inserts are local operations and always execute, so this side of the
+    /// ledger is known from the plan alone.
     pub inserted: Vec<u64>,
     /// The execution-time redaction log; see [`Redaction`].
     pub redactions: Vec<Redaction>,
-    /// Endpoints that reached their vanish point, across sessions,
-    /// bootstraps, and retirements.
+    /// Endpoints that reached their vanish point, across sessions, bootstraps,
+    /// and retirements.
     pub vanished: usize,
 }
 
 // ---- strategies ------------------------------------------------------------
 
-/// Most peers a plan's founding fleet can hold. Every bound here is
-/// public so the envelope session pin in `tests/disruption.rs` derives
-/// from the generator instead of transcribing it.
+/// Most peers a plan's founding fleet can hold. Every bound here is public so
+/// the envelope session pin in `tests/disruption.rs` derives from the generator
+/// instead of transcribing it.
 pub const MAX_PLAN_PEERS: usize = 5;
 
 /// Most messages a plan can insert at the seed before forking.
@@ -292,10 +285,10 @@ pub const MAX_PLAN_SCRIPT_OPS: usize = 7;
 
 /// Strategy for one endpoint's fault plan: cuts only.
 ///
-/// With `faults` disabled it is always clean, so a whole plan generated
-/// under `false` is loss-free by construction; enabled, each direction
-/// independently stays clean or cuts at an arbitrary offset. For harnesses
-/// that drive sessions through [`fault::faulty`], which admits no vanish.
+/// With `faults` disabled it is always clean, so a whole plan generated under
+/// `false` is loss-free by construction; enabled, each direction independently
+/// stays clean or cuts at an arbitrary offset. For harnesses that drive
+/// sessions through [`fault::faulty`], which admits no vanish.
 pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
@@ -312,11 +305,11 @@ pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
 
 /// Add peer departures to the read and write faults drawn by [`arb_fault`].
 ///
-/// An endpoint may disappear at any byte offset of its outgoing traffic
-/// below [`MAX_CUT`], the bound that already spans a whole envelope
-/// session's bytes per endpoint, so a vanish lands in the preamble, the
-/// greeting, a frame, between frames, or the closing items alike. A point
-/// the endpoint never reaches does not fire.
+/// An endpoint may disappear at any byte offset of its outgoing traffic below
+/// [`MAX_CUT`], the bound that already spans a whole envelope session's bytes
+/// per endpoint, so a vanish lands in the preamble, the greeting, a frame,
+/// between frames, or the closing items alike. A point the endpoint never
+/// reaches does not fire.
 fn arb_fault_or_vanish(faults: bool) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
@@ -364,10 +357,9 @@ fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
 
 /// A whole plan.
 ///
-/// The leading `bool` decides fault injection for the entire plan: half of
-/// all generated plans are loss-free by construction, so the sharp
-/// seed-reconstitution invariant is exercised as often as the disruption
-/// paths.
+/// The leading `bool` decides fault injection for the entire plan: half of all
+/// generated plans are loss-free by construction, so the sharp
+/// seed-reconstitution invariant is exercised as often as the disruption paths.
 pub fn arb_plan() -> impl Strategy<Value = Plan> {
     // Draw order is part of the seed-compatibility surface: committed
     // regression seeds regenerate each field from a stable prefix of the
@@ -445,9 +437,9 @@ pub fn assert_honest_gossip(out: &Result<Gossiped, Error>) {
     }
 }
 
-/// The survivor of a vanished counterparty ends with an honest error,
-/// never `Ok`: a vanish trips at a write, so the
-/// counterparty's completion marker, its last write, never lands.
+/// The survivor of a vanished counterparty ends with an honest error, never
+/// `Ok`: a vanish trips at a write, so the counterparty's completion marker,
+/// its last write, never lands.
 pub fn assert_survivor(out: &Result<Gossiped, Error>) {
     assert!(
         out.is_err(),
@@ -458,13 +450,12 @@ pub fn assert_survivor(out: &Result<Gossiped, Error>) {
 
 // ---- the engine ------------------------------------------------------------
 
-/// Run one gossip session between two handles over a fault-injected
-/// in-memory wire, returning its vanish accounting.
+/// Run one gossip session between two handles over a fault-injected in-memory
+/// wire, returning its vanish accounting.
 ///
-/// Each side's halves are owned by its own task, so the failing side's
-/// drop surfaces as EOF to its counterparty instead of wedging the
-/// session. A side that vanishes leaves its counterparty to end alone,
-/// with an honest error.
+/// Each side's halves are owned by its own task, so the failing side's drop
+/// surfaces as EOF to its counterparty instead of wedging the session. A side
+/// that vanishes leaves its counterparty to end alone, with an honest error.
 async fn run_session(
     a: Rumors<u64>,
     b: Rumors<u64>,
@@ -496,22 +487,21 @@ async fn run_session(
     usize::from(driven_a.vanished()) + usize::from(driven_b.vanished())
 }
 
-/// Serve one bootstrap from `server` mid-chaos, the joiner's endpoint
-/// faulted by `fault`. Returns the newcomer, or `None` for a possible
-/// in-flight loss of the donated fork, with the vanish accounting.
+/// Serve one bootstrap from `server` mid-chaos, the joiner's endpoint faulted
+/// by `fault`. Returns the newcomer, or `None` for a possible in-flight loss of
+/// the donated fork, with the vanish accounting.
 ///
-/// This is the most delicate intra-set race the engine exercises: serving
-/// a bootstrap must snapshot the tree and speculatively fork the party in
-/// one critical section, while sibling `Rumors` clones of the same set
-/// concurrently send, redact, and gossip. A torn snapshot/fork would hand
-/// the newcomer a version exceeding what its party slice justifies —
-/// surfacing downstream as a disjointness or convergence failure.
+/// This is the most delicate intra-set race the engine exercises: serving a
+/// bootstrap must snapshot the tree and speculatively fork the party in one
+/// critical section, while sibling `Rumors` clones of the same set concurrently
+/// send, redact, and gossip. A torn snapshot/fork would hand the newcomer a
+/// version exceeding what its party slice justifies — surfacing downstream as a
+/// disjointness or convergence failure.
 ///
-/// The serving side stays clean; the joiner's fault plan covers both
-/// observable directions of a duplex (its read cut models the server's
-/// frames dying in flight). A joiner that fails or vanishes may or may
-/// not have cost the server its donated fork, so it conservatively counts
-/// as a possible loss either way.
+/// The serving side stays clean; the joiner's fault plan covers both observable
+/// directions of a duplex (its read cut models the server's frames dying in
+/// flight). A joiner that fails or vanishes may or may not have cost the server
+/// its donated fork, so it conservatively counts as a possible loss either way.
 async fn run_boot(
     server: Rumors<u64>,
     fault: FaultPlan,
@@ -561,14 +551,14 @@ async fn run_boot(
 /// Run one peer's activity script, yielding between operations so it
 /// interleaves with every in-flight session.
 ///
-/// Returns the `(Version, value)` of every redaction actually executed:
-/// the target resolves against the peer's snapshot only here, so this
-/// execution-time log is the one ground truth of what the plan redacted
-/// (the value oracle's deletion side; see the module docs).
+/// Returns the `(Version, value)` of every redaction actually executed: the
+/// target resolves against the peer's snapshot only here, so this
+/// execution-time log is the one ground truth of what the plan redacted (the
+/// value oracle's deletion side; see the module docs).
 ///
 /// A logged redaction may race a sibling's redaction of the same message;
-/// either way the message ends redacted network-wide, so the log stays
-/// sound and [`run_plan`] deduplicates by version.
+/// either way the message ends redacted network-wide, so the log stays sound
+/// and [`run_plan`] deduplicates by version.
 async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Version, u64)> {
     let mut redacted = Vec::new();
     for op in script {
@@ -594,20 +584,20 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
     redacted
 }
 
-/// Drain one peer's observers — one of each kind — concurrently with the
-/// chaos, asserting the delivery contracts on every step:
+/// Drain one peer's observers — one of each kind — concurrently with the chaos,
+/// asserting the delivery contracts on every step:
 ///
 /// - **Exactly-once**: neither observer ever yields a message twice.
 /// - **Causal order** (the causal observer): no delivery is ever a causal
 ///   predecessor of an earlier one.
-/// - **Coverage**: once `done` (the writers have settled), a final drain
-///   leaves every message live in the peer's snapshot observed by both.
+/// - **Coverage**: once `done` (the writers have settled), a final drain leaves
+///   every message live in the peer's snapshot observed by both.
 ///
 /// The interesting part is not the assertions but where they run: under
 /// genuinely parallel sends, redactions, and gossip sessions on sibling
-/// handles, this is the only exercise of the observers' watch-coalescing
-/// path (`send_if_modified` racing `borrow_and_update`) outside
-/// single-threaded tests.
+/// handles, this is the only exercise of the observers' watch-coalescing path
+/// (`send_if_modified` racing `borrow_and_update`) outside single-threaded
+/// tests.
 async fn run_observers(handle: Rumors<u64>, done: Arc<SetOnce<()>>) {
     use futures::{FutureExt, StreamExt};
 
@@ -670,16 +660,15 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<SetOnce<()>>) {
 
 /// Concurrently re-assert global pairwise party disjointness until `done`.
 ///
-/// The handles are read one after another, each under its own lock, so
-/// the samples are not one instant: a region that leaves one sampled
-/// handle after that handle is read and arrives at a later-sampled
-/// handle before that one is read would be witnessed twice with no
-/// linearity broken. The check is therefore sound only while no region
-/// moves between two sampled handles, which `run_plan` guarantees: the
-/// bootstraps it probes move regions from sampled founders to newcomers
-/// this loop never samples, and retirements begin only after `done`. A
-/// prober over a phase with founder-to-founder transfers needs a
-/// consistent snapshot, or a re-read that confirms an overlap persists.
+/// The handles are read one after another, each under its own lock, so the
+/// samples are not one instant: a region that leaves one sampled handle after
+/// that handle is read and arrives at a later-sampled handle before that one is
+/// read would be witnessed twice with no linearity broken. The check is
+/// therefore sound only while no region moves between two sampled handles,
+/// which `run_plan` guarantees: the bootstraps it probes move regions from
+/// sampled founders to newcomers this loop never samples, and retirements begin
+/// only after `done`. A prober over a phase with founder-to-founder transfers
+/// needs a consistent snapshot, or a re-read that confirms an overlap persists.
 async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<SetOnce<()>>) {
     loop {
         let finished = done.initialized();
@@ -704,9 +693,9 @@ async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<SetOnce<()>>) {
     }
 }
 
-/// Execute `plan`: build the fleet, run the chaos and retire phases, and
-/// return the survivors plus the loss accounting. Panics on any invariant
-/// violation observable mid-run (dishonest errors, transient overlap).
+/// Execute `plan`: build the fleet, run the chaos and retire phases, and return
+/// the survivors plus the loss accounting. Panics on any invariant violation
+/// observable mid-run (dishonest errors, transient overlap).
 pub async fn run_plan(plan: Plan) -> SimOutcome {
     let mut possible_losses = 0usize;
     let mut vanished = 0usize;
@@ -974,8 +963,8 @@ pub async fn quiesce(peers: &[Rumors<u64>]) {
     panic!("heal phase did not converge within {max_rounds} rounds for {n} peers");
 }
 
-/// One readout per survivor, in fleet order: the identity → value lens
-/// (keyed by [`version_key`]) every converged-fleet assertion consumes.
+/// One readout per survivor, in fleet order: the identity → value lens (keyed
+/// by [`version_key`]) every converged-fleet assertion consumes.
 ///
 /// Compute once after the heal and thread through [`assert_converged`],
 /// [`assert_deletion_honored`], and [`assert_value_oracle`].
@@ -983,8 +972,8 @@ pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Vec<u8>, u64>> {
     peers.iter().map(|p| readout(&p.snapshot())).collect()
 }
 
-/// After healing, every survivor holds identical live content: equal
-/// identity → value readouts and equal snapshots.
+/// After healing, every survivor holds identical live content: equal identity →
+/// value readouts and equal snapshots.
 ///
 /// `readouts` is the fleet's [`survivor_readouts`], indexed like `peers`.
 pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Vec<u8>, u64>]) {
@@ -1005,9 +994,9 @@ pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Vec<u8>, u64
 ///
 /// Unconditional over every retained redaction — and every redaction is
 /// retained when [`SimOutcome::possible_losses`] is zero. A non-retained
-/// redaction (its every logger dropped in a retire loss arm) may honestly
-/// never have reached the survivors, so it is exempt: asserting it would
-/// fail runs in which the protocol did nothing wrong.
+/// redaction (its every logger dropped in a retire loss arm) may honestly never
+/// have reached the survivors, so it is exempt: asserting it would fail runs in
+/// which the protocol did nothing wrong.
 pub fn assert_deletion_honored(readouts: &[BTreeMap<Vec<u8>, u64>], redactions: &[Redaction]) {
     for redaction in redactions.iter().filter(|r| r.retained) {
         for (i, live) in readouts.iter().enumerate() {
@@ -1025,19 +1014,18 @@ pub fn assert_deletion_honored(readouts: &[BTreeMap<Vec<u8>, u64>], redactions: 
 }
 
 /// Asserts the converged value multiset equals the ledger: every survivor's
-/// live values are exactly the plan's inserts minus one instance per
-/// redacted message.
+/// live values are exactly the plan's inserts minus one instance per redacted
+/// message.
 ///
-/// Gated on `possible_losses == 0` (a nonzero count returns without
-/// checking): zero possible losses covers message content across faulted
-/// retires, not only id-regions — every retire arm either leaves the
-/// retiree whole, confirms a committed absorber session (which, per
-/// [`Peer::retire`]'s contract, reconciles content exactly as gossip
-/// would and so holds the union including the retiree's unique messages),
-/// or increments the counter; and a faulted bootstrap risks only identity
-/// space, because a newborn holds no unique content. Under that premise a
-/// loss-free run conserves every insert and propagates every redaction,
-/// so the multiset equality is exact.
+/// Gated on `possible_losses == 0` (a nonzero count returns without checking):
+/// zero possible losses covers message content across faulted retires, not only
+/// id-regions — every retire arm either leaves the retiree whole, confirms a
+/// committed absorber session (which, per [`Peer::retire`]'s contract,
+/// reconciles content exactly as gossip would and so holds the union including
+/// the retiree's unique messages), or increments the counter; and a faulted
+/// bootstrap risks only identity space, because a newborn holds no unique
+/// content. Under that premise a loss-free run conserves every insert and
+/// propagates every redaction, so the multiset equality is exact.
 pub fn assert_value_oracle(
     readouts: &[BTreeMap<Vec<u8>, u64>],
     possible_losses: usize,
@@ -1082,9 +1070,9 @@ pub fn assert_value_oracle(
 ///
 /// 1. **Disjointness, always**: every pair of live parties is disjoint.
 /// 2. **Linearity, sharply, when nothing was lost**: with zero possible
-///    in-flight losses, fold-joining every live party reconstitutes
-///    exactly [`Party::seed`] — every id-region is held by exactly one
-///    live peer, and none leaked.
+///    in-flight losses, fold-joining every live party reconstitutes exactly
+///    [`Party::seed`] — every id-region is held by exactly one live peer, and
+///    none leaked.
 pub fn assert_party_invariants(peers: &[Rumors<u64>], possible_losses: usize) {
     assert_parties_partition(
         peers.iter().map(|k| k.dangerously_alias_party()).collect(),
@@ -1092,9 +1080,8 @@ pub fn assert_party_invariants(peers: &[Rumors<u64>], possible_losses: usize) {
     );
 }
 
-/// The invariants of [`assert_party_invariants`], over parties already
-/// read from their peers, so that a fleet mixing bookmark types can be
-/// checked too.
+/// The invariants of [`assert_party_invariants`], over parties already read
+/// from their peers, so that a fleet mixing bookmark types can be checked too.
 pub fn assert_parties_partition(parties: Vec<Party>, possible_losses: usize) {
     for (n, pi) in parties.iter().enumerate() {
         for (m, pj) in parties.iter().enumerate().skip(n + 1) {

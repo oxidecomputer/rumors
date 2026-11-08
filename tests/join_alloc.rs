@@ -1,4 +1,5 @@
-//! Allocation traffic for a divergent local join, including metadata preparation.
+//! Allocation traffic for a divergent local join, including metadata
+//! preparation.
 
 use rumors_testkit::common;
 
@@ -14,8 +15,9 @@ const SHARED: usize = 4096;
 /// Each side adds and redacts this many leaves in distinct parts of the tree.
 const CHANGES: usize = 16;
 
-/// Budget for this fixture's join and metadata, including temporary allocations.
-/// The wide shared base should stay shared; copying it would exceed this bound.
+/// Budget for this fixture's join and metadata, including temporary
+/// allocations. The wide shared base should stay shared; copying it would
+/// exceed this bound.
 const JOIN_ALLOCATION_BUDGET: usize = 128 * 1024;
 
 divided_proptest! {

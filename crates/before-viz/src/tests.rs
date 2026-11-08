@@ -88,7 +88,8 @@ fn join_rejects_overlapping_ids() {
     assert_eq!(e.node_count(), 1);
 }
 
-/// Sending copies the sender's history into the receiver without changing its party.
+/// Sending copies the sender's history into the receiver without changing its
+/// party.
 #[test]
 fn send_transfers_history_without_ticking() {
     let mut e = Engine::new();
@@ -143,7 +144,8 @@ fn joining_a_historical_clock_rewinds_its_future() {
     }
 }
 
-/// An operation fails without mutation when rewinding one operand would remove another.
+/// An operation fails without mutation when rewinding one operand would remove
+/// another.
 ///
 /// Joining an ancestor to its descendant exercises this check directly.
 #[test]
@@ -213,7 +215,8 @@ proptest! {
     }
 }
 
-/// Assert that loading an invalid fragment reports `BadFragment` without mutation.
+/// Assert that loading an invalid fragment reports `BadFragment` without
+/// mutation.
 fn assert_rejects_as_bad_fragment(fragment: &str) {
     let mut e = crate::Engine::new();
     match e.load_fragment(fragment) {
@@ -225,10 +228,9 @@ fn assert_rejects_as_bad_fragment(fragment: &str) {
 
 /// A URL fragment with an overflowing index varint reports `BadFragment`.
 ///
-/// The fragments are
-/// `[tag 1, 0x80 x 10, 0x01]` base64url-encoded and its `0x00`-terminated
-/// variant. If the shift were masked, the second fragment would decode as
-/// a valid but incorrect index.
+/// The fragments are `[tag 1, 0x80 x 10, 0x01]` base64url-encoded and its
+/// `0x00`-terminated variant. If the shift were masked, the second fragment
+/// would decode as a valid but incorrect index.
 #[test]
 fn overlong_varint_fragment_rejects_cleanly() {
     for fragment in ["AYCAgICAgICAgIAB", "AYCAgICAgICAgIAA"] {
@@ -268,13 +270,12 @@ fn op_budget_covers_every_entry() {
 }
 
 /// The fragment-length precheck is exact: it admits every fragment a
-/// within-budget log can encode and rejects longer strings before any
-/// base64 work.
+/// within-budget log can encode and rejects longer strings before any base64
+/// work.
 ///
-/// The widest op (a join of two maximal varint operands) encodes to 21
-/// bytes, so a budget-full log of them is the longest legitimate
-/// fragment — exactly `MAX_FRAGMENT_CHARS` — and one more such op pushes
-/// past it.
+/// The widest op (a join of two maximal varint operands) encodes to 21 bytes,
+/// so a budget-full log of them is the longest legitimate fragment — exactly
+/// `MAX_FRAGMENT_CHARS` — and one more such op pushes past it.
 #[test]
 fn fragment_length_precheck_is_exact() {
     let fat = Op::Join {

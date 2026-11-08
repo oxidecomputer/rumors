@@ -4,8 +4,8 @@
 //! and regression fitter as the generated-program suite. Their limits are
 //! growth limits, not fitted bands: linear paths allow the board's usual slope
 //! tolerance, decimal conversion must stay below quadratic, and fixed rank
-//! precision must stay independent of the unprinted suffix. These finite
-//! sweeps detect regressions; they do not prove the bounds for every size.
+//! precision must stay independent of the unprinted suffix. These finite sweeps
+//! detect regressions; they do not prove the bounds for every size.
 
 use before::testing::meter::board::MAX_SCALING_EXPONENT;
 use before::testing::meter::registry::Shape;
@@ -258,9 +258,9 @@ fn count_sum_scales_with_total_content_and_arity() {
     }
 }
 
-/// Decimal rendering stays below quadratic growth and canonical decimal
-/// parsing stays at most quadratic across wide counts. Both agree with native
-/// behavior at every measured width.
+/// Decimal rendering stays below quadratic growth and canonical decimal parsing
+/// stays at most quadratic across wide counts. Both agree with native behavior
+/// at every measured width.
 #[test]
 fn count_decimal_text_respects_its_bounds() {
     let mut display_samples = Vec::new();
@@ -295,9 +295,9 @@ fn count_decimal_text_respects_its_bounds() {
     );
 }
 
-/// Shape combination prices independently growing arity and operand size.
-/// The registered staggered population gives the combiner distinct boundaries
-/// to refine as each dimension grows.
+/// Shape combination prices independently growing arity and operand size. The
+/// registered staggered population gives the combiner distinct boundaries to
+/// refine as each dimension grows.
 #[test]
 fn shape_combine_scales_in_both_dimensions() {
     for grow_arity in [false, true] {

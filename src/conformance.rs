@@ -3,8 +3,8 @@
 //!
 //! Enable the `conformance` feature in a dev-dependency to use [`bookmark`],
 //! which checks repeatable loads and complete record replacement. The suite
-//! accepts a deadline factory, so checks run under the application's clock
-//! and executor. It documents the obligations its probes cannot verify.
+//! accepts a deadline factory, so checks run under the application's clock and
+//! executor. It documents the obligations its probes cannot verify.
 
 pub mod bookmark;
 

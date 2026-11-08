@@ -75,10 +75,9 @@ impl FusedIterator for ClockForks<'_> {}
 /// # The `N >= 1` bound
 ///
 /// A clock owns a nonempty party and cannot vanish into zero shares, so `N`
-/// must be at least 1, the same bound as the [`Party`] split, enforced the
-/// same way at compile time: the zero-length split is rejected when the
-/// conversion is built, while the same spelling at any nonzero arity compiles
-/// and runs.
+/// must be at least 1, the same bound as the [`Party`] split, enforced the same
+/// way at compile time: the zero-length split is rejected when the conversion
+/// is built, while the same spelling at any nonzero arity compiles and runs.
 ///
 /// ```
 /// use before::Clock;
@@ -92,8 +91,7 @@ impl FusedIterator for ClockForks<'_> {}
 ///
 /// # Complexity
 ///
-/// Takes `O(|clock| + N (|clock| + log N))` time; measured on
-/// [`Clock::forks`].
+/// Takes `O(|clock| + N (|clock| + log N))` time; measured on [`Clock::forks`].
 ///
 /// # Example
 ///

@@ -27,14 +27,14 @@ use crate::{
 
 /// A bit reader which consumes only one canonical tree.
 ///
-/// The encodings are prefix-free and the bytes after a tree belong to the
-/// next borsh field, so this reader pulls one byte at a time,
-/// each strictly on demand: only when the parse asks for a bit past what has
-/// already been read. Those bytes accumulate in `bytes`, which serves twice
-/// over: it is the decode window ([`read_bit`](BitRead::read_bit) is an
-/// index + mask into it; [`read_gamma`](BitRead::read_gamma) proves whole gamma
-/// codes from it through the word decoder), and at [`finish`] it is handed to
-/// the value, which seals it to its length before storing it.
+/// The encodings are prefix-free and the bytes after a tree belong to the next
+/// borsh field, so this reader pulls one byte at a time, each strictly on
+/// demand: only when the parse asks for a bit past what has already been read.
+/// Those bytes accumulate in `bytes`, which serves twice over: it is the decode
+/// window ([`read_bit`](BitRead::read_bit) is an index + mask into it;
+/// [`read_gamma`](BitRead::read_gamma) proves whole gamma codes from it through
+/// the word decoder), and at [`finish`] it is handed to the value, which seals
+/// it to its length before storing it.
 ///
 /// [`finish`]: StreamBitsReader::finish
 struct StreamBitsReader<'a, R> {
@@ -43,16 +43,16 @@ struct StreamBitsReader<'a, R> {
     bytes: Vec<u8>,
     /// The parse's bit position within `bytes`.
     ///
-    /// Invariant: `position <= 8 * bytes.len()`, with equality exactly when
-    /// the buffered bits are exhausted (the next [`read_bit`] refills). The
-    /// bits between `position` and the buffer's end were read from the reader
-    /// but not yet consumed by the parse; they are the only bits the
-    /// [`read_gamma`] window may prove a code from.
+    /// Invariant: `position <= 8 * bytes.len()`, with equality exactly when the
+    /// buffered bits are exhausted (the next [`read_bit`] refills). The bits
+    /// between `position` and the buffer's end were read from the reader but
+    /// not yet consumed by the parse; they are the only bits the [`read_gamma`]
+    /// window may prove a code from.
     ///
     /// `u64`, not `usize`: a field's byte count is bounded only by what the
-    /// reader yields, and `8 · bytes.len()` outgrows a 32-bit `usize` from
-    /// 512 MiB of field. [`read_bit`] refuses a field of 2^61 bytes or more
-    /// with [`Decode::TooLarge`], so a `u64` represents every position.
+    /// reader yields, and `8 · bytes.len()` outgrows a 32-bit `usize` from 512
+    /// MiB of field. [`read_bit`] refuses a field of 2^61 bytes or more with
+    /// [`Decode::TooLarge`], so a `u64` represents every position.
     ///
     /// [`read_bit`]: BitRead::read_bit
     /// [`read_gamma`]: BitRead::read_gamma
@@ -75,10 +75,10 @@ impl<'a, R: Read> StreamBitsReader<'a, R> {
     /// consumed through the same on-demand reads as the parse: when the live
     /// bits end flush against a byte boundary, the padding is a whole
     /// `1000_0000` byte the parse never pulled, and leaving it unread would
-    /// hand its bits to the next borsh field. After it, the buffered bytes
-    /// are exactly the tree's marker-padded canonical spelling. The vector
-    /// grew one byte at a time, so it usually has spare capacity; the decoded
-    /// value releases it when it seals the bytes, which may reallocate.
+    /// hand its bits to the next borsh field. After it, the buffered bytes are
+    /// exactly the tree's marker-padded canonical spelling. The vector grew one
+    /// byte at a time, so it usually has spare capacity; the decoded value
+    /// releases it when it seals the bytes, which may reallocate.
     fn finish(mut self) -> Result<Vec<u8>, Decode> {
         if !self.read_bit()? {
             return Err(Decode::TrailingBits);
@@ -142,7 +142,8 @@ impl<R: Read> BitRead for StreamBitsReader<'_, R> {
 }
 
 impl Decode {
-    /// Preserve an underlying I/O failure; classify malformed bytes as invalid data.
+    /// Preserve an underlying I/O failure; classify malformed bytes as invalid
+    /// data.
     fn into_borsh_error(self) -> Error {
         match self {
             Decode::Io(source) => source,
@@ -216,18 +217,18 @@ impl BorshDeserialize for Clock {
 
 /// The canonical lexicographic bytes of [`Rank::encode`], unframed.
 ///
-/// Borsh is a transport for the one wire form, never a second format,
-/// so byte-wise order on the serialized bytes is still [`Ord`] on
-/// ranks, and the numerator–exponent pair stays off the wire (the
-/// decompression-bomb hazard [`Rank::encode`] documents).
+/// Borsh is a transport for the one wire form, never a second format, so
+/// byte-wise order on the serialized bytes is still [`Ord`] on ranks, and the
+/// numerator–exponent pair stays off the wire (the decompression-bomb hazard
+/// [`Rank::encode`] documents).
 impl BorshSerialize for Rank {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         self.encode_to(writer)
     }
 }
 
-/// Reads exactly one canonical rank stream: self-delimiting, so the
-/// bytes after its closing bit belong to the next borsh field.
+/// Reads exactly one canonical rank stream: self-delimiting, so the bytes after
+/// its closing bit belong to the next borsh field.
 impl BorshDeserialize for Rank {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
         Rank::decode_stream(|| {
@@ -239,24 +240,24 @@ impl BorshDeserialize for Rank {
     }
 }
 
-/// The canonical composite key of [`Ranked::encode`], unframed: the
-/// rank's self-delimiting stream, then the version's canonical bytes.
+/// The canonical composite key of [`Ranked::encode`], unframed: the rank's
+/// self-delimiting stream, then the version's canonical bytes.
 ///
-/// Borsh is a transport for the one wire form, never a second format,
-/// so byte-wise order on the serialized bytes is still [`Ord`] on the
-/// views, ties included: the causal ordering survives the transport.
+/// Borsh is a transport for the one wire form, never a second format, so
+/// byte-wise order on the serialized bytes is still [`Ord`] on the views, ties
+/// included: the causal ordering survives the transport.
 impl BorshSerialize for Ranked<'_> {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         self.encode_to(writer)
     }
 }
 
-/// Reads exactly one composite key: the self-delimiting rank stream,
-/// then one canonical version stream.
+/// Reads exactly one composite key: the self-delimiting rank stream, then one
+/// canonical version stream.
 ///
 /// The parsed rank is verified against the version's own rank fold
-/// ([`Ranked::decode`]'s contract), and the bytes after the version
-/// belong to the next borsh field.
+/// ([`Ranked::decode`]'s contract), and the bytes after the version belong to
+/// the next borsh field.
 impl BorshDeserialize for Ranked<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
         let mut rank_bytes = Vec::new();
@@ -275,12 +276,12 @@ impl BorshDeserialize for Ranked<'static> {
     }
 }
 
-/// The canonical composite of [`Span::encode`], unframed: the lower
-/// endpoint's canonical bytes, then the upper endpoint's.
+/// The canonical composite of [`Span::encode`], unframed: the lower endpoint's
+/// canonical bytes, then the upper endpoint's.
 ///
-/// Borsh is a transport for the one wire form, never a second format;
-/// both components are byte-aligned and self-delimiting, so the
-/// composite needs no length prefix inside a larger stream.
+/// Borsh is a transport for the one wire form, never a second format; both
+/// components are byte-aligned and self-delimiting, so the composite needs no
+/// length prefix inside a larger stream.
 impl BorshSerialize for Span<'_> {
     fn serialize<W: Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
         self.encode_to(writer)
@@ -288,12 +289,11 @@ impl BorshSerialize for Span<'_> {
 }
 
 /// Reads exactly one composite span: two byte-aligned canonical version
-/// streams, the second parsed and validated against the first in one
-/// fused pass.
+/// streams, the second parsed and validated against the first in one fused
+/// pass.
 ///
-/// [`Span::decode`]'s contract exactly (crossed and concurrent pairs
-/// rejected), with the bytes after the upper endpoint belonging to the next
-/// borsh field.
+/// [`Span::decode`]'s contract exactly (crossed and concurrent pairs rejected),
+/// with the bytes after the upper endpoint belonging to the next borsh field.
 impl BorshDeserialize for Span<'static> {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
         use crate::version::io::validate::Admission;

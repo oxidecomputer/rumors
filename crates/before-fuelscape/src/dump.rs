@@ -3,44 +3,42 @@
 //! A full survey spends hours measuring in the guest and milliseconds
 //! rendering; coupling the two means every figure adjustment costs a
 //! re-measure. The dump decouples them: a measuring run persists every
-//! operation's complete render input as it finishes, and a later run
-//! replays rendering from the files in seconds — any font scale, any
-//! future styling — with no guest, no count tables, and no samplers.
+//! operation's complete render input as it finishes, and a later run replays
+//! rendering from the files in seconds — any font scale, any future styling —
+//! with no guest, no count tables, and no samplers.
 //!
 //! # Layout
 //!
 //! A dump is a directory of JSON files:
 //!
-//! - `atlas.json` — the index: the format banner, the run's
-//!   [`RenderMeta`], and the operation names in measuring order (the
-//!   gallery's order). Rewritten atomically after every finished
-//!   operation, so a run that dies keeps an index naming exactly the
-//!   operations whose files landed.
-//! - `<op>.json` — one document per operation: the same banner and meta
-//!   (each file stands alone), the operation's [`AtlasData`] (identity,
-//!   every raw sample, every overlay point), and its [`HeatGrid`] (the
-//!   binned heatmap exactly as rendered: axis domains, per-column
-//!   medians, peaks, and bin counts).
+//! - `atlas.json` — the index: the format banner, the run's [`RenderMeta`], and
+//!   the operation names in measuring order (the gallery's order). Rewritten
+//!   atomically after every finished operation, so a run that dies keeps an
+//!   index naming exactly the operations whose files landed.
+//! - `<op>.json` — one document per operation: the same banner and meta (each
+//!   file stands alone), the operation's [`AtlasData`] (identity, every raw
+//!   sample, every overlay point), and its [`HeatGrid`] (the binned heatmap
+//!   exactly as rendered: axis domains, per-column medians, peaks, and bin
+//!   counts).
 //!
-//! Every file is one well-formed JSON document, so document tooling
-//! (typst's `json()` loader) reads both the raw samples and the
-//! render-ready cell matrix directly — no converter, no re-binning.
+//! Every file is one well-formed JSON document, so document tooling (typst's
+//! `json()` loader) reads both the raw samples and the render-ready cell matrix
+//! directly — no converter, no re-binning.
 //!
-//! A committed dump stores its documents gzipped (`<name>.json.gz`, for
-//! tree weight); [`read`] finds and decompresses them transparently
-//! wherever the plain file is absent.
+//! A committed dump stores its documents gzipped (`<name>.json.gz`, for tree
+//! weight); [`read`] finds and decompresses them transparently wherever the
+//! plain file is absent.
 //!
 //! # Strictness
 //!
-//! A dump is environmental input, so [`read`] rejects malformed dumps
-//! as errors, never panics: unknown fields, banner mismatches, meta
-//! that differs between the index and an operation file, an operation
-//! file whose name disagrees with the index entry that claimed it, an
-//! empty sample list, and a stored grid that does not equal the grid
-//! recomputed from the raw samples by [`aggregate`]. The grid check is
-//! the two-ways seam: the grid is derivable data persisted for
-//! downstream consumers, and a dump whose stored grid disagrees with
-//! this renderer's aggregation must not silently re-render into
+//! A dump is environmental input, so [`read`] rejects malformed dumps as
+//! errors, never panics: unknown fields, banner mismatches, meta that differs
+//! between the index and an operation file, an operation file whose name
+//! disagrees with the index entry that claimed it, an empty sample list, and a
+//! stored grid that does not equal the grid recomputed from the raw samples by
+//! [`aggregate`]. The grid check is the two-ways seam: the grid is derivable
+//! data persisted for downstream consumers, and a dump whose stored grid
+//! disagrees with this renderer's aggregation must not silently re-render into
 //! figures that contradict the cells other documents read.
 
 use std::io;
@@ -64,9 +62,9 @@ const OP_FORMAT: &str = "fuelscape-op-atlas";
 
 /// The dump format version both banners carry.
 ///
-/// Version 2 moved the measurement commit from the index into each
-/// operation document: a dataset accretes across measuring runs, so the
-/// index holds only the run parameters every document must share.
+/// Version 2 moved the measurement commit from the index into each operation
+/// document: a dataset accretes across measuring runs, so the index holds only
+/// the run parameters every document must share.
 const FORMAT_VERSION: u32 = 2;
 
 /// The index document: run provenance plus the ordered operation list.
@@ -77,8 +75,8 @@ struct IndexDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The run parameters, identical in every file of the dump; each
-    /// operation document carries its own measurement commit.
+    /// The run parameters, identical in every file of the dump; each operation
+    /// document carries its own measurement commit.
     meta: RunParams,
     /// Operation names in measuring order (the gallery's order); one
     /// `<name>.json` per entry.
@@ -93,8 +91,8 @@ struct OpDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The measuring run's provenance: its commit, and the run
-    /// parameters (which must match the index's).
+    /// The measuring run's provenance: its commit, and the run parameters
+    /// (which must match the index's).
     meta: RenderMeta,
     /// The operation's complete render input.
     op: AtlasData,
@@ -104,10 +102,9 @@ struct OpDoc {
 
 /// An incremental dump writer: one `append` per measured operation.
 ///
-/// Construction writes an empty index; every append writes the
-/// operation's document and rewrites the index, both atomically
-/// (temporary file, then rename), so the dump on disk is well-formed
-/// after every step.
+/// Construction writes an empty index; every append writes the operation's
+/// document and rewrites the index, both atomically (temporary file, then
+/// rename), so the dump on disk is well-formed after every step.
 pub struct DumpWriter {
     dir: PathBuf,
     meta: RenderMeta,
@@ -115,8 +112,7 @@ pub struct DumpWriter {
 }
 
 impl DumpWriter {
-    /// Open a dump in `dir` (created if absent) and write the empty
-    /// index.
+    /// Open a dump in `dir` (created if absent) and write the empty index.
     pub fn new(dir: &Path, meta: RenderMeta) -> io::Result<DumpWriter> {
         std::fs::create_dir_all(dir)?;
         let writer = DumpWriter {
@@ -128,9 +124,8 @@ impl DumpWriter {
         Ok(writer)
     }
 
-    /// Persist one operation's atlas (raw data plus its computed
-    /// [`HeatGrid`]) and extend the index, returning the operation
-    /// file's path.
+    /// Persist one operation's atlas (raw data plus its computed [`HeatGrid`])
+    /// and extend the index, returning the operation file's path.
     pub fn append(&mut self, data: &AtlasData) -> io::Result<PathBuf> {
         let doc = OpDoc {
             format: OP_FORMAT.to_string(),
@@ -165,24 +160,23 @@ impl DumpWriter {
     }
 }
 
-/// Write `bytes` to `path` atomically: a sibling temporary file, then a
-/// rename, so a crash never leaves a torn document where a whole one
-/// stood.
+/// Write `bytes` to `path` atomically: a sibling temporary file, then a rename,
+/// so a crash never leaves a torn document where a whole one stood.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
 }
 
-/// Load a whole dump: the shared run parameters and every operation's
-/// atlas with its own measurement provenance, in the index's order.
+/// Load a whole dump: the shared run parameters and every operation's atlas
+/// with its own measurement provenance, in the index's order.
 ///
 /// `path` names the dump: its `atlas.json` or the directory holding it.
 ///
 /// # Errors
 ///
-/// Any I/O failure, and every strictness rejection the module doc
-/// enumerates; the error message names the offending file and check.
+/// Any I/O failure, and every strictness rejection the module doc enumerates;
+/// the error message names the offending file and check.
 pub fn read(path: &Path) -> io::Result<(RunParams, Vec<(RenderMeta, AtlasData)>)> {
     let index_path = if path.is_dir() {
         path.join(INDEX_FILE)
@@ -248,10 +242,10 @@ pub fn read(path: &Path) -> io::Result<(RunParams, Vec<(RenderMeta, AtlasData)>)
 
 /// Read and strictly deserialize one dump document.
 ///
-/// A document may be stored gzipped under `<name>.json.gz` (the
-/// committed dump is, for tree weight); when `path` itself is absent,
-/// the `.gz` sibling is read and decompressed transparently, and every
-/// strictness rejection still names the file it came from.
+/// A document may be stored gzipped under `<name>.json.gz` (the committed dump
+/// is, for tree weight); when `path` itself is absent, the `.gz` sibling is
+/// read and decompressed transparently, and every strictness rejection still
+/// names the file it came from.
 pub(crate) fn parse<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,

@@ -1,5 +1,5 @@
-//! The frame opener's two items — the stream a frame rides and its
-//! semantic state — and the phase schedule that admits a state on a stream.
+//! The frame opener's two items — the stream a frame rides and its semantic
+//! state — and the phase schedule that admits a state on a stream.
 
 use std::fmt;
 
@@ -21,8 +21,8 @@ const STREAM_HEIGHT_STRIDE: usize = 2;
 
 /// Logical streams required by the wire schedule in one direction.
 ///
-/// Each speaker owns every other interior height. The extra stream is shared
-/// by the under-root opening and terminal leaf phases.
+/// Each speaker owns every other interior height. The extra stream is shared by
+/// the under-root opening and terminal leaf phases.
 pub(crate) const STREAM_COUNT: usize = STREAMED_HEIGHT_COUNT.div_ceil(STREAM_HEIGHT_STRIDE) + 1;
 
 /// Distance remainder selecting an initiator-owned interior height.
@@ -184,8 +184,8 @@ impl fmt::Display for Speaker {
 /// The phase-specific signal grammar of a logical stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum StreamClass {
-    /// The initiator's first stream, which no phase uses: the opening
-    /// question it would carry rides the greeting instead.
+    /// The initiator's first stream, which no phase uses: the opening question
+    /// it would carry rides the greeting instead.
     #[error("the initiator's unused opening stream")]
     Unused,
     /// The responder's answer to the listing in the greeting.
@@ -300,8 +300,8 @@ impl Signal {
     /// State occupied by a bare stream end.
     const STREAM_END_STATE: u8 = Self::REPLY_END_STATE + Self::STATE_STRIDE;
 
-    /// Semantic states in the wire's roster; state codes run from zero to
-    /// one below this.
+    /// Semantic states in the wire's roster; state codes run from zero to one
+    /// below this.
     pub const STATE_COUNT: u8 = Flow::STATE_COUNT * Self::REACTION_COUNT + Self::END_COUNT;
 
     /// The wire's state roster: the signal each state code names.
@@ -355,8 +355,8 @@ impl InvalidSignalState {
     }
 }
 
-/// A signal placed on a stream: the two unsigned-int items every frame
-/// opens with, the stream's index then the signal's state code.
+/// A signal placed on a stream: the two unsigned-int items every frame opens
+/// with, the stream's index then the signal's state code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WireSignal {
     /// The logical stream carrying the frame.
@@ -386,10 +386,10 @@ impl WireSignal {
         Self { stream, signal }.validate(speaker)
     }
 
-    /// Interpret a frame's decoded stream and state items for `speaker`:
-    /// an index outside the logical streams or a code outside the state
-    /// roster is reserved, and a known pair outside the phase schedule is
-    /// an invalid placement.
+    /// Interpret a frame's decoded stream and state items for `speaker`: an
+    /// index outside the logical streams or a code outside the state roster is
+    /// reserved, and a known pair outside the phase schedule is an invalid
+    /// placement.
     pub(crate) fn decode(
         speaker: Speaker,
         index: u64,
@@ -471,16 +471,16 @@ impl InvalidSignalPlacement {
     }
 }
 
-/// A frame opener the speaker's grammar rejects: a reserved stream index
-/// or state code, or a known signal in an invalid phase.
+/// A frame opener the speaker's grammar rejects: a reserved stream index or
+/// state code, or a known signal in an invalid phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum DecodeSignalError {
     /// The stream item names no logical stream.
     #[error("frame names stream {index}, outside the logical streams")]
     Stream { index: u64 },
-    /// The state item names no frame state; the stream it rides is known
-    /// and reported as the error's origin.
+    /// The state item names no frame state; the stream it rides is known and
+    /// reported as the error's origin.
     #[error("frame carries state {state}, outside the state roster")]
     State { stream: Stream, state: u64 },
     /// A known signal is forbidden on its logical stream.
@@ -489,8 +489,8 @@ pub enum DecodeSignalError {
 }
 
 impl DecodeSignalError {
-    /// Return the stream the rejected frame rides, when its stream item
-    /// was valid.
+    /// Return the stream the rejected frame rides, when its stream item was
+    /// valid.
     pub(crate) fn stream(self) -> Option<Stream> {
         match self {
             DecodeSignalError::Stream { .. } => None,

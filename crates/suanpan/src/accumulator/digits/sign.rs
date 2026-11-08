@@ -1,7 +1,7 @@
 //! Compare with zero without repeatedly scanning the same cancellation.
 //!
-//! Let `B = 2^32`. Starting at the highest digit, the scan maintains the
-//! exact value of the digits already read, expressed in units of the current
+//! Let `B = 2^32`. Starting at the highest digit, the scan maintains the exact
+//! value of the digits already read, expressed in units of the current
 //! position. Moving down one position replaces `partial` with
 //! `partial * B + digit`.
 //!
@@ -10,20 +10,20 @@
 //! partial's magnitude reaches 3, no lower digits can reverse its sign. If it
 //! never does, the scan reaches position zero and has the exact value.
 //!
-//! Merely reading the digits would make repeated comparisons with zero
-//! traverse the same cancellation. Instead, the scan clears each position it
+//! Merely reading the digits would make repeated comparisons with zero traverse
+//! the same cancellation. Instead, the scan clears each position it
 //! incorporates and writes the final partial back at the position where it
-//! stops. This preserves the integer while replacing the inspected suffix
-//! with its compact equivalent. Each individually visited position was written by an
+//! stops. This preserves the integer while replacing the inspected suffix with
+//! its compact equivalent. Each individually visited position was written by an
 //! earlier update; a gap of unwritten zeros is skipped in one step. The work of
 //! comparisons with zero is therefore amortized over the updates that made it
 //! necessary.
 //!
 //! The stopping position can also show that an adjustment of bounded width
 //! cannot change the sign. A decision at position `i` leaves magnitude greater
-//! than `0.99 B^i`; an adjustment occupying positions through `f` has
-//! magnitude below `2.01 B^(f + 1)`. Thus `i >= f + 2` is sufficient. Failure
-//! to meet that test says only that this scan did not establish the guarantee.
+//! than `0.99 B^i`; an adjustment occupying positions through `f` has magnitude
+//! below `2.01 B^(f + 1)`. Thus `i >= f + 2` is sufficient. Failure to meet
+//! that test says only that this scan did not establish the guarantee.
 //!
 //! The scan reads and rewrites the stored digits' sum. The public methods
 //! report the value's sign, applying the flag on return.
@@ -40,14 +40,15 @@ pub(super) const COMPARISON_DECIDED: i128 = 3;
 
 /// Compare with zero while preserving both value and the amortized bound.
 impl Digits {
-    /// Compare the exact value with zero, compacting cancellation along the way.
+    /// Compare the exact value with zero, compacting cancellation along the
+    /// way.
     pub fn cmp_zero(&mut self) -> Ordering {
         let stored = self.cmp_stored_zero();
         self.orient(stored)
     }
 
-    /// Compare the stored digits' sum with zero, compacting cancellation
-    /// along the way.
+    /// Compare the stored digits' sum with zero, compacting cancellation along
+    /// the way.
     ///
     /// This is the value's sign, reversed when the flag is set.
     pub(super) fn cmp_stored_zero(&mut self) -> Ordering {
@@ -69,13 +70,14 @@ impl Digits {
             .then(|| self.orient(partial.cmp(&0)))
     }
 
-    /// Return the stopping position and replace the scanned suffix by its value.
+    /// Return the stopping position and replace the scanned suffix by its
+    /// value.
     ///
     /// A zero partial can skip a gap of unwritten zeros unchanged. A nonzero
-    /// partial reaches the decision threshold at the first zero digit in such
-    /// a gap. Only digits the fold has incorporated are cleared; they all lie
-    /// above the stopping position, so truncating the written set there
-    /// removes exactly them.
+    /// partial reaches the decision threshold at the first zero digit in such a
+    /// gap. Only digits the fold has incorporated are cleared; they all lie
+    /// above the stopping position, so truncating the written set there removes
+    /// exactly them.
     fn compact_until_order_known(&mut self) -> (usize, i128) {
         self.debug_assert_valid();
         let previous_highest = self.highest_nonzero;

@@ -1,7 +1,7 @@
 //! Static SVG line charts for the report.
 //!
-//! Each chart plots a few series of points on log–log or linear axes, with
-//! a legend. The colours are the Okabe–Ito palette, chosen to stay
+//! Each chart plots a few series of points on log–log or linear axes, with a
+//! legend. The colours are the Okabe–Ito palette, chosen to stay
 //! distinguishable under the common colour-vision deficiencies.
 
 use std::path::Path;
@@ -38,8 +38,8 @@ pub struct Chart<'a> {
     pub log_y: bool,
 }
 
-/// The range spanning `values`, padded so no point sits on the frame; for
-/// a logarithmic axis, positive values only.
+/// The range spanning `values`, padded so no point sits on the frame; for a
+/// logarithmic axis, positive values only.
 fn range(values: impl Iterator<Item = f64>, log: bool) -> Option<(f64, f64)> {
     let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
     for value in values.filter(|v| v.is_finite() && (!log || *v > 0.0)) {
@@ -58,8 +58,8 @@ fn range(values: impl Iterator<Item = f64>, log: bool) -> Option<(f64, f64)> {
 }
 
 /// An axis label for `value`: three significant figures, with no trailing
-/// zeros, so a logarithmic axis's ticks never print binary rounding noise
-/// such as `0.6000000000000001`.
+/// zeros, so a logarithmic axis's ticks never print binary rounding noise such
+/// as `0.6000000000000001`.
 pub fn tick(value: f64) -> String {
     if value == 0.0 || !value.is_finite() {
         return format!("{value}");
@@ -73,8 +73,8 @@ pub fn tick(value: f64) -> String {
     }
 }
 
-/// Draws `series` into an SVG at `path`. Draws nothing, and succeeds, when
-/// no series has a point the axes can show.
+/// Draws `series` into an SVG at `path`. Draws nothing, and succeeds, when no
+/// series has a point the axes can show.
 pub fn line_chart(path: &Path, chart: &Chart, series: &[Series]) -> Result<bool> {
     let xs = series
         .iter()

@@ -19,20 +19,20 @@ const THRESHOLDS: [f64; 3] = [0.01, 0.05, 0.25];
 /// The current default budget, beside which every candidate is judged.
 const CURRENT_DEFAULT: u64 = rumors::default::SYNC_MEMORY_BUDGET as u64;
 
-/// The budget a ledger admits work against under the memory budget
-/// `budget`: what it leaves beside the floor and session allowances
+/// The budget a ledger admits work against under the memory budget `budget`:
+/// what it leaves beside the floor and session allowances
 /// ([`ledger_budget_within`](rumors::testing::ledger_budget_within)).
 ///
 /// The estimates read the ledgers' excess, what their kinds and depths hold
-/// beyond their bounds, so they take this budget; the measured curves and the candidates are memory
-/// budgets.
+/// beyond their bounds, so they take this budget; the measured curves and the
+/// candidates are memory budgets.
 fn admitted(budget: u64) -> u64 {
     let budget = usize::try_from(budget).unwrap_or(usize::MAX);
     u64::try_from(rumors::testing::ledger_budget_within(budget)).unwrap_or(u64::MAX)
 }
 
-/// The candidate defaults the figures mark: today's, and the two powers of
-/// two below it.
+/// The candidate defaults the figures mark: today's, and the two powers of two
+/// below it.
 const MARKED_CANDIDATES: [u64; 3] = [CURRENT_DEFAULT / 4, CURRENT_DEFAULT / 2, CURRENT_DEFAULT];
 
 /// The design point: messages per replica.
@@ -64,8 +64,8 @@ impl Curve {
         }
     }
 
-    /// The profile estimate's input, if the unlimited session recorded
-    /// each side's profile.
+    /// The profile estimate's input, if the unlimited session recorded each
+    /// side's profile.
     fn profile(&self) -> Option<Profile> {
         let sides: Vec<Vec<Step>> = self
             .unlimited
@@ -137,8 +137,8 @@ impl Curve {
         within
     }
 
-    /// Adjacent measured budgets where the larger one ran slower: where
-    /// speed fell as the budget rose.
+    /// Adjacent measured budgets where the larger one ran slower: where speed
+    /// fell as the budget rose.
     fn inversions(&self) -> Vec<(u64, u64, u64, u64)> {
         self.points
             .windows(2)
@@ -155,8 +155,7 @@ impl Curve {
     }
 }
 
-/// Groups `records` into curves, skipping pairs without an unlimited
-/// session.
+/// Groups `records` into curves, skipping pairs without an unlimited session.
 fn curves(records: Vec<Record>) -> BTreeMap<Pair, Curve> {
     let mut unlimited = BTreeMap::new();
     let mut points: BTreeMap<Pair, Vec<Record>> = BTreeMap::new();
@@ -425,12 +424,12 @@ fn curve_table(out: &mut String, curve: &Curve) {
     }
 }
 
-/// The smallest power of two from which up `curve`'s slowdown stays at
-/// most `1 + threshold`.
+/// The smallest power of two from which up `curve`'s slowdown stays at most
+/// `1 + threshold`.
 ///
 /// That is: at it and at every measured power of two above it. If every
-/// measured one below `Λ` exceeds the threshold, it is the smallest power
-/// of two at or above `Λ`.
+/// measured one below `Λ` exceeds the threshold, it is the smallest power of
+/// two at or above `Λ`.
 fn smallest_power_of_two(curve: &Curve, threshold: f64) -> u64 {
     let mut smallest = curve.peak().next_power_of_two();
     for (budget, slowdown) in curve.measured() {
@@ -543,12 +542,12 @@ fn candidates(out: &mut String, curves: &BTreeMap<Pair, Curve>) {
     }
 }
 
-/// The figure of `pairs`' curves, named by `name`, with `title`, if every
-/// pair has a curve.
+/// The figure of `pairs`' curves, named by `name`, with `title`, if every pair
+/// has a curve.
 ///
-/// Beside each curve it draws the profile estimate if every pair's
-/// unlimited session recorded its profile, and the lower estimate
-/// otherwise, so one figure never mixes the two.
+/// Beside each curve it draws the profile estimate if every pair's unlimited
+/// session recorded its profile, and the lower estimate otherwise, so one
+/// figure never mixes the two.
 fn figure(
     curves: &BTreeMap<Pair, Curve>,
     pairs: &[(Pair, String)],
@@ -601,14 +600,14 @@ fn figure(
     })
 }
 
-/// Renders one figure per pair of the first series, overlaying each
-/// series' curve for that pair, so two variants of the session compare on
-/// the same axes.
+/// Renders one figure per pair of the first series, overlaying each series'
+/// curve for that pair, so two variants of the session compare on the same
+/// axes.
 ///
-/// At most three series are plotted, in the renderer's palette, with the
-/// first series' depth-1 question total and `Λ` as reference lines, into
-/// `out` as `<messages>-<shared>-<bdp>.svg`. The lower estimate is left
-/// out: it is one variant's, and compares nothing across them.
+/// At most three series are plotted, in the renderer's palette, with the first
+/// series' depth-1 question total and `Λ` as reference lines, into `out` as
+/// `<messages>-<shared>-<bdp>.svg`. The lower estimate is left out: it is one
+/// variant's, and compares nothing across them.
 pub fn compare(
     series: &[(String, std::path::PathBuf)],
     out: &Path,

@@ -1,59 +1,59 @@
-//! A set of positions organized for descending scans: a run of consecutive
-//! top positions above the rest.
+//! A set of positions organized for descending scans: a run of consecutive top
+//! positions above the rest.
 //!
 //! [`WrittenPositions`] answers the two questions a scan down a digit buffer
 //! asks: which position below this one is in the set
 //! ([`last_below`](WrittenPositions::last_below)), and, once the scan stops,
-//! drop everything above it ([`truncate`](WrittenPositions::truncate)). It
-//! also takes the spans that writes add
-//! ([`insert_span`](WrittenPositions::insert_span)), and empties itself down
-//! to position zero, passing each position it held to its caller
+//! drop everything above it ([`truncate`](WrittenPositions::truncate)). It also
+//! takes the spans that writes add
+//! ([`insert_span`](WrittenPositions::insert_span)), and empties itself down to
+//! position zero, passing each position it held to its caller
 //! ([`clear`](WrittenPositions::clear)). What membership means for the digits
 //! is [`Digits`](super::Digits)' concern; this module promises only set
 //! semantics and the costs below.
 //!
 //! # Representation
 //!
-//! The set is a *run* of consecutive positions, possibly empty, that lies
-//! above every other position, and the positions below the run, held in one
-//! of two forms:
+//! The set is a *run* of consecutive positions, possibly empty, that lies above
+//! every other position, and the positions below the run, held in one of two
+//! forms:
 //!
-//! - a *prefix* `0..n`, inline, while the set has at most one gap, between
-//!   the prefix and the run;
+//! - a *prefix* `0..n`, inline, while the set has at most one gap, between the
+//!   prefix and the run;
 //! - a [`Bitset`], once it has a second gap.
 //!
 //! Writes mostly add consecutive positions upward: a limb stream from its
-//! lowest digit, a carry chain from its first. Such a span lies inside the
-//! run or extends it, at the cost of a comparison. A span that jumps above
-//! the run moves the run below it and starts a new run where it lands. A span
-//! below the run either continues or overlaps the prefix, which absorbs it;
-//! or lies in the gap and reaches the run, which lowers the run's start; or
-//! lies in the gap apart from both, leaving a gap on each side of it.
+//! lowest digit, a carry chain from its first. Such a span lies inside the run
+//! or extends it, at the cost of a comparison. A span that jumps above the run
+//! moves the run below it and starts a new run where it lands. A span below the
+//! run either continues or overlaps the prefix, which absorbs it; or lies in
+//! the gap and reaches the run, which lowers the run's start; or lies in the
+//! gap apart from both, leaving a gap on each side of it.
 //!
-//! Only that last case, a second gap, converts the prefix, and the
-//! conversion is the only change of form. It runs one way: the prefix's
-//! positions move into a new bitset one insertion each. Each of those
-//! positions was added by a write, and the bitset is kept from then on, even
-//! when cleared, so the move is charged to the writes that added the prefix
-//! and happens at most once per set.
+//! Only that last case, a second gap, converts the prefix, and the conversion
+//! is the only change of form. It runs one way: the prefix's positions move
+//! into a new bitset one insertion each. Each of those positions was added by a
+//! write, and the bitset is kept from then on, even when cleared, so the move
+//! is charged to the writes that added the prefix and happens at most once per
+//! set.
 //!
 //! A truncation that empties the run leaves it just above the positions that
 //! remain. A later span above them then extends that empty run or jumps over
-//! it, so it adds no gap the set did not already have. In the bitset form
-//! this keeps a scan's write-back, one position below an old top, out of the
-//! bitset. In the prefix form it keeps the conversion rule exact: an empty
-//! run left higher up would make a write inside the gap below it a span
-//! below the run, and so a conversion.
+//! it, so it adds no gap the set did not already have. In the bitset form this
+//! keeps a scan's write-back, one position below an old top, out of the bitset.
+//! In the prefix form it keeps the conversion rule exact: an empty run left
+//! higher up would make a write inside the gap below it a span below the run,
+//! and so a conversion.
 //!
-//! A clear reduces the set to position zero. The run then holds zero alone,
-//! as it does when zero is inserted into a new set, so that writes from zero
-//! upward extend the run at the cost of a comparison. A bitset keeps
-//! position zero as well. This is the one case in which a position is held
-//! both by the run and by the bitset, and the bitset then holds nothing else,
-//! because every other position it holds lies below the run's start. A later
-//! jump moves the run into the bitset, and finds zero already there: its
-//! insertions stop at the words they share with zero, where inserting zero
-//! into an emptied bitset would climb every level.
+//! A clear reduces the set to position zero. The run then holds zero alone, as
+//! it does when zero is inserted into a new set, so that writes from zero
+//! upward extend the run at the cost of a comparison. A bitset keeps position
+//! zero as well. This is the one case in which a position is held both by the
+//! run and by the bitset, and the bitset then holds nothing else, because every
+//! other position it holds lies below the run's start. A later jump moves the
+//! run into the bitset, and finds zero already there: its insertions stop at
+//! the words they share with zero, where inserting zero into an emptied bitset
+//! would climb every level.
 //!
 //! # Costs
 //!
@@ -61,19 +61,19 @@
 //! [module](bitset#costs) states:
 //!
 //! - adding a span within, extending, or lowering the run costs O(1); a span
-//!   beside the run costs one bitset insertion per position it adds below
-//!   the run, plus the one-time conversion above;
+//!   beside the run costs one bitset insertion per position it adds below the
+//!   run, plus the one-time conversion above;
 //! - [`last_below`](WrittenPositions::last_below) costs O(1) within the run or
 //!   the prefix, and one bitset predecessor query otherwise;
 //! - [`truncate`](WrittenPositions::truncate) costs O(1) on the run or the
 //!   prefix, and one bitset predecessor query and removal for each bitset
 //!   position it removes, plus one query to find the remaining top;
-//! - [`clear`](WrittenPositions::clear) costs O(1) plus one step per
-//!   position it removes from the run or the prefix, and one bitset clear in
-//!   the bitset form. That clear costs O(1) plus one word operation per word
-//!   it empties and per position it removes, as [`Bitset::clear`] explains,
-//!   and each of those was paid for by the insertion that filled the word or
-//!   inserted the position.
+//! - [`clear`](WrittenPositions::clear) costs O(1) plus one step per position
+//!   it removes from the run or the prefix, and one bitset clear in the bitset
+//!   form. That clear costs O(1) plus one word operation per word it empties
+//!   and per position it removes, as [`Bitset::clear`] explains, and each of
+//!   those was paid for by the insertion that filled the word or inserted the
+//!   position.
 //!
 //! Space is four words inline, and the bitset's [storage](bitset#space) once
 //! converted.
@@ -104,29 +104,28 @@ pub struct WrittenPositions {
 enum Below {
     /// Exactly the positions `0..n`, held inline.
     ///
-    /// With the run above it, this holds any set with at most one gap
-    /// between its two parts, which is all a value written once at a shift
-    /// needs.
+    /// With the run above it, this holds any set with at most one gap between
+    /// its two parts, which is all a value written once at a shift needs.
     Prefix(usize),
     /// Any positions, in a bitset allocated when a second gap first appears,
     /// and kept from then on.
     ///
     /// In a set whose first insertion included position zero, as every set
     /// `Digits` writes, the bitset holds zero from its creation on, which is
-    /// what lets [`clear`](WrittenPositions::clear) keep zero without
-    /// inserting it:
+    /// what lets [`clear`](WrittenPositions::clear) keep zero without inserting
+    /// it:
     ///
     /// - Zero stays in such a set: a truncation removes only the positions
     ///   above the one it truncates to, and a clear keeps zero.
-    /// - The conversion that creates the bitset moves a prefix that holds
-    ///   zero. While the set holds zero, either the prefix holds it, or the
-    ///   run starts at zero; then nothing lies below the run, and a jump
-    ///   folds the run into the prefix rather than converting it.
+    /// - The conversion that creates the bitset moves a prefix that holds zero.
+    ///   While the set holds zero, either the prefix holds it, or the run
+    ///   starts at zero; then nothing lies below the run, and a jump folds the
+    ///   run into the prefix rather than converting it.
     /// - Once in the bitset, zero leaves it neither by truncation nor by a
     ///   clear.
     ///
-    /// A set that gains zero only after its bitset exists can hold zero in
-    /// the run alone.
+    /// A set that gains zero only after its bitset exists can hold zero in the
+    /// run alone.
     Bitset(Box<Bitset>),
 }
 
@@ -181,8 +180,8 @@ impl WrittenPositions {
 
     /// Add a span that starts below the run or above its end.
     ///
-    /// Kept out of line so that a write within or extending the run, the
-    /// common case, carries only the comparisons in
+    /// Kept out of line so that a write within or extending the run, the common
+    /// case, carries only the comparisons in
     /// [`insert_span`](Self::insert_span).
     #[inline(never)]
     fn insert_span_beside_run(&mut self, first: usize, last: usize) {
@@ -213,10 +212,10 @@ impl WrittenPositions {
     /// Add every position from `first` through `last` to the positions below
     /// the run.
     ///
-    /// The caller guarantees that the span lies below the run the set has
-    /// once the caller returns, with a gap between them: a jump moves the old
-    /// run here before starting a new one above it, and a span that reaches
-    /// the run from the prefix's gap lowers the run instead of coming here.
+    /// The caller guarantees that the span lies below the run the set has once
+    /// the caller returns, with a gap between them: a jump moves the old run
+    /// here before starting a new one above it, and a span that reaches the run
+    /// from the prefix's gap lowers the run instead of coming here.
     fn insert_below(&mut self, first: usize, last: usize) {
         debug_assert!(first <= last, "a span runs upward");
         match &mut self.below {
@@ -311,9 +310,9 @@ impl WrittenPositions {
     /// order. A bitset keeps its storage, and position zero, for reuse; it
     /// clears without inserting zero first, because in such a set it already
     /// holds zero ([`Below::Bitset`]). `Digits` inserts zero first into every
-    /// set it writes. A set without position zero fails an assertion in a
-    /// debug build, as does a bitset without zero; in a release build, every
-    /// later operation on the set may then return a wrong result or panic.
+    /// set it writes. A set without position zero fails an assertion in a debug
+    /// build, as does a bitset without zero; in a release build, every later
+    /// operation on the set may then return a wrong result or panic.
     pub fn clear(&mut self, mut removed: impl FnMut(usize)) {
         debug_assert!(
             self.last_below(1) == Some(0),
@@ -376,8 +375,8 @@ impl WrittenPositions {
         }
     }
 
-    /// Read the bitset's test-only work counters; all zero while the
-    /// positions below the run are a prefix.
+    /// Read the bitset's test-only work counters; all zero while the positions
+    /// below the run are a prefix.
     #[cfg(test)]
     pub fn climb_counts(&self) -> ClimbCounts {
         match &self.below {
@@ -404,8 +403,8 @@ impl WrittenPositions {
 
     /// Iterate the positions below the run, in ascending order.
     ///
-    /// A position zero that a bitset shares with the run is the run's to
-    /// list, so it is skipped here.
+    /// A position zero that a bitset shares with the run is the run's to list,
+    /// so it is skipped here.
     fn below_positions(&self) -> impl Iterator<Item = usize> + '_ {
         let (prefix, bitset) = match &self.below {
             Below::Prefix(end) => (0..*end, None),

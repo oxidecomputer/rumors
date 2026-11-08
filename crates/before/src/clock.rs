@@ -21,29 +21,30 @@ mod tests;
 ///
 /// [`Clock::tick`] records a local event, [`fork`](Clock::fork) creates a
 /// disjoint clock with the same history, and [`send`](Clock::send) and
-/// [`recv`](Clock::recv) exchange causal history. [`Clock::join`]
-/// reunites two disjoint clocks; [`sync`](Clock::sync) first combines their
-/// histories and then redistributes their joined party.
+/// [`recv`](Clock::recv) exchange causal history. [`Clock::join`] reunites two
+/// disjoint clocks; [`sync`](Clock::sync) first combines their histories and
+/// then redistributes their joined party.
 ///
-/// | Operation                                                        | Meaning                                                   |
-/// |------------------------------------------------------------------|-----------------------------------------------------------|
-/// | [`Clock::seed()`]                                                | create the initial clock                                  |
-/// | [`clock.tick()`](Clock::tick)/[`clock.ticks(k)`](Clock::ticks)   | record one event, or `k` events, for this clock           |
-/// | [`clock.fork()`](Clock::fork)/[`clock.forks(k)`](Clock::forks)   | create one disjoint child, or `k` balanced children       |
-/// | [`clock.send()`](Clock::send)/[`clock.recv(v)`](Clock::recv)     | send or receive causal history                            |
-/// | [`clock.join(other)`](Clock::join)                               | consume and reunite a disjoint clock                      |
-/// | [`clock.sync(other)`](Clock::sync)                               | reconcile two disjoint clocks while keeping both alive    |
-/// | `clock \| v`, `clock \|= v`                                      | join a received version into this clock                   |
-/// | `clock.version()` compared with another version                  | compare causal histories                                  |
+/// | Operation                                                      | Meaning                                                |
+/// |----------------------------------------------------------------|--------------------------------------------------------|
+/// | [`Clock::seed()`]                                              | create the initial clock                               |
+/// | [`clock.tick()`](Clock::tick)/[`clock.ticks(k)`](Clock::ticks) | record one event, or `k` events, for this clock        |
+/// | [`clock.fork()`](Clock::fork)/[`clock.forks(k)`](Clock::forks) | create one disjoint child, or `k` balanced children    |
+/// | [`clock.send()`](Clock::send)/[`clock.recv(v)`](Clock::recv)   | send or receive causal history                         |
+/// | [`clock.join(other)`](Clock::join)                             | consume and reunite a disjoint clock                   |
+/// | [`clock.sync(other)`](Clock::sync)                             | reconcile two disjoint clocks while keeping both alive |
+/// | `clock \| v`, `clock \|= v`                                    | join a received version into this clock                |
+/// | `clock.version()` compared with another version                | compare causal histories                               |
 ///
-/// Causal comparison belongs to [`Version`], so [`Clock`] itself is not ordered.
-/// There is no `Clock | Clock`: combining whole clocks must also verify that
-/// their parties are disjoint, which makes [`join`](Clock::join) fallible.
+/// Causal comparison belongs to [`Version`], so [`Clock`] itself is not
+/// ordered. There is no `Clock | Clock`: combining whole clocks must also
+/// verify that their parties are disjoint, which makes [`join`](Clock::join)
+/// fallible.
 ///
-/// A clock is a linear value because it owns a party. Duplicating one would
-/// let two clocks record events for the same identity share, while discarding
-/// one makes that share unavailable. [`Clock`] is therefore neither [`Clone`]
-/// nor [`Copy`], and it is `must_use`.
+/// A clock is a linear value because it owns a party. Duplicating one would let
+/// two clocks record events for the same identity share, while discarding one
+/// makes that share unavailable. [`Clock`] is therefore neither [`Clone`] nor
+/// [`Copy`], and it is `must_use`.
 ///
 /// # Example
 ///
@@ -182,8 +183,8 @@ impl Clock {
     /// party share. It also retains every child party the iterator has not
     /// returned, including when a partial iterator is dropped.
     ///
-    /// `k` may be a [`Count`] or any standard unsigned integer type.
-    /// Suffix integer literals to select an unsigned type, as in `3u64`.
+    /// `k` may be a [`Count`] or any standard unsigned integer type. Suffix
+    /// integer literals to select an unsigned type, as in `3u64`.
     ///
     /// For the consuming counterpart that forks into exactly `N` clocks, see
     /// [`From<Clock>`](Clock) for `[Clock; N]`.
@@ -520,8 +521,8 @@ impl Clock {
     ///
     /// The whole batch records one event. Calling [`recv`](Clock::recv) once
     /// per version is not equivalent: each call records its own event, so `k`
-    /// calls tick `k` times. When the batch is one receipt, use this method.
-    /// It also costs less in the worst case: each `recv` costs
+    /// calls tick `k` times. When the batch is one receipt, use this method. It
+    /// also costs less in the worst case: each `recv` costs
     /// `O(|self| + |version|)` while `self` grows across the calls, so `k`
     /// calls can cost `k` times the batch's size, where this method's cost,
     /// stated below, carries only a `log k` factor.
@@ -603,18 +604,18 @@ impl Clock {
     ///
     /// # Warning
     ///
-    /// A party's tick depends only on the version it advances, so a clock
-    /// built over a version missing some of the events the party has recorded
-    /// can record new events that the party's earlier stamps already contain.
-    /// When that version is one the party's clock held just before a
+    /// A party's tick depends only on the version it advances, so a clock built
+    /// over a version missing some of the events the party has recorded can
+    /// record new events that the party's earlier stamps already contain. When
+    /// that version is one the party's clock held just before a
     /// [`tick`](Clock::tick), with this same party, the new clock's first tick
     /// reproduces that tick's stamp exactly, and two distinct events share one
-    /// [`Version`]. Neither outcome breaks the crate's
-    /// [safety rules](crate#safety-rules): linearity constrains identity, not
-    /// versions, and the party remains the only holder of its identity. To
-    /// keep each new stamp outside the party's earlier ones, pair the party
-    /// with a version that contains every event it has recorded, such as the
-    /// version its clock last held.
+    /// [`Version`]. Neither outcome breaks the crate's [safety
+    /// rules](crate#safety-rules): linearity constrains identity, not versions,
+    /// and the party remains the only holder of its identity. To keep each new
+    /// stamp outside the party's earlier ones, pair the party with a version
+    /// that contains every event it has recorded, such as the version its clock
+    /// last held.
     ///
     /// # Complexity
     ///
@@ -723,10 +724,11 @@ impl Clock {
 
     /// The clock's shape.
     ///
-    /// This iterator overlays its [`Version`]'s [`Plateau`](crate::shape::Plateau)s
-    /// with its [`Party`]'s ownership of [`Region`](crate::shape::Region)s, as one
-    /// iterator, left to right across the interval `[0, 1)`. The boolean flag says
-    /// whether the clock's party owns the plateau's interval.
+    /// This iterator overlays its [`Version`]'s
+    /// [`Plateau`](crate::shape::Plateau)s with its [`Party`]'s ownership of
+    /// [`Region`](crate::shape::Region)s, as one iterator, left to right across
+    /// the interval `[0, 1)`. The boolean flag says whether the clock's party
+    /// owns the plateau's interval.
     ///
     /// # Complexity
     ///
@@ -825,14 +827,14 @@ impl Clock {
 
     /// Decodes one [`Clock`] from a reader.
     ///
-    /// A successful decode requires exactly one canonical party followed by
-    /// one canonical version; bytes after the version are an error.
+    /// A successful decode requires exactly one canonical party followed by one
+    /// canonical version; bytes after the version are an error.
     ///
     /// # Warning
     ///
     /// Decoding can recreate a clock that is still live elsewhere, bypassing
-    /// its `!Clone` linearity. Treat transfer through bytes as a move: never let
-    /// the source and decoded clock participate in the same system.
+    /// its `!Clone` linearity. Treat transfer through bytes as a move: never
+    /// let the source and decoded clock participate in the same system.
     ///
     /// # Errors
     ///
@@ -840,8 +842,8 @@ impl Clock {
     ///   padding;
     /// - [`Decode::TrailingBits`] if either component's padding is malformed or
     ///   bytes follow the version;
-    /// - [`Decode::NotCanonical`] if either component is not in normal form,
-    ///   or a leaf of the version has a negative height;
+    /// - [`Decode::NotCanonical`] if either component is not in normal form, or
+    ///   a leaf of the version has a negative height;
     /// - [`Decode::TooLarge`] if the input holds 2^61 bytes or more;
     /// - [`Decode::Io`] if the reader fails.
     ///
@@ -882,9 +884,8 @@ impl Clock {
     ///
     /// The encoding byte-concatenates the [`Party`] and [`Version`] (see
     /// [`encode`](Self::encode)), so the party occupies whole bytes, its own
-    /// padding included, and only the version's final byte is left to pad:
-    /// this is the byte-aligned party length plus the version's own bit
-    /// length.
+    /// padding included, and only the version's final byte is left to pad: this
+    /// is the byte-aligned party length plus the version's own bit length.
     ///
     /// This method is available under the `meter` feature for exact
     /// representation measurements. Applications ordinarily want
@@ -920,12 +921,12 @@ impl Clock {
     /// identity. Forking either copy only subdivides it; clocks forked from one
     /// copy can still overlap clocks forked from the other.
     ///
-    /// Events may be recorded through only one of the two copies and the
-    /// clocks forked from that copy. Both copies may be inspected, compared,
-    /// or retained as read-only witnesses, but before one copy or a clock
-    /// forked from it [`ticks`](Clock::tick), every overlapping clock derived
-    /// from the other copy must be discarded or kept permanently read-only.
-    /// The same rule applies to any [`Party`] extracted from either clock.
+    /// Events may be recorded through only one of the two copies and the clocks
+    /// forked from that copy. Both copies may be inspected, compared, or
+    /// retained as read-only witnesses, but before one copy or a clock forked
+    /// from it [`ticks`](Clock::tick), every overlapping clock derived from the
+    /// other copy must be discarded or kept permanently read-only. The same
+    /// rule applies to any [`Party`] extracted from either clock.
     ///
     /// This method exists for handing a clock across a boundary where ownership
     /// transfers to exactly one side based on an outcome not known at the time

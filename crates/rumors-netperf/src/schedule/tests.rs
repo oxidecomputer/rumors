@@ -17,8 +17,8 @@ enum State {
     Done,
 }
 
-/// One moment of a driven schedule: what had just started or finished, and
-/// the state of every session after it.
+/// One moment of a driven schedule: what had just started or finished, and the
+/// state of every session after it.
 #[derive(Clone, Debug)]
 struct Moment {
     /// The step that started, or finished when `finished` is set.
@@ -38,13 +38,13 @@ struct Driven {
     finished: bool,
 }
 
-/// Drives a scheduler of `jobs` within `limits`, finishing at each turn
-/// the running step `choices` picks, so that every interleaving of
-/// completions is reachable.
+/// Drives a scheduler of `jobs` within `limits`, finishing at each turn the
+/// running step `choices` picks, so that every interleaving of completions is
+/// reachable.
 ///
-/// A step the scheduler hands out for a session in the wrong state panics
-/// the driver, which fails the case: preparing a session twice, or timing
-/// one that is not prepared.
+/// A step the scheduler hands out for a session in the wrong state panics the
+/// driver, which fails the case: preparing a session twice, or timing one that
+/// is not prepared.
 fn drive(jobs: &[Job], limits: Limits, choices: &[prop::sample::Index]) -> Driven {
     let mut scheduler = Scheduler::new(jobs.to_vec(), limits);
     let mut states = vec![State::Unprepared; jobs.len()];
@@ -99,8 +99,8 @@ fn drive(jobs: &[Job], limits: Limits, choices: &[prop::sample::Index]) -> Drive
     }
 }
 
-/// Sessions with predicted preparation seconds and bytes, some of them
-/// larger than any memory bound the limits draw.
+/// Sessions with predicted preparation seconds and bytes, some of them larger
+/// than any memory bound the limits draw.
 fn jobs() -> impl Strategy<Value = Vec<Job>> {
     prop::collection::vec(
         (0.0..10.0f64, 0u64..120).prop_map(|(prepare_seconds, bytes)| Job {
@@ -261,11 +261,11 @@ proptest! {
     }
 }
 
-/// A window of 46 equal preparations on 32 workers is cut to the 32 that
-/// fill one round.
+/// A window of 46 equal preparations on 32 workers is cut to the 32 that fill
+/// one round.
 ///
-/// Longest-first scheduling would finish all 46 in two rounds for less
-/// than one and a half rounds of work; the other 14 open the next window.
+/// Longest-first scheduling would finish all 46 in two rounds for less than one
+/// and a half rounds of work; the other 14 open the next window.
 #[test]
 fn window_is_cut_where_workers_stay_busy() {
     let jobs = vec![

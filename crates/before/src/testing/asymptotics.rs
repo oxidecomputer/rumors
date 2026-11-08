@@ -1,15 +1,15 @@
-//! Liveness pins for the documented asymptotics: the growth behaviors
-//! the public rustdoc's `# Complexity` sections claim, held alive
-//! by exact value identities.
+//! Liveness pins for the documented asymptotics: the growth behaviors the
+//! public rustdoc's `# Complexity` sections claim, held alive by exact value
+//! identities.
 //!
 //! A documented non-linear cost is a claim about a mechanism — here the
 //! settle's multiplication-bound worst case — and a cure or rewiring that
-//! removes the mechanism must reach the documentation. Each pin here asserts
-//! an exact value identity on a committed input family showing the documented
-//! behavior still exists, so the change that removes it flips a pin red and
-//! the rustdoc moves in the same commit. The pins cover the value-dependent
-//! work in rank, distance, lag, and ranked keys; the balanced folds' log
-//! factors are fuel claims in the `focused-fuel` harness's fold suite.
+//! removes the mechanism must reach the documentation. Each pin here asserts an
+//! exact value identity on a committed input family showing the documented
+//! behavior still exists, so the change that removes it flips a pin red and the
+//! rustdoc moves in the same commit. The pins cover the value-dependent work in
+//! rank, distance, lag, and ranked keys; the balanced folds' log factors are
+//! fuel claims in the `focused-fuel` harness's fold suite.
 
 use crate::testing::meter::registry::Shape;
 use num_bigint::BigUint;
@@ -17,30 +17,27 @@ use num_bigint::BigUint;
 /// The exact-rank fold still embeds a product whose two factors carry
 /// independent content.
 ///
-/// The plateau-puncture rank equals the closed form `2·x·y + 1` at
-/// scale `2^(66d)` over the family's committed factors, computed here
-/// through an independent backend multiplication — the value
-/// structure behind the fold's `Ω(M(|v|))` lower bound:
-/// the exact answer is a wide × dense integer product whose factors the
-/// input funds separately (the arbitrary-factor reduction is the
-/// query fold's `arbitrary_factors_embed_their_product_in_exact_rank`
-/// proptest; this pin holds the committed measured instance). Width
-/// scaling alone does not make the instance hard — a power-of-two
-/// plateau's parked factor is an all-ones run the settle's own
-/// balanced-digit spelling compacts to two signed digits, and a
-/// fixed-stride mass telescopes as a geometric series — so the pin
-/// guards the factors' content: the parked plunge `x − 1` must stay
-/// `Θ(w)` terms under that same compaction, and the mass's `d` digits
-/// must stay isolated by more than a full digit (incompressible)
-/// at non-uniform jitter. A representation or content change that
-/// weakens the embedding reads red here. The board's fuel cells and the
-/// `focused-fuel` claims check the implementation's measured cost separately.
+/// The plateau-puncture rank equals the closed form `2·x·y + 1` at scale
+/// `2^(66d)` over the family's committed factors, computed here through an
+/// independent backend multiplication — the value structure behind the fold's
+/// `Ω(M(|v|))` lower bound: the exact answer is a wide × dense integer product
+/// whose factors the input funds separately (the arbitrary-factor reduction is
+/// the query fold's `arbitrary_factors_embed_their_product_in_exact_rank`
+/// proptest; this pin holds the committed measured instance). Width scaling
+/// alone does not make the instance hard — a power-of-two plateau's parked
+/// factor is an all-ones run the settle's own balanced-digit spelling compacts
+/// to two signed digits, and a fixed-stride mass telescopes as a geometric
+/// series — so the pin guards the factors' content: the parked plunge `x − 1`
+/// must stay `Θ(w)` terms under that same compaction, and the mass's `d` digits
+/// must stay isolated by more than a full digit (incompressible) at non-uniform
+/// jitter. A representation or content change that weakens the embedding reads
+/// red here. The board's fuel cells and the `focused-fuel` claims check the
+/// implementation's measured cost separately.
 #[cfg(feature = "meter")]
 #[test]
 fn mul_bound_embedding_is_alive() {
-    /// The count of nonzero balanced signed digits the settle's own
-    /// compaction (`mul_into`'s recentering, replicated) spells a
-    /// magnitude into.
+    /// The count of nonzero balanced signed digits the settle's own compaction
+    /// (`mul_into`'s recentering, replicated) spells a magnitude into.
     fn balanced_terms(value: &BigUint) -> usize {
         let bytes = value.to_bytes_le();
         let digits = bytes

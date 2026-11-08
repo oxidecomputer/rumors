@@ -2,13 +2,13 @@
 //! case, and measures fuel per exported-kernel call.
 //!
 //! Determinism model: fuel is a pure function of (guest wasm bytes, call
-//! sequence, payloads). A fresh [`Guest`] per program makes every replay
-//! start from identical allocator and register-file state, so a proptest
-//! shrink re-executes bit-identically. The engine and compiled module are
-//! process-wide (compilation is the expensive part); stores are per-case,
-//! drawn from a pooled instance allocator that resets each slot to the
-//! module's initial image on reuse — the identical-initial-state
-//! guarantee, without per-case address-space mappings.
+//! sequence, payloads). A fresh [`Guest`] per program makes every replay start
+//! from identical allocator and register-file state, so a proptest shrink
+//! re-executes bit-identically. The engine and compiled module are process-wide
+//! (compilation is the expensive part); stores are per-case, drawn from a
+//! pooled instance allocator that resets each slot to the module's initial
+//! image on reuse — the identical-initial-state guarantee, without per-case
+//! address-space mappings.
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -20,20 +20,19 @@ use wasmtime::{
 
 use crate::strategies::{BUDGET, ESCALATION_BUDGET};
 
-/// Fuel loaded into the store before each measured call. Large enough that
-/// no legitimate kernel can exhaust it; exhaustion therefore traps and is
-/// reported as a harness failure rather than wrapping.
+/// Fuel loaded into the store before each measured call. Large enough that no
+/// legitimate kernel can exhaust it; exhaustion therefore traps and is reported
+/// as a harness failure rather than wrapping.
 const FUEL_TANK: u64 = u64::MAX / 2;
 
 /// Register slots pre-reserved in every fresh guest.
 ///
-/// Sized above the worst register appetite a budgeted program can have,
-/// so the file never reallocates during a measured call. The bound:
-/// every op allocates at most two registers (`into_parts`), except
-/// `Party::forks(n)` allocates `n` in one op — and a program's total
-/// share count is capped by its fork budget — so no program allocates
-/// more than `2 · max_ops + max_forks` slots (20,048 under the larger,
-/// escalation budget).
+/// Sized above the worst register appetite a budgeted program can have, so the
+/// file never reallocates during a measured call. The bound: every op allocates
+/// at most two registers (`into_parts`), except `Party::forks(n)` allocates `n`
+/// in one op — and a program's total share count is capped by its fork budget —
+/// so no program allocates more than `2 · max_ops + max_forks` slots (20,048
+/// under the larger, escalation budget).
 const REGS_RESERVE: u32 = 32 * 1024;
 
 // A budget raise past the reserve must be a compile error, never a
@@ -48,57 +47,54 @@ const _: () = {
 
 /// Pooled instance slots: the ceiling on concurrently live [`Guest`]s.
 ///
-/// Instantiation must never fall back to fresh mappings (the pool is
-/// the point: per-sample `mmap`/`munmap` serializes every worker on
-/// the process's address-space lock in the kernel), so the pool is
-/// sized above any driver's concurrency — the samplers hold at most
-/// one guest per rayon worker (one per hardware thread; 192 on the
-/// largest host in use) plus the harness's own transient guests.
+/// Instantiation must never fall back to fresh mappings (the pool is the point:
+/// per-sample `mmap`/`munmap` serializes every worker on the process's
+/// address-space lock in the kernel), so the pool is sized above any driver's
+/// concurrency — the samplers hold at most one guest per rayon worker (one per
+/// hardware thread; 192 on the largest host in use) plus the harness's own
+/// transient guests.
 const POOL_SLOTS: u32 = 512;
 
 /// Per-slot linear-memory ceiling, in bytes.
 ///
-/// A pooled slot must declare its maximum (the on-demand allocator
-/// grew unboundedly); the reservation is virtual, so the value buys
-/// address space, not memory. The guest's appetite is the register
-/// file plus encoded value buffers — tens of megabytes at the deepest
-/// committed plans — so a 256 MiB ceiling is slack, and exhaustion is
-/// loud (`memory.grow` fails and the kernel call traps) rather than a
-/// silent cap.
+/// A pooled slot must declare its maximum (the on-demand allocator grew
+/// unboundedly); the reservation is virtual, so the value buys address space,
+/// not memory. The guest's appetite is the register file plus encoded value
+/// buffers — tens of megabytes at the deepest committed plans — so a 256 MiB
+/// ceiling is slack, and exhaustion is loud (`memory.grow` fails and the kernel
+/// call traps) rather than a silent cap.
 const POOL_MAX_MEMORY: usize = 256 * 1024 * 1024;
 
-/// Linear-memory bytes kept resident (and merely re-zeroed) when a
-/// slot is reused, instead of being returned to the kernel.
+/// Linear-memory bytes kept resident (and merely re-zeroed) when a slot is
+/// reused, instead of being returned to the kernel.
 ///
-/// Slot reuse below this watermark touches no kernel memory call at
-/// all — the address-space traffic the pool exists to remove; above
-/// it, the excess is decommitted. Sized to cover a typical sample's
-/// touched pages with room (worst plans reach tens of megabytes;
-/// resident cost is per-slot, 512 × 16 MiB = 8 GiB on hosts with
-/// hundreds of gigabytes).
+/// Slot reuse below this watermark touches no kernel memory call at all — the
+/// address-space traffic the pool exists to remove; above it, the excess is
+/// decommitted. Sized to cover a typical sample's touched pages with room
+/// (worst plans reach tens of megabytes; resident cost is per-slot, 512 × 16
+/// MiB = 8 GiB on hosts with hundreds of gigabytes).
 const POOL_KEEP_RESIDENT: usize = 16 * 1024 * 1024;
 
 /// The wasm stack ceiling handed to wasmtime.
 ///
-/// Slack, not a derived budget: every library walk in the guest is
-/// iterative (depth lives on explicit heap and bit stacks in linear
-/// memory, never the call stack), so guest stack consumption is bounded
-/// by the deepest static call chain and does not scale with input. The
-/// ceiling is a trap limit, not an allocation — no async calls are made,
-/// so no stack of this size is ever reserved — and the generous value
-/// keeps a stack trap from ever masquerading as a kernel divergence.
+/// Slack, not a derived budget: every library walk in the guest is iterative
+/// (depth lives on explicit heap and bit stacks in linear memory, never the
+/// call stack), so guest stack consumption is bounded by the deepest static
+/// call chain and does not scale with input. The ceiling is a trap limit, not
+/// an allocation — no async calls are made, so no stack of this size is ever
+/// reserved — and the generous value keeps a stack trap from ever masquerading
+/// as a kernel divergence.
 const MAX_WASM_STACK: usize = 48 * 1024 * 1024;
 
-/// The environment variable naming the compiled guest module; the recipes
-/// that run the harness or the fuelscape pipeline set it after building the
-/// guest with `just fuzzfit-build`.
+/// The environment variable naming the compiled guest module; the recipes that
+/// run the harness or the fuelscape pipeline set it after building the guest
+/// with `just fuzzfit-build`.
 pub const GUEST_ENV: &str = "FUZZFIT_GUEST_WASM";
 
 /// Returns the path of the compiled guest module, which [`GUEST_ENV`] names.
 ///
-/// No default location stands in for the variable: a guest found there
-/// could predate the tree under test, and its fuel would be judged as the
-/// tree's.
+/// No default location stands in for the variable: a guest found there could
+/// predate the tree under test, and its fuel would be judged as the tree's.
 ///
 /// # Panics
 ///

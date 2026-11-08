@@ -1,64 +1,63 @@
 //! Stateful differential traces over clocks.
 //!
-//! The strategy generates sequences of clock operations. [`replay`] applies
-//! one sequence to production and to each independent model through
-//! [`TraceModel`], so scheduling details cannot drift between copied drivers.
-//! The models are the recursive tree oracle, the function-space oracle, and
-//! the flat model's parties ([`FlatParties`]), which follow each step's
-//! effect on identity exactly but hold no versions. Every trace begins with
-//! one seed and creates clocks only by splitting or recombining it, so
-//! independently seeded universes are unrepresentable.
+//! The strategy generates sequences of clock operations. [`replay`] applies one
+//! sequence to production and to each independent model through [`TraceModel`],
+//! so scheduling details cannot drift between copied drivers. The models are
+//! the recursive tree oracle, the function-space oracle, and the flat model's
+//! parties ([`FlatParties`]), which follow each step's effect on identity
+//! exactly but hold no versions. Every trace begins with one seed and creates
+//! clocks only by splitting or recombining it, so independently seeded
+//! universes are unrepresentable.
 //!
 //! [`run`] is the narrower adapter for tests that need recursive-oracle
-//! populations, and [`step`] advances any model by one operation for tests
-//! that assert after every step or compare models in lockstep.
+//! populations, and [`step`] advances any model by one operation for tests that
+//! assert after every step or compare models in lockstep.
 //!
 //! # Production-side traces
 //!
 //! The oracles apply `ticks(n)` as `n` literal ticks, so they cannot follow a
 //! tick count wider than a few dozen. [`production_strategy_up_to`] draws
-//! traces of [`ProductionOp`]s, which add such counts to the shared steps,
-//! for drivers that step only production-backed models ([`ProductionModel`])
+//! traces of [`ProductionOp`]s, which add such counts to the shared steps, for
+//! drivers that step only production-backed models ([`ProductionModel`])
 //! through [`step_production`] or [`step_impl`].
 //!
 //! # Rule-respecting use never fails
 //!
-//! Every trace obeys the crate page's two safety rules. It has one seed, and
-//! it uses each clock linearly: a byte round trip replaces the clock it
-//! encodes, which is the move the crate page asks of a transmission. The
-//! crate page promises that if an overlap error ever arises from
-//! [`join`](crate::Clock::join) or [`sync`](crate::Clock::sync), "the
-//! diagnosis is always definitive: the programmer violated one of the above
-//! rules", and [`join_all`](crate::Clock::join_all) and
+//! Every trace obeys the crate page's two safety rules. It has one seed, and it
+//! uses each clock linearly: a byte round trip replaces the clock it encodes,
+//! which is the move the crate page asks of a transmission. The crate page
+//! promises that if an overlap error ever arises from
+//! [`join`](crate::Clock::join) or [`sync`](crate::Clock::sync), "the diagnosis
+//! is always definitive: the programmer violated one of the above rules", and
+//! [`join_all`](crate::Clock::join_all) and
 //! [`sync_all`](crate::Clock::sync_all) state the same of their errors:
 //! "[`Clock`]s used linearly from one [`Clock::seed`] remain pairwise
-//! disjoint." So no join, `join_all`, sync, or `sync_all` in a trace may
-//! fail. The crate page's section on replicating clocks adds that
-//! "everything crosses process boundaries as canonical bytes:
-//! [`encode`](crate::Clock::encode)/[`encode_to`](crate::Clock::encode_to)
-//! emit them, and [`decode`](crate::Clock::decode) validates strictly", and
-//! each decoder accepts exactly canonical input, so no clock, party, or
-//! version a trace encodes may fail to decode. [`step`] asserts both of
-//! every step it applies, and every trace path applies its steps through
-//! it, so every consumer of a trace checks the promise on the histories it
-//! draws.
+//! disjoint." So no join, `join_all`, sync, or `sync_all` in a trace may fail.
+//! The crate page's section on replicating clocks adds that "everything crosses
+//! process boundaries as canonical bytes:
+//! [`encode`](crate::Clock::encode)/[`encode_to`](crate::Clock::encode_to) emit
+//! them, and [`decode`](crate::Clock::decode) validates strictly", and each
+//! decoder accepts exactly canonical input, so no clock, party, or version a
+//! trace encodes may fail to decode. [`step`] asserts both of every step it
+//! applies, and every trace path applies its steps through it, so every
+//! consumer of a trace checks the promise on the histories it draws.
 //!
 //! # Populations and depth
 //!
 //! A `forks` step or array split never grows the population past
-//! [`MAX_POPULATION`]: near it, `forks` takes fewer children and an array
-//! split deals fewer shares, and at or past it they add no clock. A single
-//! [`Op::Fork`] always adds its child, so a trace with no `forks` step or
-//! array split is never clamped.
+//! [`MAX_POPULATION`]: near it, `forks` takes fewer children and an array split
+//! deals fewer shares, and at or past it they add no clock. A single
+//! [`Op::Fork`] always adds its child, so a trace with no `forks` step or array
+//! split is never clamped.
 //!
 //! Each step can deepen the parties it splits by a bounded number of tree
-//! levels, [`Op::levels`], and a trace from [`world_strategy_up_to`]`(n)`
-//! keeps the sum of its steps' levels below `n`. Joins and normalization
-//! never deepen a party, and a tick or an absorb deepens a version no
-//! further than the parties that have ticked it, so every party and version
-//! in such a trace is fewer than `n` levels deep. The function-space
-//! oracle's comparison grid ([`GRID_N`](super::oracles::function::GRID_N))
-//! derives from that bound for [`world_strategy`]'s cap.
+//! levels, [`Op::levels`], and a trace from [`world_strategy_up_to`]`(n)` keeps
+//! the sum of its steps' levels below `n`. Joins and normalization never deepen
+//! a party, and a tick or an absorb deepens a version no further than the
+//! parties that have ticked it, so every party and version in such a trace is
+//! fewer than `n` levels deep. The function-space oracle's comparison grid
+//! ([`GRID_N`](super::oracles::function::GRID_N)) derives from that bound for
+//! [`world_strategy`]'s cap.
 
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -71,20 +70,20 @@ use crate::testing::oracles::{flat, tree};
 
 use crate::{Clock, Count, Party, Version};
 
-/// One implementation of the stateful ITC operations, shared by production
-/// and every model a trace can drive.
+/// One implementation of the stateful ITC operations, shared by production and
+/// every model a trace can drive.
 ///
 /// The trace driver is generic over this trait. Consequently, every operation
-/// it can generate has one implementation per model, and adding a method
-/// fails to compile until every implementation supplies it. The trait
-/// deliberately contains only the models' common semantic vocabulary.
+/// it can generate has one implementation per model, and adding a method fails
+/// to compile until every implementation supplies it. The trait deliberately
+/// contains only the models' common semantic vocabulary.
 pub(crate) trait TraceModel {
     /// This model's clock value.
     type Clock;
     /// The version-like message transmitted by `send`.
     type Message;
-    /// The randomness this model's free choices draw on: `()` for a model
-    /// whose every step is determined by the trace alone.
+    /// The randomness this model's free choices draw on: `()` for a model whose
+    /// every step is determined by the trace alone.
     type Rng;
 
     /// Create the initial clock.
@@ -95,9 +94,8 @@ pub(crate) trait TraceModel {
     fn ticks(clock: &mut Self::Clock, count: u8, rng: &mut Self::Rng);
     /// Split off a child clock.
     fn fork(clock: &mut Self::Clock, rng: &mut Self::Rng) -> Self::Clock;
-    /// Return the first `taken` of the `count` children that
-    /// [`Clock::forks`] yields, leaving `clock` the residual; `taken` is at
-    /// most `count`.
+    /// Return the first `taken` of the `count` children that [`Clock::forks`]
+    /// yields, leaving `clock` the residual; `taken` is at most `count`.
     fn forks(
         clock: &mut Self::Clock,
         count: u8,
@@ -142,9 +140,9 @@ pub(crate) trait TraceModel {
     /// Move a clock through its byte encoding, reporting whether its bytes
     /// decoded; a model without a codec moves it unchanged.
     fn transmit(clock: &mut Self::Clock) -> bool;
-    /// Move a clock's party and version through their separate byte
-    /// encodings, reporting whether both decoded; a model without a codec
-    /// moves it unchanged.
+    /// Move a clock's party and version through their separate byte encodings,
+    /// reporting whether both decoded; a model without a codec moves it
+    /// unchanged.
     fn transmit_parts(clock: &mut Self::Clock) -> bool;
 }
 
@@ -432,17 +430,17 @@ impl TraceModel for FunctionSpace {
 
 /// The flat model's implementation of [`TraceModel`], over parties alone.
 ///
-/// No step's effect on a party depends on any version, and ticks and
-/// messages change no party, so following only the parties computes the
-/// party of every clock a trace produces exactly. The flat model has no
-/// ticks, so versions are not followed, and its message type is `()`. Its
-/// split is computed on interval sets, without trees, so it judges
-/// production's identity operations independently of the tree recursion.
+/// No step's effect on a party depends on any version, and ticks and messages
+/// change no party, so following only the parties computes the party of every
+/// clock a trace produces exactly. The flat model has no ticks, so versions are
+/// not followed, and its message type is `()`. Its split is computed on
+/// interval sets, without trees, so it judges production's identity operations
+/// independently of the tree recursion.
 pub(crate) struct FlatParties;
 
 impl FlatParties {
-    /// Joins `other` into `party` when they are disjoint, reporting whether
-    /// it did.
+    /// Joins `other` into `party` when they are disjoint, reporting whether it
+    /// did.
     fn join_disjoint(party: &mut flat::Party, other: &flat::Party) -> bool {
         let disjoint = party.is_disjoint(other);
         if disjoint {
@@ -565,8 +563,8 @@ pub(crate) enum Arity {
     Two,
     /// Three shares, the smallest count that is not a power of two.
     Three,
-    /// Five shares, whose first half of three is itself uneven, so the
-    /// balanced descent splits unevenly at two levels.
+    /// Five shares, whose first half of three is itself uneven, so the balanced
+    /// descent splits unevenly at two levels.
     Five,
     /// Eight shares, a full balanced tree three levels deep.
     Eight,
@@ -593,8 +591,8 @@ impl Arity {
         }
     }
 
-    /// Returns the largest arity no larger than `self` whose split adds at
-    /// most `room` clocks.
+    /// Returns the largest arity no larger than `self` whose split adds at most
+    /// `room` clocks.
     fn within(self, room: usize) -> Arity {
         Arity::ALL
             .into_iter()
@@ -614,35 +612,35 @@ impl Arity {
 pub(crate) enum Op {
     /// Advance member `i`.
     Tick(Index),
-    /// Advance member `i` by `n` events in one fused call (small `n`:
-    /// the oracle applier iterates it literally).
+    /// Advance member `i` by `n` events in one fused call (small `n`: the
+    /// oracle applier iterates it literally).
     Ticks(Index, u8),
     /// Split member `i`, appending the child.
     Fork(Index),
-    /// Collect `forks(k).take(t)` from member `i`, appending the children;
-    /// the population cap may take fewer.
+    /// Collect `forks(k).take(t)` from member `i`, appending the children; the
+    /// population cap may take fewer.
     Forks(Index, u8, u8),
-    /// Split member `i` into balanced shares by the array conversion: the
-    /// first share replaces it and the rest are appended; the population cap
-    /// may deal fewer.
+    /// Split member `i` into balanced shares by the array conversion: the first
+    /// share replaces it and the rest are appended; the population cap may deal
+    /// fewer.
     Split(Index, Arity),
     /// `i` sends (ticks, emits its version); `j` receives it.
     Send(Index, Index),
-    /// Merge member `j`'s version into member `i`'s without ticking either;
-    /// `j` may be `i`.
+    /// Merge member `j`'s version into member `i`'s without ticking either; `j`
+    /// may be `i`.
     Absorb(Index, Index),
-    /// Merge every picked member's version into member `i`'s without
-    /// ticking, repeated picks and picks of `i` included.
+    /// Merge every picked member's version into member `i`'s without ticking,
+    /// repeated picks and picks of `i` included.
     AbsorbAll(Index, Vec<Index>),
     /// Reconcile `i` and `j` (join then re-split).
     Sync(Index, Index),
-    /// Reconcile member `i` with every other member picked, in pick order;
-    /// a repeated pick counts once, and a pick of `i` is dropped.
+    /// Reconcile member `i` with every other member picked, in pick order; a
+    /// repeated pick counts once, and a pick of `i` is dropped.
     SyncAll(Index, Vec<Index>),
     /// Join `j` into `i`, removing `j`.
     Join(Index, Index),
-    /// Join every member picked into member `i`, in pick order, removing
-    /// them; a repeated pick counts once, and a pick of `i` is dropped.
+    /// Join every member picked into member `i`, in pick order, removing them;
+    /// a repeated pick counts once, and a pick of `i` is dropped.
     JoinAll(Index, Vec<Index>),
     /// Move member `i` through its byte encoding.
     Transmit(Index),
@@ -653,8 +651,8 @@ pub(crate) enum Op {
 
 /// The most members a `sync_all`, `join_all`, or `absorb_all` step picks.
 ///
-/// `sync_all` and `join_all` drop a pick of the receiver, so at most this
-/// many others take part besides it; `absorb_all` keeps such a pick.
+/// `sync_all` and `join_all` drop a pick of the receiver, so at most this many
+/// others take part besides it; `absorb_all` keeps such a pick.
 const MAX_PICKS: usize = 5;
 
 /// The largest count a `forks` step draws: nine shares, the residual's and
@@ -676,16 +674,16 @@ pub(crate) fn split_levels(shares: usize) -> u32 {
 }
 
 impl Op {
-    /// Returns the most tree levels this step can add below any party's
-    /// deepest leaf.
+    /// Returns the most tree levels this step can add below any party's deepest
+    /// leaf.
     ///
     /// A balanced split into `n` shares reaches its deepest share through
     /// `⌈log₂ n⌉` of the paper's splits, and each split deepens a party by at
     /// most one level. A fork and a sync deal two shares, a `forks` step one
-    /// more than its count, an array split its arity, and a `sync_all` one
-    /// more than its picks; every other step deals no shares and adds no
-    /// level. The bound reads the drawn counts, so clamping a step to the
-    /// population can only lower what it adds.
+    /// more than its count, an array split its arity, and a `sync_all` one more
+    /// than its picks; every other step deals no shares and adds no level. The
+    /// bound reads the drawn counts, so clamping a step to the population can
+    /// only lower what it adds.
     pub(crate) fn levels(&self) -> u32 {
         match self {
             Op::Fork(_) | Op::Sync(..) => split_levels(2),
@@ -771,8 +769,8 @@ impl Op {
 }
 
 /// An [`Op`] resolved against the population it runs on: every operand a
-/// position in it, the picks of a split or join distinct, and counts clamped
-/// to [`MAX_POPULATION`].
+/// position in it, the picks of a split or join distinct, and counts clamped to
+/// [`MAX_POPULATION`].
 ///
 /// Each variant resolves the [`Op`] of the same name.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -783,11 +781,10 @@ enum Step {
     Ticks(usize, u8),
     /// Fork the member, appending the child.
     Fork(usize),
-    /// Collect `taken` of the `count` children `forks(count)` yields;
-    /// `taken` is at most `count` and fits under the cap.
+    /// Collect `taken` of the `count` children `forks(count)` yields; `taken`
+    /// is at most `count` and fits under the cap.
     Forks { at: usize, count: u8, taken: usize },
-    /// Split the member into `arity` shares, an arity that fits under the
-    /// cap.
+    /// Split the member into `arity` shares, an arity that fits under the cap.
     Split { at: usize, arity: Arity },
     /// The first member sends; the second receives.
     Send(usize, usize),
@@ -816,11 +813,11 @@ enum Step {
 ///
 /// Ticks and sends weigh the most, so a trace carries most of its events in
 /// them with the splits and joins mixed in. Each step that leaves its
-/// participants holding one shared or dominating version weighs less than
-/// its neighbors: sync less than fork and join, and `sync_all` and the
-/// absorbs less than `forks`, array splits, and `join_all`, since each thins
-/// the concurrent pairs consumers draw. The byte round trips, which change
-/// no value, share the lowest weight with them.
+/// participants holding one shared or dominating version weighs less than its
+/// neighbors: sync less than fork and join, and `sync_all` and the absorbs less
+/// than `forks`, array splits, and `join_all`, since each thins the concurrent
+/// pairs consumers draw. The byte round trips, which change no value, share the
+/// lowest weight with them.
 fn op_strategy() -> impl Strategy<Value = Op> {
     let picks = || prop::collection::vec(any::<Index>(), 0..=MAX_PICKS);
     let arity = prop_oneof![
@@ -851,15 +848,14 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 /// The default trace-length cap: [`world_strategy`] draws strictly fewer ops
 /// than this, adding strictly fewer tree levels.
 ///
-/// Consumers that size a resource to the deepest reachable history derive
-/// from this constant rather than transcribing it (the semantic oracle
-/// derives its comparison-grid ceiling
-/// [`super::oracles::function::GRID_N`] from it, so a cap change cannot
-/// silently outgrow the grid).
+/// Consumers that size a resource to the deepest reachable history derive from
+/// this constant rather than transcribing it (the semantic oracle derives its
+/// comparison-grid ceiling [`super::oracles::function::GRID_N`] from it, so a
+/// cap change cannot silently outgrow the grid).
 pub(crate) const MAX_TRACE_OPS: usize = 30;
 
-/// Keeps each drawn step whose levels fit in what remains of `budget`,
-/// dropping the rest.
+/// Keeps each drawn step whose levels fit in what remains of `budget`, dropping
+/// the rest.
 fn within_levels<T>(drawn: Vec<T>, budget: u32, levels: impl Fn(&T) -> u32) -> Vec<T> {
     let mut spent = 0;
     drawn
@@ -878,26 +874,25 @@ fn within_levels<T>(drawn: Vec<T>, budget: u32, levels: impl Fn(&T) -> u32) -> V
 /// [`MAX_TRACE_OPS`] tree levels, over a population that starts as a single
 /// seed clock.
 ///
-/// Every kind of [`Op`] is reachable, and its traces regularly hold a
-/// `forks` step that takes children and one that leaves some untaken, an
-/// array split, a `join_all` of two or more clocks, a `sync_all` with two or
-/// more others, each byte round trip, absorbs from other members, a
-/// population past the census's large-population size, and a concurrent
-/// pair in the final population; the census
-/// `trace_strategies_keep_mass_on_their_regimes` floors each of these.
+/// Every kind of [`Op`] is reachable, and its traces regularly hold a `forks`
+/// step that takes children and one that leaves some untaken, an array split, a
+/// `join_all` of two or more clocks, a `sync_all` with two or more others, each
+/// byte round trip, absorbs from other members, a population past the census's
+/// large-population size, and a concurrent pair in the final population; the
+/// census `trace_strategies_keep_mass_on_their_regimes` floors each of these.
 pub(crate) fn world_strategy() -> impl Strategy<Value = Vec<Op>> {
     world_strategy_up_to(MAX_TRACE_OPS)
 }
 
-/// Draws a trace of fewer than `max_ops` ops, adding fewer than `max_ops`
-/// tree levels, over a population that starts as a single seed clock, for
-/// suites that need histories deeper than [`world_strategy`]'s default cap.
+/// Draws a trace of fewer than `max_ops` ops, adding fewer than `max_ops` tree
+/// levels, over a population that starts as a single seed clock, for suites
+/// that need histories deeper than [`world_strategy`]'s default cap.
 ///
-/// The strategy drops each drawn step whose [`levels`](Op::levels) would
-/// bring the trace's total to `max_ops`, so every party and version the
-/// trace produces is fewer than `max_ops` levels deep (see the module doc).
-/// Only `forks` steps, array splits, and `sync_all` steps declare more than
-/// one level, so a trace without them never loses a step.
+/// The strategy drops each drawn step whose [`levels`](Op::levels) would bring
+/// the trace's total to `max_ops`, so every party and version the trace
+/// produces is fewer than `max_ops` levels deep (see the module doc). Only
+/// `forks` steps, array splits, and `sync_all` steps declare more than one
+/// level, so a trace without them never loses a step.
 pub(crate) fn world_strategy_up_to(max_ops: usize) -> impl Strategy<Value = Vec<Op>> {
     let budget = u32::try_from(max_ops).expect("a trace cap fits in u32");
     prop::collection::vec(op_strategy(), 0..max_ops)
@@ -910,21 +905,20 @@ const FAILED_STEP: &str = "a step of a rule-respecting trace failed, which the c
 
 /// Applies one operation to an existing population through any model.
 ///
-/// Population indexing and the population cap live here and in
-/// [`Op::resolve`], so this one schedule definition serves every model:
-/// [`replay`] and [`run`] apply whole traces through it, and tests that step
-/// several models in lockstep, or assert after every step, call it
-/// directly. A test can implement [`TraceModel`] for production paired with
-/// its own bookkeeping and step both through this one schedule, so the
-/// bookkeeping cannot drift from the clocks it describes; implementing
-/// [`ProductionModel`] as well lets [`step_production`] carry the pair
-/// through wide tick counts.
+/// Population indexing and the population cap live here and in [`Op::resolve`],
+/// so this one schedule definition serves every model: [`replay`] and [`run`]
+/// apply whole traces through it, and tests that step several models in
+/// lockstep, or assert after every step, call it directly. A test can implement
+/// [`TraceModel`] for production paired with its own bookkeeping and step both
+/// through this one schedule, so the bookkeeping cannot drift from the clocks
+/// it describes; implementing [`ProductionModel`] as well lets
+/// [`step_production`] carry the pair through wide tick counts.
 ///
 /// # Panics
 ///
-/// Panics if a join, `join_all`, sync, `sync_all`, or byte round trip
-/// fails, which the crate page promises no step of a rule-respecting trace
-/// does (see the module doc). The message names the model and the step.
+/// Panics if a join, `join_all`, sync, `sync_all`, or byte round trip fails,
+/// which the crate page promises no step of a rule-respecting trace does (see
+/// the module doc). The message names the model and the step.
 pub(crate) fn step<M: TraceModel>(clocks: &mut Vec<M::Clock>, op: &Op, rng: &mut M::Rng) {
     let Some(resolved) = op.resolve(clocks.len()) else {
         return;
@@ -1018,11 +1012,10 @@ pub(crate) fn step<M: TraceModel>(clocks: &mut Vec<M::Clock>, op: &Op, rng: &mut
 /// state-transition interface, returning the final live population in trace
 /// index order.
 ///
-/// Every step goes through [`step`], the sole spelling of the trace
-/// schedule, so index handling and the definition of a skipped
-/// self-operation cannot drift among the implementations. The driver
-/// creates exactly one seed so independently seeded universes are
-/// unrepresentable here.
+/// Every step goes through [`step`], the sole spelling of the trace schedule,
+/// so index handling and the definition of a skipped self-operation cannot
+/// drift among the implementations. The driver creates exactly one seed so
+/// independently seeded universes are unrepresentable here.
 ///
 /// # Panics
 ///
@@ -1058,8 +1051,8 @@ impl ProductionModel for Production {
     }
 }
 
-/// The largest exponent `s` of a wide count `2^s + l`: past both the `u64`
-/// and the `u128` width.
+/// The largest exponent `s` of a wide count `2^s + l`: past both the `u64` and
+/// the `u128` width.
 const MAX_WIDE_EXPONENT: u32 = 130;
 
 /// The largest offset `l` of a wide count `2^s + l`.
@@ -1069,11 +1062,10 @@ const MAX_WIDE_OFFSET: u8 = 3;
 /// for the oracles.
 ///
 /// The recursive and function-space oracles apply `ticks(n)` as `n` literal
-/// ticks, so a count past a few dozen is out of their reach, while
-/// production's `ticks` costs time logarithmic in the count. Only
-/// production-side drivers draw this type, through
-/// [`production_strategy_up_to`], and only a [`ProductionModel`] applies it,
-/// through [`step_production`].
+/// ticks, so a count past a few dozen is out of their reach, while production's
+/// `ticks` costs time logarithmic in the count. Only production-side drivers
+/// draw this type, through [`production_strategy_up_to`], and only a
+/// [`ProductionModel`] applies it, through [`step_production`].
 #[derive(Clone, Debug)]
 pub(crate) enum ProductionOp {
     /// A step every model can apply.

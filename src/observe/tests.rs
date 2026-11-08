@@ -6,9 +6,8 @@ use tokio::io::AsyncReadExt;
 
 use super::*;
 
-/// A handler that counts what it is asked for and records stream
-/// identities, so the plumbing tests can see exactly which levels were
-/// created.
+/// A handler that counts what it is asked for and records stream identities, so
+/// the plumbing tests can see exactly which levels were created.
 #[derive(Default)]
 struct Counting {
     sessions: AtomicUsize,
@@ -108,8 +107,8 @@ fn unattached_handles_are_inert() {
     assert!(handle.data(Role::Initiator, Direction::Sent).is_none());
 }
 
-/// Beginning an observed V2 session creates the control stream's two
-/// directed handlers immediately, ahead of any wire traffic.
+/// Beginning an observed V2 session creates the control stream's two directed
+/// handlers immediately, ahead of any wire traffic.
 #[test]
 fn begin_creates_the_control_handlers() {
     let observer = Arc::new(Counting::default());
@@ -189,9 +188,8 @@ proptest! {
     }
 }
 
-/// The capture adapter retains exactly the bytes it delivered, across
-/// split reads, so an observed exact read hands its handler the true
-/// wire bytes.
+/// The capture adapter retains exactly the bytes it delivered, across split
+/// reads, so an observed exact read hands its handler the true wire bytes.
 #[tokio::test]
 async fn capture_read_retains_delivered_bytes() {
     let mut source: &[u8] = b"one item";

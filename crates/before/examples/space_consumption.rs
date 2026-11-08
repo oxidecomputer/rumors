@@ -1,8 +1,8 @@
-//! Empirical ITC space-consumption simulation, reproducing the experiment in
-//! §6 ("Exercising ITCs") and Figure 1 of the ITC 2008 paper.
+//! Empirical ITC space-consumption simulation, reproducing the experiment in §6
+//! ("Exercising ITCs") and Figure 1 of the ITC 2008 paper.
 //!
-//! Unlike the paper, this measures *this crate's* binary encoding rather
-//! than the paper's Appendix A encoding.
+//! Unlike the paper, this measures *this crate's* binary encoding rather than
+//! the paper's Appendix A encoding.
 //!
 //! # What the paper measured
 //!
@@ -50,15 +50,17 @@
 //! scenario,entities,iteration,mean_bits,std_bits,mean_bytes,std_bytes,runs
 //! ```
 //!
-//! `mean_bits`/`mean_bytes` are the grand mean, across runs, of the per-run mean
-//! stamp size at that iteration checkpoint; the `std_` columns are the standard
-//! deviation of the per-run means (the spread the paper averages away). Sampling
-//! is log-spaced so a handful of checkpoints traces the whole curve.
+//! `mean_bits`/`mean_bytes` are the grand mean, across runs, of the per-run
+//! mean stamp size at that iteration checkpoint; the `std_` columns are the
+//! standard deviation of the per-run means (the spread the paper averages
+//! away). Sampling is log-spaced so a handful of checkpoints traces the whole
+//! curve.
 //!
-//! Bits are the exact pre-pad encoded length ([`Clock::encoded_bits`]); bytes are
-//! `encode().len()` = `⌈bits/8⌉` per stamp. The bit column is the smooth quantity
-//! to fit: averaging per-stamp byte ceilings biases small stamps upward and adds
-//! quantization noise; the byte column is what a real deployment stores.
+//! Bits are the exact pre-pad encoded length ([`Clock::encoded_bits`]); bytes
+//! are `encode().len()` = `⌈bits/8⌉` per stamp. The bit column is the smooth
+//! quantity to fit: averaging per-stamp byte ceilings biases small stamps
+//! upward and adds quantization noise; the byte column is what a real
+//! deployment stores.
 //!
 //! # Running
 //!
@@ -93,8 +95,9 @@ const DEFAULT_DATA_ITERS: u64 = 100_000;
 const DEFAULT_PROCESS_ITERS: u64 = 25_000;
 const DEFAULT_ENTITIES: &[usize] = &[4, 8, 16, 32, 64, 128];
 
-/// Log-spaced checkpoints per decade. Eight points per decade is dense enough to
-/// trace the curve smoothly on a log x-axis without sampling every iteration.
+/// Log-spaced checkpoints per decade. Eight points per decade is dense enough
+/// to trace the curve smoothly on a log x-axis without sampling every
+/// iteration.
 const POINTS_PER_DECADE: f64 = 8.0;
 
 /// The two regimes of Figure 1.
@@ -222,8 +225,8 @@ fn main() {
 }
 
 /// Run one simulation: build a population of `n` balanced stamps, then exercise
-/// it for `max_iters` iterations, recording the mean stamp size (as `(bits, bytes)`,
-/// under this crate's encoding) at each checkpoint.
+/// it for `max_iters` iterations, recording the mean stamp size (as
+/// `(bits, bytes)`, under this crate's encoding) at each checkpoint.
 ///
 /// Advances `pb` by the number of iterations completed between checkpoints.
 fn simulate(
@@ -263,9 +266,9 @@ fn simulate(
     sizes
 }
 
-/// Data causality, dynamic setting (paper §6): fork a random replica (+1), record
-/// an event on a random replica, then join a random pair (−1). Population is
-/// constant across the iteration; ids churn.
+/// Data causality, dynamic setting (paper §6): fork a random replica (+1),
+/// record an event on a random replica, then join a random pair (−1).
+/// Population is constant across the iteration; ids churn.
 fn step_data(clocks: &mut Vec<Clock>, rng: &mut ChaChaRng) {
     // fork: clone a random replica's causal past into a fresh id.
     let parent = rng.random_range(0..clocks.len());
@@ -285,11 +288,11 @@ fn step_data(clocks: &mut Vec<Clock>, rng: &mut ChaChaRng) {
         .expect("clocks forked from one seed are disjoint");
 }
 
-/// Process causality, static setting (paper §6): record one internal event, then
-/// exchange one anonymous message.
+/// Process causality, static setting (paper §6): record one internal event,
+/// then exchange one anonymous message.
 ///
-/// `peek` yields an anonymous stamp `(0, e)`
-/// (the snapshot `Version`); the receiver joins it, leaving its own id intact.
+/// `peek` yields an anonymous stamp `(0, e)` (the snapshot `Version`); the
+/// receiver joins it, leaving its own id intact.
 fn step_process(clocks: &mut [Clock], n: usize, rng: &mut ChaChaRng) {
     // internal event on a random process.
     let who = rng.random_range(0..n);
@@ -308,9 +311,9 @@ fn step_process(clocks: &mut [Clock], n: usize, rng: &mut ChaChaRng) {
 /// Build `n` stamps from a single seed by balanced forking (paper §3: "starting
 /// from an initial seed stamp and forking several times").
 ///
-/// For power-of-two `n`
-/// this doubles the population each round, yielding a perfectly balanced id tree;
-/// other counts get a slightly uneven tail, which is harmless.
+/// For power-of-two `n` this doubles the population each round, yielding a
+/// perfectly balanced id tree; other counts get a slightly uneven tail, which
+/// is harmless.
 fn build_population(n: usize) -> Vec<Clock> {
     let mut clocks = vec![Clock::seed()];
     while clocks.len() < n {
@@ -329,9 +332,9 @@ fn build_population(n: usize) -> Vec<Clock> {
 /// Mean encoded size over all live stamps, as `(bits, bytes)`, in this crate's
 /// binary encoding, not the paper's Appendix A encoding.
 ///
-/// Bits are the exact
-/// pre-pad length ([`Clock::encoded_bits`]); bytes are `encode().len()`, i.e.
-/// `⌈bits/8⌉` per stamp (the per-stamp ceiling is what biases the byte mean).
+/// Bits are the exact pre-pad length ([`Clock::encoded_bits`]); bytes are
+/// `encode().len()`, i.e. `⌈bits/8⌉` per stamp (the per-stamp ceiling is what
+/// biases the byte mean).
 fn mean_stamp_sizes(clocks: &[Clock]) -> (f64, f64) {
     let n = clocks.len() as f64;
     let bits: u64 = clocks.iter().map(Clock::encoded_bits).sum();

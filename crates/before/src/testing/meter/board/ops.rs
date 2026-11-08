@@ -57,7 +57,8 @@ const NA_HEAP_COUNT_FORMAT: &str =
 /// Why cloning a rank has no representation-independent heap floor.
 const NA_HEAP_RANK_CLONE: &str = "small numerators may remain inline: cloning need not allocate";
 
-/// Why constructing one query hole has no representation-independent heap floor.
+/// Why constructing one query hole has no representation-independent heap
+/// floor.
 const NA_HEAP_QUERY_CONSTRUCTION: &str =
     "one hole may live inline and its version buffer may be shared";
 
@@ -127,8 +128,8 @@ fn wide_fork_count(input_bytes: usize) -> (Count, usize) {
 ///
 /// The fold populations preserve one universe and adversarial ordering. In
 /// particular, the scatter population lists even leaves before odd leaves, so
-/// its first half joins to an alternating-leaf region rather than the seed.
-/// The returned arity scales with populations that scale their operand count.
+/// its first half joins to an alternating-leaf region rather than the seed. The
+/// returned arity scales with populations that scale their operand count.
 fn joined_fold_prefix(f: &FamilyData) -> Option<(Party, usize)> {
     let (_, parties) = f.population.as_ref()?;
     let arity = parties.len() / 2;
@@ -154,12 +155,12 @@ fn fork_count_bytes(count: usize) -> usize {
 /// `num-bigint` multiplies by long multiplication (`n²`) while the shorter
 /// factor has at most 32 digits, by Karatsuba (`n^log2 3`) up to 256 digits,
 /// and by Toom-3 (`n^1.465`) beyond; a factor at least twice its partner's
-/// length is split by Half-Karatsuba. Its digits are 32 bits wide on wasm32
-/// and 64 bits wide on 64-bit targets, so the thresholds fall at 128 bytes
-/// and 1 KiB in the fuel guest. Above the long-multiplication threshold,
-/// these units grow at least as fast as `M(n)`; below it, `M(n)` grows faster
-/// than its envelope, so a model built on these units holds only for operands
-/// past that threshold.
+/// length is split by Half-Karatsuba. Its digits are 32 bits wide on wasm32 and
+/// 64 bits wide on 64-bit targets, so the thresholds fall at 128 bytes and 1
+/// KiB in the fuel guest. Above the long-multiplication threshold, these units
+/// grow at least as fast as `M(n)`; below it, `M(n)` grows faster than its
+/// envelope, so a model built on these units holds only for operands past that
+/// threshold.
 fn multiplication_units(bytes: usize) -> u64 {
     let units = (bytes as f64).powf(3f64.log2()).ceil();
     // A float-to-integer cast saturates silently, so the range is checked
@@ -193,8 +194,8 @@ enum SpanFold {
 /// Two ordered spans derived from a family's version operands.
 ///
 /// Population families contribute four independent versions, so both endpoint
-/// pairs require real lattice operations. Other version families contribute
-/// two spans with a shared meet, retaining their difficult shape on the upper
+/// pairs require real lattice operations. Other version families contribute two
+/// spans with a shared meet, retaining their difficult shape on the upper
 /// endpoint pair.
 fn span_pair(f: &FamilyData) -> Option<(Span<'static>, Span<'static>, usize)> {
     let pair = if let Some((versions, _)) = &f.population {
@@ -288,9 +289,9 @@ fn span_algebra_floors() -> Floors {
 /// endpoint advances each whole party, then one fork half by a varying count,
 /// so it dominates every hole without flattening the population's topology.
 ///
-/// The up-query probe contains every hole and advances the opposite fork
-/// halves by varying counts. No hole can be dismissed before exhaustion, so
-/// the walk exercises its work per live hole over a growing probe.
+/// The up-query probe contains every hole and advances the opposite fork halves
+/// by varying counts. No hole can be dismissed before exhaustion, so the walk
+/// exercises its work per live hole over a growing probe.
 pub(super) struct QueryOperands {
     pub(super) down_holes: Vec<Version>,
     pub(super) up_holes: Vec<Version>,
@@ -352,8 +353,8 @@ struct MeasuredQuery {
     lower: Option<Version>,
     endpoint: Version,
     input_bytes: usize,
-    /// Model units of work, which count steps rather than bytes held, so
-    /// they are `u64` on every target.
+    /// Model units of work, which count steps rather than bytes held, so they
+    /// are `u64` on every target.
     work: u64,
 }
 

@@ -1,22 +1,22 @@
-//! A guided first session: two peers, one universe, two messages, one redaction.
+//! A guided first session: two peers, one universe, two messages, one
+//! redaction.
 //!
 //! In this tutorial we will build a two-peer gossip network inside a single
-//! process: seed a universe, send a message and see it, bootstrap a second
-//! peer that arrives already holding it, keep the pair converged over a
-//! long-lived connection, and finally redact the message and watch it
-//! vanish from both replicas. Along the way we will meet
-//! [`Peer`](crate::Peer), [`Rumors`](crate::Rumors),
-//! [`Snapshot`](crate::Snapshot), in-memory connections, and the
-//! [`gossip`](crate::Rumors::gossip) driver.
+//! process: seed a universe, send a message and see it, bootstrap a second peer
+//! that arrives already holding it, keep the pair converged over a long-lived
+//! connection, and finally redact the message and watch it vanish from both
+//! replicas. Along the way we will meet [`Peer`](crate::Peer),
+//! [`Rumors`](crate::Rumors), [`Snapshot`](crate::Snapshot), in-memory
+//! connections, and the [`gossip`](crate::Rumors::gossip) driver.
 //!
 //! Everything runs over in-memory connections, so there is no network to
 //! configure. Binding a real transport is the crate docs'
-//! [transport](crate#transport) section's topic; how a session works under
-//! the hood is the [`reconciliation`](crate::reconciliation) page's.
-//! Neither is needed here.
+//! [transport](crate#transport) section's topic; how a session works under the
+//! hood is the [`reconciliation`](crate::reconciliation) page's. Neither is
+//! needed here.
 //!
-//! Every step below is a complete program: paste it over your `main.rs`,
-//! run it, and compare against the output shown.
+//! Every step below is a complete program: paste it over your `main.rs`, run
+//! it, and compare against the output shown.
 //!
 //! # Step 1: a place to stand
 //!
@@ -30,10 +30,10 @@
 //! futures = "0.3"
 //! ```
 //!
-//! We drive everything with Tokio for convenience only; the crate itself
-//! is [runtime-independent](crate#runtime-independence) — sessions and
-//! observers are plain futures and streams. `futures` supplies the
-//! `StreamExt` adapter we will use in step 5.
+//! We drive everything with Tokio for convenience only; the crate itself is
+//! [runtime-independent](crate#runtime-independence) — sessions and observers
+//! are plain futures and streams. `futures` supplies the `StreamExt` adapter we
+//! will use in step 5.
 //!
 //! Replace `main.rs` with an async main that can report errors:
 //!
@@ -44,19 +44,19 @@
 //! }
 //! ```
 //!
-//! `cargo run` should compile and print nothing. That empty program is
-//! the foundation every following step builds on.
+//! `cargo run` should compile and print nothing. That empty program is the
+//! foundation every following step builds on.
 //!
 //! # Step 2: seed a universe
 //!
 //! A gossip network — a *universe* — begins when exactly one process calls
 //! [`seed`](crate::Peer::seed); every other participant will join by
-//! bootstrapping from a member. (In a real deployment, pick the seeder by
-//! fiat — a `--seed` flag on one host is plenty; to start leaderlessly
-//! instead, see [Bootstrapping without
-//! consensus](crate::Peer#bootstrapping-without-consensus).) Seed the
-//! universe and trade the [`Peer`](crate::Peer) for the
-//! [`Rumors`](crate::Rumors) handle we will work with:
+//! bootstrapping from a member. (In a real deployment, pick the seeder by fiat
+//! — a `--seed` flag on one host is plenty; to start leaderlessly instead, see
+//! [Bootstrapping without
+//! consensus](crate::Peer#bootstrapping-without-consensus).) Seed the universe
+//! and trade the [`Peer`](crate::Peer) for the [`Rumors`](crate::Rumors) handle
+//! we will work with:
 //!
 //! ```
 //! use rumors::Peer;
@@ -82,8 +82,8 @@
 //! # Step 3: send a message and see it
 //!
 //! Now send something, and read it back through a
-//! [`snapshot`](crate::Rumors::snapshot) — a cheap, point-in-time view of
-//! the live set:
+//! [`snapshot`](crate::Rumors::snapshot) — a cheap, point-in-time view of the
+//! live set:
 //!
 //! ```
 //! use rumors::Peer;
@@ -105,25 +105,24 @@
 //! alice holds: the meeting is at noon
 //! ```
 //!
-//! A `send` commits right there, at the call; it errs only on a payload
-//! that violates the [payload
-//! contract](crate#choosing-a-payload-type). Applying several changes as
-//! one commit is [`batch`](crate::Rumors::batch)'s job. The snapshot yields a
-//! [`Version`](crate::Version) alongside each message; step 6 uses it to
-//! redact that specific message.
+//! A `send` commits right there, at the call; it errs only on a payload that
+//! violates the [payload contract](crate#choosing-a-payload-type). Applying
+//! several changes as one commit is [`batch`](crate::Rumors::batch)'s job. The
+//! snapshot yields a [`Version`](crate::Version) alongside each message; step 6
+//! uses it to redact that specific message.
 //!
 //! # Step 4: bootstrap Bob
 //!
 //! A second peer does not call `seed` — it would create a separate universe,
 //! forever unable to gossip with this one. Instead it
-//! [`bootstrap`](crate::Peer::bootstrap)s through any established member:
-//! one session against Alice joins her network and gives Bob a full replica.
-//! A session runs over one connection, which it takes as two halves, a
-//! read half and a write half. `tokio::io::duplex` makes an in-process
-//! connection, `tokio::io::split` splits each end into its halves, and
-//! `tokio::io::BufReader` buffers each read half, as a session requires;
-//! each end is a conduit to exactly one counterparty. Alice serves her end
-//! from a spawned task while Bob joins through the other:
+//! [`bootstrap`](crate::Peer::bootstrap)s through any established member: one
+//! session against Alice joins her network and gives Bob a full replica. A
+//! session runs over one connection, which it takes as two halves, a read half
+//! and a write half. `tokio::io::duplex` makes an in-process connection,
+//! `tokio::io::split` splits each end into its halves, and
+//! `tokio::io::BufReader` buffers each read half, as a session requires; each
+//! end is a conduit to exactly one counterparty. Alice serves her end from a
+//! spawned task while Bob joins through the other:
 //!
 //! ```
 //! use rumors::Peer;
@@ -162,10 +161,10 @@
 //! bob holds: the meeting is at noon
 //! ```
 //!
-//! Notice that Bob arrives converged: the message Alice sent before the
-//! two ever met is already in his replica. Serving a bootstrap took
-//! nothing special from Alice — an ordinary [`gossip`](crate::Rumors::gossip)
-//! call serves Bob's join automatically.
+//! Notice that Bob arrives converged: the message Alice sent before the two
+//! ever met is already in his replica. Serving a bootstrap took nothing special
+//! from Alice — an ordinary [`gossip`](crate::Rumors::gossip) call serves Bob's
+//! join automatically.
 //!
 //! # Step 5: keep the pair converged
 //!
@@ -235,18 +234,17 @@
 //!
 //! Providing [`changes`](crate::Rumors::changes) as the `when` stream
 //! implements push-on-change; an interval stream would gossip on a cadence
-//! instead. In an application these drivers live in long-running tasks,
-//! polled for as long as the connection should stay converged — here we
-//! poll each exactly once, for exactly one session.
+//! instead. In an application these drivers live in long-running tasks, polled
+//! for as long as the connection should stay converged — here we poll each
+//! exactly once, for exactly one session.
 //!
 //! # Step 6: redact, and watch it vanish
 //!
-//! The meeting is over; take the message back. Redaction names a message
-//! by its [`Version`](crate::Version), and versions come back out of
-//! observation — snapshots and the [message
-//! streams](crate#how-should-you-observe-messages) attach one to every
-//! message — so we find the version by looking, then hand it to
-//! [`redact`](crate::Rumors::redact) and let the drivers spread the
+//! The meeting is over; take the message back. Redaction names a message by its
+//! [`Version`](crate::Version), and versions come back out of observation —
+//! snapshots and the [message streams](crate#how-should-you-observe-messages)
+//! attach one to every message — so we find the version by looking, then hand
+//! it to [`redact`](crate::Rumors::redact) and let the drivers spread the
 //! deletion. With this final addition, the whole program reads:
 //!
 //! ```
@@ -325,23 +323,23 @@
 //!
 //! # You have converged
 //!
-//! You have built a two-peer universe: seeded it, replicated a message to
-//! a peer that joined later, kept both ends converged with change-driven
-//! drivers, and redacted a message contagiously out of every replica.
-//! Every piece here scales past the demo: more peers mean more
-//! `bootstrap` calls and more driven connections, nothing else new.
+//! You have built a two-peer universe: seeded it, replicated a message to a
+//! peer that joined later, kept both ends converged with change-driven drivers,
+//! and redacted a message contagiously out of every replica. Every piece here
+//! scales past the demo: more peers mean more `bootstrap` calls and more driven
+//! connections, nothing else new.
 //!
 //! Where to go next:
 //!
 //! - The full peer lifecycle — retirement, its outcomes, reclaiming the
 //!   [`Peer`](crate::Peer) from its handles — is one runnable example on
 //!   [`Peer`](crate::Peer).
-//! - Reacting to messages as they arrive (instead of polling snapshots) is
-//!   the [observers](crate#how-should-you-observe-messages) section's
-//!   decision guide.
-//! - A real deployment passes the two halves of a network connection, such
-//!   as a split TCP stream; the crate docs' [transport](crate#transport)
-//!   section states what the connection must guarantee.
+//! - Reacting to messages as they arrive (instead of polling snapshots) is the
+//!   [observers](crate#how-should-you-observe-messages) section's decision
+//!   guide.
+//! - A real deployment passes the two halves of a network connection, such as a
+//!   split TCP stream; the crate docs' [transport](crate#transport) section
+//!   states what the connection must guarantee.
 //! - To limit version growth across restarts, reuse a
 //!   [`Bookmark`](crate::Bookmark).
 //! - And for how a session actually reconciles two replicas —

@@ -9,9 +9,9 @@ mod tests;
 ///
 /// Values and widths occupy parallel bit stacks. A width `w` is stored as one
 /// `false` below `w - 1` `true` bits, so it can be decoded from the newest end
-/// without an index or a machine word per entry. The complete entry costs
-/// `2w` bits. This favors the small deltas, code lengths, and positions held by
-/// deep tree walks while still representing every `u64`.
+/// without an index or a machine word per entry. The complete entry costs `2w`
+/// bits. This favors the small deltas, code lengths, and positions held by deep
+/// tree walks while still representing every `u64`.
 pub(crate) struct PackedU64Stack {
     /// Self-delimiting widths: one `false` below `w - 1` `true`s per entry.
     widths: BitStack,

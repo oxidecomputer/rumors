@@ -128,9 +128,11 @@ enum Failure {
     Completion,
     /// Removing the donor's durable identity fails before transmission.
     Removal,
-    /// Removal takes effect, but the store returns an error before transmission.
+    /// Removal takes effect, but the store returns an error before
+    /// transmission.
     AfterRemoval,
-    /// The recipient persists the identity but returns an error before confirming it.
+    /// The recipient persists the identity but returns an error before
+    /// confirming it.
     AfterAbsorption,
 }
 

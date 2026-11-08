@@ -2,10 +2,10 @@
 //! public codec.
 //!
 //! [`Canonical`] lists them once, for the properties that drive every reader
-//! `decode` and every streaming encoder through the scripted reader and
-//! writer. It needs no codec feature, so those properties run in every test
-//! build. The codec-feature properties extend it with each type's serde and
-//! borsh entry points.
+//! `decode` and every streaming encoder through the scripted reader and writer.
+//! It needs no codec feature, so those properties run in every test build. The
+//! codec-feature properties extend it with each type's serde and borsh entry
+//! points.
 
 use std::fmt::Debug;
 use std::io::{self, Read, Write};
@@ -13,8 +13,8 @@ use std::io::{self, Read, Write};
 use crate::error::Decode;
 use crate::{Clock, Party, Rank, Ranked, Span, Version};
 
-/// A type with a canonical byte encoding and the public entry points that
-/// read and write it.
+/// A type with a canonical byte encoding and the public entry points that read
+/// and write it.
 pub(crate) trait Canonical: Sized + PartialEq + Debug {
     /// Decodes one value from a reader, through the type's public `decode`.
     fn decode_reader<R: Read>(reader: R) -> Result<Self, Decode>;

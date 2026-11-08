@@ -59,8 +59,8 @@ proptest! {
     }
 }
 
-/// The zero-input combine is the trivial refinement: one whole-interval
-/// cell with no entries, then a fused end.
+/// The zero-input combine is the trivial refinement: one whole-interval cell
+/// with no entries, then a fused end.
 #[test]
 fn empty_combine_is_the_trivial_cell() {
     let mut cells = combine::<0>([]);
@@ -75,8 +75,8 @@ fn empty_combine_is_the_trivial_cell() {
     assert_eq!(cells.next(), None);
 }
 
-/// A single-input combine yields the input's own plateaus, one cell
-/// each: the refinement of one tiling is that tiling.
+/// A single-input combine yields the input's own plateaus, one cell each: the
+/// refinement of one tiling is that tiling.
 #[test]
 fn single_input_combine_is_the_shape() {
     use crate::testing::oracles::tree::Version as V;
@@ -93,8 +93,7 @@ fn single_input_combine_is_the_shape() {
     assert_eq!(cells, plateaus);
 }
 
-/// Every shape iterator is fused: after the final item, `next` stays
-/// `None`.
+/// Every shape iterator is fused: after the final item, `next` stays `None`.
 #[test]
 fn shape_walks_fuse() {
     use crate::testing::oracles::tree::{Party as P, Version as V};
@@ -129,8 +128,8 @@ fn shape_walks_fuse() {
     assert_eq!(cells.next(), None);
 }
 
-/// The empty version and the seed clock walk as single whole-interval
-/// items: no rise (height 0), full ownership on the seed.
+/// The empty version and the seed clock walk as single whole-interval items: no
+/// rise (height 0), full ownership on the seed.
 #[test]
 fn trivial_values_walk_whole() {
     assert_eq!(

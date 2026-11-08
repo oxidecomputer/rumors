@@ -28,8 +28,8 @@ const EARLY_DISPUTE_ATTEMPTS: usize = 2048;
 
 /// The early-dispute hint has the geometry its consumers need.
 ///
-/// When path derivation changes, the hint goes stale; this test then
-/// searches for the first qualifying candidate and reports it.
+/// When path derivation changes, the hint goes stale; this test then searches
+/// for the first qualifying candidate and reports it.
 #[test]
 fn early_dispute_hint_matches_current_paths() {
     let path_of = |version: &Version| <[u8; 32]>::from(Path::for_fixture_leaf(version));
@@ -60,9 +60,9 @@ fn searched_ticks(party: &Party, prefixes: &[[u8; 2]]) -> Vec<usize> {
 
 /// Both full-fan hints land every version under its prefix.
 ///
-/// When path derivation changes, a hint goes stale; this test then searches
-/// the chain and reports the replacement table. The search takes seconds in
-/// a test build; run it under `--release`.
+/// When path derivation changes, a hint goes stale; this test then searches the
+/// chain and reports the replacement table. The search takes seconds in a test
+/// build; run it under `--release`.
 #[test]
 fn full_fan_hints_match_current_paths() {
     let cases = [

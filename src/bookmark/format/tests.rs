@@ -1,5 +1,6 @@
-//! Integrity protects the version and payload, independent of envelope spelling.
-//! Round trips, malformed fields, truncation, and byte pins check both CBOR layers.
+//! Integrity protects the version and payload, independent of envelope
+//! spelling. Round trips, malformed fields, truncation, and byte pins check
+//! both CBOR layers.
 
 use crate::tags::{PARTY_TAG, VERSION_TAG};
 use crate::tree::mirror::cbor::{MAJOR_ARRAY, MAJOR_BSTR, MAJOR_TAG, MAJOR_UINT};
@@ -316,10 +317,9 @@ fn foreign_magic_is_rejected() {
     ));
 }
 
-/// A frame declaring an unknown format version is rejected on the version
-/// alone — its hash is valid, so the rejection is
-/// [`FormatError::VersionMismatch`], never decoded under this build's
-/// assumptions.
+/// A frame declaring an unknown format version is rejected on the version alone
+/// — its hash is valid, so the rejection is [`FormatError::VersionMismatch`],
+/// never decoded under this build's assumptions.
 #[test]
 fn unknown_version_is_rejected() {
     let framed = frame_as(0xbeef, b"payload");
@@ -352,8 +352,8 @@ fn payload_corruption_is_rejected() {
     assert!(matches!(unframe(&framed), Err(FormatError::HashMismatch)));
 }
 
-/// The empty input is [`FormatError::Truncated`], never mistaken for an
-/// absent bookmark.
+/// The empty input is [`FormatError::Truncated`], never mistaken for an absent
+/// bookmark.
 #[test]
 fn short_input_is_truncated() {
     assert!(matches!(
@@ -389,7 +389,8 @@ fn untagged_identity_is_a_record_defect() {
     ));
 }
 
-/// Duplicate networks cannot introduce independently stale recovery requirements.
+/// Duplicate networks cannot introduce independently stale recovery
+/// requirements.
 #[test]
 fn duplicate_networks_are_rejected() {
     let record = sample_record();
@@ -427,7 +428,8 @@ fn large_identity_round_trips() {
     assert!(record_eq(&decode(&file).unwrap(), &expected));
 }
 
-/// Malformed identity and frontier encodings are rejected inside an intact frame.
+/// Malformed identity and frontier encodings are rejected inside an intact
+/// frame.
 #[test]
 fn invalid_atoms_are_rejected() {
     let file = encode(&sample_record());
@@ -525,8 +527,8 @@ fn file_is_rumors_blind_cbor() {
 /// Render a bookmark frame for the byte pins: exact hex, then annotation.
 ///
 /// The frame's exact hex rides the first line — the pin itself, which an
-/// annotation change leaves byte-identical — followed by a decoded,
-/// annotated reading of the same bytes in the wire captures' idiom.
+/// annotation change leaves byte-identical — followed by a decoded, annotated
+/// reading of the same bytes in the wire captures' idiom.
 ///
 /// The digest is decoded from the frame rather than recomputed, so the
 /// annotation shows what storage holds. `unframe` verifies it first.

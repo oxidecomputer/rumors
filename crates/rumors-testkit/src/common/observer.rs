@@ -1,4 +1,5 @@
-//! Shared observer schedules and read helpers for the causal and unordered suites.
+//! Shared observer schedules and read helpers for the causal and unordered
+//! suites.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,8 +18,8 @@ pub enum Step {
     Item((Version, u64)),
     /// The observer is quiet: nothing new, actors still live.
     Quiet,
-    /// The observer ended: every sender is gone and the complete final
-    /// state has been yielded.
+    /// The observer ended: every sender is gone and the complete final state
+    /// has been yielded.
     Ended,
 }
 
@@ -65,7 +66,8 @@ pub enum Op {
     SendA(u64),
     /// Send at the remote replica.
     SendB(u64),
-    /// Redact a live message at either replica, including gossip-learned messages.
+    /// Redact a live message at either replica, including gossip-learned
+    /// messages.
     Redact(bool, prop::sample::Index),
     /// Converge both replicas.
     Gossip,
@@ -75,7 +77,8 @@ pub enum Op {
     Drain,
 }
 
-/// Vary writes, redactions at both peers, gossip, and partial or complete reads.
+/// Vary writes, redactions at both peers, gossip, and partial or complete
+/// reads.
 pub fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
     vec(
         prop_oneof![
@@ -94,7 +97,8 @@ pub fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 /// Run the same network schedule through either public message observer.
 ///
 /// Check termination, sent content, duplicate-free delivery, and coverage of
-/// the final live set. Return delivery order for the causal suite's extra check.
+/// the final live set. Return delivery order for the causal suite's extra
+/// check.
 pub fn interleave<S>(
     network: NetworkSeed,
     ops: &[Op],

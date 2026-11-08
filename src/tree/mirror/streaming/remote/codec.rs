@@ -9,63 +9,61 @@
 //! accepts.
 //!
 //! A frame begins with its logical stream index and signal state. Both use a
-//! one-byte canonical integer; other values are reserved. The stream index
-//! is what the session's pipe routes each frame by. The decoder also checks
-//! that the speaker, stream, and state belong together before reading the
-//! frame body.
+//! one-byte canonical integer; other values are reserved. The stream index is
+//! what the session's pipe routes each frame by. The decoder also checks that
+//! the speaker, stream, and state belong together before reading the frame
+//! body.
 //!
 //! Reply and stream lifetimes are deliberately orthogonal. The last frame a
 //! sender transmits for a nonempty reply carries the reply's end; an empty
 //! reply is one bare reply-end frame. That last frame is the reply's last
 //! reaction, which sits before the end of the question's listing when the
-//! reply's match covers every listed child after it: the receiver then
-//! checks, at the end, that every listed child after the last frame is
-//! covered, so the end is never inferred, only checked. A supply after the
-//! last listed child is a frame of its own and carries the end itself. A producer that sent any reply ends its logical stream with a
-//! separate bare stream-end frame after its final reply. The session
-//! demultiplexer consumes that frame and closes the logical receiver, so the
-//! protocol adapter sees only complete replies. This lets a producer hand
-//! each reply to the pipe as soon as it is built, without looking ahead to
-//! discover whether that reply is also the stream's last.
+//! reply's match covers every listed child after it: the receiver then checks,
+//! at the end, that every listed child after the last frame is covered, so the
+//! end is never inferred, only checked. A supply after the last listed child is
+//! a frame of its own and carries the end itself. A producer that sent any
+//! reply ends its logical stream with a separate bare stream-end frame after
+//! its final reply. The session demultiplexer consumes that frame and closes
+//! the logical receiver, so the protocol adapter sees only complete replies.
+//! This lets a producer hand each reply to the pipe as soon as it is built,
+//! without looking ahead to discover whether that reply is also the stream's
+//! last.
 //!
-//! A match that covers no later child is body-free. A reply's one match
-//! names every later listed child that also matches, and those children
-//! take no frame; a match covering any carries them as its body, one CBOR
-//! byte string holding the covered radixes in [`ByteSet`]'s canonical
-//! encoding (the ascending radixes below 32 of them, the 32-byte bitmap
-//! from 32 on). A body naming no radix is not canonical, so ingress rejects
-//! it, as it does any body that is not a set's canonical encoding.
+//! A match that covers no later child is body-free. A reply's one match names
+//! every later listed child that also matches, and those children take no
+//! frame; a match covering any carries them as its body, one CBOR byte string
+//! holding the covered radixes in [`ByteSet`]'s canonical encoding (the
+//! ascending radixes below 32 of them, the 32-byte bitmap from 32 on). A body
+//! naming no radix is not canonical, so ingress rejects it, as it does any body
+//! that is not a set's canonical encoding.
 //!
-//! An empty query is wholly represented by its signal. A nonempty query's
-//! body is a `{radix: [hash, count − 1]}` map with one entry per reported
-//! child, `count` being the child's grandchild count as its lister counts
-//! it: CBOR deterministic encoding mandates ascending keys and the wire's
-//! canonical form mandates strictly ascending radixes, so the two
-//! disciplines are one rule, enforced once at ingress. A supply body is a [`LeafRun`]
-//! behind the embedded-CBOR-sequence tag (63) wrapping a byte string —
-//! the byte-string head is the run's exact length, preserving O(1) skip
-//! and up-front pricing — and the run's records are each the same shape
-//! in miniature: tag 63 wrapping a byte string whose content is the
-//! tagged version atom followed by the message's own CBOR payload. The
-//! codec validates the run's record framing once its whole body arrives
-//! but leaves the records encoded; the adapter decodes them one at a
-//! time, constructs its backend-specific leaves, and validates their
-//! version-derived paths. How many records share one run is the sender's
-//! choice within the session's [`RunBudget`], and the decoder holds
-//! arriving frames to that same budget: any within-budget batching
-//! decodes, a single record of any size decodes (the encoder's
-//! minimum-one-record overhang), and a frame batching multiple records
-//! past the budget is rejected typed
-//! ([`DecodeErrorKind::OverbatchedRun`]) before its body is buffered.
+//! An empty query is wholly represented by its signal. A nonempty query's body
+//! is a `{radix: [hash, count − 1]}` map with one entry per reported child,
+//! `count` being the child's grandchild count as its lister counts it: CBOR
+//! deterministic encoding mandates ascending keys and the wire's canonical form
+//! mandates strictly ascending radixes, so the two disciplines are one rule,
+//! enforced once at ingress. A supply body is a [`LeafRun`] behind the
+//! embedded-CBOR-sequence tag (63) wrapping a byte string — the byte-string
+//! head is the run's exact length, preserving O(1) skip and up-front pricing —
+//! and the run's records are each the same shape in miniature: tag 63 wrapping
+//! a byte string whose content is the tagged version atom followed by the
+//! message's own CBOR payload. The codec validates the run's record framing
+//! once its whole body arrives but leaves the records encoded; the adapter
+//! decodes them one at a time, constructs its backend-specific leaves, and
+//! validates their version-derived paths. How many records share one run is the
+//! sender's choice within the session's [`RunBudget`], and the decoder holds
+//! arriving frames to that same budget: any within-budget batching decodes, a
+//! single record of any size decodes (the encoder's minimum-one-record
+//! overhang), and a frame batching multiple records past the budget is rejected
+//! typed ([`DecodeErrorKind::OverbatchedRun`]) before its body is buffered.
 //!
 //! Encoding trusts the protocol and adapter to produce phase-correct,
 //! canonically ordered frames; it performs no redundant semantic validation.
 //! Decoding is the trust boundary and validates every peer-controlled signal,
-//! match body, query, and supply-run structure before returning a frame;
-//! the reply decoder then validates each match's covered radixes against
-//! the question's listing. [`FrameRead`]
-//! and [`FrameWrite`] apply that same grammar directly to Tokio byte streams
-//! without buffering a complete outgoing frame.
+//! match body, query, and supply-run structure before returning a frame; the
+//! reply decoder then validates each match's covered radixes against the
+//! question's listing. [`FrameRead`] and [`FrameWrite`] apply that same grammar
+//! directly to Tokio byte streams without buffering a complete outgoing frame.
 
 #[cfg(doc)]
 use crate::tree::mirror::streaming::byte_set::ByteSet;
@@ -122,14 +120,12 @@ pub(crate) use signal::STREAM_COUNT;
 pub(crate) use signal::{DecodeSignalError, Signal};
 pub use signal::{End, Flow, Speaker, Stream};
 
-/// The whole wire prefix of one initiator-spoken, reply-ending supply
-/// frame declaring a `declared`-byte run: the frame's array head, its
-/// stream and state items, and the run's embedded-sequence tag and
-/// byte-string head.
+/// The whole wire prefix of one initiator-spoken, reply-ending supply frame
+/// declaring a `declared`-byte run: the frame's array head, its stream and
+/// state items, and the run's embedded-sequence tag and byte-string head.
 ///
-/// The allocator meter (`tests/decode_alloc.rs`) prepends it to a
-/// hand-built run body so the codec's supply read path is drivable from
-/// outside the crate.
+/// The allocator meter (`tests/decode_alloc.rs`) prepends it to a hand-built
+/// run body so the codec's supply read path is drivable from outside the crate.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn supply_frame_head(declared: usize) -> Vec<u8> {
     use crate::tree::mirror::cbor;
@@ -148,13 +144,13 @@ pub(crate) fn supply_frame_head(declared: usize) -> Vec<u8> {
     bytes
 }
 
-/// A structurally valid lone-record run of exactly `len` bytes: one
-/// record whose heads plus arbitrary content span the run.
+/// A structurally valid lone-record run of exactly `len` bytes: one record
+/// whose heads plus arbitrary content span the run.
 ///
 /// Record content decodes lazily, so the meter's bodies need only pass
-/// run-record framing. Panics when no single record's head widths can
-/// reach `len` exactly (the head-width gaps); the meters' lengths are
-/// chosen away from those gaps.
+/// run-record framing. Panics when no single record's head widths can reach
+/// `len` exactly (the head-width gaps); the meters' lengths are chosen away
+/// from those gaps.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn lone_record_run(len: usize) -> Vec<u8> {
     use crate::tree::mirror::cbor;
@@ -174,16 +170,16 @@ pub(crate) fn lone_record_run(len: usize) -> Vec<u8> {
     panic!("no lone record spans exactly {len} bytes");
 }
 
-/// Decode one initiator-spoken frame from `read` under `budget`, dropping
-/// the decoded value.
+/// Decode one initiator-spoken frame from `read` under `budget`, dropping the
+/// decoded value.
 ///
 /// The allocator meter (`tests/decode_alloc.rs`) drives the supply read path
-/// through this to price a supply body in bytes requested from the
-/// allocator; the decoded value is noise to that meter, but the error
-/// passes through so the meter can also assert how a failure classified.
-/// The budget is the meter's to choose: the framing ceiling keeps every
-/// well-framed declaration on the body-read path being priced, while a
-/// small budget prices the ingress gate itself.
+/// through this to price a supply body in bytes requested from the allocator;
+/// the decoded value is noise to that meter, but the error passes through so
+/// the meter can also assert how a failure classified. The budget is the
+/// meter's to choose: the framing ceiling keeps every well-framed declaration
+/// on the body-read path being priced, while a small budget prices the ingress
+/// gate itself.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) async fn decode_frame_discarded(
     read: impl tokio::io::AsyncRead + Unpin,
@@ -206,16 +202,16 @@ pub enum FrameShape {
         /// Listed children, at most one per radix value.
         children: usize,
     },
-    /// A supply frame carrying one structurally valid record whose run
-    /// spans `run_len` bytes.
+    /// A supply frame carrying one structurally valid record whose run spans
+    /// `run_len` bytes.
     Supply {
         /// The run body's length in bytes.
         run_len: usize,
     },
 }
 
-/// A frame built ahead of writing, so a meter around the write prices the
-/// write alone.
+/// A frame built ahead of writing, so a meter around the write prices the write
+/// alone.
 #[cfg(any(test, feature = "test-internals"))]
 pub struct PreparedFrame(frame::WireFrame);
 
@@ -228,8 +224,8 @@ impl std::fmt::Debug for PreparedFrame {
     }
 }
 
-/// Build one canonical frame of `shape` on an interior reply stream,
-/// where every reaction form is admissible.
+/// Build one canonical frame of `shape` on an interior reply stream, where
+/// every reaction form is admissible.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
     use crate::tree::mirror::streaming::message::{LaterMatches, listed};
@@ -255,12 +251,11 @@ pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
     PreparedFrame((stream, frame))
 }
 
-/// Write a prepared frame through the async frame writer into `out`,
-/// exactly as a session's stream sender writes it.
+/// Write a prepared frame through the async frame writer into `out`, exactly as
+/// a session's stream sender writes it.
 ///
-/// The encoder allocation meter (`tests/encode_alloc.rs`) prices this
-/// call; it pre-reserves `out` so the transport's own growth stays out
-/// of the count.
+/// The encoder allocation meter (`tests/encode_alloc.rs`) prices this call; it
+/// pre-reserves `out` so the transport's own growth stays out of the count.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
     let mut write = FrameWrite::new(Speaker::Initiator, out);

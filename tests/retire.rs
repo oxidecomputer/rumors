@@ -1,17 +1,17 @@
-//! Integration tests for `rumors::Peer::retire`: a peer hands its ITC party
-//! to a counterparty, so the identity space it held is reclaimed rather
-//! than leaked.
+//! Integration tests for `rumors::Peer::retire`: a peer hands its ITC party to
+//! a counterparty, so the identity space it held is reclaimed rather than
+//! leaked.
 //!
-//! A retire session begins with a round of gossip — the ordinary mirror
-//! descent — so the absorbing peer comes to causally dominate the retiree
-//! before the party changes hands, and nothing the retiree held is lost.
-//! The assertions here are about *outcomes* (the [`Retire`] variants),
-//! content survival across the hand-off, and the invariants the absorbing
-//! peer must preserve when the retiree is already converged (its tree and
-//! version are untouched). Declines remain only for a counterparty that is
-//! itself retiring; a bootstrapping counterparty *absorbs* the retiree —
-//! it receives the whole tree through the descent and the whole party as
-//! the trailing frame, becoming the retiree's successor.
+//! A retire session begins with a round of gossip — the ordinary mirror descent
+//! — so the absorbing peer comes to causally dominate the retiree before the
+//! party changes hands, and nothing the retiree held is lost. The assertions
+//! here are about *outcomes* (the [`Retire`] variants), content survival across
+//! the hand-off, and the invariants the absorbing peer must preserve when the
+//! retiree is already converged (its tree and version are untouched). Declines
+//! remain only for a counterparty that is itself retiring; a bootstrapping
+//! counterparty *absorbs* the retiree — it receives the whole tree through the
+//! descent and the whole party as the trailing frame, becoming the retiree's
+//! successor.
 //!
 //! Retirement consumes the unique `Peer`, excluding concurrent writers.
 //! Snapshot and message observers may remain and drain its final state.
@@ -42,9 +42,9 @@ fn with_messages(peer: Rumors<u64>, messages: &[u64]) -> Rumors<u64> {
 
 /// Network-independent state used to compare equivalent sessions.
 ///
-/// The live set is read out as versions and payloads rather than as its
-/// Merkle root: each network's secret keys its leaf paths, so two networks
-/// holding the same messages have different roots.
+/// The live set is read out as versions and payloads rather than as its Merkle
+/// root: each network's secret keys its leaf paths, so two networks holding the
+/// same messages have different roots.
 #[derive(Debug, PartialEq, Eq)]
 struct Fingerprint {
     /// The live messages, by version.
@@ -76,8 +76,8 @@ fn plain_gossip_fingerprint(
     fingerprint(&b)
 }
 
-/// A retirement outcome with its connection halves released, so it can
-/// outlive the connection the session ran on.
+/// A retirement outcome with its connection halves released, so it can outlive
+/// the connection the session ran on.
 type Outcome<T> = Retire<T, (), ()>;
 
 /// Release a retirement outcome's connection halves, keeping the outcome.
@@ -128,9 +128,9 @@ where
     })
 }
 
-/// Like [`retire_into_gossip`], but also counts the novel messages the
-/// session delivered into the gossiping peer (the live leaves above the
-/// peer's pre-session frontier).
+/// Like [`retire_into_gossip`], but also counts the novel messages the session
+/// delivered into the gossiping peer (the live leaves above the peer's
+/// pre-session frontier).
 fn retire_into_counting_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> (Outcome<u64>, usize) {
     let pre = peer.snapshot().latest().clone();
     let outcome = retire_into_gossip(retiree, peer);
@@ -530,8 +530,8 @@ proptest! {
 }
 
 /// Run one converged retirement in the network `network` founds, measuring a
-/// clean send or severing it at `cut`. Any returned peer must remain usable
-/// and disjoint from the absorber.
+/// clean send or severing it at `cut`. Any returned peer must remain usable and
+/// disjoint from the absorber.
 fn retirement_cut(network: NetworkSeed, cut: Option<usize>, initial: usize) -> usize {
     let absorber = network.peer::<u64>().into_rumors();
     absorber.send_all(0..initial as u64).unwrap();

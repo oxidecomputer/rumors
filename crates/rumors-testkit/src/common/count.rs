@@ -11,10 +11,11 @@ use super::wire::block_on;
 /// Per-direction capacity large enough not to alter the measured batching.
 const CONNECTION_CAPACITY: usize = 8 * 1024 * 1024;
 
-/// Run one session and return bytes written as `(left to right, right to left)`.
+/// Run one session and return bytes written as
+/// `(left to right, right to left)`.
 ///
-/// Each count is every byte one end wrote to its write half: the preamble,
-/// the greeting, every frame, and the closing items. The counts come from
+/// Each count is every byte one end wrote to its write half: the preamble, the
+/// greeting, every frame, and the closing items. The counts come from
 /// [`metered`] ends, whose budgets never run out.
 pub fn session_wire_bytes<T>(left: &Rumors<T>, right: &Rumors<T>) -> (usize, usize)
 where

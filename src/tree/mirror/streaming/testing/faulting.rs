@@ -27,18 +27,17 @@ use futures::StreamExt;
 
 use super::failing::{Failing, FailingNode};
 
-/// One injected counterparty fault: a reply-stream corruption scheduled by
-/// the phase countdown, or a greeting lie told at the handshake.
+/// One injected counterparty fault: a reply-stream corruption scheduled by the
+/// phase countdown, or a greeting lie told at the handshake.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
     /// Corrupt one outgoing reply phase to commit the selected violation.
     Reply(ReplyCorruption),
     /// Tell one lie in the outgoing greeting.
     ///
-    /// The inner state keeps behaving from its true tree, so the
-    /// declaration and the behavior disagree — the shape a
-    /// greeting-premise guard exists to catch. Fires at the handshake;
-    /// the phase countdown does not apply.
+    /// The inner state keeps behaving from its true tree, so the declaration
+    /// and the behavior disagree — the shape a greeting-premise guard exists to
+    /// catch. Fires at the handshake; the phase countdown does not apply.
     Greeting(GreetingLie),
 }
 
@@ -90,34 +89,33 @@ impl ReplyCorruption {
 /// One dishonest field in an otherwise honest greeting.
 ///
 /// The shrunken directions are detectable: honest behavior overruns the
-/// declaration, and the deceived counterparty must fail the session with
-/// the named violation. The inflated directions are tolerated: a
-/// declaration is an upper premise, so the session must complete cleanly
-/// — the no-false-positive half of each guard.
+/// declaration, and the deceived counterparty must fail the session with the
+/// named violation. The inflated directions are tolerated: a declaration is an
+/// upper premise, so the session must complete cleanly — the no-false-positive
+/// half of each guard.
 ///
 /// A shrunken *version* is caught only where supplies are decoded from the
 /// wire, against both greetings, so its case lives in the wire suite; the
 /// in-process walk these lies drive never reads a supply's versions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GreetingLie {
-    /// Declare an empty set: the first absorbed supply overruns the
-    /// declared length ([`Violation::OverdrawnSupply`]).
+    /// Declare an empty set: the first absorbed supply overruns the declared
+    /// length ([`Violation::OverdrawnSupply`]).
     ShrunkenSetLen,
     /// Declare a single leaf while holding more: the supplies overrun the
     /// nonzero declared length mid-session ([`Violation::OverdrawnSupply`]).
     ///
     /// The walk-side face of the lie the wire decoder catches within one
     /// still-open reply: here the declared length admits supply before the
-    /// ledger's accumulation trips, unlike the zero declaration's
-    /// first-charge rejection.
+    /// ledger's accumulation trips, unlike the zero declaration's first-charge
+    /// rejection.
     UnderdeclaredSetLen,
-    /// Declare more leaves than the tree holds; the session must
-    /// complete cleanly.
+    /// Declare more leaves than the tree holds; the session must complete
+    /// cleanly.
     InflatedSetLen,
-    /// Declare a version above the tree's truth (a tick on a party no
-    /// fixture uses); the deceived side absorbs it into its ceiling by
-    /// definition (`ours | declared`), and the reconciled content must
-    /// not move.
+    /// Declare a version above the tree's truth (a tick on a party no fixture
+    /// uses); the deceived side absorbs it into its ceiling by definition
+    /// (`ours | declared`), and the reconciled content must not move.
     InflatedVersion,
 }
 
@@ -143,8 +141,8 @@ fn tell(greeting: &mut message::Greeting, lie: GreetingLie) {
     }
 }
 
-/// An honest protocol state wrapped to fault once — a reply corruption after
-/// a selected number of outgoing phases, or a greeting lie at the handshake —
+/// An honest protocol state wrapped to fault once — a reply corruption after a
+/// selected number of outgoing phases, or a greeting lie at the handshake —
 /// then continue normally.
 pub struct Faulting<P> {
     inner: P,
@@ -162,14 +160,14 @@ impl<P> Faulting<P> {
     }
 }
 
-/// One tick of the canonical test party: contained in any fixture ceiling
-/// whose tree ticked that party at least once.
+/// One tick of the canonical test party: contained in any fixture ceiling whose
+/// tree ticked that party at least once.
 ///
-/// The receiver's ceiling is such a ceiling, so a node at this version is
-/// one the receiver has already seen. The wire decoder rejects such a
-/// supply (`DecodeError::SeenSupply`), but the in-process walk these
-/// corruptions drive never reads a supply's versions, so a supply at this
-/// version commits only the structural violation it is placed to commit.
+/// The receiver's ceiling is such a ceiling, so a node at this version is one
+/// the receiver has already seen. The wire decoder rejects such a supply
+/// (`DecodeError::SeenSupply`), but the in-process walk these corruptions drive
+/// never reads a supply's versions, so a supply at this version commits only
+/// the structural violation it is placed to commit.
 fn contained_version() -> Version {
     let mut version = Version::new();
     version.tick(&nth_party(0));

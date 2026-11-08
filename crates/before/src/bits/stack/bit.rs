@@ -30,8 +30,8 @@ impl BitStack {
     ///
     /// `u64`, the walks' depth denomination: a stack this deep occupies real
     /// memory (its words), so the height is bounded by allocatable memory: it
-    /// outgrows a 32-bit `usize` from 512 MiB of stack, and `u64` represents
-    /// it exactly on every target.
+    /// outgrows a 32-bit `usize` from 512 MiB of stack, and `u64` represents it
+    /// exactly on every target.
     pub(crate) fn len(&self) -> u64 {
         self.words.len() as u64 * 64 + u64::from(self.top_len)
     }

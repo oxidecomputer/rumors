@@ -11,8 +11,8 @@ use crate::point::{Connection, Link, Replicas, Settings, TcpBuffers, Transport};
 use crate::sizes::SizeDistribution;
 use crate::units::{LinkRate, Rate};
 
-/// Runs `future` to completion on a current-thread runtime with timers,
-/// as a peer process does.
+/// Runs `future` to completion on a current-thread runtime with timers, as a
+/// peer process does.
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -55,17 +55,17 @@ fn small_replicas() -> impl Strategy<Value = Replicas> {
 }
 
 /// Builds the pair for `point` in the network `network` names, drawing its
-/// history from the same stream after the network's secret, so the seed
-/// alone reproduces the build.
+/// history from the same stream after the network's secret, so the seed alone
+/// reproduces the build.
 async fn seeded_build(point: &Point, network: NetworkSeed) -> Pair {
     let mut rng = network.rng();
     let root = Peer::seed_rng(&mut rng);
     build_from(point, root, &mut rng).await.unwrap()
 }
 
-/// Builds the pair for `point` in the network `network` names and joins
-/// side B's process's copy from it over an in-memory pipe, as the two peer
-/// processes do over TCP.
+/// Builds the pair for `point` in the network `network` names and joins side
+/// B's process's copy from it over an in-memory pipe, as the two peer processes
+/// do over TCP.
 async fn build_and_join(point: &Point, network: NetworkSeed) -> (Pair, Rumors<Payload>) {
     let pair = seeded_build(point, network).await;
     let (near, far) = duplex(1 << 16);

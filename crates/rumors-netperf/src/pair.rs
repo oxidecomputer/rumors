@@ -1,18 +1,17 @@
-//! Pair mode: measuring over the network between two hosts, on any
-//! platform Rumors supports.
+//! Pair mode: measuring over the network between two hosts, on any platform
+//! Rumors supports.
 //!
-//! `serve` runs on one host and waits. `connect` runs on the other, drives
-//! the grid, and writes the results. Each peer process still runs one
-//! session and exits, as in emulation: for every process the connecting
-//! side needs on the serving host, it opens a fresh TCP connection to
-//! `serve`, which starts the process and relays its control lines over
-//! that connection until the process exits. Side A of every session runs
-//! on the serving host, side B on the connecting one.
+//! `serve` runs on one host and waits. `connect` runs on the other, drives the
+//! grid, and writes the results. Each peer process still runs one session and
+//! exits, as in emulation: for every process the connecting side needs on the
+//! serving host, it opens a fresh TCP connection to `serve`, which starts the
+//! process and relays its control lines over that connection until the process
+//! exits. Side A of every session runs on the serving host, side B on the
+//! connecting one.
 //!
-//! Nothing is shaped: the link is whatever the network is. Before the
-//! grid, `connect` probes it ([`crate::probe`]) in each direction, and the
-//! report reads every session against the measured round trip and
-//! goodput.
+//! Nothing is shaped: the link is whatever the network is. Before the grid,
+//! `connect` probes it ([`crate::probe`]) in each direction, and the report
+//! reads every session against the measured round trip and goodput.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -48,8 +47,8 @@ pub enum ProcessKind {
 pub struct Open {
     /// The process to start, or `None` to exchange environments only.
     pub kind: Option<ProcessKind>,
-    /// The connecting tool's build, whose version and revision must match
-    /// the server's.
+    /// The connecting tool's build, whose version and revision must match the
+    /// server's.
     pub build: Build,
 }
 
@@ -69,8 +68,8 @@ pub enum Opened {
     },
 }
 
-/// A local child process spoken to over its standard input and output,
-/// stopped when dropped.
+/// A local child process spoken to over its standard input and output, stopped
+/// when dropped.
 #[derive(Debug)]
 pub struct LocalChild {
     /// The process.
@@ -116,8 +115,8 @@ fn argument(kind: ProcessKind) -> &'static str {
     }
 }
 
-/// Serves relay connections on `listen` until interrupted, starting a
-/// process of the requested kind for each and relaying its control lines.
+/// Serves relay connections on `listen` until interrupted, starting a process
+/// of the requested kind for each and relaying its control lines.
 ///
 /// # Errors
 ///
@@ -240,8 +239,7 @@ pub struct Server {
 }
 
 impl Server {
-    /// Resolves `HOST[:PORT]`, with [`DEFAULT_PORT`] when the port is left
-    /// out.
+    /// Resolves `HOST[:PORT]`, with [`DEFAULT_PORT`] when the port is left out.
     pub fn resolve(text: &str) -> Result<Self> {
         let has_port = text.parse::<SocketAddr>().is_ok()
             || text
@@ -265,14 +263,13 @@ impl Server {
         self.connect(None).map(|(_, environment)| environment)
     }
 
-    /// Opens a relay connection that starts a process of `kind` on the
-    /// server, returning its channel and the server's environment.
+    /// Opens a relay connection that starts a process of `kind` on the server,
+    /// returning its channel and the server's environment.
     pub fn open(&self, kind: ProcessKind) -> Result<(Remote, Environment)> {
         self.connect(Some(kind))
     }
 
-    /// Opens a relay connection, starting a process of `kind` if one is
-    /// given.
+    /// Opens a relay connection, starting a process of `kind` if one is given.
     fn connect(&self, kind: Option<ProcessKind>) -> Result<(Remote, Environment)> {
         let stream = TcpStream::connect(self.address).with_context(|| {
             format!(
@@ -296,8 +293,8 @@ impl Server {
         }
     }
 
-    /// The addresses of a session: side A binds every interface on the
-    /// server, side B connects to the server's address.
+    /// The addresses of a session: side A binds every interface on the server,
+    /// side B connects to the server's address.
     pub fn addresses(&self) -> Addresses {
         let unspecified = match self.address.ip() {
             IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -310,8 +307,8 @@ impl Server {
     }
 }
 
-/// Probes the network between this host and the server: `bulk_bytes` from
-/// this host to the server, and `pings` round trips.
+/// Probes the network between this host and the server: `bulk_bytes` from this
+/// host to the server, and `pings` round trips.
 ///
 /// # Errors
 ///
@@ -344,8 +341,8 @@ pub fn probe(program: &Path, server: &Server, bulk_bytes: u64, pings: u32) -> Re
     Ok(result)
 }
 
-/// A session prepared across the network: side A's process on the server,
-/// side B's here, both holding their replicas.
+/// A session prepared across the network: side A's process on the server, side
+/// B's here, both holding their replicas.
 #[derive(Debug)]
 pub struct Ready {
     /// The relay to side A's process.
@@ -359,9 +356,9 @@ pub struct Ready {
 /// A run's sessions across the network, as [`Executor`] prepares and times
 /// them: side A on the server, side B here.
 ///
-/// The server serves one relay connection at a time, and each prepared
-/// session holds one open until its timed session ends, so a run in pair
-/// mode prepares one session at a time and times it before the next.
+/// The server serves one relay connection at a time, and each prepared session
+/// holds one open until its timed session ends, so a run in pair mode prepares
+/// one session at a time and times it before the next.
 #[derive(Clone, Copy, Debug)]
 pub struct Pair<'a> {
     /// The peer executable.

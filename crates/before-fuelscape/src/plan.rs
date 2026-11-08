@@ -1,25 +1,23 @@
-//! The sampling plan: which cells run, and the deterministic execution
-//! that fills them.
+//! The sampling plan: which cells run, and the deterministic execution that
+//! fills them.
 //!
-//! A plan is a geometric size grid (byte doublings) crossed with the
-//! operation roster, a fixed number of samples per column, and one base
-//! seed. Every cell's RNG is [`crate::sample::cell_rng`] over
-//! (operation, size, sample index), so the whole run is a pure function
-//! of the plan: rayon's execution order cannot change a single draw, and
-//! any cell replays alone.
+//! A plan is a geometric size grid (byte doublings) crossed with the operation
+//! roster, a fixed number of samples per column, and one base seed. Every
+//! cell's RNG is [`crate::sample::cell_rng`] over (operation, size, sample
+//! index), so the whole run is a pure function of the plan: rayon's execution
+//! order cannot change a single draw, and any cell replays alone.
 //!
-//! **The size measure, declared per row.** A unary operation's column at
-//! size `N` draws its one input uniformly from the canonical inputs of
-//! exactly `N` encoded bytes. A k-operand operation's column at *total*
-//! size `N` draws a split uniformly from the compositions of `N` into
-//! `k` positive parts, then each operand uniformly at its exact size; a
-//! slice row first draws its arity uniformly from every count the budget
-//! can feed (`1..=N`), the clock-fold row does the same with one part
-//! reserved for its party (`1..=N − 1` clocks), and the party-fold row
-//! draws the share count its guest-side split mints (`1..=N`, the one
-//! party keeping the whole budget). So the x-axis is total encoded input
-//! bytes everywhere, and every rendered plot carries its row's exact
-//! declaration ([`crate::ops::OpSpec`]'s `size_measure`).
+//! **The size measure, declared per row.** A unary operation's column at size
+//! `N` draws its one input uniformly from the canonical inputs of exactly `N`
+//! encoded bytes. A k-operand operation's column at *total* size `N` draws a
+//! split uniformly from the compositions of `N` into `k` positive parts, then
+//! each operand uniformly at its exact size; a slice row first draws its arity
+//! uniformly from every count the budget can feed (`1..=N`), the clock-fold row
+//! does the same with one part reserved for its party (`1..=N − 1` clocks), and
+//! the party-fold row draws the share count its guest-side split mints
+//! (`1..=N`, the one party keeping the whole budget). So the x-axis is total
+//! encoded input bytes everywhere, and every rendered plot carries its row's
+//! exact declaration ([`crate::ops::OpSpec`]'s `size_measure`).
 
 use rand::RngExt;
 use rayon::prelude::*;
@@ -45,9 +43,8 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// The size columns for an input space's minimum total size: byte
-    /// doublings from the smallest size the signature admits (one byte
-    /// per operand).
+    /// The size columns for an input space's minimum total size: byte doublings
+    /// from the smallest size the signature admits (one byte per operand).
     pub fn columns(&self, min_bytes: usize) -> Vec<usize> {
         let mut out = Vec::new();
         let mut n = min_bytes.max(1);
@@ -58,20 +55,19 @@ impl Plan {
         out
     }
 
-    /// The sample count for one size column: the row's whole budget
-    /// split proportionally to each column's expected fuel spread.
+    /// The sample count for one size column: the row's whole budget split
+    /// proportionally to each column's expected fuel spread.
     ///
-    /// The budget is [`samples_per_column`](Plan::samples_per_column)
-    /// × column count, so the flag stays the per-column average and a
-    /// plan's total cost is what it says.
+    /// The budget is [`samples_per_column`](Plan::samples_per_column) × column
+    /// count, so the flag stays the per-column average and a plan's total cost
+    /// is what it says.
     ///
-    /// On the log-log canvas the bulk grows roughly linearly, so the
-    /// fuel range a column's samples must fill grows linearly in its
-    /// position on the geometric grid — in `log₂ size`. A uniform
-    /// per-column count leaves the right-hand columns patchy at
-    /// exactly the sizes where the spread is widest; splitting the
-    /// budget by weight `log₂(size) + 1` fills buckets at a roughly
-    /// even density across the grid instead.
+    /// On the log-log canvas the bulk grows roughly linearly, so the fuel range
+    /// a column's samples must fill grows linearly in its position on the
+    /// geometric grid — in `log₂ size`. A uniform per-column count leaves the
+    /// right-hand columns patchy at exactly the sizes where the spread is
+    /// widest; splitting the budget by weight `log₂(size) + 1` fills buckets at
+    /// a roughly even density across the grid instead.
     pub fn samples_for(&self, size: usize, min_bytes: usize) -> usize {
         let weight = |s: usize| s.max(1).ilog2() as usize + 1;
         let columns = self.columns(min_bytes);
@@ -92,9 +88,9 @@ pub struct CellSample {
     pub arity: usize,
     /// Fuel consumed by the one measured kernel call.
     pub fuel: u64,
-    /// Whole-sample rejections spent drawing the inputs: version
-    /// nonnegativity redraws, plus whole-pair redraws for rows whose
-    /// input space declares a validity condition.
+    /// Whole-sample rejections spent drawing the inputs: version nonnegativity
+    /// redraws, plus whole-pair redraws for rows whose input space declares a
+    /// validity condition.
     pub rejected: u64,
 }
 
@@ -158,27 +154,24 @@ impl Samplers {
     }
 }
 
-/// The arity draw shared by every variable-arity row: uniform over
-/// `1..=cap`.
+/// The arity draw shared by every variable-arity row: uniform over `1..=cap`.
 ///
 /// The cap is the row's declared arity ceiling at the column: for a
-/// version-slice row, the whole byte budget (every count it can feed at
-/// one byte per operand); for the clock-fold row, the budget less the
-/// party's byte; for the party-fold row, the column size itself (its
-/// shares are guest-minted, so the budget does not bound them).
+/// version-slice row, the whole byte budget (every count it can feed at one
+/// byte per operand); for the clock-fold row, the budget less the party's byte;
+/// for the party-fold row, the column size itself (its shares are guest-minted,
+/// so the budget does not bound them).
 ///
-/// Arity is stratified deliberately rather than left to the composition
-/// count — uniform over whole compositions would concentrate nearly all
-/// mass at many-tiny-operand slices (compositions of `total` into `k`
-/// parts peak at `k ≈ total/2`) — so every arity gets equal
-/// representation per column, and the split below stays exactly uniform
-/// at the drawn arity.
+/// Arity is stratified deliberately rather than left to the composition count —
+/// uniform over whole compositions would concentrate nearly all mass at
+/// many-tiny-operand slices (compositions of `total` into `k` parts peak at
+/// `k ≈ total/2`) — so every arity gets equal representation per column, and
+/// the split below stays exactly uniform at the drawn arity.
 fn draw_arity(cap: usize, rng: &mut rand_chacha::ChaChaRng) -> usize {
     rng.random_range(1..=cap)
 }
 
-/// Split `total` uniformly over its compositions into `parts` positive
-/// parts.
+/// Split `total` uniformly over its compositions into `parts` positive parts.
 ///
 /// The draw is `parts − 1` distinct cut points in `1..total`, sorted and
 /// differenced; redrawing a collided cut is rejection over the cut-point
@@ -207,9 +200,9 @@ fn split_budget(total: usize, parts: usize, rng: &mut rand_chacha::ChaChaRng) ->
 
 /// Draw exact-size members for `operands` over a drawn split of `size`.
 ///
-/// The split draw precedes the member draws so the stream is stable
-/// however the samplers consume randomness. Returns the encodings
-/// (operand order) and the version rejections spent.
+/// The split draw precedes the member draws so the stream is stable however the
+/// samplers consume randomness. Returns the encodings (operand order) and the
+/// version rejections spent.
 fn draw_encoded(
     operands: &[Operand],
     samplers: &Samplers,
@@ -245,8 +238,8 @@ fn draw_encoded(
 /// Draw one operation's encoded inputs for a column of total size `size`.
 ///
 /// Returns the encodings (operand order), the sample's drawn arity (the
-/// signature's operand count for the fixed-signature rows), and the
-/// rejection count spent.
+/// signature's operand count for the fixed-signature rows), and the rejection
+/// count spent.
 fn draw_inputs(
     op: &OpSpec,
     samplers: &Samplers,
@@ -358,21 +351,21 @@ pub fn run_op(plan: &Plan, samplers: &Samplers, op: &'static OpSpec) -> OpAtlas 
     run_op_with_progress(plan, samplers, op, |_| {})
 }
 
-/// Run one operation's whole atlas: every cell in parallel, then the
-/// overlay points.
+/// Run one operation's whole atlas: every cell in parallel, then the overlay
+/// points.
 ///
 /// Each sample instantiates a fresh guest, so no state leaks between
-/// measurements. `progress` is called once per completed bulk sample,
-/// from the sampling workers, with the sample's column size in bytes —
-/// the caller's unit of predicted work (per-sample cost is ~linear in
-/// column bytes across the roster, so byte-weighted progress moves at
-/// a roughly stationary rate where sample counts do not).
+/// measurements. `progress` is called once per completed bulk sample, from the
+/// sampling workers, with the sample's column size in bytes — the caller's unit
+/// of predicted work (per-sample cost is ~linear in column bytes across the
+/// roster, so byte-weighted progress moves at a roughly stationary rate where
+/// sample counts do not).
 ///
-/// The cell list is flattened before the parallel iteration so rayon
-/// splits across every (column, sample) pair, not merely across columns:
-/// the geometric grid makes the largest column cost about as much as all
-/// the others combined, so column-granular scheduling would idle every
-/// worker but one for half of each operation's run.
+/// The cell list is flattened before the parallel iteration so rayon splits
+/// across every (column, sample) pair, not merely across columns: the geometric
+/// grid makes the largest column cost about as much as all the others combined,
+/// so column-granular scheduling would idle every worker but one for half of
+/// each operation's run.
 pub fn run_op_with_progress(
     plan: &Plan,
     samplers: &Samplers,

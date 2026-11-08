@@ -1,18 +1,18 @@
 //! Runs the amplification board's shard child inside a wasm guest, with
 //! Wasmtime fuel as its fourth currency.
 //!
-//! The harness instantiates this module once per board cell and calls
-//! [`shard`] with a one-cell deal (`board::max_useful_shards` shards), so
-//! every cell runs in a fresh instance and no state an earlier cell left,
-//! such as a lazily initialized static, reaches its reading. The guest
-//! supplies the board one meter, fuel, read through the host import
-//! `board_fuel.fuel_used`. Every instruction fuel counts belongs to the
-//! measured code (with the `meter` feature's densification count), the
-//! board's own bookkeeping around it, or the allocator.
+//! The harness instantiates this module once per board cell and calls [`shard`]
+//! with a one-cell deal (`board::max_useful_shards` shards), so every cell runs
+//! in a fresh instance and no state an earlier cell left, such as a lazily
+//! initialized static, reaches its reading. The guest supplies the board one
+//! meter, fuel, read through the host import `board_fuel.fuel_used`. Every
+//! instruction fuel counts belongs to the measured code (with the `meter`
+//! feature's densification count), the board's own bookkeeping around it, or
+//! the allocator.
 //!
 //! The global allocator, [`window::WindowAllocator`], gives each measured
-//! window a fresh, primed heap through the meter's `enter` and `exit` hooks,
-//! so the allocator's share of a reading is its work for the body's own
+//! window a fresh, primed heap through the meter's `enter` and `exit` hooks, so
+//! the allocator's share of a reading is its work for the body's own
 //! allocations, whatever the cell's preparation left in the heap.
 //!
 //! A cell that panics ends in a trap; [`panic_record`] keeps its message for
@@ -50,28 +50,28 @@ unsafe extern "C" {
 /// board's [`FuelMeter`] `enter` hook.
 ///
 /// The read is the hook's last act, and [`open_window`] keeps the rest of its
-/// work, including any stack frame that work needs, in a separate function,
-/// so no instruction of the hook runs after the read.
+/// work, including any stack frame that work needs, in a separate function, so
+/// no instruction of the hook runs after the read.
 fn enter_window() -> u64 {
     open_window();
     fuel_used()
 }
 
-/// Returns this instance's consumed fuel, then closes the measured window:
-/// the board's [`FuelMeter`] `exit` hook.
+/// Returns this instance's consumed fuel, then closes the measured window: the
+/// board's [`FuelMeter`] `exit` hook.
 ///
-/// The read is the hook's first act, and [`close_window`] keeps the rest of
-/// its work in a separate function, so no instruction of the hook runs before
-/// the read.
+/// The read is the hook's first act, and [`close_window`] keeps the rest of its
+/// work in a separate function, so no instruction of the hook runs before the
+/// read.
 fn exit_window() -> u64 {
     let used = fuel_used();
     close_window();
     used
 }
 
-/// Opens the measured window, first allocating a spacer from the ordinary
-/// heap if [`set_spacer`] set a nonzero size; the spacer is held until the
-/// window closes.
+/// Opens the measured window, first allocating a spacer from the ordinary heap
+/// if [`set_spacer`] set a nonzero size; the spacer is held until the window
+/// closes.
 #[inline(never)]
 fn open_window() {
     let bytes = SPACER_BYTES.load(Ordering::Relaxed);
@@ -99,15 +99,15 @@ static SPACER: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 /// Locks the spacer.
 ///
 /// A panic aborts this guest without unwinding, so no guard is dropped
-/// mid-panic and the lock is never poisoned; recovering the inner buffer
-/// keeps the hooks total regardless.
+/// mid-panic and the lock is never poisoned; recovering the inner buffer keeps
+/// the hooks total regardless.
 fn spacer() -> MutexGuard<'static, Vec<u8>> {
     SPACER.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Makes every later measured window hold a spacer of `bytes` bytes,
-/// allocated from the ordinary heap just before the window opens and freed
-/// just after it closes; zero holds none, as in an ordinary run.
+/// Makes every later measured window hold a spacer of `bytes` bytes, allocated
+/// from the ordinary heap just before the window opens and freed just after it
+/// closes; zero holds none, as in an ordinary run.
 ///
 /// A spacer changes the heap state the cell's preparation leaves, and nothing
 /// the body does, so with the window allocator every reading must equal the
@@ -123,16 +123,15 @@ static OUTPUT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 /// Locks the output.
 ///
 /// A panic aborts this guest without unwinding, so no guard is dropped
-/// mid-panic and the lock is never poisoned; recovering the inner buffer
-/// keeps the exports total regardless.
+/// mid-panic and the lock is never poisoned; recovering the inner buffer keeps
+/// the exports total regardless.
 fn output() -> MutexGuard<'static, Vec<u8>> {
     OUTPUT.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Measures shard `index` of `count` at the sampling whose words, as
-/// [`Sampling::to_words`] writes them, are `sampling_tag` and
-/// `sampling_word`, keeping the shard wire form for [`output_ptr`] and
-/// [`output_len`].
+/// [`Sampling::to_words`] writes them, are `sampling_tag` and `sampling_word`,
+/// keeping the shard wire form for [`output_ptr`] and [`output_len`].
 ///
 /// Returns 0, or 1 for words that name no sampling. A board panic traps
 /// instead, with its message in the panic record.

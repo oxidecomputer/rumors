@@ -51,8 +51,8 @@ mod stats;
 
 /// Every edge whose progress needs only one slot, each built with more.
 ///
-/// Most have [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge
-/// does not park; the reply path's edges ([`LANE_CAPACITY`],
+/// Most have [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge does
+/// not park; the reply path's edges ([`LANE_CAPACITY`],
 /// [`OUTGOING_REPLY_CHUNKS`]) hold a fan, so that the outputs of one input
 /// enqueue together.
 const ONE_SLOT_KINDS: [QueueKind; 7] = [
@@ -68,14 +68,14 @@ const ONE_SLOT_KINDS: [QueueKind; 7] = [
 /// Run `f` with every edge of [`ONE_SLOT_KINDS`] capped at one slot, the
 /// liveness floor their progress arguments rest on.
 ///
-/// Requires that the cap took: every such edge `f` built had one slot, and
-/// `f` built each kind of `built`.
+/// Requires that the cap took: every such edge `f` built had one slot, and `f`
+/// built each kind of `built`.
 ///
 /// # Panics
 ///
-/// Panics if an edge of [`ONE_SLOT_KINDS`] had more than one slot, or if a
-/// kind of `built` was never built: either would let a caller's verdict
-/// pass without judging the floor.
+/// Panics if an edge of [`ONE_SLOT_KINDS`] had more than one slot, or if a kind
+/// of `built` was never built: either would let a caller's verdict pass without
+/// judging the floor.
 fn at_one_slot<R>(built: &[QueueKind], f: impl FnOnce() -> R) -> R {
     /// Run `f` with every edge of `kinds` capped at one slot.
     fn capped<R>(kinds: &[QueueKind], f: impl FnOnce() -> R) -> R {
@@ -139,12 +139,11 @@ type LocalSessionError = MirrorError<MaterializedError<Infallible>, Materialized
 /// violation, or quiescence before either.
 type Verdict = Result<Result<(Root, Root), LocalSessionError>, Quiescence>;
 
-/// One session between two `Local` endpoints under closed-world polling,
-/// with the instruments a test asks for attached.
+/// One session between two `Local` endpoints under closed-world polling, with
+/// the instruments a test asks for attached.
 ///
 /// The serial configuration is the default ledger; every ledger, schedule,
-/// capacity, and instrument setting is optional and independent of the
-/// others.
+/// capacity, and instrument setting is optional and independent of the others.
 struct LocalSession {
     client: Root,
     server: Root,
@@ -187,8 +186,7 @@ impl LocalSession {
         self
     }
 
-    /// Delay `Local` backend polls by `schedule`, one entry per poll
-    /// boundary.
+    /// Delay `Local` backend polls by `schedule`, one entry per poll boundary.
     fn backend_schedule(mut self, schedule: Vec<u8>) -> Self {
         self.backend_schedule = schedule;
         self
@@ -284,8 +282,8 @@ impl LocalSession {
     }
 }
 
-/// What a [`LocalSession`] run produced: its verdict and the instruments it
-/// was asked to attach.
+/// What a [`LocalSession`] run produced: its verdict and the instruments it was
+/// asked to attach.
 struct Outcome {
     verdict: Verdict,
     stats: Option<(SessionStats, SessionStats)>,
@@ -294,8 +292,8 @@ struct Outcome {
 }
 
 impl Outcome {
-    /// Both reconciled roots in argument order; a violation, a stall, and
-    /// an exhausted poll budget each fail by name.
+    /// Both reconciled roots in argument order; a violation, a stall, and an
+    /// exhausted poll budget each fail by name.
     fn sides(self) -> (Root, Root) {
         match self.verdict {
             Ok(Ok(sides)) => sides,
@@ -314,8 +312,8 @@ impl Outcome {
         ours
     }
 
-    /// Both sides' stats in argument order, which the session was asked
-    /// to record.
+    /// Both sides' stats in argument order, which the session was asked to
+    /// record.
     fn stats(&self) -> &(SessionStats, SessionStats) {
         self.stats
             .as_ref()
@@ -330,12 +328,11 @@ impl Outcome {
     }
 }
 
-/// A `Local` endpoint in the serial configuration, admitting one unit of
-/// each kind and depth at a time.
+/// A `Local` endpoint in the serial configuration, admitting one unit of each
+/// kind and depth at a time.
 ///
-/// It serves the sites that hold the undriven session: the ones that wrap
-/// it in a fault or failure decorator, and the ones that poll it
-/// themselves.
+/// It serves the sites that hold the undriven session: the ones that wrap it in
+/// a fault or failure decorator, and the ones that poll it themselves.
 fn serial_start(root: Root) -> Handshaking<Local, Start> {
     Handshaking::start(
         Local,
@@ -374,16 +371,16 @@ fn transcribed_mirror_sides(a: Root, b: Root) -> (Root, Root, Trace, Transcript)
     (ours, theirs, trace, transcript)
 }
 
-/// Reconcile `a` and `b` through the streaming local backend, asserting the
-/// two sides converge to the same root, and return it.
+/// Reconcile `a` and `b` through the streaming local backend, asserting the two
+/// sides converge to the same root, and return it.
 fn streaming_mirror(a: Root, b: Root) -> Root {
     let (ours, theirs) = streaming_mirror_sides(a, b);
     assert_eq!(ours, theirs, "streaming endpoints should converge");
     ours
 }
 
-/// Reconcile under independent channel and Local-backend poll schedules,
-/// with the publication trace validated, asserting convergence.
+/// Reconcile under independent channel and Local-backend poll schedules, with
+/// the publication trace validated, asserting convergence.
 fn fully_scheduled_streaming_mirror(
     a: Root,
     b: Root,
@@ -444,9 +441,9 @@ fn join_oracle(a: Root, b: Root) -> Root {
 
 /// Generated relationships for the independent join oracle.
 ///
-/// The union covers shared-history divergence (including redactions and
-/// matched subtrees), independent party histories (including empty bootstrap
-/// shapes), and the equal-version short circuit.
+/// The union covers shared-history divergence (including redactions and matched
+/// subtrees), independent party histories (including empty bootstrap shapes),
+/// and the equal-version short circuit.
 fn arb_oracle_pair() -> impl Strategy<Value = (Root, Root)> {
     prop_oneof![
         4 => arb_divergent_pair(),
@@ -455,9 +452,8 @@ fn arb_oracle_pair() -> impl Strategy<Value = (Root, Root)> {
     ]
 }
 
-/// Poll `future` at most `polls` times, then drop it: a session cancelled
-/// at a drawn point. Returns the output when it completed within the
-/// budget.
+/// Poll `future` at most `polls` times, then drop it: a session cancelled at a
+/// drawn point. Returns the output when it completed within the budget.
 fn cancel_after<F: Future>(future: F, polls: usize) -> Option<F::Output> {
     let mut future = pin!(tokio::task::coop::unconstrained(future));
     let mut cx = Context::from_waker(Waker::noop());
@@ -487,9 +483,9 @@ fn session_length(a: Root, b: Root) -> usize {
     panic!("a local session must complete within the poll budget")
 }
 
-/// A generated pair with its measured session length and a cancellation
-/// point drawn below it, so every case with a session longer than one
-/// poll cancels mid-session.
+/// A generated pair with its measured session length and a cancellation point
+/// drawn below it, so every case with a session longer than one poll cancels
+/// mid-session.
 fn arb_cancellation() -> impl Strategy<Value = ((Root, Root), usize, usize)> {
     arb_oracle_pair().prop_flat_map(|(a, b)| {
         let length = session_length(a.clone(), b.clone());
@@ -497,12 +493,11 @@ fn arb_cancellation() -> impl Strategy<Value = ((Root, Root), usize, usize)> {
     })
 }
 
-/// Cancelling a session at a drawn poll before its measured completion
-/// leaves nothing behind.
+/// Cancelling a session at a drawn poll before its measured completion leaves
+/// nothing behind.
 ///
-/// Every node handle the session built is released (the census returns
-/// to its baseline), and a fresh session over the same inputs reaches the
-/// join oracle.
+/// Every node handle the session built is released (the census returns to its
+/// baseline), and a fresh session over the same inputs reaches the join oracle.
 /// The poll count is drawn in `1..length`, `length` being the session's
 /// measured poll count, so every case with a session longer than one poll
 /// cancels.
@@ -590,9 +585,9 @@ fn converges_on_leaf_parent_dispute() {
     );
 }
 
-/// A leaf redacted on one side under a disputed leaf-parent must disappear
-/// from the other side too: the closing request for it prunes against the
-/// redactor's version and drops on both sides instead of shipping.
+/// A leaf redacted on one side under a disputed leaf-parent must disappear from
+/// the other side too: the closing request for it prunes against the redactor's
+/// version and drops on both sides instead of shipping.
 #[test]
 fn honors_redaction_under_leaf_parent_dispute() {
     let (a, b, expected) = leaf_parent_redaction_pair();

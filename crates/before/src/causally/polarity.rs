@@ -2,15 +2,15 @@
 //! causal direction.
 //!
 //! Uniform polarity makes exact span coverage decidable without searching
-//! combinations of holes. The sealed dispatch states the order-dual behavior
-//! of [`Down`] and [`Up`] once, leaving query evaluation generic.
+//! combinations of holes. The sealed dispatch states the order-dual behavior of
+//! [`Down`] and [`Up`] once, leaving query evaluation generic.
 
 use std::borrow::Cow;
 
 use crate::Version;
 
-/// One subtracted hole: the complement of an elementary bound at a
-/// stored version.
+/// One subtracted hole: the complement of an elementary bound at a stored
+/// version.
 ///
 /// What the hole subtracts is the owning query's polarity: a [`Down`] hole
 /// subtracts `v <= at` (`v < at` when `strict`), an [`Up`] hole subtracts `at
@@ -223,23 +223,22 @@ mod sealed {
 ///
 /// The marker types describe which holes a query may contain:
 ///
-/// - A [`Neutral`] query has no holes; it is a pure causal
-///   range.
-/// - A [`Down`] query's holes, if any, are *down-sets*: a hole that holds
-///   a version also holds every version before it.
+/// - A [`Neutral`] query has no holes; it is a pure causal range.
+/// - A [`Down`] query's holes, if any, are *down-sets*: a hole that holds a
+///   version also holds every version before it.
 /// - An [`Up`] query's holes, if any, are *up-sets*: a hole that holds a
 ///   version also holds every version after it.
 ///
 /// Queries of opposite polarity cannot be combined.
 pub trait Polarity: sealed::Sealed + Send + Sync + 'static {}
 
-/// Holes in a [`Query<'_, Down>`](crate::causally::Query) subtract sets of [`Version`]s
-/// with a common *upper* bound.
+/// Holes in a [`Query<'_, Down>`](crate::causally::Query) subtract sets of
+/// [`Version`]s with a common *upper* bound.
 #[derive(Debug, Clone, Copy)]
 pub enum Down {}
 
-/// Holes in a [`Query<'_, Up>`](crate::causally::Query) subtract sets of [`Version`]s
-/// with a common *lower* bound.
+/// Holes in a [`Query<'_, Up>`](crate::causally::Query) subtract sets of
+/// [`Version`]s with a common *lower* bound.
 #[derive(Debug, Clone, Copy)]
 pub enum Up {}
 

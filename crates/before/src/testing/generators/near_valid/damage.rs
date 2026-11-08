@@ -1,5 +1,5 @@
-//! The damage done to an encoding at each stage of spelling it: the live
-//! bits, the seal, and the bytes.
+//! The damage done to an encoding at each stage of spelling it: the live bits,
+//! the seal, and the bytes.
 
 use proptest::option;
 use proptest::prelude::*;
@@ -16,8 +16,8 @@ pub(super) fn flip_bit(bytes: &mut [u8], position: usize) {
 /// Sets the bits of the last byte from bit `start` on wherever `pattern`'s
 /// bits, read from its high end, are set, and returns whether it set any.
 ///
-/// `start` counts from the first byte's high bit and lies in the last byte,
-/// so the bits it sets are padding after a stream's last meaningful bit.
+/// `start` counts from the first byte's high bit and lies in the last byte, so
+/// the bits it sets are padding after a stream's last meaningful bit.
 pub(super) fn dirty_padding(bytes: &mut [u8], start: usize, pattern: u8) -> bool {
     let end = bytes.len() * 8;
     let mut dirtied = false;
@@ -43,8 +43,8 @@ pub(super) enum BitEdit {
     Delete(Index),
 }
 
-/// Bit edits, cuts twice as often as each other kind: a cut is the only
-/// edit that always leaves the tree incomplete.
+/// Bit edits, cuts twice as often as each other kind: a cut is the only edit
+/// that always leaves the tree incomplete.
 pub(super) fn arb_bit_edit() -> impl Strategy<Value = BitEdit> {
     prop_oneof![
         1 => any::<Index>().prop_map(BitEdit::Flip),
@@ -137,8 +137,8 @@ pub(super) fn arb_byte_edit() -> impl Strategy<Value = ByteEdit> {
     ]
 }
 
-/// A byte edit one time in four, for composites whose components carry
-/// their own damage.
+/// A byte edit one time in four, for composites whose components carry their
+/// own damage.
 pub(super) fn arb_composite_edit() -> impl Strategy<Value = Option<ByteEdit>> {
     prop_oneof![3 => Just(None), 1 => arb_byte_edit().prop_map(Some)]
 }
@@ -183,9 +183,9 @@ impl<P> Damage<P> {
         }
     }
 
-    /// What construction settles: a tree with nothing done to it is
-    /// canonical, and one with only a plant is non-canonical. Any edit after
-    /// planting may or may not leave a canonical encoding.
+    /// What construction settles: a tree with nothing done to it is canonical,
+    /// and one with only a plant is non-canonical. Any edit after planting may
+    /// or may not leave a canonical encoding.
     pub(super) fn expect(&self) -> Expect {
         let edited = self.bits.is_some() || self.seal.is_some() || self.bytes.is_some();
         match (&self.plant, edited) {
@@ -212,9 +212,9 @@ impl<P> Damage<P> {
     }
 }
 
-/// Damage drawn one kind at a time, most often: out of ten draws, none
-/// three times, a plant alone twice, a bit edit alone twice, a sealing defect
-/// or a byte edit alone once each, and every stage independently once.
+/// Damage drawn one kind at a time, most often: out of ten draws, none three
+/// times, a plant alone twice, a bit edit alone twice, a sealing defect or a
+/// byte edit alone once each, and every stage independently once.
 ///
 /// Damage of one kind keeps the verdict settled for most inputs; the
 /// independent arm reaches inputs with several defects at once.

@@ -1,35 +1,33 @@
-//! The proptest seed files' provenance sweep: every committed seed
-//! lives at a path proptest's configured persistence actually derives
-//! from a live test source.
+//! The proptest seed files' provenance sweep: every committed seed lives at a
+//! path proptest's configured persistence actually derives from a live test
+//! source.
 //!
-//! No regression corpus may go silently dead when a module moves,
-//! retires, or a seed lands in a location the library never reads.
+//! No regression corpus may go silently dead when a module moves, retires, or a
+//! seed lands in a location the library never reads.
 //!
-//! Committed seeds are regression instruments — each `cc` line replays a
-//! shrunk failure before novel cases are generated — but a seed replays
-//! only from the one path proptest resolves from its test's source
-//! location. The default persistence (`SourceParallel`) walks up from
-//! the source file and stops at the FIRST directory holding `lib.rs` or
-//! `main.rs` — the deepest such anchor above the source — then reads
-//! `<the anchor's parent>/proptest-regressions/<suffix>.txt`, where the
-//! suffix is the source's path below the anchor; where no anchor exists
-//! on the walk, it falls back to the sibling
-//! `<source>.proptest-regressions` file. The sweep accepts a sibling file
-//! whose source exists exactly when the walk from its source's directory up
-//! to the repository root finds no anchor, as for a suite in a crate's
-//! `tests/` directory that holds no `main.rs`. The root `tests/main.rs` anchors the root
-//! integration suites, so their seeds live under the root
-//! `proptest-regressions/`. A seed anywhere else — however plausible the
-//! path looks — is never read: it sits committed, looking like coverage,
-//! replaying nothing. This sweep reconstructs
-//! that resolution in reverse for every committed file under a seed
-//! location and fails on any whose owning source is missing or whose
-//! location proptest would not derive.
+//! Committed seeds are regression instruments — each `cc` line replays a shrunk
+//! failure before novel cases are generated — but a seed replays only from the
+//! one path proptest resolves from its test's source location. The default
+//! persistence (`SourceParallel`) walks up from the source file and stops at
+//! the FIRST directory holding `lib.rs` or `main.rs` — the deepest such anchor
+//! above the source — then reads
+//! `<the anchor's parent>/proptest-regressions/<suffix>.txt`, where the suffix
+//! is the source's path below the anchor; where no anchor exists on the walk,
+//! it falls back to the sibling `<source>.proptest-regressions` file. The sweep
+//! accepts a sibling file whose source exists exactly when the walk from its
+//! source's directory up to the repository root finds no anchor, as for a suite
+//! in a crate's `tests/` directory that holds no `main.rs`. The root
+//! `tests/main.rs` anchors the root integration suites, so their seeds live
+//! under the root `proptest-regressions/`. A seed anywhere else — however
+//! plausible the path looks — is never read: it sits committed, looking like
+//! coverage, replaying nothing. This sweep reconstructs that resolution in
+//! reverse for every committed file under a seed location and fails on any
+//! whose owning source is missing or whose location proptest would not derive.
 //!
 //! Provenance of the transcribed rules: proptest 1.11.0,
-//! `FileFailurePersistence::resolve` (`failure_persistence/file.rs`).
-//! Re-verify the transcription when the workspace's proptest dependency
-//! moves to a release that touches persistence resolution.
+//! `FileFailurePersistence::resolve` (`failure_persistence/file.rs`). Re-verify
+//! the transcription when the workspace's proptest dependency moves to a
+//! release that touches persistence resolution.
 
 use std::path::{Path, PathBuf};
 
@@ -37,29 +35,29 @@ use std::path::{Path, PathBuf};
 /// vendored/editor trees that cannot own seed files.
 const SKIP_DIRS: &[&str] = &["target", ".git", "node_modules", ".claude"];
 
-/// One committed seed file and the verdict of reversing proptest's
-/// persistence resolution on it.
+/// One committed seed file and the verdict of reversing proptest's persistence
+/// resolution on it.
 struct Seed {
     path: PathBuf,
     verdict: Result<(), String>,
 }
 
-/// Whether `dir` directly contains the `lib.rs`/`main.rs` anchor that
-/// stops proptest's upward walk from a source file.
+/// Whether `dir` directly contains the `lib.rs`/`main.rs` anchor that stops
+/// proptest's upward walk from a source file.
 fn is_anchor(dir: &Path) -> bool {
     dir.join("lib.rs").is_file() || dir.join("main.rs").is_file()
 }
 
-/// The first anchor on the walk from `start` up to `stop` (inclusive):
-/// the directory whose parent hosts the `proptest-regressions` layout
-/// proptest resolves for sources under `start`.
+/// The first anchor on the walk from `start` up to `stop` (inclusive): the
+/// directory whose parent hosts the `proptest-regressions` layout proptest
+/// resolves for sources under `start`.
 ///
-/// `None` when the walk finds no anchor, which routes persistence to
-/// the sibling-file fallback instead.
+/// `None` when the walk finds no anchor, which routes persistence to the
+/// sibling-file fallback instead.
 ///
-/// The walk is bounded at `stop` (the repository root): proptest's own
-/// walk continues to the filesystem root, and an anchor above the
-/// repository would be pathological.
+/// The walk is bounded at `stop` (the repository root): proptest's own walk
+/// continues to the filesystem root, and an anchor above the repository would
+/// be pathological.
 fn first_anchor_above(start: &Path, stop: &Path) -> Option<PathBuf> {
     let mut dir = start;
     loop {
@@ -129,12 +127,12 @@ fn scan(dir: &Path, root: &Path, out: &mut Vec<Seed>) {
     }
 }
 
-/// Collect every file under a `proptest-regressions` directory (rooted
-/// at `regressions`), each judged against proptest's resolution.
+/// Collect every file under a `proptest-regressions` directory (rooted at
+/// `regressions`), each judged against proptest's resolution.
 ///
-/// A `.txt` must reverse-resolve to a live source whose deepest anchor
-/// is one of `anchors`, and any other file is an orphan outright —
-/// proptest writes and reads only `<suffix>.txt` here.
+/// A `.txt` must reverse-resolve to a live source whose deepest anchor is one
+/// of `anchors`, and any other file is an orphan outright — proptest writes and
+/// reads only `<suffix>.txt` here.
 fn collect_regressions(
     dir: &Path,
     regressions: &Path,
@@ -210,11 +208,10 @@ fn collect_regressions(
 /// Every committed proptest seed file resolves, through proptest's own
 /// persistence rules, to a live test source file.
 ///
-/// An orphaned corpus — its module moved or retired, or the file sitting
-/// at a path no resolution derives — replays nowhere: a dead instrument
-/// that still looks like coverage. Retiring a module, or relocating a
-/// seed, means deciding in a reviewed diff what happens to its seeds,
-/// never orphaning them silently.
+/// An orphaned corpus — its module moved or retired, or the file sitting at a
+/// path no resolution derives — replays nowhere: a dead instrument that still
+/// looks like coverage. Retiring a module, or relocating a seed, means deciding
+/// in a reviewed diff what happens to its seeds, never orphaning them silently.
 #[test]
 fn every_committed_seed_file_is_read_by_proptest() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -266,8 +263,8 @@ impl FixtureTree {
         self
     }
 
-    /// Run the sweep over the fixture tree, returning each seed's
-    /// root-relative path and verdict.
+    /// Run the sweep over the fixture tree, returning each seed's root-relative
+    /// path and verdict.
     fn sweep(&self) -> Vec<(String, Result<(), String>)> {
         let mut seeds = Vec::new();
         scan(&self.0, &self.0, &mut seeds);
@@ -292,12 +289,12 @@ impl Drop for FixtureTree {
     }
 }
 
-/// Persistence resolves at the deepest anchor above the source, so a
-/// seed filed under a shallower anchor's layout is an orphan even
-/// though the source exists below that anchor.
+/// Persistence resolves at the deepest anchor above the source, so a seed filed
+/// under a shallower anchor's layout is an orphan even though the source exists
+/// below that anchor.
 ///
-/// The seed at the deep anchor's own layout is the dual: that one is
-/// read, and stays green.
+/// The seed at the deep anchor's own layout is the dual: that one is read, and
+/// stays green.
 #[test]
 fn nested_anchor_claims_the_persistence_path() {
     let tree = FixtureTree::new("nested-anchor");
@@ -332,9 +329,9 @@ fn nested_anchor_claims_the_persistence_path() {
     assert!(live.1.is_ok(), "the deep-anchor layout is read: {live:?}");
 }
 
-/// Any non-`.txt` file under a proptest-regressions directory is an
-/// orphan outright: proptest writes and reads only `<suffix>.txt`
-/// there, so anything else sits committed while replaying nothing.
+/// Any non-`.txt` file under a proptest-regressions directory is an orphan
+/// outright: proptest writes and reads only `<suffix>.txt` there, so anything
+/// else sits committed while replaying nothing.
 #[test]
 fn non_txt_files_under_regressions_are_orphans() {
     let tree = FixtureTree::new("non-txt");

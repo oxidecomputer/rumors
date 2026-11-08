@@ -1,32 +1,30 @@
 //! Sessions over one duplex byte stream: evidence that sharing one pipe does
-//! not deadlock the walk, and the demonstration that the harness would catch
-//! it if it did.
+//! not deadlock the walk, and the demonstration that the harness would catch it
+//! if it did.
 //!
-//! Every session here runs both endpoints' walks and proxies over one
-//! in-memory connection, two `tokio::io::duplex` pipes, under the
-//! closed-world poller, which reports a stall whenever every task waits with
-//! no wake arranged.
+//! Every session here runs both endpoints' walks and proxies over one in-memory
+//! connection, two `tokio::io::duplex` pipes, under the closed-world poller,
+//! which reports a stall whenever every task waits with no wake arranged.
 //!
-//! - **The demonstration.** A cycle of waits stalls a session over one
-//!   pipe, and the poller reports it: here a decoder's assembler and its
-//!   reader each wait on the other, through one-slot edges between them. A
-//!   wait of the receive path on the walk would close a cycle of the same
-//!   kind. At its queues' own capacities in the serial configuration, the
+//! - **The demonstration.** A cycle of waits stalls a session over one pipe,
+//!   and the poller reports it: here a decoder's assembler and its reader each
+//!   wait on the other, through one-slot edges between them. A wait of the
+//!   receive path on the walk would close a cycle of the same kind. At its
+//!   queues' own capacities in the serial configuration, the
 //!   dispute-before-supplies fixture (one dispute ahead of six whole-subtree
 //!   supplies, which puts supplies on the pipe ahead of frames their stage
 //!   needs first) completes and matches the in-memory join.
-//! - **The pipe regime.** In the serial configuration, one unit of each
-//!   kind and depth at a time, and over a one-byte pipe, every wait
-//!   anywhere in the session is a full handoff, so a new wait of the
-//!   receive path on the walk shows up as a stall. Scheduled divergent
-//!   sessions, the capacity stress fixtures, the wire suites' stress
-//!   fixtures, a serial peer against an unlimited one, and peers on
-//!   different budgets must all complete.
+//! - **The pipe regime.** In the serial configuration, one unit of each kind
+//!   and depth at a time, and over a one-byte pipe, every wait anywhere in the
+//!   session is a full handoff, so a new wait of the receive path on the walk
+//!   shows up as a stall. Scheduled divergent sessions, the capacity stress
+//!   fixtures, the wire suites' stress fixtures, a serial peer against an
+//!   unlimited one, and peers on different budgets must all complete.
 //!
-//! Several fixtures place leaves at chosen paths, and the
-//! wire decoder derives each received leaf's path from its version. Their
-//! sessions therefore run under [`Path::with_leaf_paths`] with every leaf of
-//! both trees, so that derivation agrees with the placement on both sides.
+//! Several fixtures place leaves at chosen paths, and the wire decoder derives
+//! each received leaf's path from its version. Their sessions therefore run
+//! under [`Path::with_leaf_paths`] with every leaf of both trees, so that
+//! derivation agrees with the placement on both sides.
 
 use std::collections::BTreeMap;
 
@@ -53,8 +51,8 @@ use crate::tree::mirror::streaming::testing::session::{AMPLE, Endpoint, SessionL
 use crate::tree::typed::{Node as TreeNode, Path};
 use crate::{Version, causally};
 
-/// Bytes each direction of the pipe buffers in the regime's sessions: one,
-/// so every byte crosses in its own handoff.
+/// Bytes each direction of the pipe buffers in the regime's sessions: one, so
+/// every byte crosses in its own handoff.
 const ONE_BYTE: usize = 1;
 
 /// Every leaf's version and placed path, across both trees of a pair.
@@ -82,9 +80,9 @@ pub(super) fn placed_over_pipe(
     Path::with_leaf_paths(paths, || over_pipe::<()>(pair, budgets, buffer))
 }
 
-/// Reconcile a pair over a one-byte pipe at `budgets` under the given
-/// channel and backend poll schedules, and require both endpoints to
-/// complete holding the join of their trees.
+/// Reconcile a pair over a one-byte pipe at `budgets` under the given channel
+/// and backend poll schedules, and require both endpoints to complete holding
+/// the join of their trees.
 ///
 /// `placed` runs the session under the pair's leaf-path placement.
 fn assert_completes_over_one_byte(
@@ -125,14 +123,14 @@ fn assert_completes_over_one_byte(
 }
 
 /// Two trees, initiator first, whose responder answers the opening with a
-/// dispute ahead of one group of three supplied root children, the last of
-/// five leaves.
+/// dispute ahead of one group of three supplied root children, the last of five
+/// leaves.
 ///
-/// Both hold root child 0, under which each holds a leaf the other lacks,
-/// so it disputes; only the responder holds root children 1, 2, and 3,
-/// which its root reply supplies in radix order behind the dispute. The initiator holds one leaf against
-/// the responder's eight, so it wins the smaller-set election. Paths are
-/// placed, so a session must run under the placement.
+/// Both hold root child 0, under which each holds a leaf the other lacks, so it
+/// disputes; only the responder holds root children 1, 2, and 3, which its root
+/// reply supplies in radix order behind the dispute. The initiator holds one
+/// leaf against the responder's eight, so it wins the smaller-set election.
+/// Paths are placed, so a session must run under the placement.
 fn grouped_supplies_pair() -> (Root, Root) {
     let initiator = rooted(grown(None, 1, 1, &(), &[path_at(&[0, 1])]));
     let mut held = vec![path_at(&[0, 2]), path_at(&[1]), path_at(&[2])];
@@ -141,18 +139,18 @@ fn grouped_supplies_pair() -> (Root, Root) {
     (initiator, responder)
 }
 
-/// The harness detects a stall over one pipe: a decoder whose supplies'
-/// edge cannot hold a group's nodes stalls the session, and the
-/// closed-world poller reports it.
+/// The harness detects a stall over one pipe: a decoder whose supplies' edge
+/// cannot hold a group's nodes stalls the session, and the closed-world poller
+/// reports it.
 ///
-/// The initiator decodes the responder's root reply, whose three supplies
-/// form one group. A reader takes a group's nodes back only when the group
-/// ends, so with the supplies' edge at one slot the assembler waits to hand
-/// back the second node, which it finishes on the third run's first leaf,
-/// while the reader, with the leaves' edge at one slot, waits to hand it
-/// the third run's later leaves: a cycle within one decoder, which the
-/// edge's fan of supply slots rules out. The pipe has room for everything
-/// either side writes, so nothing but that cycle can hold the session.
+/// The initiator decodes the responder's root reply, whose three supplies form
+/// one group. A reader takes a group's nodes back only when the group ends, so
+/// with the supplies' edge at one slot the assembler waits to hand back the
+/// second node, which it finishes on the third run's first leaf, while the
+/// reader, with the leaves' edge at one slot, waits to hand it the third run's
+/// later leaves: a cycle within one decoder, which the edge's fan of supply
+/// slots rules out. The pipe has room for everything either side writes, so
+/// nothing but that cycle can hold the session.
 #[test]
 fn harness_detects_a_stall_over_one_pipe() {
     let pair = grouped_supplies_pair();
@@ -172,9 +170,9 @@ fn harness_detects_a_stall_over_one_pipe() {
     );
 }
 
-/// The grouped-supplies session completes with the leaves' edge at one
-/// slot, and both sides hold the join: the supplies' edge at its fan breaks
-/// the cycle the stall control above builds.
+/// The grouped-supplies session completes with the leaves' edge at one slot,
+/// and both sides hold the join: the supplies' edge at its fan breaks the cycle
+/// the stall control above builds.
 #[test]
 fn grouped_supplies_complete_over_a_one_slot_leaf_edge() {
     let pair = grouped_supplies_pair();
@@ -187,12 +185,12 @@ fn grouped_supplies_complete_over_a_one_slot_leaf_edge() {
     assert_eq!(responder.expect("the responder completes"), expected);
 }
 
-/// In the serial configuration, the dispute-before-supplies fixture
-/// completes over one pipe and both sides hold the in-memory join.
+/// In the serial configuration, the dispute-before-supplies fixture completes
+/// over one pipe and both sides hold the in-memory join.
 ///
-/// Every queue runs at its own capacity, and the walk admits one unit of
-/// each kind and depth at a time, so the requesting side's stage blocks on the dispute's chain
-/// while the supplies arrive and park.
+/// Every queue runs at its own capacity, and the walk admits one unit of each
+/// kind and depth at a time, so the requesting side's stage blocks on the
+/// dispute's chain while the supplies arrive and park.
 #[test]
 fn derived_capacities_complete_dispute_before_supplies_over_one_pipe() {
     let pair = dispute_before_supplies_trees();
@@ -222,12 +220,12 @@ fn dispute_before_supplies_completes_over_a_one_byte_pipe() {
     }
 }
 
-/// The capacity stress fixtures, which stress the walk's one-slot and
-/// fan-sized queues.
+/// The capacity stress fixtures, which stress the walk's one-slot and fan-sized
+/// queues.
 ///
 /// They are a full fan of disputed root children, a full fan below four
-/// disputed parents, the fan-plus-one and double-fan aggregates, a
-/// multiplying pyramid, and a comb reaching every trie height.
+/// disputed parents, the fan-plus-one and double-fan aggregates, a multiplying
+/// pyramid, and a comb reaching every trie height.
 fn capacity_stress_fixtures() -> [(Root, Root); 6] {
     [
         pyramid_pair(&[FAN], 1, LeafOrder::Outside),
@@ -239,9 +237,9 @@ fn capacity_stress_fixtures() -> [(Root, Root); 6] {
     ]
 }
 
-/// Require each capacity stress fixture to complete over a one-byte pipe
-/// in the serial configuration, in both orientations and under every standard
-/// poll schedule.
+/// Require each capacity stress fixture to complete over a one-byte pipe in the
+/// serial configuration, in both orientations and under every standard poll
+/// schedule.
 fn assert_capacity_stress_fixtures_complete() {
     for (a, b) in capacity_stress_fixtures() {
         for pair in [(a.clone(), b.clone()), (b, a)] {
@@ -259,23 +257,23 @@ fn assert_capacity_stress_fixtures_complete() {
     }
 }
 
-/// Every capacity stress fixture ([`capacity_stress_fixtures`]) completes
-/// over a one-byte pipe in the serial configuration, in both orientations and
-/// under every standard poll schedule.
+/// Every capacity stress fixture ([`capacity_stress_fixtures`]) completes over
+/// a one-byte pipe in the serial configuration, in both orientations and under
+/// every standard poll schedule.
 #[test]
 fn capacity_stress_fixtures_complete_over_a_one_byte_pipe() {
     assert_capacity_stress_fixtures_complete();
 }
 
-/// Every capacity stress fixture completes over a one-byte pipe with every
-/// edge that needs only one slot capped at one.
+/// Every capacity stress fixture completes over a one-byte pipe with every edge
+/// that needs only one slot capped at one.
 ///
-/// Those edges ([`ONE_SLOT_KINDS`](super::ONE_SLOT_KINDS)) include the
-/// pipe's lanes. Each fixture runs in the serial configuration, in both
-/// orientations and under every standard poll schedule.
+/// Those edges ([`ONE_SLOT_KINDS`](super::ONE_SLOT_KINDS)) include the pipe's
+/// lanes. Each fixture runs in the serial configuration, in both orientations
+/// and under every standard poll schedule.
 ///
-/// Those edges have slots beyond the first only for speed, so that a send
-/// into an empty edge does not park, or so that one input's outputs enqueue
+/// Those edges have slots beyond the first only for speed, so that a send into
+/// an empty edge does not park, or so that one input's outputs enqueue
 /// together; the pipe's argument, and the walk's, rest on one. At the
 /// documented capacities the further slots could hide a wait the arguments
 /// miss, so this runs the fixtures at the floor the arguments state.
@@ -291,14 +289,14 @@ fn capacity_stress_fixtures_complete_over_a_one_byte_pipe_at_one_slot() {
     );
 }
 
-/// Every capacity and wire stress fixture completes over a one-byte pipe in
-/// the serial configuration with every reply split at every reaction boundary,
-/// in both orientations.
+/// Every capacity and wire stress fixture completes over a one-byte pipe in the
+/// serial configuration with every reply split at every reaction boundary, in
+/// both orientations.
 ///
 /// Each stage then reads every reply one reaction at a time, each encoder
-/// releases a reply's frames chunk by chunk, and each decoder delivers
-/// each question as its frame decodes, across fixtures whose replies carry full fans of questions and long
-/// runs of supplies.
+/// releases a reply's frames chunk by chunk, and each decoder delivers each
+/// question as its frame decodes, across fixtures whose replies carry full fans
+/// of questions and long runs of supplies.
 #[test]
 fn stress_fixtures_complete_with_split_replies_over_a_one_byte_pipe() {
     let (leaf_left, leaf_right, _) = leaf_parent_dispute_pair();
@@ -334,9 +332,9 @@ fn stress_fixtures_complete_with_split_replies_over_a_one_byte_pipe() {
 /// serial configuration, in both orientations and under every standard poll
 /// schedule.
 ///
-/// A full-fan reply behind two disputes and a dispute ahead of
-/// whole-subtree supplies are version-addressed; a dispute surviving to the
-/// leaf parents is placed.
+/// A full-fan reply behind two disputes and a dispute ahead of whole-subtree
+/// supplies are version-addressed; a dispute surviving to the leaf parents is
+/// placed.
 #[test]
 fn wire_stress_fixtures_complete_over_a_one_byte_pipe() {
     let (leaf_left, leaf_right, _) = leaf_parent_dispute_pair();

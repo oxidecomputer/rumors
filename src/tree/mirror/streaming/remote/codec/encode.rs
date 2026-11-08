@@ -37,9 +37,9 @@ pub fn encode<W: Write>(
 
 /// A run of rendered heads held on the stack.
 ///
-/// Every frame carries a few head bytes of known maximum width; rendering
-/// them here, rather than into a heap buffer, keeps the frames a session
-/// writes most often — the body-free reactions — free of allocation.
+/// Every frame carries a few head bytes of known maximum width; rendering them
+/// here, rather than into a heap buffer, keeps the frames a session writes most
+/// often — the body-free reactions — free of allocation.
 struct Heads<const N: usize> {
     bytes: [u8; N],
     len: usize,
@@ -72,11 +72,11 @@ impl<const N: usize> Heads<N> {
 /// A protocol-produced frame split into directly writable pieces.
 ///
 /// The encoder is not a trust boundary: phase placement, query ordering, and
-/// run record framing are guaranteed by its callers and checked only when
-/// bytes enter from the wire. Construction performs only the
-/// representational checks needed before any byte can be emitted, and
-/// renders every head — the fixed ones on the stack — so the write paths
-/// move bytes without measuring anything.
+/// run record framing are guaranteed by its callers and checked only when bytes
+/// enter from the wire. Construction performs only the representational checks
+/// needed before any byte can be emitted, and renders every head — the fixed
+/// ones on the stack — so the write paths move bytes without measuring
+/// anything.
 struct FrameEncoding<'a> {
     /// The frame's opener: its array head, stream item, and state item.
     head: Heads<FRAME_OPENER_LEN>,
@@ -85,8 +85,8 @@ struct FrameEncoding<'a> {
 
 enum BodyEncoding<'a> {
     Empty,
-    /// A match's later matches: the byte-string head and the set's
-    /// encoding, fully rendered on the stack.
+    /// A match's later matches: the byte-string head and the set's encoding,
+    /// fully rendered on the stack.
     MatchSet {
         head: Heads<MATCH_SET_HEAD_LEN>,
         set: Encoded,
@@ -147,9 +147,9 @@ impl<'a> FrameEncoding<'a> {
 
     /// The frame's pieces in wire order, each with the part it carries.
     ///
-    /// They are the opener, then a match's set head and encoding, the
-    /// listing, or the supply run's head and its records. Every piece is
-    /// nonempty, and there are at most [`MAX_PIECES`].
+    /// They are the opener, then a match's set head and encoding, the listing,
+    /// or the supply run's head and its records. Every piece is nonempty, and
+    /// there are at most [`MAX_PIECES`].
     fn pieces(&self) -> impl Iterator<Item = (FramePart, &[u8])> {
         let body = match &self.body {
             BodyEncoding::Empty => [None, None],
@@ -174,9 +174,9 @@ impl<'a> FrameEncoding<'a> {
         self.pieces().map(|(_, piece)| piece.len()).sum()
     }
 
-    /// Render the whole frame into one contiguous buffer: byte for byte
-    /// what the writers emit, materialized only for an attached observer's
-    /// one-item view.
+    /// Render the whole frame into one contiguous buffer: byte for byte what
+    /// the writers emit, materialized only for an attached observer's one-item
+    /// view.
     fn to_vec(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(self.len());
         for (_, piece) in self.pieces() {

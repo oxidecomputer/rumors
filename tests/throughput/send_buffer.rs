@@ -1,68 +1,66 @@
-//! Unsent bytes in the sending kernel do not slow a divergent session,
-//! whether or not its budget binds.
+//! Unsent bytes in the sending kernel do not slow a divergent session, whether
+//! or not its budget binds.
 //!
 //! # The question
 //!
-//! A kernel send buffer larger than the bandwidth-delay product holds bytes
-//! the application has handed over and the wire has not taken, and no
-//! application priority reorders them. In a divergent session, each side's
-//! replies carry its own supplies and its *requests*: empty queries for
-//! subtrees only it holds, which the peer answers with supplies. Bytes
-//! queued ahead of a request delay it, and with it the bulk it invites.
+//! A kernel send buffer larger than the bandwidth-delay product holds bytes the
+//! application has handed over and the wire has not taken, and no application
+//! priority reorders them. In a divergent session, each side's replies carry
+//! its own supplies and its *requests*: empty queries for subtrees only it
+//! holds, which the peer answers with supplies. Bytes queued ahead of a request
+//! delay it, and with it the bulk it invites.
 //!
-//! Each request a side asks holds room in its ledger for the reply it
-//! invites until that reply is consumed, so the side's budget bounds its
-//! outstanding requests, `K`. By Little's law, the bulk those requests
-//! invite moves at most at `min(bandwidth, K · r / L)`, where `r` is the
-//! bytes a request invites and `L` is the round trip plus the time its
-//! requests spend queued.
+//! Each request a side asks holds room in its ledger for the reply it invites
+//! until that reply is consumed, so the side's budget bounds its outstanding
+//! requests, `K`. By Little's law, the bulk those requests invite moves at most
+//! at `min(bandwidth, K · r / L)`, where `r` is the bytes a request invites and
+//! `L` is the round trip plus the time its requests spend queued.
 //!
 //! One analysis holds that the queue stays full. If the side sending the
-//! requests saturates its direction while its send buffer holds `Q` of
-//! unsent bytes beyond the product, the invited bulk runs at
-//! `f = min(1, c / (1 + Q / RTT))` of the bandwidth, where `c = K · r / BDP`
-//! is the requests' coverage of the bare link, and a session moving `D`
-//! bytes each way takes about `(2 − f) · D / bandwidth`: up to half again as
-//! long with a full product of unsent bytes.
+//! requests saturates its direction while its send buffer holds `Q` of unsent
+//! bytes beyond the product, the invited bulk runs at
+//! `f = min(1, c / (1 + Q / RTT))` of the bandwidth, where `c = K · r / BDP` is
+//! the requests' coverage of the bare link, and a session moving `D` bytes each
+//! way takes about `(2 − f) · D / bandwidth`: up to half again as long with a
+//! full product of unsent bytes.
 //!
 //! # What the sessions show
 //!
-//! The queue does not stay full. A side's requests and its own supplies
-//! leave in the same replies, and its walk asks no further question while
-//! the budget holding its outstanding requests is full. When queued bytes
-//! stretch `L` until the budget binds, the side's supplies slow with its
-//! requests, its direction stops saturating, and its queue drains. The
-//! queue settles where the requests' latency just matches what the budget
-//! keeps outstanding, so the invited bulk runs at the rate it has with no
-//! unsent bytes at all, and the session takes as long.
+//! The queue does not stay full. A side's requests and its own supplies leave
+//! in the same replies, and its walk asks no further question while the budget
+//! holding its outstanding requests is full. When queued bytes stretch `L`
+//! until the budget binds, the side's supplies slow with its requests, its
+//! direction stops saturating, and its queue drains. The queue settles where
+//! the requests' latency just matches what the budget keeps outstanding, so the
+//! invited bulk runs at the rate it has with no unsent bytes at all, and the
+//! session takes as long.
 //!
 //! The argument needs a side's bulk to share replies with the requests its
 //! budget holds back. Bulk from replies that carry none of them, such as
-//! another level's, could keep a queue full while those requests wait. In
-//! these fully divergent pairs nearly all of both ride one level's
-//! replies.
+//! another level's, could keep a queue full while those requests wait. In these
+//! fully divergent pairs nearly all of both ride one level's replies.
 //!
 //! # The measurement
 //!
 //! Each test runs fully divergent pairs on a LAN, first with an unlimited
-//! budget, which reads `Λ`, the most either
-//! side's ledger holds outside its floor slots when nothing waits for
-//! admission, and the session's no-cost point, at or above which it runs as
-//! the unlimited session (see the [no-slowdown suite](crate::no_slowdown)).
-//! Each session then runs at the no-cost point, where no unit waits, and at
-//! half of `Λ`, where units wait for admission, once with an unsent limit
-//! of zero and once with one bandwidth-delay product.
+//! budget, which reads `Λ`, the most either side's ledger holds outside its
+//! floor slots when nothing waits for admission, and the session's no-cost
+//! point, at or above which it runs as the unlimited session (see the
+//! [no-slowdown suite](crate::no_slowdown)). Each session then runs at the
+//! no-cost point, where no unit waits, and at half of `Λ`, where units wait for
+//! admission, once with an unsent limit of zero and once with one
+//! bandwidth-delay product.
 //!
 //! # Thresholds
 //!
-//! A session with unsent bytes may take at most its duration without them
-//! plus the model's resolution, one segment's serialization
-//! ([`SEGMENT_BYTES`](rumors_testkit::bench::link::SEGMENT_BYTES)) per hop
-//! of the critical path ([`resolution`]). The analysis's largest predicted
-//! excess is half the transfer's serialization, which the test checks is
-//! far beyond that allowance, so the verdict cannot rest on the allowance's
-//! size. A comparison means something only if the unsent queue fills, and
-//! at half of `Λ` only if the budget binds there; the tests check both.
+//! A session with unsent bytes may take at most its duration without them plus
+//! the model's resolution, one segment's serialization
+//! ([`SEGMENT_BYTES`](rumors_testkit::bench::link::SEGMENT_BYTES)) per hop of
+//! the critical path ([`resolution`]). The analysis's largest predicted excess
+//! is half the transfer's serialization, which the test checks is far beyond
+//! that allowance, so the verdict cannot rest on the allowance's size. A
+//! comparison means something only if the unsent queue fills, and at half of
+//! `Λ` only if the budget binds there; the tests check both.
 
 use rumors::default;
 use rumors_testkit::bench::link::{LinkConfig, Side};
@@ -105,9 +103,9 @@ fn report(label: &str, session: &Session) {
     println!("{line}");
 }
 
-/// Asserts that `with` took no longer than `without` plus `allowance`, and
-/// that one of `with`'s unsent queues reached its limit, so the comparison
-/// tested a buffer that held unsent bytes.
+/// Asserts that `with` took no longer than `without` plus `allowance`, and that
+/// one of `with`'s unsent queues reached its limit, so the comparison tested a
+/// buffer that held unsent bytes.
 fn assert_unharmed(without: &Session, with: &Session, allowance: u64) {
     let limit = with.case.link.unsent_limit();
     assert!(
@@ -125,16 +123,16 @@ fn assert_unharmed(without: &Session, with: &Session, allowance: u64) {
     );
 }
 
-/// A fully divergent session takes no longer with a bandwidth-delay
-/// product of unsent bytes than with none, both at the no-cost point and at
-/// half of `Λ`, where units wait for admission.
+/// A fully divergent session takes no longer with a bandwidth-delay product of
+/// unsent bytes than with none, both at the no-cost point and at half of `Λ`,
+/// where units wait for admission.
 ///
-/// At the no-cost point, the session on the bare link is the unlimited
-/// one, event for event, so the comparison there starts from a session no
-/// budget slowed.
+/// At the no-cost point, the session on the bare link is the unlimited one,
+/// event for event, so the comparison there starts from a session no budget
+/// slowed.
 ///
-/// At half of `Λ` the budget binds, which is where the analysis in the
-/// module docs predicts that queued requests cost the session.
+/// At half of `Λ` the budget binds, which is where the analysis in the module
+/// docs predicts that queued requests cost the session.
 #[test]
 fn unsent_bytes_leave_a_symmetric_session_unchanged() {
     let shape = Shape::symmetric(MESSAGES);
@@ -189,13 +187,12 @@ fn unsent_bytes_leave_a_symmetric_session_unchanged() {
     assert_unharmed(&half_bare, &half_buffered, allowance);
 }
 
-/// A catch-up, in which one side holds every message and the other none,
-/// takes no longer with a bandwidth-delay product of unsent bytes than with
-/// none.
+/// A catch-up, in which one side holds every message and the other none, takes
+/// no longer with a bandwidth-delay product of unsent bytes than with none.
 ///
-/// The bulk crosses one way and the requests the other, so no queued bulk
-/// can delay a request; both the analysis and the mechanism predict no
-/// effect. Both peers run the default budget.
+/// The bulk crosses one way and the requests the other, so no queued bulk can
+/// delay a request; both the analysis and the mechanism predict no effect. Both
+/// peers run the default budget.
 #[test]
 fn unsent_bytes_leave_a_catch_up_unchanged() {
     let shape = Shape::catch_up(MESSAGES);

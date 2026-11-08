@@ -8,8 +8,8 @@
 //!
 //! The signs rule out either possible ordering. If `D > 0` anywhere, `a <= b`
 //! is false. If `D < 0` anywhere, `b <= a` is false. If neither ordering
-//! survives, the versions are concurrent; if both survive, they are equal.
-//! The same state answers the narrower equality and domination questions.
+//! survives, the versions are concurrent; if both survive, they are equal. The
+//! same state answers the narrower equality and domination questions.
 //!
 //! # Cost
 //!
@@ -123,9 +123,9 @@ impl OrderState {
         OrderState::Equal
     }
 
-    /// Fold one region's sign of `D = height_a − height_b` into
-    /// the surviving directions: a positive interval refutes `a <= b`, a
-    /// negative one `b <= a`.
+    /// Fold one region's sign of `D = height_a − height_b` into the surviving
+    /// directions: a positive interval refutes `a <= b`, a negative one
+    /// `b <= a`.
     pub fn fold(&mut self, sign: Ordering) {
         *self = match (*self, sign) {
             (state, Ordering::Equal) => state,
@@ -212,9 +212,9 @@ impl OrderState {
 /// After each interval's sign fold, `exit` sees the surviving directions and
 /// may declare the question decided: the `Break` payload carries the verdict,
 /// so the earliest stop and its answer are one value. A break carries `V`
-/// rather than the directions because the direction the question ignores may
-/// be stale at an early exit: only the fully-swept directions `finish` maps
-/// at exhaustion are all decided.
+/// rather than the directions because the direction the question ignores may be
+/// stale at an early exit: only the fully-swept directions `finish` maps at
+/// exhaustion are all decided.
 fn compare<V>(
     a_bits: &Version,
     b_bits: &Version,

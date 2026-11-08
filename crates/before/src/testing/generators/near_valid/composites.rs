@@ -17,8 +17,8 @@ use crate::testing::oracles::flat;
 /// self-delimiting, before any edit to the whole.
 ///
 /// A defective first component is a complete tree with a planted defect, so
-/// decoding rejects it whatever follows. A canonical first component hands
-/// the decoder exactly the second component's bytes, which keep their own
+/// decoding rejects it whatever follows. A canonical first component hands the
+/// decoder exactly the second component's bytes, which keep their own
 /// expectation.
 fn concatenated(first: Expect, second: Expect) -> Expect {
     match (first, second) {
@@ -28,8 +28,8 @@ fn concatenated(first: Expect, second: Expect) -> Expect {
     }
 }
 
-/// Near-valid clock encodings: a party encoding, canonical or damaged, then
-/// a version encoding, then possibly a byte edit.
+/// Near-valid clock encodings: a party encoding, canonical or damaged, then a
+/// version encoding, then possibly a byte edit.
 ///
 /// Regime: [`Regime::ClockVersionDefect`].
 pub(crate) fn arb_clock_encoding() -> impl Strategy<Value = NearValid> {
@@ -80,8 +80,8 @@ enum Endpoints {
 }
 
 impl Endpoints {
-    /// The lower and upper endpoint trees, with the join and meet computed
-    /// by the flat model.
+    /// The lower and upper endpoint trees, with the join and meet computed by
+    /// the flat model.
     fn of(self, a: codec::Version, b: codec::Version) -> (codec::Version, codec::Version) {
         let (model_a, model_b) = (model(&a), model(&b));
         match self {
@@ -159,11 +159,11 @@ fn arb_tail_defect() -> impl Strategy<Value = TailDefect> {
     ]
 }
 
-/// A span with out-of-order canonical endpoints and a structural defect at
-/// or after the upper endpoint's padding.
+/// A span with out-of-order canonical endpoints and a structural defect at or
+/// after the upper endpoint's padding.
 ///
-/// The endpoints are `a` and `b` when `a` is not below `b`, and otherwise
-/// `a` raised by one everywhere and then `a` itself, a reversed pair.
+/// The endpoints are `a` and `b` when `a` is not below `b`, and otherwise `a`
+/// raised by one everywhere and then `a` itself, a reversed pair.
 fn structural_over_ordering(a: codec::Version, b: codec::Version, defect: TailDefect) -> NearValid {
     let (lo, hi) = if model(&a).le(&model(&b)) {
         // Adding one to every height keeps sibling heights equal exactly
@@ -207,8 +207,8 @@ fn structural_over_ordering(a: codec::Version, b: codec::Version, defect: TailDe
 }
 
 /// Near-valid span encodings: endpoint pairs of every order, each endpoint
-/// possibly damaged, four times in five; otherwise an out-of-order pair with
-/// a structural defect in its upper endpoint.
+/// possibly damaged, four times in five; otherwise an out-of-order pair with a
+/// structural defect in its upper endpoint.
 ///
 /// Regimes: [`Regime::UnorderedSpan`], [`Regime::DeepLowerEndpoint`], and
 /// [`Regime::StructuralOverOrdering`].
@@ -247,8 +247,8 @@ enum RankSource {
     NearValid(NearValid),
 }
 
-/// Near-valid ranked-key encodings: a rank, then a version encoding,
-/// canonical or damaged, then possibly a byte edit.
+/// Near-valid ranked-key encodings: a rank, then a version encoding, canonical
+/// or damaged, then possibly a byte edit.
 ///
 /// Regime: [`Regime::MismatchedRank`].
 pub(crate) fn arb_ranked_encoding() -> impl Strategy<Value = NearValid> {

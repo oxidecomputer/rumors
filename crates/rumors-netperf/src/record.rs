@@ -1,9 +1,9 @@
-//! The per-session record: one row of `sessions.csv` for every session a
-//! run attempted, finished or failed.
+//! The per-session record: one row of `sessions.csv` for every session a run
+//! attempted, finished or failed.
 //!
-//! Every column is flat, so the file reads directly into a spreadsheet,
-//! pandas, or R, and the report reads it back. Units are in the column
-//! names: `_seconds`, `_bytes`, `_bits`, `_us`.
+//! Every column is flat, so the file reads directly into a spreadsheet, pandas,
+//! or R, and the report reads it back. Units are in the column names:
+//! `_seconds`, `_bytes`, `_bits`, `_us`.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Seek, SeekFrom};
@@ -58,9 +58,9 @@ pub struct Row {
     pub budget_a_bytes: Option<u64>,
     /// Side B's memory budget; empty for the library's default.
     pub budget_b_bytes: Option<u64>,
-    /// The memory budget side A's peer reported it runs at, after the
-    /// library raised a budget below its minimum and filled in its
-    /// default; empty when the session failed before reporting it.
+    /// The memory budget side A's peer reported it runs at, after the library
+    /// raised a budget below its minimum and filled in its default; empty when
+    /// the session failed before reporting it.
     pub a_effective_budget_bytes: Option<u64>,
     /// The memory budget side B's peer reported it runs at.
     pub b_effective_budget_bytes: Option<u64>,
@@ -101,10 +101,9 @@ pub struct Row {
     pub redrawn_above_cap: Option<u64>,
     /// Size draws redrawn below one byte.
     pub redrawn_below_one_byte: Option<u64>,
-    /// Wall seconds side A took to build the pair. Other sessions'
-    /// preparations run beside it, up to the run's preparation count at
-    /// once (the intervals below say which), so it measures the build on a
-    /// shared host, not alone.
+    /// Wall seconds side A took to build the pair. Other sessions' preparations
+    /// run beside it, up to the run's preparation count at once (the intervals
+    /// below say which), so it measures the build on a shared host, not alone.
     pub build_seconds: Option<f64>,
     /// Wall seconds side B took to join its replica, on a shared host as
     /// `build_seconds` is.
@@ -123,26 +122,25 @@ pub struct Row {
     #[serde(default)]
     pub b_prepare_cpu_seconds: Option<f64>,
     /// When the preparation began, in seconds since the Unix epoch, as the
-    /// orchestrator's monotonic clock places it: from starting the
-    /// processes.
+    /// orchestrator's monotonic clock places it: from starting the processes.
     #[serde(default)]
     pub prepare_began_unix_seconds: Option<f64>,
-    /// When the preparation ended: with both processes idle, the pair in
-    /// place and the link shaped, or with the preparation failed and its
-    /// processes stopped.
+    /// When the preparation ended: with both processes idle, the pair in place
+    /// and the link shaped, or with the preparation failed and its processes
+    /// stopped.
     #[serde(default)]
     pub prepare_ended_unix_seconds: Option<f64>,
-    /// When the timed session began: from the first command of the
-    /// measured exchange. Empty when the preparation failed.
+    /// When the timed session began: from the first command of the measured
+    /// exchange. Empty when the preparation failed.
     #[serde(default)]
     pub timed_began_unix_seconds: Option<f64>,
     /// When the timed session ended: once both processes had exited.
     #[serde(default)]
     pub timed_ended_unix_seconds: Option<f64>,
 
-    /// The session's wall time as side B saw it: from the start of its
-    /// connect (fresh) or the end of the warm-up (warm) until its
-    /// `gossip_once` returned.
+    /// The session's wall time as side B saw it: from the start of its connect
+    /// (fresh) or the end of the warm-up (warm) until its `gossip_once`
+    /// returned.
     pub wall_seconds: Option<f64>,
     /// Side B's connect time; zero on a warm connection's session.
     pub connect_seconds: Option<f64>,
@@ -167,8 +165,8 @@ pub struct Row {
     pub a_socket_sent_bytes: Option<u64>,
     /// Every byte B wrote to the socket during the session.
     pub b_socket_sent_bytes: Option<u64>,
-    /// Writes A's socket accepted bytes from, beneath every buffer and TLS:
-    /// on plain TCP, one system call each.
+    /// Writes A's socket accepted bytes from, beneath every buffer and TLS: on
+    /// plain TCP, one system call each.
     pub a_socket_writes: Option<u64>,
     /// Writes B's socket accepted bytes from.
     pub b_socket_writes: Option<u64>,
@@ -415,9 +413,9 @@ impl Row {
     }
 }
 
-/// Appends rows to a run's `sessions.csv`, syncing each to the disk as it
-/// is written, so a run cut short keeps every session it finished, even
-/// when the host crashes or loses power.
+/// Appends rows to a run's `sessions.csv`, syncing each to the disk as it is
+/// written, so a run cut short keeps every session it finished, even when the
+/// host crashes or loses power.
 #[derive(Debug)]
 pub struct Writer {
     /// The CSV writer.
@@ -437,8 +435,8 @@ impl Writer {
     /// Opens `path` to append after the first `whole` bytes, discarding the
     /// rest, which [`recover`] found torn.
     ///
-    /// The first row written begins with the header when `whole` is zero,
-    /// so the file reads as one written by [`Writer::create`].
+    /// The first row written begins with the header when `whole` is zero, so
+    /// the file reads as one written by [`Writer::create`].
     pub fn resume(path: &Path, whole: u64) -> Result<Self> {
         let mut file = OpenOptions::new()
             .create(true)
@@ -461,8 +459,8 @@ impl Writer {
     /// Appends one row, returning once it is on the disk.
     ///
     /// A flush hands the row to the kernel, which would keep it through a
-    /// killed process but not through a crash of the host; the sync makes
-    /// it survive both, at one sync per session.
+    /// killed process but not through a crash of the host; the sync makes it
+    /// survive both, at one sync per session.
     pub fn append(&mut self, row: &Row) -> Result<()> {
         self.csv.serialize(row)?;
         self.csv.flush()?;
@@ -471,8 +469,8 @@ impl Writer {
     }
 }
 
-/// Syncs the directory holding `path`, so a file just created in it, or
-/// renamed into it, keeps its name through a crash of the host.
+/// Syncs the directory holding `path`, so a file just created in it, or renamed
+/// into it, keeps its name through a crash of the host.
 ///
 /// Only Unix platforms sync a directory through a handle opened on it;
 /// elsewhere the file's own sync is all we can ask for.
@@ -508,16 +506,16 @@ pub fn read(path: &Path) -> Result<Vec<Row>> {
 pub struct Recovered {
     /// Every whole row, in the order the run wrote them.
     pub rows: Vec<Row>,
-    /// The length in bytes of the file's whole part: the header and the
-    /// whole rows, or zero when not even the header is whole.
+    /// The length in bytes of the file's whole part: the header and the whole
+    /// rows, or zero when not even the header is whole.
     pub whole: u64,
     /// The length in bytes of what follows the whole part: a row, or the
     /// header, that the run was writing when it stopped.
     pub torn: u64,
 }
 
-/// The bytes this build writes for `row`, preceded by the header when
-/// `header` is set.
+/// The bytes this build writes for `row`, preceded by the header when `header`
+/// is set.
 fn encode(row: &Row, header: bool) -> Result<Vec<u8>> {
     let mut writer = csv::WriterBuilder::new()
         .has_headers(header)
@@ -539,24 +537,24 @@ fn header() -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// Reads the `sessions.csv` at `path` for a run to continue, finding its
-/// whole rows and any torn final row; an absent file holds no rows.
+/// Reads the `sessions.csv` at `path` for a run to continue, finding its whole
+/// rows and any torn final row; an absent file holds no rows.
 ///
-/// Each row is synced as it is written, so a crash of the host can tear
-/// only the row being written when it struck, which is the file's last.
-/// A row is *whole* when it parses and the bytes this build writes for it
-/// are exactly the bytes the file holds for it, its line terminator
-/// included. That is the only test both strict and complete: a prefix of a
-/// row can parse, as a row whose last field is cut short, and a field that
-/// holds a quoted line break can end a prefix at a line break, but neither
-/// reproduces its bytes. A resumed run comes from the same build as the
-/// run it continues, so a whole row always does.
+/// Each row is synced as it is written, so a crash of the host can tear only
+/// the row being written when it struck, which is the file's last. A row is
+/// *whole* when it parses and the bytes this build writes for it are exactly
+/// the bytes the file holds for it, its line terminator included. That is the
+/// only test both strict and complete: a prefix of a row can parse, as a row
+/// whose last field is cut short, and a field that holds a quoted line break
+/// can end a prefix at a line break, but neither reproduces its bytes. A
+/// resumed run comes from the same build as the run it continues, so a whole
+/// row always does.
 ///
 /// # Errors
 ///
 /// If the file cannot be read, does not begin with this build's header, or
-/// holds a row that is not whole anywhere but at its end: none of those is
-/// what a run cut short leaves.
+/// holds a row that is not whole anywhere but at its end: none of those is what
+/// a run cut short leaves.
 pub fn recover(path: &Path) -> Result<Recovered> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,

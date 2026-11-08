@@ -1,22 +1,21 @@
-//! How many sends on each kind of protocol edge park their sender, on one
-//! fixed session.
+//! How many sends on each kind of protocol edge park their sender, on one fixed
+//! session.
 //!
 //! Every edge between a session's stages is a bounded `futures-channel`
-//! channel, and that crate parks a sender on the send that *fills* its
-//! channel: it boxes a node holding the sender's task, takes the task's
-//! lock, and wakes the task when the receiver next takes an item. A send
-//! that leaves room behind it pays only for its item's node. So how often
-//! sends fill their edges sets much of what a handover between stages
-//! costs. This suite counts sends, sends that found their edge full, and
-//! sends that parked, per kind of edge, through the process's send hook
-//! ([`observe_edge_sends`]) on one deterministic session.
+//! channel, and that crate parks a sender on the send that *fills* its channel:
+//! it boxes a node holding the sender's task, takes the task's lock, and wakes
+//! the task when the receiver next takes an item. A send that leaves room
+//! behind it pays only for its item's node. So how often sends fill their edges
+//! sets much of what a handover between stages costs. This suite counts sends,
+//! sends that found their edge full, and sends that parked, per kind of edge,
+//! through the process's send hook ([`observe_edge_sends`]) on one
+//! deterministic session.
 //!
-//! The session runs each peer in its own task on a current-thread runtime,
-//! as an application runs each peer in its own task. Both tasks run on the
-//! thread that drives the runtime, so the hook adds each report to that
-//! thread's tally, which no session on another test thread can reach, and
-//! every receiver runs on the sending thread, where the hook's reading of a
-//! park is exact.
+//! The session runs each peer in its own task on a current-thread runtime, as
+//! an application runs each peer in its own task. Both tasks run on the thread
+//! that drives the runtime, so the hook adds each report to that thread's
+//! tally, which no session on another test thread can reach, and every receiver
+//! runs on the sending thread, where the hook's reading of a park is exact.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -40,13 +39,14 @@ struct Sends {
     parked: u64,
 }
 
-/// One session's tally beside the frames both sides' session statistics
-/// report sending.
+/// One session's tally beside the frames both sides' session statistics report
+/// sending.
 #[derive(Debug)]
 struct Session {
     /// What the hook reported, per kind of edge.
     tally: BTreeMap<QueueKind, Sends>,
-    /// The sum of both sides' [`frames_sent`](rumors::SessionStats::frames_sent).
+    /// The sum of both sides'
+    /// [`frames_sent`](rumors::SessionStats::frames_sent).
     frames_sent: u64,
 }
 
@@ -84,10 +84,10 @@ async fn gossip(peer: Rumors<String>, end: MemoryEnd) -> u64 {
 /// Reconcile the fixed pair once, each peer in its own task, and return what
 /// the session's sends did.
 ///
-/// The pair is two peers of one deterministic network that share 1,000
-/// messages and each hold 1,000 the other lacks, at the default memory
-/// budget: the pair the lane-poll suite counts. Building it runs the peers'
-/// own joining sessions, before the tally starts.
+/// The pair is two peers of one deterministic network that share 1,000 messages
+/// and each hold 1,000 the other lacks, at the default memory budget: the pair
+/// the lane-poll suite counts. Building it runs the peers' own joining
+/// sessions, before the tally starts.
 fn session() -> Session {
     assert!(
         observe_edge_sends(record),
@@ -110,16 +110,16 @@ fn session() -> Session {
     }
 }
 
-/// The hook sees every frame the session hands to a multiplexer, and on
-/// every kind of edge a send waits only after an earlier send parked.
+/// The hook sees every frame the session hands to a multiplexer, and on every
+/// kind of edge a send waits only after an earlier send parked.
 ///
-/// These follow from the mechanism, so they hold whatever the baseline is.
-/// Each frame a side writes passed through one encoder's lane to its
-/// multiplexer, so the lanes' sends equal the frames both sides' session
-/// statistics count, an account kept apart from the hook: the tally is
-/// counting. A send waits only while its sender is parked, which only the
-/// send that filled the edge did, and only the next send can wait on that
-/// park, so no kind of edge waits more often than it parks.
+/// These follow from the mechanism, so they hold whatever the baseline is. Each
+/// frame a side writes passed through one encoder's lane to its multiplexer, so
+/// the lanes' sends equal the frames both sides' session statistics count, an
+/// account kept apart from the hook: the tally is counting. A send waits only
+/// while its sender is parked, which only the send that filled the edge did,
+/// and only the next send can wait on that park, so no kind of edge waits more
+/// often than it parks.
 #[test]
 fn every_frame_is_one_lane_send() {
     let Session { tally, frames_sent } = session();
@@ -147,34 +147,33 @@ const fn sends(sent: u64, waited: u64, parked: u64) -> Sends {
 /// The fixed session's sends, waits, and parks per kind of edge equal the
 /// committed baseline.
 ///
-/// A send parks exactly when it fills its edge, so the parks show which end
-/// of an edge runs ahead. The edges whose progress needs only one slot have
-/// a second, so a send parks there only when it finds the item before it
-/// still queued:
+/// A send parks exactly when it fills its edge, so the parks show which end of
+/// an edge runs ahead. The edges whose progress needs only one slot have a
+/// second, so a send parks there only when it finds the item before it still
+/// queued:
 ///
-/// - The three edges that carry one item a session never park: their one
-///   send finds them empty.
+/// - The three edges that carry one item a session never park: their one send
+///   finds them empty.
 /// - The responder's root assembler takes each root return soon after it
-///   arrives, yet about half of those sends park: frames arrive a flush's
-///   worth at a time, and the decoder can hand over the next root return
-///   before the assembler has run.
+///   arrives, yet about half of those sends park: frames arrive a flush's worth
+///   at a time, and the decoder can hand over the next root return before the
+///   assembler has run.
 ///
 /// The lanes ([`LANE_CAPACITY`]) and the outgoing replies hold a fan: the
-/// frames closing one chunk's reactions, which an encoder hands over
-/// together, and the answers a walk stage hands on for one chunk it takes.
-/// Each of those producers takes its next input without waiting for its
-/// edge to drain, so such an edge fills only when its producer runs more
-/// than a fan of items ahead of its consumer. Few of the encoders' frames
-/// or the walks' chunks park, but about one frame in ten on the incoming
-/// lanes does: the demultiplexer reads the peer's frames as fast as the
-/// transport delivers them, and waits on a decoder only once that decoder's
-/// lane is full. Every other edge holds a fan or more, or is unbounded, and
-/// none fills.
+/// frames closing one chunk's reactions, which an encoder hands over together,
+/// and the answers a walk stage hands on for one chunk it takes. Each of those
+/// producers takes its next input without waiting for its edge to drain, so
+/// such an edge fills only when its producer runs more than a fan of items
+/// ahead of its consumer. Few of the encoders' frames or the walks' chunks
+/// park, but about one frame in ten on the incoming lanes does: the
+/// demultiplexer reads the peer's frames as fast as the transport delivers
+/// them, and waits on a decoder only once that decoder's lane is full. Every
+/// other edge holds a fan or more, or is unbounded, and none fills.
 ///
-/// The counts are deterministic: the fixture's network is seeded, the
-/// runtime polls its tasks in a fixed order, and nothing in a session reads
-/// a clock. They move when an edge's capacity, the session's scheduling, or
-/// the fixture changes, and a commit that moves them says why.
+/// The counts are deterministic: the fixture's network is seeded, the runtime
+/// polls its tasks in a fixed order, and nothing in a session reads a clock.
+/// They move when an edge's capacity, the session's scheduling, or the fixture
+/// changes, and a commit that moves them says why.
 #[test]
 fn sends_parked_per_edge_match_the_baseline() {
     let Session { tally, .. } = session();

@@ -38,8 +38,8 @@ fn heap_sample(denom: usize, heap: u64) -> Sample {
     }
 }
 
-/// A one-cell ladder of [`CELL`], measured on `arch`, whose samples read
-/// `heap` at [`DENOMS`].
+/// A one-cell ladder of [`CELL`], measured on `arch`, whose samples read `heap`
+/// at [`DENOMS`].
 fn ladder(arch: &str, heap: [u64; 8]) -> Ladder {
     let sweep = |first: usize| {
         let (op, family) = CELL;
@@ -63,15 +63,15 @@ fn ladder(arch: &str, heap: [u64; 8]) -> Ladder {
     }
 }
 
-/// The heap reading over `units` units that sits `per_unit` per unit above
-/// the intercept.
+/// The heap reading over `units` units that sits `per_unit` per unit above the
+/// intercept.
 fn reading(units: usize, per_unit: f64) -> u64 {
     (HEAP_INTERCEPT_BYTES as f64 + per_unit * units as f64).round() as u64
 }
 
-/// Heap units per input byte under [`modeled`]'s model, unequal to one so
-/// that the model's units differ from both of a sample's default
-/// denominators, which are its input bytes here.
+/// Heap units per input byte under [`modeled`]'s model, unequal to one so that
+/// the model's units differ from both of a sample's default denominators, which
+/// are its input bytes here.
 const MODEL_UNITS_PER_BYTE: usize = 3;
 
 /// `ladder` with every sample's heap measured against a model of
@@ -115,13 +115,13 @@ fn derived(ladder: &Ladder, captures: &[(&str, String)]) -> f64 {
     entries[0].2 as f64 / CEILING_RESOLUTION as f64
 }
 
-/// Every per-cell table is strictly sorted by operation and then family, and
-/// no two tables share a currency.
+/// Every per-cell table is strictly sorted by operation and then family, and no
+/// two tables share a currency.
 ///
-/// A ceiling lookup binary-searches its table, which finds every entry only
-/// in a strictly sorted table; a duplicate cell would also be a second,
-/// conflicting ceiling. [`super::cell_ceilings`] returns the first table for
-/// a currency, so a second one would be silently ignored.
+/// A ceiling lookup binary-searches its table, which finds every entry only in
+/// a strictly sorted table; a duplicate cell would also be a second,
+/// conflicting ceiling. [`super::cell_ceilings`] returns the first table for a
+/// currency, so a second one would be silently ignored.
 #[test]
 fn tables_are_sorted_and_distinct() {
     let mut currencies = BTreeSet::new();
@@ -145,8 +145,8 @@ fn tables_are_sorted_and_distinct() {
 /// Every table names exactly its currency's required architectures.
 ///
 /// A table calibrated from fewer architectures stops holding for the omitted
-/// one, whose runs then face the board-wide ceiling alone (or, for fuel,
-/// which has none, are refused).
+/// one, whose runs then face the board-wide ceiling alone (or, for fuel, which
+/// has none, are refused).
 #[test]
 fn every_table_names_its_required_architectures() {
     for table in TABLES {
@@ -156,9 +156,8 @@ fn every_table_names_its_required_architectures() {
     }
 }
 
-/// A derived ceiling is the cell's worst reading per unit after the
-/// intercept, times the headroom, rounded up to a thousandth, and clamped at
-/// zero.
+/// A derived ceiling is the cell's worst reading per unit after the intercept,
+/// times the headroom, rounded up to a thousandth, and clamped at zero.
 ///
 /// The ceiling must admit the worst sample with at least the stated headroom,
 /// and with no more than one thousandth beyond it; a cell whose every reading
@@ -190,12 +189,12 @@ fn ceilings_add_headroom_to_the_worst_sample_and_round_up() {
     );
 }
 
-/// Merging another architecture's capture derives the ceiling from the
-/// larger of the two readings at every sample.
+/// Merging another architecture's capture derives the ceiling from the larger
+/// of the two readings at every sample.
 ///
-/// The table must hold on every required architecture, so a sample that
-/// reads more on the other architecture sets the ceiling, and one that reads
-/// less there changes nothing.
+/// The table must hold on every required architecture, so a sample that reads
+/// more on the other architecture sets the ceiling, and one that reads less
+/// there changes nothing.
 #[test]
 fn merged_ceilings_take_the_larger_reading_per_sample() {
     let low = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
@@ -259,13 +258,13 @@ fn recalibration_refuses_unmergeable_captures() {
     assert_eq!(refused.kind(), std::io::ErrorKind::InvalidData);
 }
 
-/// Recalibration refuses to write a heap table from any set of
-/// architectures but the heap's required architectures.
+/// Recalibration refuses to write a heap table from any set of architectures
+/// but the heap's required architectures.
 ///
 /// A table calibrated from fewer architectures stops holding for the omitted
-/// one, whose runs then face the board-wide ceiling alone. One calibrated
-/// from more claims an architecture that the next calibration, taken from
-/// the required architectures, drops without notice.
+/// one, whose runs then face the board-wide ceiling alone. One calibrated from
+/// more claims an architecture that the next calibration, taken from the
+/// required architectures, drops without notice.
 #[test]
 fn recalibration_refuses_architectures_not_required() {
     let flat = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
@@ -292,8 +291,8 @@ fn same_table(a: &Recalibration, b: &Recalibration) -> bool {
 /// from.
 ///
 /// It refuses no capture at all, a first capture holding no reading in the
-/// currency, a capture of another tree, and a set of captures other than
-/// the currency's required architectures.
+/// currency, a capture of another tree, and a set of captures other than the
+/// currency's required architectures.
 #[test]
 fn calibration_from_captures_refuses_what_it_cannot_derive_from() {
     let flat = std::array::from_fn(|i| reading(DENOMS[i], 1.0));
@@ -407,8 +406,8 @@ static OWN_CEILING: CellCeilings = CellCeilings {
 };
 
 /// The red labels the acceptance judgment gives [`CELL`] when every sample
-/// reads `per_unit` heap bytes per input byte above the intercept, judged
-/// under `table`.
+/// reads `per_unit` heap bytes per input byte above the intercept, judged under
+/// `table`.
 fn labels(per_unit: f64, table: Option<&'static CellCeilings>) -> Vec<&'static str> {
     let heap: [u64; 8] = std::array::from_fn(|i| reading(DENOMS[i], per_unit));
     let ladder = ladder("aarch64", heap);
@@ -453,9 +452,9 @@ fn judge_applies_the_tighter_ceiling_and_names_it() {
     );
 }
 
-/// A table that holds no ceiling for a cell, because the cell is new since
-/// the calibration, judges it red as uncalibrated rather than refusing to
-/// judge, and its outer bound still binds.
+/// A table that holds no ceiling for a cell, because the cell is new since the
+/// calibration, judges it red as uncalibrated rather than refusing to judge,
+/// and its outer bound still binds.
 ///
 /// A refusal would end the run before it writes its capture, and a
 /// recalibration needs that capture from the other required architecture.
@@ -474,12 +473,11 @@ fn a_cell_its_table_omits_is_red_as_uncalibrated() {
     );
 }
 
-/// The rendered ceiling of a currency with a per-cell table names that table
-/// on every architecture; a currency with no table anywhere names none.
+/// The rendered ceiling of a currency with a per-cell table names that table on
+/// every architecture; a currency with no table anywhere names none.
 ///
-/// On a required architecture the text names the table's architectures;
-/// on any other, where the outer bound judges alone, it names the table's
-/// absence.
+/// On a required architecture the text names the table's architectures; on any
+/// other, where the outer bound judges alone, it names the table's absence.
 ///
 /// A reader of a run judged without its table would otherwise take the
 /// board-wide ceiling for the whole judgment, or the table for one that

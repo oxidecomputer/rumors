@@ -1,8 +1,8 @@
 use super::*;
 use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 
-/// A session's default run budget is the default message-size target,
-/// which lies within the wire's cap and so is not saturated.
+/// A session's default run budget is the default message-size target, which
+/// lies within the wire's cap and so is not saturated.
 #[test]
 fn the_default_budget_is_the_default_target() {
     assert_eq!(RunBudget::default().bytes(), default::TARGET_MESSAGE_SIZE);
@@ -10,10 +10,10 @@ fn the_default_budget_is_the_default_target() {
 
 /// The full-fan frame constant prices exactly what the encoder writes.
 ///
-/// One query frame carrying every radix, each at the widest grandchild
-/// count, constructed and encoded, is byte-for-byte the closed form's
-/// value, so the bounds derived from it, such as the write buffer's size
-/// and the largest comparing reply, cannot drift from the wire.
+/// One query frame carrying every radix, each at the widest grandchild count,
+/// constructed and encoded, is byte-for-byte the closed form's value, so the
+/// bounds derived from it, such as the write buffer's size and the largest
+/// comparing reply, cannot drift from the wire.
 #[test]
 fn full_fan_frame_len_matches_an_actual_encode() {
     use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
@@ -41,8 +41,8 @@ fn full_fan_frame_len_matches_an_actual_encode() {
 /// The budget's admission boundary charges the whole wire frame.
 ///
 /// A record is admitted exactly while the frame — the signal-and-length
-/// envelope plus run body plus the candidate record — stays within the
-/// budget, so the flush accounting prices frames, not only run bodies.
+/// envelope plus run body plus the candidate record — stays within the budget,
+/// so the flush accounting prices frames, not only run bodies.
 #[test]
 fn admission_charges_the_frame_envelope() {
     let (body, record) = (10, 3);
@@ -57,23 +57,22 @@ fn admission_charges_the_frame_envelope() {
     assert!(!body_only.admits(body, record));
 }
 
-/// The default budget stays within the wire's run byte cap, so a
-/// default-sized run is always representable on the wire.
+/// The default budget stays within the wire's run byte cap, so a default-sized
+/// run is always representable on the wire.
 #[test]
 fn default_budget_fits_the_framing_header() {
     assert!(u32::try_from(default::TARGET_MESSAGE_SIZE).is_ok());
 }
 
-/// Budgets above the wire's run byte cap saturate to it, so a run the
-/// budget admits always stays within the cap instead of buffering past
-/// 4 GiB and deterministically failing at the run head.
+/// Budgets above the wire's run byte cap saturate to it, so a run the budget
+/// admits always stays within the cap instead of buffering past 4 GiB and
+/// deterministically failing at the run head.
 ///
 /// The boundary is checked at the admitted maximum: the largest
-/// body-plus-record the saturated budget accepts still leaves the
-/// flushed frame's body within the cap, envelope included. The
-/// negative control shows the ceiling binds: one byte past the admitted
-/// maximum is refused, so the saturated budget is a real bound, not a
-/// pass-through.
+/// body-plus-record the saturated budget accepts still leaves the flushed
+/// frame's body within the cap, envelope included. The negative control shows
+/// the ceiling binds: one byte past the admitted maximum is refused, so the
+/// saturated budget is a real bound, not a pass-through.
 #[test]
 fn over_ceiling_budgets_saturate_to_the_framing_ceiling() {
     let budget = RunBudget::from_bytes(usize::MAX);

@@ -1,8 +1,8 @@
 //! Compare the written-position set with an ordered-set oracle.
 //!
 //! The set's subtle work lies where its top run meets the positions below it
-//! (extending the run, moving it down on a jump, shortening or dropping it on
-//! a truncation, parking it above what remains, sharing position zero with a
+//! (extending the run, moving it down on a jump, shortening or dropping it on a
+//! truncation, parking it above what remains, sharing position zero with a
 //! bitset after a clear), and where the inline prefix gives way to a bitset.
 //! Positions are drawn near the bitset's word and level boundaries, in spans
 //! that extend the top run and fill whole words, and far enough apart to need
@@ -32,8 +32,8 @@ const MAX_SPAN: usize = 160;
 enum Op {
     /// Insert one position.
     Insert(usize),
-    /// Insert every position from the first through `len - 1` above it, as
-    /// one carry chain does.
+    /// Insert every position from the first through `len - 1` above it, as one
+    /// carry chain does.
     InsertSpan(usize, usize),
     /// Remove every position above this one.
     Truncate(usize),
@@ -45,8 +45,8 @@ enum Op {
     /// Clear, which must pass exactly the oracle's positions other than zero
     /// and leave position zero.
     ///
-    /// Nothing happens unless the history was seeded with position zero,
-    /// which `clear` requires.
+    /// Nothing happens unless the history was seeded with position zero, which
+    /// `clear` requires.
     Clear,
 }
 
@@ -136,8 +136,8 @@ fn apply(
     }
 }
 
-/// Every position whose membership or predecessor could disagree: each named
-/// or held position and its neighbors, each boundary and its neighbors, and
+/// Every position whose membership or predecessor could disagree: each named or
+/// held position and its neighbors, each boundary and its neighbors, and
 /// positions above everything held, up to `usize::MAX`.
 fn probes(oracle: &BTreeSet<usize>, touched: &BTreeSet<usize>) -> BTreeSet<usize> {
     let above = oracle.last().map_or(0, |&last| last + 1);
@@ -271,14 +271,13 @@ const AFTER_ONE_GAP: [AfterOneGap; 6] = [
     },
 ];
 
-/// A set written once at a shift holds its positions below the run as a
-/// prefix, and moves them into a bitset exactly when an operation opens a
-/// second gap.
+/// A set written once at a shift holds its positions below the run as a prefix,
+/// and moves them into a bitset exactly when an operation opens a second gap.
 ///
 /// Every prefix length from one to three and every jump of three to five
-/// positions above it, so that the gap has room for a position apart from
-/// both sides, is followed by each operation of [`AFTER_ONE_GAP`]: extending
-/// the run, continuing the prefix, or shortening the gap from above keeps the
+/// positions above it, so that the gap has room for a position apart from both
+/// sides, is followed by each operation of [`AFTER_ONE_GAP`]: extending the
+/// run, continuing the prefix, or shortening the gap from above keeps the
 /// prefix, while splitting the gap or jumping again converts it to a bitset.
 /// The positions match the oracle throughout.
 #[test]
@@ -312,8 +311,8 @@ fn a_second_gap_and_only_a_second_gap_converts_the_prefix() {
     }
 }
 
-/// Converting a prefix of any length moves every one of its positions into
-/// the bitset.
+/// Converting a prefix of any length moves every one of its positions into the
+/// bitset.
 ///
 /// Every prefix length `n` in {1, 63, 64, 65, 130}, below a run far above it,
 /// is followed by a write at each `p` from `n` through `n + 70`: `p = n`
@@ -348,9 +347,9 @@ fn converting_a_prefix_keeps_every_position() {
 /// A position high enough to give a bitset four levels.
 const TALL: usize = 64 * 64 * 64;
 
-/// The sets a clear meets, one for each form of the positions below the
-/// run: each named, with the operations that build it, which insert
-/// position zero first, as `clear` requires.
+/// The sets a clear meets, one for each form of the positions below the run:
+/// each named, with the operations that build it, which insert position zero
+/// first, as `clear` requires.
 const BEFORE_CLEAR: [(&str, &[Op]); 2] = [
     // One gap, between the prefix 0..3 and the run at 10.
     ("prefix", &[Op::InsertSpan(0, 3), Op::Insert(10)]),
@@ -361,8 +360,8 @@ const BEFORE_CLEAR: [(&str, &[Op]); 2] = [
     ),
 ];
 
-/// Operations that meet the position zero a clear leaves: writes at and
-/// from zero, writes just above it, jumps that move the run holding zero,
+/// Operations that meet the position zero a clear leaves: writes at and from
+/// zero, writes just above it, jumps that move the run holding zero,
 /// truncations, and another clear.
 const AFTER_CLEAR: [Op; 11] = [
     Op::Insert(0),
@@ -378,17 +377,16 @@ const AFTER_CLEAR: [Op; 11] = [
     Op::Clear,
 ];
 
-/// A clear leaves position zero alone in either form, keeps the form, and
-/// every pair of later operations leaves the set agreeing with the oracle.
+/// A clear leaves position zero alone in either form, keeps the form, and every
+/// pair of later operations leaves the set agreeing with the oracle.
 ///
-/// Each set of [`BEFORE_CLEAR`] is cleared, passing each of its positions
-/// but zero. The set must then hold exactly position zero, in the form it
-/// had, and after each ordered pair of operations from [`AFTER_CLEAR`], the
-/// positions, `contains`, and `last_below` must agree with the oracle at
-/// every probe.
-/// In the bitset form this covers the run and the bitset both holding zero:
-/// a write at zero or one extends the run, a jump moves the run into the
-/// bitset, and a truncation keeps zero.
+/// Each set of [`BEFORE_CLEAR`] is cleared, passing each of its positions but
+/// zero. The set must then hold exactly position zero, in the form it had, and
+/// after each ordered pair of operations from [`AFTER_CLEAR`], the positions,
+/// `contains`, and `last_below` must agree with the oracle at every probe. In
+/// the bitset form this covers the run and the bitset both holding zero: a
+/// write at zero or one extends the run, a jump moves the run into the bitset,
+/// and a truncation keeps zero.
 #[test]
 fn a_clear_leaves_zero_and_later_operations_match_an_ordered_set() {
     for (form, setup) in BEFORE_CLEAR {

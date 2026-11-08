@@ -2,17 +2,17 @@
 //! fixed session.
 //!
 //! Each side of a session sends its frames through one *multiplexer*, which
-//! takes frames from one channel per logical stream (a *lane*) and writes
-//! them to the connection. A poll of the multiplexer stages frames from the
-//! lanes' channels, then returns at most one frame to write, so the lane
-//! channels each poll polls set much of what a frame costs to send. This
-//! suite counts those polls through the process's multiplexer hook
-//! ([`observe_multiplexers`]) on one deterministic session.
+//! takes frames from one channel per logical stream (a *lane*) and writes them
+//! to the connection. A poll of the multiplexer stages frames from the lanes'
+//! channels, then returns at most one frame to write, so the lane channels each
+//! poll polls set much of what a frame costs to send. This suite counts those
+//! polls through the process's multiplexer hook ([`observe_multiplexers`]) on
+//! one deterministic session.
 //!
-//! The session runs each peer in its own task on a current-thread runtime,
-//! as an application runs each peer in its own task. Both tasks run on the
-//! thread that drives the runtime, so the hook adds each report to that
-//! thread's tally, which no session on another test thread can reach.
+//! The session runs each peer in its own task on a current-thread runtime, as
+//! an application runs each peer in its own task. Both tasks run on the thread
+//! that drives the runtime, so the hook adds each report to that thread's
+//! tally, which no session on another test thread can reach.
 
 use std::cell::Cell;
 
@@ -34,18 +34,19 @@ struct Tally {
     /// Lane channels the polls polled.
     polled: u64,
     /// Lanes that were open with nothing staged when a poll reached them,
-    /// summed over the polls: the lane channels that polling every lane
-    /// would poll.
+    /// summed over the polls: the lane channels that polling every lane would
+    /// poll.
     unstaged: u64,
 }
 
-/// One session's tally beside the frames both sides' session statistics
-/// report sending.
+/// One session's tally beside the frames both sides' session statistics report
+/// sending.
 #[derive(Debug)]
 struct Session {
     /// What the multiplexers reported through the hook.
     tally: Tally,
-    /// The sum of both sides' [`frames_sent`](rumors::SessionStats::frames_sent).
+    /// The sum of both sides'
+    /// [`frames_sent`](rumors::SessionStats::frames_sent).
     frames_sent: u64,
 }
 
@@ -91,10 +92,9 @@ async fn gossip(peer: Rumors<String>, end: MemoryEnd) -> u64 {
 /// Reconcile the fixed pair once, each peer in its own task, and return what
 /// the session's multiplexers did.
 ///
-/// The pair is two peers of one deterministic network that share 1,000
-/// messages and each hold 1,000 the other lacks, at the default memory
-/// budget. Building it runs the peers' own joining sessions, before the
-/// tally starts.
+/// The pair is two peers of one deterministic network that share 1,000 messages
+/// and each hold 1,000 the other lacks, at the default memory budget. Building
+/// it runs the peers' own joining sessions, before the tally starts.
 fn session() -> Session {
     assert!(
         observe_multiplexers(record),
@@ -117,19 +117,18 @@ fn session() -> Session {
     }
 }
 
-/// The hook sees every frame the session sends, and the multiplexers poll
-/// at least one lane channel per frame and only lanes that are open with
-/// nothing staged.
+/// The hook sees every frame the session sends, and the multiplexers poll at
+/// least one lane channel per frame and only lanes that are open with nothing
+/// staged.
 ///
-/// These bounds follow from the mechanism, so they hold whatever the
-/// baseline is. The multiplexer takes each frame it writes from a lane's
-/// channel, through a poll of that channel that yields the frame, and a
-/// poll yields at most one frame, so the lane polls are at least the
-/// frames. A lane with a staged frame waits for that frame's turn, and a
-/// closed lane has no channel left, so no poll polls either. The hook's
-/// frames equal the frames both sides' session statistics count, an
-/// account kept apart from the hook, so the hook reports every poll that
-/// returns a frame, and the tally is counting.
+/// These bounds follow from the mechanism, so they hold whatever the baseline
+/// is. The multiplexer takes each frame it writes from a lane's channel,
+/// through a poll of that channel that yields the frame, and a poll yields at
+/// most one frame, so the lane polls are at least the frames. A lane with a
+/// staged frame waits for that frame's turn, and a closed lane has no channel
+/// left, so no poll polls either. The hook's frames equal the frames both
+/// sides' session statistics count, an account kept apart from the hook, so the
+/// hook reports every poll that returns a frame, and the tally is counting.
 #[test]
 fn every_frame_costs_at_least_one_lane_poll() {
     let Session { tally, frames_sent } = session();
@@ -143,37 +142,35 @@ fn every_frame_costs_at_least_one_lane_poll() {
 /// baseline.
 ///
 /// A poll polls a lane's channel only when that channel has woken the
-/// multiplexer since its last poll, or has just yielded a frame and may
-/// hold another. So a frame costs one or two lane polls: the one that
-/// stages it, and, once it is written, one that finds the channel empty
-/// and registers the lane's waker, unless the channel holds the lane's
-/// next frame already, which that poll then stages. Each lane adds two
-/// more: its first poll, which registers its waker, and the poll that finds
-/// its channel closed.
+/// multiplexer since its last poll, or has just yielded a frame and may hold
+/// another. So a frame costs one or two lane polls: the one that stages it,
+/// and, once it is written, one that finds the channel empty and registers the
+/// lane's waker, unless the channel holds the lane's next frame already, which
+/// that poll then stages. Each lane adds two more: its first poll, which
+/// registers its waker, and the poll that finds its channel closed.
 ///
-/// The unstaged lanes count what polling every open lane with nothing
-/// staged would cost instead. Each side has one lane per level it answers
-/// at, and nearly every lane is open with nothing staged at nearly every
-/// poll, because the multiplexer stages at most one frame per lane and
-/// writes each frame soon after staging it. The multiplexer is polled little
-/// more than once per frame. Having written a frame, it polls once for the
-/// next, which is ready when some lane's channel already holds one, as it
-/// usually does: a lane holds up to [`LANE_CAPACITY`] frames, a fan, so an
-/// encoder hands over every frame closing a chunk's reactions without
-/// waiting for the multiplexer to take them. Otherwise the encoder that
-/// handed over the last one must run again before it can hand over
-/// another. Finding none with a frame unflushed, it yields to the session's
-/// other work and polls again, a few passes in a row, each poll finding
-/// whatever the members it woke have handed over since. Only when every
-/// such poll also finds none does it flush and poll once more before it
-/// waits, to be polled again by the wake that brings the next frame. The
-/// session polls it as one member of a task set that polls each member
-/// only for its own wakes and its own yields, so nothing else polls it.
+/// The unstaged lanes count what polling every open lane with nothing staged
+/// would cost instead. Each side has one lane per level it answers at, and
+/// nearly every lane is open with nothing staged at nearly every poll, because
+/// the multiplexer stages at most one frame per lane and writes each frame soon
+/// after staging it. The multiplexer is polled little more than once per frame.
+/// Having written a frame, it polls once for the next, which is ready when some
+/// lane's channel already holds one, as it usually does: a lane holds up to
+/// [`LANE_CAPACITY`] frames, a fan, so an encoder hands over every frame
+/// closing a chunk's reactions without waiting for the multiplexer to take
+/// them. Otherwise the encoder that handed over the last one must run again
+/// before it can hand over another. Finding none with a frame unflushed, it
+/// yields to the session's other work and polls again, a few passes in a row,
+/// each poll finding whatever the members it woke have handed over since. Only
+/// when every such poll also finds none does it flush and poll once more before
+/// it waits, to be polled again by the wake that brings the next frame. The
+/// session polls it as one member of a task set that polls each member only for
+/// its own wakes and its own yields, so nothing else polls it.
 ///
-/// The counts are deterministic: the fixture's network is seeded, the
-/// runtime polls its tasks in a fixed order, and nothing in a session reads
-/// a clock. They move when the multiplexer, the session's scheduling, or
-/// the fixture changes, and a commit that moves them says why.
+/// The counts are deterministic: the fixture's network is seeded, the runtime
+/// polls its tasks in a fixed order, and nothing in a session reads a clock.
+/// They move when the multiplexer, the session's scheduling, or the fixture
+/// changes, and a commit that moves them says why.
 #[test]
 fn lane_polls_per_frame_match_the_baseline() {
     let Session { tally, .. } = session();

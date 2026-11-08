@@ -1,5 +1,5 @@
-//! Sweeps the board's measurement ladder once and judges the acceptance
-//! verdict over that one sweep.
+//! Sweeps the board's measurement ladder once and judges the acceptance verdict
+//! over that one sweep.
 //!
 //! The board's module docs say why one sweep serves every consumer. Each
 //! consumer reads only the merged cells [`merge_samples`] returned, so judging
@@ -34,12 +34,12 @@ pub(super) const LADDER_SAMPLINGS: [Sampling; 4] = [
 
 /// The whole board measured at every sampling of the ladder.
 ///
-/// Every sweep holds the same cells in board row order (operation outer,
-/// family inner); [`Ladder::sweep`] establishes that, and every consumer
-/// relies on it to pair a cell's samples across scales by position.
+/// Every sweep holds the same cells in board row order (operation outer, family
+/// inner); [`Ladder::sweep`] establishes that, and every consumer relies on it
+/// to pair a cell's samples across scales by position.
 pub struct Ladder {
-    /// The build stamp every shard child reported: the target it was
-    /// compiled for and whether debug assertions were compiled in.
+    /// The build stamp every shard child reported: the target it was compiled
+    /// for and whether debug assertions were compiled in.
     pub(super) measured_on: BuildStamp,
     /// The small-input sweep, at [`SMALL_INPUT_SCALE`].
     pub(super) small: Vec<Measured>,
@@ -71,8 +71,8 @@ impl Verdict {
 }
 
 impl Ladder {
-    /// Sweeps the whole board at each of the ladder's samplings across
-    /// `shards` child processes.
+    /// Sweeps the whole board at each of the ladder's samplings across `shards`
+    /// child processes.
     ///
     /// `spawn` is invoked once per sampling: the small inputs, the knobs just
     /// past a power of two, then the growth ladder's base and top.
@@ -84,8 +84,8 @@ impl Ladder {
     /// # Panics
     ///
     /// Panics on any protocol violation in a child capture (the `shard`
-    /// module's refusal list), and if the sweeps measured different cell
-    /// grids or came from differently built children.
+    /// module's refusal list), and if the sweeps measured different cell grids
+    /// or came from differently built children.
     pub fn sweep(shards: usize, spawn: ShardSpawner<'_>) -> io::Result<Ladder> {
         let sweep = |sampling| -> io::Result<(BuildStamp, Vec<Measured>)> {
             Ok(merge_samples(sampling, shards, &spawn(sampling)?))
@@ -102,10 +102,10 @@ impl Ladder {
     /// Sweeps the whole board at every sampling of the ladder at once, across
     /// `shards` shards at each.
     ///
-    /// `spawn` is invoked once, with the ladder's samplings in sweep order;
-    /// it may measure their shards in any order, and must return each
-    /// sampling's captures in shard order. The ladder is the one
-    /// [`Ladder::sweep`] would build from the same captures.
+    /// `spawn` is invoked once, with the ladder's samplings in sweep order; it
+    /// may measure their shards in any order, and must return each sampling's
+    /// captures in shard order. The ladder is the one [`Ladder::sweep`] would
+    /// build from the same captures.
     ///
     /// # Errors
     ///
@@ -188,8 +188,8 @@ impl Ladder {
     /// rendered row would disclose an override that does not exist. The check
     /// spans the operation's whole ladder rather than one sample, because a
     /// model whose units are a function of the operands, such as `d²` for a
-    /// count of `d` digits, coincides with the defaults on a family whose
-    /// count stays one digit long.
+    /// count of `d` digits, coincides with the defaults on a family whose count
+    /// stays one digit long.
     ///
     /// # Panics
     ///
@@ -257,19 +257,19 @@ impl Ladder {
     /// Judges the ladder and renders the acceptance verdict to `out`: the
     /// acceptance matrices, then the worst-case ranking pin's check.
     ///
-    /// Both judgments always run, so a red cell never hides ranking drift
-    /// from the same change.
+    /// Both judgments always run, so a red cell never hides ranking drift from
+    /// the same change.
     ///
     /// # The acceptance judgment
     ///
     /// One matrix renders per sweep: the ladder's base, its top, the small
-    /// inputs, and the knobs just past a power of two. Each currency's
-    /// exponent is fitted once, as one trend over the four growth points;
-    /// every constant, declared-model band, and liveness floor is judged at
-    /// every size, exactly as a single-scale run judges it. The small-input
-    /// and past-power pairs are checked against ceilings and liveness floors
-    /// alone. Each matrix prints its own summary line; the returned summary
-    /// counts distinct cells, so a cell red at several sizes counts once.
+    /// inputs, and the knobs just past a power of two. Each currency's exponent
+    /// is fitted once, as one trend over the four growth points; every
+    /// constant, declared-model band, and liveness floor is judged at every
+    /// size, exactly as a single-scale run judges it. The small-input and
+    /// past-power pairs are checked against ceilings and liveness floors alone.
+    /// Each matrix prints its own summary line; the returned summary counts
+    /// distinct cells, so a cell red at several sizes counts once.
     ///
     /// # The ranking pin
     ///
@@ -280,9 +280,9 @@ impl Ladder {
     ///
     /// # Errors
     ///
-    /// Returns [`io::ErrorKind::InvalidInput`], judging nothing, if the run
-    /// did not measure every currency in `required` (a meter the runner did
-    /// not supply), and any error writing to `out`.
+    /// Returns [`io::ErrorKind::InvalidInput`], judging nothing, if the run did
+    /// not measure every currency in `required` (a meter the runner did not
+    /// supply), and any error writing to `out`.
     ///
     /// # Panics
     ///
@@ -314,8 +314,8 @@ impl Ladder {
         Ok(Verdict { summary, pin_clean })
     }
 
-    /// Renders the acceptance judgment's matrices, one per sweep, and returns its
-    /// summary, as [`Ladder::judge`] states it.
+    /// Renders the acceptance judgment's matrices, one per sweep, and returns
+    /// its summary, as [`Ladder::judge`] states it.
     ///
     /// Each growth window is judged with one exponent fitted across the whole
     /// ladder, and the small inputs and past-power knobs against ceilings and
@@ -327,15 +327,15 @@ impl Ladder {
     ///
     /// # Errors
     ///
-    /// Returns [`io::ErrorKind::InvalidInput`], judging nothing, if the run
-    /// did not measure every currency in `required`, and any error writing to
+    /// Returns [`io::ErrorKind::InvalidInput`], judging nothing, if the run did
+    /// not measure every currency in `required`, and any error writing to
     /// `out`.
     ///
     /// # Panics
     ///
     /// Panics if a cell has no ceiling at all for a measured currency (fuel,
-    /// with no table for the measured architecture). A cell that a table
-    /// omits is judged red instead (the `cell_ceilings` module doc).
+    /// with no table for the measured architecture). A cell that a table omits
+    /// is judged red instead (the `cell_ceilings` module doc).
     pub fn accept(&self, required: &[Currency], out: &mut dyn Write) -> io::Result<Summary> {
         for &currency in required {
             if !measured(self, currency) {

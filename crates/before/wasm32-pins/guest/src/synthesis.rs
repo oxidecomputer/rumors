@@ -12,7 +12,8 @@ use wasm32_pins_protocol::Failure;
 struct Stream(Vec<u8>);
 
 impl Stream {
-    /// Allocates exactly `bytes` zeroed bytes or reports that wasm cannot hold it.
+    /// Allocates exactly `bytes` zeroed bytes or reports that wasm cannot hold
+    /// it.
     fn zeroed(bytes: u64) -> Result<Self, Failure> {
         let len = usize::try_from(bytes).map_err(|_| Failure::Synthesis)?;
         let mut storage = Vec::new();
@@ -88,10 +89,10 @@ pub fn version(bytes: u64) -> Result<Vec<u8>, Failure> {
 /// Encodes one leaf of height `2^k` in `ceil((2k + 3) / 8)` bytes, then one
 /// `0xFF` byte standing for the next field of a larger stream.
 ///
-/// The leaf flag at bit 0 precedes the gamma code of `2^k + 1`: `k` zeros,
-/// then the `k + 1`-bit mantissa `1 0^(k-1) 1`, setting bits `k + 1` and
-/// `2k + 1`. The live bits therefore number `2k + 2`, and the padding marker
-/// lands at bit `2k + 2`.
+/// The leaf flag at bit 0 precedes the gamma code of `2^k + 1`: `k` zeros, then
+/// the `k + 1`-bit mantissa `1 0^(k-1) 1`, setting bits `k + 1` and `2k + 1`.
+/// The live bits therefore number `2k + 2`, and the padding marker lands at bit
+/// `2k + 2`.
 pub fn wide_leaf_then_field(k: u64) -> Result<Vec<u8>, Failure> {
     if k == 0 {
         return Err(Failure::InvalidArguments);
@@ -114,8 +115,8 @@ pub fn wide_leaf_then_field(k: u64) -> Result<Vec<u8>, Failure> {
 /// Encodes `(2^(exp-65) + 1) / 2^exp` in canonical `Rank` form.
 ///
 /// Fraction groups each contribute one continuation bit and eight expansion
-/// bits. Reaching exponent `exp` therefore requires `9exp/64` input bytes;
-/// the pointer-width boundary cannot be faked by a short declared length.
+/// bits. Reaching exponent `exp` therefore requires `9exp/64` input bytes; the
+/// pointer-width boundary cannot be faked by a short declared length.
 pub fn rank(exp: u64) -> Result<Vec<u8>, Failure> {
     if exp < 128 || !exp.is_multiple_of(8) {
         return Err(Failure::InvalidArguments);
@@ -215,10 +216,10 @@ pub fn two_leaf_left(k: u64) -> Result<Vec<u8>, Failure> {
 
 /// Encodes `node(leaf(0), leaf(2^k - 1 + 2^(j-1)))` in `2j + 5` live bits.
 ///
-/// Its right height is chosen to complement [`two_leaf_left`]. Joining the
-/// pair keeps both leaves and emits a right delta whose width is controlled by
-/// `j`; the output size can therefore cross a boundary independently of either
-/// input size.
+/// Its right height is chosen to complement [`two_leaf_left`]. Joining the pair
+/// keeps both leaves and emits a right delta whose width is controlled by `j`;
+/// the output size can therefore cross a boundary independently of either input
+/// size.
 pub fn two_leaf_right(k: u64, j: u64) -> Result<Vec<u8>, Failure> {
     if j < k + 2 {
         return Err(Failure::InvalidArguments);
@@ -241,8 +242,8 @@ pub fn two_leaf_right(k: u64, j: u64) -> Result<Vec<u8>, Failure> {
 ///
 /// The left leaf retains height `2^k - 1`. The right leaf retains height
 /// `2^k - 1 + 2^(j-1)`, so its change from the left is `2^(j-1)`. The positive
-/// change code consists of `j` zeros, that magnitude's `j` bits, and a set
-/// sign bit. Together with the topology and left payload, the stream has
+/// change code consists of `j` zeros, that magnitude's `j` bits, and a set sign
+/// bit. Together with the topology and left payload, the stream has
 /// `2k + 2j + 5` live bits.
 pub fn joined(k: u64, j: u64) -> Result<Vec<u8>, Failure> {
     if k < 2 || j < k + 2 {

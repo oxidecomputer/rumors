@@ -43,9 +43,9 @@ fn distinct_bytes(max: usize) -> impl Strategy<Value = Vec<Bytes>> {
         .prop_map(|s| s.into_iter().map(Bytes::from).collect())
 }
 
-/// Generate a vector of distinct `Bytes` along with a permutation of itself,
-/// so tests can assert that the tree is invariant under the order in which
-/// actions are supplied.
+/// Generate a vector of distinct `Bytes` along with a permutation of itself, so
+/// tests can assert that the tree is invariant under the order in which actions
+/// are supplied.
 fn distinct_bytes_and_permutation(max: usize) -> impl Strategy<Value = (Vec<Bytes>, Vec<Bytes>)> {
     distinct_bytes(max)
         .prop_flat_map(|base| {
@@ -76,8 +76,8 @@ fn party_of(label: impl AsRef<[u8]>) -> before::Party {
     crate::tree::arb::nth_party(idx(label))
 }
 
-/// Build the [`Version`] a party reaches after `ticks` events: advance
-/// its disjoint party by the whole count from the empty version.
+/// Build the [`Version`] a party reaches after `ticks` events: advance its
+/// disjoint party by the whole count from the empty version.
 fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     let p = party_of(party);
     let mut v = Version::new();
@@ -85,8 +85,8 @@ fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     v
 }
 
-/// Compute the leaf path that `Tree::act` assigns for an insert at
-/// the version a party reaches after `scalar` events.
+/// Compute the leaf path that `Tree::act` assigns for an insert at the version
+/// a party reaches after `scalar` events.
 ///
 /// The path is the version's canonical bytes hashed under the fixture secret
 /// (see [`Path::for_leaf`]), matching what a `Tree::default()` tree derives
@@ -121,14 +121,14 @@ fn insert_at(
 /// The canonical shape is derived directly from the sorted leaf-path set: a
 /// lone path below `depth` is a leaf committing its remaining suffix, and
 /// otherwise the run's shared span up to its first divergence byte is the
-/// branch's compressed prefix, with one child recursing per divergence radix
-/// — so every branch has >= 2 children and maximal prefixes by construction.
-/// The node observed from `depth` sits at height `32 - depth`. Preimages are
+/// branch's compressed prefix, with one child recursing per divergence radix —
+/// so every branch has >= 2 children and maximal prefixes by construction. The
+/// node observed from `depth` sits at height `32 - depth`. Preimages are
 /// assembled with literal tag bytes, `LEAF_TAG ‖ height ‖ len ‖ suffix` and
-/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`,
-/// each digested by the fixture network's keyed hash ([`keyed`]). The empty
-/// tree is the prefixless branch with no children at the root's height. The
-/// tree's root hash must match this however its content arrived.
+/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`, each
+/// digested by the fixture network's keyed hash ([`keyed`]). The empty tree is
+/// the prefixless branch with no children at the root's height. The tree's root
+/// hash must match this however its content arrived.
 fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
@@ -198,8 +198,8 @@ fn keyed(preimage: &[u8]) -> Hash {
 }
 
 /// An empty tree's root hash must match the reference: the prefixless branch
-/// with no children at the root's height, `BRANCH_TAG ‖ 32 ‖ 0 ‖ 0u16`,
-/// under the fixture network's keyed hash.
+/// with no children at the root's height, `BRANCH_TAG ‖ 32 ‖ 0 ‖ 0u16`, under
+/// the fixture network's keyed hash.
 #[test]
 fn empty_tree_hash_matches_reference() {
     let tree: Tree<Bytes> = Tree::default();
@@ -209,8 +209,8 @@ fn empty_tree_hash_matches_reference() {
 }
 
 /// A single inserted value must hash identically to the reference leaf whose
-/// suffix is its entire 32-byte path — the maximal compressed span, pinned
-/// so the length-tagged suffix commitment covers its extreme.
+/// suffix is its entire 32-byte path — the maximal compressed span, pinned so
+/// the length-tagged suffix commitment covers its extreme.
 #[test]
 fn single_value_hash_matches_reference() {
     let value = Bytes::from(&b"hello"[..]);
@@ -870,9 +870,9 @@ proptest! {
     }
 }
 
-/// Forgetting a version the tree never held is a complete no-op: no leaf,
-/// and — because the action was zero-effect — no version bump either, so
-/// the tree stays equal to a fresh one.
+/// Forgetting a version the tree never held is a complete no-op: no leaf, and —
+/// because the action was zero-effect — no version bump either, so the tree
+/// stays equal to a fresh one.
 #[test]
 fn delete_nonexistent_key() {
     let mut tree: Tree<()> = Tree::default();
@@ -880,8 +880,8 @@ fn delete_nonexistent_key() {
     assert_eq!(tree, Tree::default());
 }
 
-/// Project a borrowed leaf pair to an owned one, for collecting and
-/// comparing walk outputs.
+/// Project a borrowed leaf pair to an owned one, for collecting and comparing
+/// walk outputs.
 fn owned<T>((version, value): (&Version, Arc<T>)) -> (Version, Arc<T>) {
     (version.clone(), value)
 }
@@ -1011,9 +1011,9 @@ proptest! {
 
 // ───────────────────────── version-size aggregate ─────────────────────────
 
-/// The maximum canonical encoding over every version bound a tree holds
-/// — leaf versions and every branch's ceiling and floor — recomputed by
-/// direct walk: the oracle `Tree::max_version_bytes` must match.
+/// The maximum canonical encoding over every version bound a tree holds — leaf
+/// versions and every branch's ceiling and floor — recomputed by direct walk:
+/// the oracle `Tree::max_version_bytes` must match.
 fn naive_max_version_bytes(tree: &Tree<Bytes>) -> usize {
     tree.max_bound_bytes()
 }
@@ -1214,10 +1214,10 @@ proptest! {
 /// The changed-flag biconditional at full depth, on the three shapes that
 /// decide it.
 ///
-/// Gain in both directions and deletion honoring at depth report changed;
-/// the subtle no-op — merging a strict subset with concurrent versions —
-/// runs the divergent descent over the whole 31-byte shared prefix and
-/// must still report unchanged.
+/// Gain in both directions and deletion honoring at depth report changed; the
+/// subtle no-op — merging a strict subset with concurrent versions — runs the
+/// divergent descent over the whole 31-byte shared prefix and must still report
+/// unchanged.
 #[test]
 fn deep_divergent_join_changed_flag_is_exact() {
     // Gain in both directions.
@@ -1260,10 +1260,10 @@ fn deep_divergent_join_changed_flag_is_exact() {
 
 /// A ceiling-only join reports unchanged.
 ///
-/// Absorbing a counterparty whose every message we already hold or honor
-/// as deleted advances our causal ceiling but leaves the content — and the
-/// root hash — untouched, and the changed flag stays `false`, so watchers
-/// of the *set* are not woken for a merge that taught the set nothing.
+/// Absorbing a counterparty whose every message we already hold or honor as
+/// deleted advances our causal ceiling but leaves the content — and the root
+/// hash — untouched, and the changed flag stays `false`, so watchers of the
+/// *set* are not woken for a merge that taught the set nothing.
 #[test]
 fn ceiling_only_join_reports_unchanged() {
     let mut tree: Tree<Bytes> = Tree::default();
@@ -1300,19 +1300,18 @@ fn ceiling_only_join_reports_unchanged() {
     );
 }
 
-/// The changed flag's one conservative case, constructed: `Tree::act`
-/// reporting `true` while the root hash is byte-identical.
+/// The changed flag's one conservative case, constructed: `Tree::act` reporting
+/// `true` while the root hash is byte-identical.
 ///
-/// In a store poisoned by an escaped version (a leaf *above* the tree's
-/// ceiling — the shape only nonconforming gossip can plant, and which
-/// session ingestion rejects as `UncontainedSupply`), a forget of the
-/// escaped key ticks from the ceiling, lands causally *prior* to the leaf
-/// it targets, and is silently skipped — yet the traversal's observer
-/// fires, so the flag reads `true` with the hash untouched. The cost is
-/// one spurious watch wakeup, never a missed one: the flag's `false` stays
-/// exact even here. In an honestly built tree the ceiling bounds every
-/// leaf, so the skip is unreachable and the flag is exact both ways
-/// (pinned by `act_changed_flag_tracks_the_root_hash`).
+/// In a store poisoned by an escaped version (a leaf *above* the tree's ceiling
+/// — the shape only nonconforming gossip can plant, and which session ingestion
+/// rejects as `UncontainedSupply`), a forget of the escaped key ticks from the
+/// ceiling, lands causally *prior* to the leaf it targets, and is silently
+/// skipped — yet the traversal's observer fires, so the flag reads `true` with
+/// the hash untouched. The cost is one spurious watch wakeup, never a missed
+/// one: the flag's `false` stays exact even here. In an honestly built tree the
+/// ceiling bounds every leaf, so the skip is unreachable and the flag is exact
+/// both ways (pinned by `act_changed_flag_tracks_the_root_hash`).
 #[test]
 fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
     let (receiver, poisoned, _, escaped) = super::arb::uncontained_supply_pair();
@@ -1356,13 +1355,13 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
 /// survives every merge: the mechanism that session ingestion enforcement
 /// exists to keep out.
 ///
-/// With a leaf whose version dominates the tree's ceiling (the shape only
-/// a nonconforming implementation can transmit, and which ingestion now
-/// rejects as `UncontainedSupply`), a forget of its key ticks from the
-/// ceiling and is dropped by the causally-prior skip in `traverse::act`,
-/// and the deletion filter never classifies the leaf deleted, so a merge
-/// re-plants it in a replica that lacks it. This pins why enforcement
-/// must happen at ingestion: once resident, the record is immortal.
+/// With a leaf whose version dominates the tree's ceiling (the shape only a
+/// nonconforming implementation can transmit, and which ingestion now rejects
+/// as `UncontainedSupply`), a forget of its key ticks from the ceiling and is
+/// dropped by the causally-prior skip in `traverse::act`, and the deletion
+/// filter never classifies the leaf deleted, so a merge re-plants it in a
+/// replica that lacks it. This pins why enforcement must happen at ingestion:
+/// once resident, the record is immortal.
 #[test]
 fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     let (receiver, poisoned, _, escaped) = super::arb::uncontained_supply_pair();
@@ -1406,15 +1405,14 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 /// `Tree::act` is panic-atomic against a caller's action stream panicking
 /// mid-drain: root hash and causal ceiling both come through unchanged.
 ///
-/// The stream is drained before the commit section begins, so this unwind
-/// fires at the entry; the companion pins beside this one cover the
-/// mid-walk unwind sources
-/// (`act_destructor_unwind_leaves_tree_byte_identical` for the real
-/// destructor source, `act_mid_walk_unwind_leaves_tree_byte_identical`
-/// for an arbitrary injected one). The hazard the invariant rules out is
-/// an emptied root published under a live ceiling: byte-for-byte the
-/// shape of "everything was redacted", which a subsequent gossip session
-/// would honor by deleting every peer's holdings.
+/// The stream is drained before the commit section begins, so this unwind fires
+/// at the entry; the companion pins beside this one cover the mid-walk unwind
+/// sources (`act_destructor_unwind_leaves_tree_byte_identical` for the real
+/// destructor source, `act_mid_walk_unwind_leaves_tree_byte_identical` for an
+/// arbitrary injected one). The hazard the invariant rules out is an emptied
+/// root published under a live ceiling: byte-for-byte the shape of "everything
+/// was redacted", which a subsequent gossip session would honor by deleting
+/// every peer's holdings.
 #[test]
 fn act_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<Bytes> = Tree::default();
@@ -1450,20 +1448,19 @@ fn act_unwind_leaves_tree_byte_identical() {
     );
 }
 
-/// `Tree::join`'s commit section is panic-atomic: a panic unwinding out of
-/// the merge walk, after copy-on-write work has begun, leaves the tree
+/// `Tree::join`'s commit section is panic-atomic: a panic unwinding out of the
+/// merge walk, after copy-on-write work has begun, leaves the tree
 /// byte-identical.
 ///
-/// The unwind is injected via `panic_injection`, with the fuse armed past
-/// the walk's entry and the root-level step: by the time it burns down,
-/// the root frame has cloned its fan and merged earlier divergent radixes
-/// into it, so the unwind abandons in-progress merge work (the
-/// unwind occurring at all proves the walk reached that depth: the fuse is
-/// the test's only panic source). Root hash and causal ceiling must both
-/// come through unchanged. The hazard the invariant rules out is an
-/// emptied root published under a live ceiling: byte-for-byte the shape of
-/// "everything was redacted", which a subsequent gossip session would
-/// honor by deleting every peer's holdings.
+/// The unwind is injected via `panic_injection`, with the fuse armed past the
+/// walk's entry and the root-level step: by the time it burns down, the root
+/// frame has cloned its fan and merged earlier divergent radixes into it, so
+/// the unwind abandons in-progress merge work (the unwind occurring at all
+/// proves the walk reached that depth: the fuse is the test's only panic
+/// source). Root hash and causal ceiling must both come through unchanged. The
+/// hazard the invariant rules out is an emptied root published under a live
+/// ceiling: byte-for-byte the shape of "everything was redacted", which a
+/// subsequent gossip session would honor by deleting every peer's holdings.
 #[test]
 fn join_unwind_leaves_tree_byte_identical() {
     // Several divergent leaves per side spread the root fan across
@@ -1510,20 +1507,20 @@ fn join_unwind_leaves_tree_byte_identical() {
 
 /// A test payload whose destructor panics while armed.
 ///
-/// [`Message`] clones share one payload allocation, so `T`'s destructor runs only
-/// when the *last* handle drops: arming the flag turns that drop —
+/// [`Message`] clones share one payload allocation, so `T`'s destructor runs
+/// only when the *last* handle drops: arming the flag turns that drop —
 /// wherever the tree performs it — into the commit sections' one
-/// caller-reachable mid-walk unwind source. Construction and serialization
-/// stay safe; only the drop is booby-trapped, and it holds fire while
-/// another panic is already unwinding (a second panic mid-unwind aborts
-/// the process instead of failing the test).
+/// caller-reachable mid-walk unwind source. Construction and serialization stay
+/// safe; only the drop is booby-trapped, and it holds fire while another panic
+/// is already unwinding (a second panic mid-unwind aborts the process instead
+/// of failing the test).
 #[derive(Debug, Serialize)]
 struct DropBomb {
     armed: bool,
 }
 
-/// The message the armed destructor panics with; the destructor-source
-/// pins match on it to prove the unwind originated in the destructor.
+/// The message the armed destructor panics with; the destructor-source pins
+/// match on it to prove the unwind originated in the destructor.
 const DROP_BOMB_MESSAGE: &str = "armed payload destructor panicked";
 
 impl Drop for DropBomb {
@@ -1534,8 +1531,8 @@ impl Drop for DropBomb {
     }
 }
 
-/// The panic payload's message when it is a formatted string, as every
-/// panic the unwind pins catch is.
+/// The panic payload's message when it is a formatted string, as every panic
+/// the unwind pins catch is.
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
     payload
         .downcast_ref::<String>()
@@ -1543,18 +1540,18 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
         .or_else(|| payload.downcast_ref::<&str>().copied())
 }
 
-/// `Tree::act`'s commit section is panic-atomic under an arbitrary
-/// internal unwind injected mid-walk, after real apply work has begun.
+/// `Tree::act`'s commit section is panic-atomic under an arbitrary internal
+/// unwind injected mid-walk, after real apply work has begun.
 ///
 /// The unwind is injected via `panic_injection`, with the fuse armed deep
-/// enough that the deepest possible first descent (entry + root frame +
-/// 31 branch levels = 33 fire points) has completed before it burns down:
-/// the first action's leaf has been applied and reassembly work is in
-/// flight (the unwind occurring at all proves the walk reached that
-/// depth: the fuse is the test's only panic source). Root hash and causal
-/// ceiling must both come through unchanged. A companion test supplies the
-/// caller-reachable panic source: a payload destructor that unwinds during
-/// the walk. Both paths must publish nothing.
+/// enough that the deepest possible first descent (entry + root frame + 31
+/// branch levels = 33 fire points) has completed before it burns down: the
+/// first action's leaf has been applied and reassembly work is in flight (the
+/// unwind occurring at all proves the walk reached that depth: the fuse is the
+/// test's only panic source). Root hash and causal ceiling must both come
+/// through unchanged. A companion test supplies the caller-reachable panic
+/// source: a payload destructor that unwinds during the walk. Both paths must
+/// publish nothing.
 #[test]
 fn act_mid_walk_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<Bytes> = Tree::default();
@@ -1636,15 +1633,14 @@ fn act_destructor_unwind_leaves_tree_byte_identical() {
 /// unwind source: a `T` destructor panicking as deletion honoring drops an
 /// incoming leaf's last handle.
 ///
-/// The counterparty forked before our redaction, so it still holds the
-/// redacted leaf — uniquely, once our forget released our handles — and
-/// the leaf's version sits inside our ceiling, so the merge walk's
-/// deletion-honoring filter drops it mid-walk, running the payload's
-/// panicking destructor. The caught panic must be that destructor's own
-/// (proving the pin exercises the real source, not an incidental panic),
-/// and root hash and causal ceiling must both come through byte-identical:
-/// the emptied-root-under-live-ceiling shape that gossip would replicate
-/// never publishes.
+/// The counterparty forked before our redaction, so it still holds the redacted
+/// leaf — uniquely, once our forget released our handles — and the leaf's
+/// version sits inside our ceiling, so the merge walk's deletion-honoring
+/// filter drops it mid-walk, running the payload's panicking destructor. The
+/// caught panic must be that destructor's own (proving the pin exercises the
+/// real source, not an incidental panic), and root hash and causal ceiling must
+/// both come through byte-identical: the emptied-root-under-live-ceiling shape
+/// that gossip would replicate never publishes.
 #[test]
 fn join_destructor_unwind_leaves_tree_byte_identical() {
     // Our history: a keeper leaf, then the bomb, then a redaction of the
@@ -1696,15 +1692,15 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
     );
 }
 
-/// Two leaves at one position digest equally whatever their contents — a
-/// leaf digest is a pure function of its path suffix — so `Tree::join`
-/// prunes the pair as equal, keeps its own side, and reports no change.
+/// Two leaves at one position digest equally whatever their contents — a leaf
+/// digest is a pure function of its path suffix — so `Tree::join` prunes the
+/// pair as equal, keeps its own side, and reports no change.
 ///
-/// The pair is planted directly through `react` at a synthetic shared
-/// path, which no public insert can produce: this pins the digest's
-/// suffix-only preimage behaviorally. The merge walk trusts path derivation;
-/// the apply walk's live-leaf assertion detects version reuse while both
-/// leaves are in hand.
+/// The pair is planted directly through `react` at a synthetic shared path,
+/// which no public insert can produce: this pins the digest's suffix-only
+/// preimage behaviorally. The merge walk trusts path derivation; the apply
+/// walk's live-leaf assertion detects version reuse while both leaves are in
+/// hand.
 #[test]
 fn join_prunes_same_position_leaves_whatever_their_contents() {
     let shared = Path::from([0x42; 32]);
@@ -1770,9 +1766,9 @@ fn join_prunes_same_version_payload_divergence_as_equal() {
     assert_eq!(&*message, &Bytes::from_static(b"ours"), "ours is kept");
 }
 
-/// An insert landing on a live leaf that carries the same version and the
-/// same payload bytes is the same send arriving twice: `react` keeps the
-/// resident leaf and succeeds (idempotence), rather than erroring.
+/// An insert landing on a live leaf that carries the same version and the same
+/// payload bytes is the same send arriving twice: `react` keeps the resident
+/// leaf and succeeds (idempotence), rather than erroring.
 #[test]
 fn reinserting_an_identical_leaf_is_idempotent() {
     let version = version_for("A", 1);
@@ -1790,10 +1786,9 @@ fn reinserting_an_identical_leaf_is_idempotent() {
     assert_eq!(tree.hash(), hash_before, "the tree is unchanged");
 }
 
-/// An insert landing on a live leaf that disagrees on payload bytes under
-/// one version is version reuse: the apply walk asserts (a crate bug,
-/// never an input — every production insert carries a freshly created
-/// version).
+/// An insert landing on a live leaf that disagrees on payload bytes under one
+/// version is version reuse: the apply walk asserts (a crate bug, never an
+/// input — every production insert carries a freshly created version).
 #[test]
 #[should_panic(expected = "version reuse")]
 fn react_asserts_on_version_reuse_at_an_occupied_path() {
@@ -1813,9 +1808,9 @@ fn react_asserts_on_version_reuse_at_an_occupied_path() {
     )]);
 }
 
-/// An insert landing on a live leaf whose version *differs* (a synthetic
-/// path collision) trips the same assertion: both legs of the identity
-/// check are enforced, not just payload equality.
+/// An insert landing on a live leaf whose version *differs* (a synthetic path
+/// collision) trips the same assertion: both legs of the identity check are
+/// enforced, not just payload equality.
 #[test]
 #[should_panic(expected = "version reuse")]
 fn react_asserts_on_a_path_collision_between_distinct_versions() {

@@ -3,27 +3,26 @@
 //! Each operation's canvas shows three layers, visually distinct and each
 //! labeled in place (identity never rides on color alone):
 //!
-//! - the **bulk cloud**: per-column conditional fuel distributions as a
-//!   2D histogram, one sequential blue ramp (light → dark), normalized
-//!   within each column so `p(fuel | size)` is what the eye compares;
+//! - the **bulk cloud**: per-column conditional fuel distributions as a 2D
+//!   histogram, one sequential blue ramp (light → dark), normalized within each
+//!   column so `p(fuel | size)` is what the eye compares;
 //! - **reference slopes** at exponents 1 and 2 and the `n·log n` curve,
-//!   recessive dashed gray, anchored at the smallest multi-byte column's
-//!   median and labeled at their right ends;
-//! - the **adversarial overlay**: the committed family generators as
-//!   orange crosses, each family direct-labeled at its largest point.
+//!   recessive dashed gray, anchored at the smallest multi-byte column's median
+//!   and labeled at their right ends;
+//! - the **adversarial overlay**: the committed family generators as orange
+//!   crosses, each family direct-labeled at its largest point.
 //!
-//! Every render carries a provenance stamp drawn into the image: commit,
-//! base seed, samples per column, the row's declared size measure
-//! (verbatim from its roster entry), and the fuel currency.
+//! Every render carries a provenance stamp drawn into the image: commit, base
+//! seed, samples per column, the row's declared size measure (verbatim from its
+//! roster entry), and the fuel currency.
 //!
 //! The renderer's input is [`AtlasData`], a plain-data form deliberately
-//! decoupled from the roster: a measuring run converts its [`OpAtlas`]
-//! with [`AtlasData::from_atlas`], and a persisted run loads the same
-//! type back from a dump ([`crate::dump`]), so both paths feed the
-//! identical renderer. The heatmap's binned form is computed by
-//! [`aggregate`] into a [`HeatGrid`]; the drawing consumes the grid, and
-//! the dump persists it, so the plotted cells and the persisted cells
-//! are one computation.
+//! decoupled from the roster: a measuring run converts its [`OpAtlas`] with
+//! [`AtlasData::from_atlas`], and a persisted run loads the same type back from
+//! a dump ([`crate::dump`]), so both paths feed the identical renderer. The
+//! heatmap's binned form is computed by [`aggregate`] into a [`HeatGrid`]; the
+//! drawing consumes the grid, and the dump persists it, so the plotted cells
+//! and the persisted cells are one computation.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -45,20 +44,18 @@ pub struct RenderMeta {
     pub commit: String,
     /// The base seed every cell derived from.
     pub base_seed: u64,
-    /// Samples per size column, on average: the plan splits each row's
-    /// budget across columns by expected fuel spread
-    /// (`Plan::samples_for`).
+    /// Samples per size column, on average: the plan splits each row's budget
+    /// across columns by expected fuel spread (`Plan::samples_for`).
     pub samples_per_column: usize,
 }
 
 /// The run parameters every document of one dataset shares.
 ///
-/// The commit is deliberately absent: a dataset accretes across
-/// measuring runs (a new operation's panel is measured alone rather
-/// than re-measuring the whole atlas), so each operation document
-/// carries its own measurement commit ([`RenderMeta`]) while the
-/// parameters that make readings comparable — the seed schedule and the
-/// per-column budget — stay dataset-wide and uniform.
+/// The commit is deliberately absent: a dataset accretes across measuring runs
+/// (a new operation's panel is measured alone rather than re-measuring the
+/// whole atlas), so each operation document carries its own measurement commit
+/// ([`RenderMeta`]) while the parameters that make readings comparable — the
+/// seed schedule and the per-column budget — stay dataset-wide and uniform.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunParams {
@@ -77,17 +74,16 @@ impl From<&RenderMeta> for RunParams {
     }
 }
 
-/// One operation's atlas as plain data: everything one panel render
-/// consumes, decoupled from the roster so a live measuring run and a
-/// loaded dump feed the identical renderer.
+/// One operation's atlas as plain data: everything one panel render consumes,
+/// decoupled from the roster so a live measuring run and a loaded dump feed the
+/// identical renderer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AtlasData {
     /// The operation's atlas name (also the output file stem).
     pub op_name: String,
-    /// Whether the x axis is one operand's own size (`true`) rather
-    /// than a total over several operands (`false`); picks the axis
-    /// caption.
+    /// Whether the x axis is one operand's own size (`true`) rather than a
+    /// total over several operands (`false`); picks the axis caption.
     pub unary: bool,
     /// The row's declared size measure, stamped verbatim.
     pub size_measure: String,
@@ -112,8 +108,8 @@ pub struct SampleData {
     pub rejected: u64,
 }
 
-/// One measured adversarial overlay point, as plain data (the persisted
-/// form of [`crate::plan::OverlayPoint`], the family name owned).
+/// One measured adversarial overlay point, as plain data (the persisted form of
+/// [`crate::plan::OverlayPoint`], the family name owned).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OverlayData {
@@ -126,9 +122,9 @@ pub struct OverlayData {
 }
 
 impl AtlasData {
-    /// Convert a measured [`OpAtlas`] into the renderer's plain-data
-    /// form, deriving the roster-bound fields (name, axis kind, size
-    /// measure) from the roster row.
+    /// Convert a measured [`OpAtlas`] into the renderer's plain-data form,
+    /// deriving the roster-bound fields (name, axis kind, size measure) from
+    /// the roster row.
     pub fn from_atlas(atlas: &OpAtlas) -> AtlasData {
         // One-operand rows take the whole column size (the party-fold
         // row's single party included: its shares are guest-minted, not
@@ -163,14 +159,13 @@ impl AtlasData {
     }
 }
 
-/// The heatmap's binned form: axis domains and per-column histograms,
-/// exactly the cells [`render_op`] draws.
+/// The heatmap's binned form: axis domains and per-column histograms, exactly
+/// the cells [`render_op`] draws.
 ///
-/// Computed from an [`AtlasData`] by [`aggregate`]; persisted alongside
-/// the raw samples by [`crate::dump`] so downstream consumers read the
-/// plotted cells without redoing the binning. Coordinates are the plot's
-/// own: the domains and bin grid live in `log2` space, medians in raw
-/// fuel units.
+/// Computed from an [`AtlasData`] by [`aggregate`]; persisted alongside the raw
+/// samples by [`crate::dump`] so downstream consumers read the plotted cells
+/// without redoing the binning. Coordinates are the plot's own: the domains and
+/// bin grid live in `log2` space, medians in raw fuel units.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HeatGrid {
@@ -198,21 +193,21 @@ pub struct HeatColumn {
     /// The column's median fuel, in raw fuel units (the reference-slope
     /// anchor).
     pub median: f64,
-    /// The column's peak bin count (the per-column normalizer: a cell's
-    /// plotted density is `count / peak`).
+    /// The column's peak bin count (the per-column normalizer: a cell's plotted
+    /// density is `count / peak`).
     pub peak: u32,
     /// Sample counts per fuel bin, index aligned to the grid's bin grid.
     pub counts: Vec<u32>,
 }
 
-/// Bin an atlas into its [`HeatGrid`]: axis domains over samples and
-/// overlay together, then one per-column histogram and median.
+/// Bin an atlas into its [`HeatGrid`]: axis domains over samples and overlay
+/// together, then one per-column histogram and median.
 ///
 /// # Panics
 ///
-/// Panics if the atlas has no samples: every roster row has at least
-/// one column, and the dump loader rejects empty sample lists, so an
-/// empty atlas here is a programmer error.
+/// Panics if the atlas has no samples: every roster row has at least one
+/// column, and the dump loader rejects empty sample lists, so an empty atlas
+/// here is a programmer error.
 pub fn aggregate(data: &AtlasData) -> HeatGrid {
     // Column geometry: sizes are doublings, so log2(size) lands on an
     // integer grid with unit spacing.
@@ -287,8 +282,8 @@ const INK_SOFT: RGBColor = RGBColor(0x52, 0x51, 0x4e);
 const RAMP_LO: (f64, f64, f64) = (214.0, 230.0, 248.0);
 /// The sequential ramp's dark end (peak density), same blue hue.
 const RAMP_HI: (f64, f64, f64) = (16.0, 60.0, 110.0);
-/// The adversarial overlay accent (categorical slot 2; validated against
-/// the ramp's blue).
+/// The adversarial overlay accent (categorical slot 2; validated against the
+/// ramp's blue).
 const ACCENT: RGBColor = RGBColor(0xeb, 0x68, 0x34);
 /// Reference-slope gray.
 const GUIDE: RGBColor = RGBColor(0x9a, 0x99, 0x94);
@@ -306,14 +301,13 @@ fn ramp(t: f64) -> RGBColor {
     )
 }
 
-/// `log2` with a floor of 1 so a degenerate zero reading cannot produce
-/// an infinite coordinate.
+/// `log2` with a floor of 1 so a degenerate zero reading cannot produce an
+/// infinite coordinate.
 ///
-/// Routed through `libm` rather than the platform's math library: a
-/// dump commits the [`HeatGrid`] this function shapes, and the loader
-/// re-derives that grid bit-for-bit on whatever host opens the dump —
-/// platform libms disagree by an ulp at bin boundaries, `libm`'s
-/// pure-Rust kernels do not.
+/// Routed through `libm` rather than the platform's math library: a dump
+/// commits the [`HeatGrid`] this function shapes, and the loader re-derives
+/// that grid bit-for-bit on whatever host opens the dump — platform libms
+/// disagree by an ulp at bin boundaries, `libm`'s pure-Rust kernels do not.
 fn lg(v: u64) -> f64 {
     libm::log2(v.max(1) as f64)
 }
@@ -593,8 +587,8 @@ pub fn render_op(
 
 /// Render the small-multiples gallery page linking every per-op SVG.
 ///
-/// The stamp carries the dataset-wide run parameters; each panel's own
-/// SVG carries its measurement commit.
+/// The stamp carries the dataset-wide run parameters; each panel's own SVG
+/// carries its measurement commit.
 pub fn render_gallery(
     ops: &[(String, PathBuf)],
     params: &RunParams,

@@ -3,8 +3,8 @@ use proptest::prelude::*;
 use super::*;
 use crate::grid::{Grid, Kind, Session};
 
-/// Rows read back from `sessions.csv` exactly as written, optional and
-/// quoted fields included, so the report reads what the run recorded.
+/// Rows read back from `sessions.csv` exactly as written, optional and quoted
+/// fields included, so the report reads what the run recorded.
 #[test]
 fn rows_round_trip_through_csv() {
     let point = Grid::parse(include_str!("../../grids/quick.toml"))
@@ -150,9 +150,9 @@ proptest! {
     }
 }
 
-/// A malformed row with whole rows after it is refused rather than
-/// dropped: a run cut short tears only its last row, so this file was
-/// damaged some other way, and truncating it would discard sessions.
+/// A malformed row with whole rows after it is refused rather than dropped: a
+/// run cut short tears only its last row, so this file was damaged some other
+/// way, and truncating it would discard sessions.
 #[test]
 fn malformed_row_before_the_end_is_refused() {
     let path = scratch("malformed");

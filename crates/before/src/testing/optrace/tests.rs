@@ -1,5 +1,5 @@
-//! Tests for population-relative trace operands, the population cap, the
-//! depth budget, and the generator's reach.
+//! Tests for population-relative trace operands, the population cap, the depth
+//! budget, and the generator's reach.
 
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -133,9 +133,9 @@ const CENSUS_CASES: usize = 2048;
 
 /// The census's fixed strategy seed, so its counts are reproducible.
 ///
-/// Fixed because the census measures its generators
-/// deterministically: a regime it counts has no mass derived from the
-/// generators' weights, so its floors hold for this corpus alone.
+/// Fixed because the census measures its generators deterministically: a regime
+/// it counts has no mass derived from the generators' weights, so its floors
+/// hold for this corpus alone.
 const CENSUS_SEED: u64 = 19;
 
 /// Counts the production-side traces, of [`CENSUS_CASES`] sampled, holding a
@@ -154,8 +154,8 @@ fn wide_tick_traces() -> usize {
         .count()
 }
 
-/// What one sampled trace executes, read from its steps as resolved against
-/// the live population.
+/// What one sampled trace executes, read from its steps as resolved against the
+/// live population.
 #[derive(Default)]
 struct Reach {
     /// A `forks` step took at least one child.
@@ -247,21 +247,21 @@ impl Reach {
 /// [`REGIME_CASES_PER_RUN`](crate::testing::generators::census::seeded::REGIME_CASES_PER_RUN)
 /// traces reaching each regime it relies on:
 ///
-/// - for [`world_strategy`], the regimes its doc claims: a `forks` step
-///   that takes children and one that leaves some for the residual, an
-///   array split, a `join_all` of two or more clocks, a `sync_all` with two
-///   or more others, each byte round trip, an absorb from a different clock
-///   and an `absorb_all` from two or more distinct others, a population past
-///   [`LARGE_POPULATION`], and a concurrent pair in the final population,
-///   which the step weights exist to preserve;
-/// - for [`production_strategy`], the one regime its doc claims beyond
-///   the shared steps, a tick count wider than `u64`;
+/// - for [`world_strategy`], the regimes its doc claims: a `forks` step that
+///   takes children and one that leaves some for the residual, an array split,
+///   a `join_all` of two or more clocks, a `sync_all` with two or more others,
+///   each byte round trip, an absorb from a different clock and an `absorb_all`
+///   from two or more distinct others, a population past [`LARGE_POPULATION`],
+///   and a concurrent pair in the final population, which the step weights
+///   exist to preserve;
+/// - for [`production_strategy`], the one regime its doc claims beyond the
+///   shared steps, a tick count wider than `u64`;
 /// - for traces of [`CAP_REACHING_OPS`], a step the population cap clamps,
 ///   which `multi_party_splits_respect_the_population_cap` exists to judge.
 ///
-/// The consumers run the default case count, so each floor follows from
-/// that premise alone, and a regime whose mass falls below it fails here
-/// whatever it last measured.
+/// The consumers run the default case count, so each floor follows from that
+/// premise alone, and a regime whose mass falls below it fails here whatever it
+/// last measured.
 #[test]
 fn trace_strategies_keep_mass_on_their_regimes() {
     assert_default_case_count();

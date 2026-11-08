@@ -1,22 +1,21 @@
-//! The streaming mirror's wire vocabulary: one reply per question, in
-//! chunks.
+//! The streaming mirror's wire vocabulary: one reply per question, in chunks.
 //!
-//! After the handshake, every stream message is one chunk of the reply to
-//! a single earlier question. The first [`Reply`] asks the implicit root
+//! After the handshake, every stream message is one chunk of the reply to a
+//! single earlier question. The first [`Reply`] asks the implicit root
 //! question, and every later reply answers the k-th question its receiver
 //! asked, in order. No message carries a prefix — scope is determined by
-//! pairing against the receiver's own query queue — and a reply's last
-//! chunk is marked, so completeness is structural: having read the k-th
-//! reply's last chunk, the receiver holds *everything* the counterparty
-//! will ever say about the k-th scope. That structural completeness is what
-//! lets the session resolve a scope the moment its reply ends (see
+//! pairing against the receiver's own query queue — and a reply's last chunk is
+//! marked, so completeness is structural: having read the k-th reply's last
+//! chunk, the receiver holds *everything* the counterparty will ever say about
+//! the k-th scope. That structural completeness is what lets the session
+//! resolve a scope the moment its reply ends (see
 //! [`materialized`](crate::tree::mirror::streaming::materialized) for the
 //! ordering argument).
 //!
 //! The receiver acts on each chunk as it arrives, answering the questions a
-//! reply asks before the rest of the reply arrives. Decoded chunks park
-//! until their stage takes them, within the room the question they answer
-//! set aside for its reply.
+//! reply asks before the rest of the reply arrives. Decoded chunks park until
+//! their stage takes them, within the room the question they answer set aside
+//! for its reply.
 
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -36,86 +35,82 @@ use crate::{
 
 /// The greeting exchanged after the fixed transport preamble.
 ///
-/// Three terms, three things: the *preamble* is the fixed transport bytes
-/// that precede any message, the *handshake* is the act of exchanging
-/// greetings, and a `Greeting` is the message each side contributes to it.
+/// Three terms, three things: the *preamble* is the fixed transport bytes that
+/// precede any message, the *handshake* is the act of exchanging greetings, and
+/// a `Greeting` is the message each side contributes to it.
 ///
-/// It carries everything a session must know about a sender before the
-/// descent — its causal position, its negotiation inputs, and its opening
-/// question's content; the fields below are the inventory.
+/// It carries everything a session must know about a sender before the descent
+/// — its causal position, its negotiation inputs, and its opening question's
+/// content; the fields below are the inventory.
 ///
 /// The listing is the same radix-keyed hash listing the initiator's opening
-/// [`Reaction::Query`] carries — and that is the point: the opening
-/// question's content depends only on the sender's own tree, so carrying it
-/// here lets the elected responder answer immediately instead of waiting one
-/// wire hop for a standalone opening frame. An empty tree carries an empty
-/// listing, which at the root means exactly what an empty opening `Query`
-/// means: "I lack this node, send everything."
+/// [`Reaction::Query`] carries — and that is the point: the opening question's
+/// content depends only on the sender's own tree, so carrying it here lets the
+/// elected responder answer immediately instead of waiting one wire hop for a
+/// standalone opening frame. An empty tree carries an empty listing, which at
+/// the root means exactly what an empty opening `Query` means: "I lack this
+/// node, send everything."
 ///
-/// Both sides carry a listing because neither knows at greeting time whether
-/// it will win the initiator election. A divergent session consumes the
-/// initiator's, which the elected responder answers; a converged session
-/// (equal versions) ends at the greeting and consumes neither.
-/// That is the trade, made knowingly: the listing costs at most one root
-/// fan of listing entries (about 5.7 KiB, and nothing for an empty tree;
-/// the codec's `listing_entry_len` gives each entry's width) on a hop that
-/// exists anyway, versus saving a full one-way hop on every divergent
-/// session. Divergence is not knowable
-/// at greeting time, so there is nothing to gate the bytes on.
+/// Both sides carry a listing because neither knows at greeting time whether it
+/// will win the initiator election. A divergent session consumes the
+/// initiator's, which the elected responder answers; a converged session (equal
+/// versions) ends at the greeting and consumes neither. That is the trade, made
+/// knowingly: the listing costs at most one root fan of listing entries (about
+/// 5.7 KiB, and nothing for an empty tree; the codec's `listing_entry_len`
+/// gives each entry's width) on a hop that exists anyway, versus saving a full
+/// one-way hop on every divergent session. Divergence is not knowable at
+/// greeting time, so there is nothing to gate the bytes on.
 #[derive(Clone)]
 pub struct Greeting {
-    /// The sender's set version; equal versions end the session at the greeting.
+    /// The sender's set version; equal versions end the session at the
+    /// greeting.
     pub version: Version,
     /// The sender's live message count, exact (an O(1) read of its set).
     ///
     /// The receiver holds the sender's supplies to it: a conforming peer
-    /// supplies each leaf at most once and only leaves its set holds, so
-    /// the count bounds the records it can supply. The pair is also the
-    /// role election's primary key
-    /// ([`RoleKey::initiates`]):
-    /// the smaller set initiates, so the bulk holder lands in the
-    /// responder role, whose exclusive content ships as whole-subtree
-    /// supplies.
+    /// supplies each leaf at most once and only leaves its set holds, so the
+    /// count bounds the records it can supply. The pair is also the role
+    /// election's primary key ([`RoleKey::initiates`]): the smaller set
+    /// initiates, so the bulk holder lands in the responder role, whose
+    /// exclusive content ships as whole-subtree supplies.
     pub set_len: u64,
-    /// The largest canonical version-bound encoding the sender's tree
-    /// holds — leaf versions and every interior ceiling and floor — in
-    /// bytes: exact, a read of a memoized per-node aggregate that
-    /// redaction resizes down.
+    /// The largest canonical version-bound encoding the sender's tree holds —
+    /// leaf versions and every interior ceiling and floor — in bytes: exact, a
+    /// read of a memoized per-node aggregate that redaction resizes down.
     ///
     /// Every bound a session holds is either a bound one replica already
-    /// materializes (covered by that side's aggregate alone) or a
-    /// join/meet of the two sides' contributions, whose encoding never
-    /// exceeds its inputs' combined (the pinned pairwise lemmas), so the
-    /// exchanged pair bounds worst-case version bytes per node.
+    /// materializes (covered by that side's aggregate alone) or a join/meet of
+    /// the two sides' contributions, whose encoding never exceeds its inputs'
+    /// combined (the pinned pairwise lemmas), so the exchanged pair bounds
+    /// worst-case version bytes per node.
     ///
     /// The declaration is enforced at ingress: every version the sender
-    /// supplies is one its tree materializes, so it must encode within
-    /// this bound, and a session that receives one over it fails with a
-    /// typed violation
-    /// (a protocol violation if exceeded).
+    /// supplies is one its tree materializes, so it must encode within this
+    /// bound, and a session that receives one over it fails with a typed
+    /// violation (a protocol violation if exceeded).
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
     /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).
     ///
-    /// The session's encoders on both ends run at the **minimum** of the
-    /// two exchanged targets: each side's setting bounds the frames it
-    /// builds *and* the frames built for it, so the more
-    /// memory-constrained end sets the pace.
+    /// The session's encoders on both ends run at the **minimum** of the two
+    /// exchanged targets: each side's setting bounds the frames it builds *and*
+    /// the frames built for it, so the more memory-constrained end sets the
+    /// pace.
     pub target_message_size: u64,
     /// The sender's configured payload nesting-depth limit
-    /// ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)),
-    /// in decode recursion steps.
+    /// ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)), in
+    /// decode recursion steps.
     ///
-    /// A session proceeds only if the two exchanged values are equal:
-    /// the limit is a property of the shared set (every replica must be
-    /// able to hold and forward all content), so a mismatch in either
-    /// direction is a typed, unconditional abort at the handshake, before
-    /// the equal-versions resolution. On the wire the value is authored
-    /// by the proxy from the session's payload codec at send; an
-    /// in-process participant carries the default.
+    /// A session proceeds only if the two exchanged values are equal: the limit
+    /// is a property of the shared set (every replica must be able to hold and
+    /// forward all content), so a mismatch in either direction is a typed,
+    /// unconditional abort at the handshake, before the equal-versions
+    /// resolution. On the wire the value is authored by the proxy from the
+    /// session's payload codec at send; an in-process participant carries the
+    /// default.
     pub payload_depth_limit: u64,
-    /// The sender's root children in strictly ascending radix order, each
-    /// with its grandchild count; empty when the sender's tree is empty.
+    /// The sender's root children in strictly ascending radix order, each with
+    /// its grandchild count; empty when the sender's tree is empty.
     pub listing: Vec<Listed>,
     /// The sender's grandchild count of its root: over the listed root
     /// children, each one's own child count, a child at the leaves counting
@@ -132,28 +127,27 @@ pub struct Greeting {
     pub grandchildren: u64,
 }
 
-/// One child a listing names: a question's listing of the asker's children
-/// of the node it asks about, or a greeting's listing of the sender's root
+/// One child a listing names: a question's listing of the asker's children of
+/// the node it asks about, or a greeting's listing of the sender's root
 /// children.
 ///
-/// A listing names its children in strictly ascending radix order, so a
-/// replier compares it with its own children in one merge.
+/// A listing names its children in strictly ascending radix order, so a replier
+/// compares it with its own children in one merge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Listed {
     /// The child's radix under the listed node.
     pub radix: u8,
-    /// The child's subtree digest: the lister's cached digest of the
-    /// child, a MAC under the network's hash key ([`struct@Hash`] says
-    /// why it is keyed).
+    /// The child's subtree digest: the lister's cached digest of the child, a
+    /// MAC under the network's hash key ([`struct@Hash`] says why it is keyed).
     pub hash: Hash,
     /// The lister's grandchild count of the child.
     ///
-    /// It bounds the reply the lister will give to a question about the
-    /// child. A peer that asks one sizes its memory for that reply from this
-    /// count before asking, and a reply over it fails the session.
+    /// It bounds the reply the lister will give to a question about the child.
+    /// A peer that asks one sizes its memory for that reply from this count
+    /// before asking, and a reply over it fails the session.
     pub grandchildren: Grandchildren,
-    /// This side's child count of the child, less one, when this side
-    /// lists its own child; zero in a listing this side decoded.
+    /// This side's child count of the child, less one, when this side lists its
+    /// own child; zero in a listing this side decoded.
     ///
     /// The wire does not carry it. It is carried by the entry's padding from
     /// the walk, which lists its own children, into the record of the question
@@ -167,29 +161,28 @@ pub struct Listed {
     pub(crate) children_less_one: u8,
 }
 
-/// The child count riding in a listing entry costs no byte: every listing
-/// is priced per entry at its size.
+/// The child count riding in a listing entry costs no byte: every listing is
+/// priced per entry at its size.
 const _: () = assert!(
     size_of::<Listed>() == size_of::<(u8, Hash, Grandchildren)>(),
     "a listing entry's child count must fit its padding",
 );
 
 impl Listed {
-    /// The entry for `node`, listed by this side at `radix` beneath
-    /// `scope`, so at the coordinate `scope` extended by `radix`, with its
-    /// digest under `key`, the hash key of this side's tree.
+    /// The entry for `node`, listed by this side at `radix` beneath `scope`, so
+    /// at the coordinate `scope` extended by `radix`, with its digest under
+    /// `key`, the hash key of this side's tree.
     ///
-    /// The digest is the one the node caches, so listing a whole node
-    /// computes no hash; a node viewed from inside its compressed path
-    /// computes its digest at that level ([`ErasedNode::hash`]). The
-    /// backend reports the digest and both counts in one read
-    /// ([`ErasedNode::summary`]).
+    /// The digest is the one the node caches, so listing a whole node computes
+    /// no hash; a node viewed from inside its compressed path computes its
+    /// digest at that level ([`ErasedNode::hash`]). The backend reports the
+    /// digest and both counts in one read ([`ErasedNode::summary`]).
     ///
     /// # Errors
     ///
     /// Returns a [`CountError`] if the backend reports more children or
-    /// grandchildren for `node` than any node can have, which no listing
-    /// can carry.
+    /// grandchildren for `node` than any node can have, which no listing can
+    /// carry.
     pub(crate) fn of<E: ErasedNode>(
         scope: ErasedPrefix,
         radix: u8,
@@ -214,18 +207,18 @@ impl Listed {
 
 /// A count the backend reported for a node that no node can have.
 ///
-/// A node has at most a fan of 256 children, and its children at most a fan
-/// of fans, 65,536, among them. The in-memory backend keeps both counts by
-/// construction, but a backend that loads nodes from storage reads them
-/// there, so storage corrupted at rest can report a count outside those
-/// ranges. A listing cannot carry such a count, and every price and bound
-/// the session derives from one would be wrong, so the session fails
-/// instead of listing the node.
+/// A node has at most a fan of 256 children, and its children at most a fan of
+/// fans, 65,536, among them. The in-memory backend keeps both counts by
+/// construction, but a backend that loads nodes from storage reads them there,
+/// so storage corrupted at rest can report a count outside those ranges. A
+/// listing cannot carry such a count, and every price and bound the session
+/// derives from one would be wrong, so the session fails instead of listing the
+/// node.
 ///
-/// A backend must also list exactly the children it reports: the session
-/// lists a node's children into a vector sized by its child count, and a
-/// question is priced at that count, so a listing that differs from the
-/// report fails the session as well, before the vector can grow past it.
+/// A backend must also list exactly the children it reports: the session lists
+/// a node's children into a vector sized by its child count, and a question is
+/// priced at that count, so a listing that differs from the report fails the
+/// session as well, before the vector can grow past it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum CountError {
     /// The node's child count exceeded a fan.
@@ -234,8 +227,8 @@ pub enum CountError {
     /// The node's grandchild count exceeded a fan of fans.
     #[error("the backend reported {0} grandchildren for a node, more than 65,536")]
     Grandchildren(usize),
-    /// The backend listed a different number of children for a node than
-    /// it reported ([`ErasedNode::child_count`]).
+    /// The backend listed a different number of children for a node than it
+    /// reported ([`ErasedNode::child_count`]).
     #[error("the backend reported {reported} children for a node but listed {listed}")]
     ChildrenListed {
         /// The children reported.
@@ -249,18 +242,18 @@ pub enum CountError {
 /// A grandchild count as a listing carries it: how many children a listed
 /// child's children have.
 ///
-/// The lister counts as its backend lists them, a child at the leaves
-/// counting one ([`ErasedNode::grandchild_count`]). A listed child that is itself a leaf counts one as well. Nothing is ever
-/// asked about a leaf but the leaf itself, whose reply supplies at most one
-/// node, so one is that reply's bound too. Every count therefore lies in
-/// 1..=65,536: at most 256 children of at most 256 children each. The wire
-/// spells it as the count less one.
+/// The lister counts as its backend lists them, a child at the leaves counting
+/// one ([`ErasedNode::grandchild_count`]). A listed child that is itself a leaf
+/// counts one as well. Nothing is ever asked about a leaf but the leaf itself,
+/// whose reply supplies at most one node, so one is that reply's bound too.
+/// Every count therefore lies in 1..=65,536: at most 256 children of at most
+/// 256 children each. The wire spells it as the count less one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Grandchildren(u16);
 
 impl Grandchildren {
-    /// The smallest count: a listed leaf, or a child whose one child is a
-    /// leaf or itself has one child.
+    /// The smallest count: a listed leaf, or a child whose one child is a leaf
+    /// or itself has one child.
     pub const ONE: Self = Self(0);
 
     /// The largest count: a full fan of children, each with a full fan.
@@ -300,8 +293,8 @@ impl Grandchildren {
     }
 }
 
-/// A listing entry for the child at `radix` with digest `hash` and the
-/// smallest grandchild count.
+/// A listing entry for the child at `radix` with digest `hash` and the smallest
+/// grandchild count.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn listed(radix: u8, hash: Hash) -> Listed {
     Listed {
@@ -336,10 +329,10 @@ impl RoleKey {
     ///
     /// The smaller exchanged set initiates. The initiator's opening act is a
     /// pure question (its listing rides the greeting), while the elected
-    /// responder answers that question directly with whole-subtree supplies
-    /// for every root child the initiator lacks. This puts the bulk holder in
-    /// the responder role, where its exclusive content can move at the
-    /// coarsest granularity and on the earliest possible hop.
+    /// responder answers that question directly with whole-subtree supplies for
+    /// every root child the initiator lacks. This puts the bulk holder in the
+    /// responder role, where its exclusive content can move at the coarsest
+    /// granularity and on the earliest possible hop.
     ///
     /// Equal sizes fall back to the canonical version encodings' lexicographic
     /// order; the greater encoding initiates. Causal versions are only
@@ -370,25 +363,24 @@ impl Greeting {
     }
 }
 
-/// The sole stream message: one chunk of the reply to a single previous
-/// query.
+/// The sole stream message: one chunk of the reply to a single previous query.
 ///
 /// A reply is a run of chunks, its reactions in prefix order, ending at the
-/// first chunk marked [`last`](Self::last). Its receiver acts on each chunk
-/// as it arrives, so a sender may pause between chunks until the receiver
-/// has answered the questions sent so far. On the wire, chunk boundaries
-/// carry no frame of their own: the receiver's decoder chunks a reply as
-/// its frames arrive, and the reply's last reaction carries the end.
+/// first chunk marked [`last`](Self::last). Its receiver acts on each chunk as
+/// it arrives, so a sender may pause between chunks until the receiver has
+/// answered the questions sent so far. On the wire, chunk boundaries carry no
+/// frame of their own: the receiver's decoder chunks a reply as its frames
+/// arrive, and the reply's last reaction carries the end.
 ///
-/// The height `H` is that of the children the reactions are about, one
-/// level below the scope the reply answers, and pairs the reply with the
-/// stage of the schedule at that level. The reactions hold their supplied
-/// nodes erased, as the walk keeps them ([`Reaction::Supply`]).
+/// The height `H` is that of the children the reactions are about, one level
+/// below the scope the reply answers, and pairs the reply with the stage of the
+/// schedule at that level. The reactions hold their supplied nodes erased, as
+/// the walk keeps them ([`Reaction::Supply`]).
 pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The chunk's reactions, continuing the reply's earlier chunks.
     pub reactions: Vec<Reaction<B::Erased>>,
-    /// What the chunk holds, charged to the endpoint that built it and
-    /// returned when its consumer has used it.
+    /// What the chunk holds, charged to the endpoint that built it and returned
+    /// when its consumer has used it.
     pub(crate) charge: Charge,
     /// Whether this chunk ends the reply.
     pub(crate) last: bool,
@@ -398,11 +390,11 @@ pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     pub(crate) height: PhantomData<fn() -> H>,
 }
 
-/// What an outgoing chunk carries for its encoder beyond its own items,
-/// charged to the endpoint that built the chunk.
+/// What an outgoing chunk carries for its encoder beyond its own items, charged
+/// to the endpoint that built the chunk.
 ///
-/// Only a chunk that ends at a question carries anything. A chunk this
-/// side decoded carries nothing.
+/// Only a chunk that ends at a question carries anything. A chunk this side
+/// decoded carries nothing.
 #[derive(Debug, Default)]
 pub(crate) enum Carried {
     /// Nothing beyond the chunk's own items.
@@ -410,20 +402,19 @@ pub(crate) enum Carried {
     Nothing,
     /// What the question the chunk ends at sets aside for its reply.
     Question {
-        /// The charge for the question's record, which the encoder
-        /// publishes the record with.
+        /// The charge for the question's record, which the encoder publishes
+        /// the record with.
         record: Charge,
-        /// The room the reply's chunks take while they park, which
-        /// travels with the record to the decoder: it charges each chunk
-        /// its part as the chunk decodes and returns the rest once the
-        /// reply is decoded.
+        /// The room the reply's chunks take while they park, which travels with
+        /// the record to the decoder: it charges each chunk its part as the
+        /// chunk decodes and returns the rest once the reply is decoded.
         room: Charge,
     },
 }
 
 impl Carried {
-    /// Take out the record's charge and the reply's room of the question
-    /// the chunk ends at, if it ends at one.
+    /// Take out the record's charge and the reply's room of the question the
+    /// chunk ends at, if it ends at one.
     pub(crate) fn take_question(&mut self) -> Option<(Charge, Charge)> {
         match std::mem::take(self) {
             Self::Question { record, room } => Some((record, room)),
@@ -435,11 +426,11 @@ impl Carried {
     }
 }
 
-/// The charges a chunk carries take two charges' room, what a question's
-/// carry needs.
+/// The charges a chunk carries take two charges' room, what a question's carry
+/// needs.
 ///
-/// Every chunk is priced at its size, so a wider variant would raise the
-/// price of every chunk, carrying or not.
+/// Every chunk is priced at its size, so a wider variant would raise the price
+/// of every chunk, carrying or not.
 const _: () = assert!(
     size_of::<Carried>() == 2 * size_of::<Charge>(),
     "a chunk's carried charges must fit in a question's two charges",
@@ -448,18 +439,18 @@ const _: () = assert!(
 /// Reactions are positionally keyed against the corresponding
 /// [`Reaction::Query`] query.
 ///
-/// The exception is [`Reaction::Supply`], which indicates its radix because
-/// it represents information that the counterparty could not have known to
-/// ask about.
+/// The exception is [`Reaction::Supply`], which indicates its radix because it
+/// represents information that the counterparty could not have known to ask
+/// about.
 ///
 /// A reply carries at most one [`Reaction::Match`]: its first, which names
 /// every later listed child that also matches ([`LaterMatches`]). Those
-/// children take no reaction of their own; a receiver pairing reactions
-/// with its listing passes over them as matched, so the next positional
-/// reaction pairs with the next listed child the match did not cover.
+/// children take no reaction of their own; a receiver pairing reactions with
+/// its listing passes over them as matched, so the next positional reaction
+/// pairs with the next listed child the match did not cover.
 ///
-/// `E` is the backend's erased node handle ([`Backend::Erased`]), the same
-/// at every height, so a reply at any level carries the one reaction type.
+/// `E` is the backend's erased node handle ([`Backend::Erased`]), the same at
+/// every height, so a reply at any level carries the one reaction type.
 pub enum Reaction<E> {
     /// The sender supplies a node absent from the counterparty's listing, at
     /// this radix.
@@ -467,12 +458,12 @@ pub enum Reaction<E> {
     /// The radix is explicit because the counterparty did not know the node
     /// existed and therefore could not ask about it positionally.
     ///
-    /// The node stays erased: its coordinate is the reply's scope extended
-    /// by the radix, and only the reply's consumer knows the scope, so the
+    /// The node stays erased: its coordinate is the reply's scope extended by
+    /// the radix, and only the reply's consumer knows the scope, so the
     /// consumer re-tags the node there, checked ([`Backend::assume`]).
     Supply(u8, E),
-    /// Both sides hold the node with the same hash, and so they do every
-    /// later listed child the reaction covers.
+    /// Both sides hold the node with the same hash, and so they do every later
+    /// listed child the reaction covers.
     Match(LaterMatches),
     /// The sender asks to compare the node's children because the hashes
     /// differ, or asks for the whole node with an empty listing.
@@ -487,20 +478,19 @@ pub enum Reaction<E> {
 }
 
 /// The later listed children a [`Reaction::Match`] covers: every child the
-/// reply's question listed after the match's own position that also
-/// matches, by radix.
+/// reply's question listed after the match's own position that also matches, by
+/// radix.
 ///
 /// Absent when no later child matches, so a reply with one match carries
 /// nothing beyond it, and present only when nonempty. The set is boxed: a
-/// reaction is a queue element, priced at its size wherever it waits, and
-/// an inline set would raise the price of every reaction, the queries and
-/// supplies that make up a divergent session's replies included. A box
-/// takes the room of the pointer alone, within the room a reaction already
-/// has, and is allocated only by a reply with two matches or more, which
-/// it saves a reaction for each match after the first. Every place that
-/// prices a reaction prices the box as well ([`heap_bytes`](Self::heap_bytes)):
-/// a price that already counts a slot for each child the set covers counts
-/// the box net of those slots
+/// reaction is a queue element, priced at its size wherever it waits, and an
+/// inline set would raise the price of every reaction, the queries and supplies
+/// that make up a divergent session's replies included. A box takes the room of
+/// the pointer alone, within the room a reaction already has, and is allocated
+/// only by a reply with two matches or more, which it saves a reaction for each
+/// match after the first. Every place that prices a reaction prices the box as
+/// well ([`heap_bytes`](Self::heap_bytes)): a price that already counts a slot
+/// for each child the set covers counts the box net of those slots
 /// ([`covered_set_price`](crate::tree::mirror::streaming::materialized::covered_set_price)).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LaterMatches(Option<Box<ByteSet>>);
@@ -524,8 +514,8 @@ impl LaterMatches {
         self.get().copied().unwrap_or_default()
     }
 
-    /// The bytes the covered set holds on the heap beyond the reaction
-    /// carrying it: a set's, when there is one, and none otherwise.
+    /// The bytes the covered set holds on the heap beyond the reaction carrying
+    /// it: a set's, when there is one, and none otherwise.
     pub const fn heap_bytes(&self) -> usize {
         match self.0 {
             Some(_) => LATER_MATCHES_HEAP_BYTES,
@@ -537,8 +527,8 @@ impl LaterMatches {
 /// The bytes one present [`LaterMatches`] holds on the heap: one set.
 pub(crate) const LATER_MATCHES_HEAP_BYTES: usize = size_of::<ByteSet>();
 
-/// A covered set rides in the room of one pointer, so carrying it raises
-/// no reaction's price.
+/// A covered set rides in the room of one pointer, so carrying it raises no
+/// reaction's price.
 const _: () = assert!(
     size_of::<LaterMatches>() == size_of::<usize>(),
     "the later matches must take one pointer's room",

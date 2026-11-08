@@ -6,8 +6,8 @@
 //! two invariants, which every operation preserves:
 //!
 //! - a summary bit is set exactly when the word it stands for is nonzero;
-//! - either there are no levels, or level `k + 1` has one word per 64 words
-//!   of level `k`, rounded up, and the last level has exactly one word.
+//! - either there are no levels, or level `k + 1` has one word per 64 words of
+//!   level `k`, rounded up, and the last level has exactly one word.
 //!
 //! A word that changes between empty and nonempty is the only change a level
 //! above needs to hear about, so operations climb only that far.
@@ -18,18 +18,17 @@
 //! positions, so that it has O(1 + log₆₄ `W`) levels:
 //!
 //! - [`insert`](Bitset::insert) and [`remove`](Bitset::remove) cost one word
-//!   per level they climb, at most every level. An insertion beyond the
-//!   levels first grows them, at O(1) plus amortized O(1) per word it adds:
-//!   growth fills each new word with zeros, from level 0 upward, and stops at
-//!   the first level already long enough, since each level above it holds
-//!   one word per 64 words of the level below, rounded up, and so is long
-//!   enough too.
-//! - [`last_below`](Bitset::last_below) climbs only while neither the
-//!   query's word below it nor the word before that holds a position, then
-//!   descends through the highest set bit of each word. The word before
-//!   holds every position within one word's span below, so a query whose
-//!   answer lies `d` positions down stops climbing by level log₆₄ `d`, and
-//!   costs O(1 + log₆₄ `d`).
+//!   per level they climb, at most every level. An insertion beyond the levels
+//!   first grows them, at O(1) plus amortized O(1) per word it adds: growth
+//!   fills each new word with zeros, from level 0 upward, and stops at the
+//!   first level already long enough, since each level above it holds one word
+//!   per 64 words of the level below, rounded up, and so is long enough too.
+//! - [`last_below`](Bitset::last_below) climbs only while neither the query's
+//!   word below it nor the word before that holds a position, then descends
+//!   through the highest set bit of each word. The word before holds every
+//!   position within one word's span below, so a query whose answer lies `d`
+//!   positions down stops climbing by level log₆₄ `d`, and costs O(1 + log₆₄
+//!   `d`).
 //! - [`clear`](Bitset::clear) costs O(1) plus one word operation per word it
 //!   empties and per position it removes, never the levels' width: see its
 //!   documentation.
@@ -43,15 +42,15 @@
 //!
 //! # Alternatives
 //!
-//! The `roaring` crate's bitmaps hold sparse positions more compactly: an
-//! array container stores 2 bytes per position and an empty 65,536-position
-//! chunk stores nothing, where this hierarchy spends one bit on every
-//! position it covers, written or not. Its predecessor query, though, scans
-//! a dense container backward one word at a time, up to 1,024 words,
-//! whatever the distance skipped, and its bitmaps hold only `u32` positions,
-//! so `usize` positions need its two-level treemap. This module trades
-//! space on sparse wide sets for a predecessor query bounded by the distance
-//! it skips, which is the cost a descending scan is charged.
+//! The `roaring` crate's bitmaps hold sparse positions more compactly: an array
+//! container stores 2 bytes per position and an empty 65,536-position chunk
+//! stores nothing, where this hierarchy spends one bit on every position it
+//! covers, written or not. Its predecessor query, though, scans a dense
+//! container backward one word at a time, up to 1,024 words, whatever the
+//! distance skipped, and its bitmaps hold only `u32` positions, so `usize`
+//! positions need its two-level treemap. This module trades space on sparse
+//! wide sets for a predecessor query bounded by the distance it skips, which is
+//! the cost a descending scan is charged.
 
 #[cfg(test)]
 mod tests;
@@ -72,14 +71,14 @@ pub struct Bitset {
     /// summary bits of the level before it.
     ///
     /// The levels are a boxed slice rather than a `Vec`, so that the count
-    /// below fits in the word a `Vec`'s capacity would take, and a bitset
-    /// stays three words. Only [`cover`](Self::cover) changes their number,
-    /// by one level at a time, at most [`MAX_LEVELS`] times.
+    /// below fits in the word a `Vec`'s capacity would take, and a bitset stays
+    /// three words. Only [`cover`](Self::cover) changes their number, by one
+    /// level at a time, at most [`MAX_LEVELS`] times.
     levels: Box<[Vec<u64>]>,
     /// The number of positions the set holds.
     len: usize,
-    /// The levels [`cover`](Self::cover) has examined and left at their
-    /// length, counted so that tests can check where growth stops.
+    /// The levels [`cover`](Self::cover) has examined and left at their length,
+    /// counted so that tests can check where growth stops.
     #[cfg(test)]
     unchanged_levels_examined: usize,
     /// The levels [`clear`](Self::clear) has examined, counted so that tests
@@ -90,8 +89,8 @@ pub struct Bitset {
     /// examined, counted so that tests can check that it reads no empty word.
     #[cfg(test)]
     cleared_words_emptied: usize,
-    /// The levels [`insert`](Self::insert) has climbed, counted so that
-    /// tests can check where an insertion stops.
+    /// The levels [`insert`](Self::insert) has climbed, counted so that tests
+    /// can check where an insertion stops.
     #[cfg(test)]
     inserted_levels_climbed: usize,
     /// The calls of [`insert`](Self::insert), counted so that tests can
@@ -111,8 +110,8 @@ const _: () = assert!(core::mem::size_of::<Bitset>() == 3 * core::mem::size_of::
 pub struct ClimbCounts {
     /// Calls of [`Bitset::insert`].
     pub insertions: usize,
-    /// Levels those insertions climbed, each counting the level it stopped
-    /// at, so the climbs exceed the insertions by the words they filled.
+    /// Levels those insertions climbed, each counting the level it stopped at,
+    /// so the climbs exceed the insertions by the words they filled.
     pub inserted_levels_climbed: usize,
     /// Levels [`Bitset::clear`] examined.
     pub cleared_levels_examined: usize,
@@ -239,20 +238,20 @@ impl Bitset {
     /// set clears its bitset only when the bitset holds zero, as
     /// [`Below`](super::Below) documents.
     ///
-    /// Position zero stays, so word zero stays nonempty at every level, and
-    /// an insertion after the clear stops at the first word it shares with
-    /// position zero, as it would before the clear, instead of climbing
-    /// every level of an emptied hierarchy.
+    /// Position zero stays, so word zero stays nonempty at every level, and an
+    /// insertion after the clear stops at the first word it shares with
+    /// position zero, as it would before the clear, instead of climbing every
+    /// level of an emptied hierarchy.
     ///
-    /// The clear works upward from level 0, one level per step. At level
-    /// `k`, word zero holds the bit on position zero's path, and other bits
-    /// that stand for words of level `k - 1` or, at level 0, for positions 1
-    /// to 63. The step empties each of those words and everything below
-    /// them, and leaves word zero that one bit. After the step at level `k`,
-    /// the set holds no position other than zero below `64^(k + 1)`, so the
-    /// clear climbs to the next level only while it holds one at or above.
-    /// That position lies under word zero of some higher level, so the climb
-    /// ends by the last level, whose one word covers every position.
+    /// The clear works upward from level 0, one level per step. At level `k`,
+    /// word zero holds the bit on position zero's path, and other bits that
+    /// stand for words of level `k - 1` or, at level 0, for positions 1 to 63.
+    /// The step empties each of those words and everything below them, and
+    /// leaves word zero that one bit. After the step at level `k`, the set
+    /// holds no position other than zero below `64^(k + 1)`, so the clear
+    /// climbs to the next level only while it holds one at or above. That
+    /// position lies under word zero of some higher level, so the climb ends by
+    /// the last level, whose one word covers every position.
     ///
     /// # Cost
     ///
@@ -262,17 +261,17 @@ impl Bitset {
     /// position at or above `64^(k + 1)` remains, which lies in a word other
     /// than word zero at level `k`, and the clear empties that word before it
     /// returns. So every word operation is charged to a word the clear empties
-    /// or to a position it removes, and the insertion that filled that word,
-    /// or inserted that position, paid for it. A clear therefore costs O(1)
-    /// plus amortized O(1) per position it removes, however wide the levels.
+    /// or to a position it removes, and the insertion that filled that word, or
+    /// inserted that position, paid for it. A clear therefore costs O(1) plus
+    /// amortized O(1) per position it removes, however wide the levels.
     ///
     /// The charge rests on two facts about how a word other than word zero
     /// turns nonempty. Growth never does it: it appends zero words, and a new
     /// top level summarizes a level whose only nonempty word is word zero,
-    /// because that level was the one-word top before the growth began, or
-    /// was itself created by it, so only the new level's word zero gains a
-    /// bit. And a clone copies words filled in the original's history; the
-    /// clone's copy, one word operation per word, pays for them.
+    /// because that level was the one-word top before the growth began, or was
+    /// itself created by it, so only the new level's word zero gains a bit. And
+    /// a clone copies words filled in the original's history; the clone's copy,
+    /// one word operation per word, pays for them.
     pub fn clear(&mut self, mut removed: impl FnMut(usize)) {
         debug_assert!(
             self.levels
@@ -307,10 +306,10 @@ impl Bitset {
     /// position they held to `removed`, and return how many there were.
     ///
     /// The traversal is depth-first and keeps one frame per level: a word's
-    /// index and the bits of it not yet descended into. It empties each word
-    /// as it enters it, and enters only words whose summary bit was set, so it
-    /// reads each nonempty word below once and no empty word. Word `index`
-    /// must not lie on position zero's path, which the caller keeps.
+    /// index and the bits of it not yet descended into. It empties each word as
+    /// it enters it, and enters only words whose summary bit was set, so it
+    /// reads each nonempty word below once and no empty word. Word `index` must
+    /// not lie on position zero's path, which the caller keeps.
     fn empty_subtree(
         &mut self,
         level: usize,
@@ -354,8 +353,8 @@ impl Bitset {
 
     /// Iterate the positions in ascending order, reading level 0 alone.
     ///
-    /// Visits every retained level-0 word, so it costs time proportional to
-    /// the retained storage rather than to the positions held.
+    /// Visits every retained level-0 word, so it costs time proportional to the
+    /// retained storage rather than to the positions held.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
         let words = self.levels.first().map_or(&[][..], Vec::as_slice);
         words
@@ -381,9 +380,9 @@ impl Bitset {
         self.levels.iter().map(Vec::capacity).sum()
     }
 
-    /// Grow the levels so that `position` is addressable, from level 0
-    /// upward, stopping at the first level already long enough or at a new
-    /// one-word top.
+    /// Grow the levels so that `position` is addressable, from level 0 upward,
+    /// stopping at the first level already long enough or at a new one-word
+    /// top.
     ///
     /// A level created on top summarizes the level below it, so summary bits
     /// stay exact across growth.
@@ -441,8 +440,8 @@ impl Bitset {
     }
 
     /// Check both invariants of the module, that each summary bit is set
-    /// exactly when its word is nonzero and that the levels have the
-    /// documented lengths, and that the count of held positions is exact.
+    /// exactly when its word is nonzero and that the levels have the documented
+    /// lengths, and that the count of held positions is exact.
     #[cfg(test)]
     pub fn assert_invariants(&self, context: &dyn core::fmt::Debug) {
         for (words, summaries) in self.levels.iter().zip(self.levels.iter().skip(1)) {
@@ -475,8 +474,8 @@ impl Bitset {
     }
 }
 
-/// The positions of the set bits of `word`, the word at index `word_index`,
-/// in ascending order.
+/// The positions of the set bits of `word`, the word at index `word_index`, in
+/// ascending order.
 fn word_positions(word_index: usize, word: u64) -> impl Iterator<Item = usize> {
     let mut remaining = word;
     core::iter::from_fn(move || {

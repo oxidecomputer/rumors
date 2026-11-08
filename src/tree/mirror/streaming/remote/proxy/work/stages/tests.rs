@@ -1,6 +1,6 @@
-//! The decoder: the end-of-stream check every decoder runs once its
-//! question queue closes, and how it charges the chunks it parks out of the
-//! room each question set aside.
+//! The decoder: the end-of-stream check every decoder runs once its question
+//! queue closes, and how it charges the chunks it parks out of the room each
+//! question set aside.
 
 use crate::tree::mirror::streaming::message::LaterMatches;
 use std::future::Future;
@@ -37,8 +37,8 @@ use crate::tree::typed::{
     height::{Height, UnderRoot},
 };
 
-/// `frame` from the demultiplexer, holding no permit: a frame that is not
-/// a supply run.
+/// `frame` from the demultiplexer, holding no permit: a frame that is not a
+/// supply run.
 fn bare(frame: Frame) -> Inbound {
     Inbound {
         frame,
@@ -46,9 +46,9 @@ fn bare(frame: Frame) -> Inbound {
     }
 }
 
-/// A decoder that received no question reports a frame already waiting on
-/// its stream as an unasked reply, and its closed channel refuses every
-/// later frame, so no unasked frame is dropped unseen.
+/// A decoder that received no question reports a frame already waiting on its
+/// stream as an unasked reply, and its closed channel refuses every later
+/// frame, so no unasked frame is dropped unseen.
 #[test]
 fn an_unquestioned_decoder_reports_a_waiting_frame() {
     let (mut frames, mut incoming) =
@@ -65,8 +65,8 @@ fn an_unquestioned_decoder_reports_a_waiting_frame() {
     .expect("the check never waits");
 }
 
-/// A decoder that received no question finishes at once on an empty
-/// stream, and its closed channel refuses a frame that arrives afterward.
+/// A decoder that received no question finishes at once on an empty stream, and
+/// its closed channel refuses a frame that arrives afterward.
 #[test]
 fn an_unquestioned_decoder_finishes_on_an_empty_stream() {
     let (mut frames, mut incoming) =
@@ -82,23 +82,23 @@ fn an_unquestioned_decoder_finishes_on_an_empty_stream() {
     .expect("the check never waits");
 }
 
-/// One reply's positional reactions, each a match or a query listing
-/// `entries` children, this side's child count of each position's child,
-/// and after which of its frames the peer pauses.
+/// One reply's positional reactions, each a match or a query listing `entries`
+/// children, this side's child count of each position's child, and after which
+/// of its frames the peer pauses.
 #[derive(Clone, Debug)]
 struct SplitReply {
     /// Each position's reaction: `None` matches, `Some(entries)` queries.
     reactions: Vec<Option<u8>>,
-    /// This side's child count of each position's child, which a match
-    /// shows is the peer's too.
+    /// This side's child count of each position's child, which a match shows is
+    /// the peer's too.
     children: Vec<u8>,
     /// Whether the frames stop arriving after each reaction's frame.
     pauses: Vec<bool>,
 }
 
-/// Replies of one to a dozen positions, each a match or a query listing up
-/// to four children, of children with one to four children each, paused
-/// after any of their frames.
+/// Replies of one to a dozen positions, each a match or a query listing up to
+/// four children, of children with one to four children each, paused after any
+/// of their frames.
 fn split_replies() -> impl Strategy<Value = SplitReply> {
     prop::collection::vec(
         (prop::option::of(0..=4_u8), 1..=4_u8, any::<bool>()),
@@ -119,9 +119,9 @@ fn split_replies() -> impl Strategy<Value = SplitReply> {
     })
 }
 
-/// The listing entries the peer's child at each position contributes to
-/// its grandchild count of the scope: what a query lists, or for a match,
-/// this side's child count, the same on both sides.
+/// The listing entries the peer's child at each position contributes to its
+/// grandchild count of the scope: what a query lists, or for a match, this
+/// side's child count, the same on both sides.
 fn shares(reply: &SplitReply) -> impl Iterator<Item = usize> + '_ {
     reply
         .reactions

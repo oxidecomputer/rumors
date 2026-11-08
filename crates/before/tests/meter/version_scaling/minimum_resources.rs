@@ -2,10 +2,10 @@
 //!
 //! The board judges `min_ticks` against the heap ceiling every operation
 //! shares, which admits a several-fold regression in the bytes each suspended
-//! minimum costs. These checks pin `min_ticks`' own readings on the shapes
-//! that exercise each of its representation choices: the record slack, the
-//! working width up to which a buried reference's chunk is copied, and the
-//! reused buffers that keep allocation counts independent of depth.
+//! minimum costs. These checks pin `min_ticks`' own readings on the shapes that
+//! exercise each of its representation choices: the record slack, the working
+//! width up to which a buried reference's chunk is copied, and the reused
+//! buffers that keep allocation counts independent of depth.
 
 use super::*;
 use before::testing::meter::Encoding;
@@ -24,8 +24,8 @@ const RISING_SPINE_ENTRY_BITS: usize = 40;
 const WIDE_ENTRY_BITS: usize = 320;
 
 /// Absolute peak-heap ceilings in bytes at two depths for `min_ticks` on
-/// `JR(40, d)`, measured ×1.25 (the record and every re-pin's movement live
-/// in the pin commits).
+/// `JR(40, d)`, measured ×1.25 (the record and every re-pin's movement live in
+/// the pin commits).
 ///
 /// Every level after the entry jump is one tick above the last, so a record
 /// trigger keeps each suspended minimum's offset a few bits wide. Widening the
@@ -49,9 +49,9 @@ const COPIED_STEP_BITS: usize = 65;
 /// Every second level suspends a minimum on two two-limb values: the frozen
 /// height `2^65 + 1`, whose chunk `min_ticks` buries, and the range boundary
 /// `2^65` beneath the level's minimum. Both are at most 256 bits wide, so
-/// `min_ticks` copies the chunk into its packed stack and the range minima
-/// copy the boundary once a deeper level covers it: each wide level costs
-/// packed limbs, in proportion to the values' width.
+/// `min_ticks` copies the chunk into its packed stack and the range minima copy
+/// the boundary once a deeper level covers it: each wide level costs packed
+/// limbs, in proportion to the values' width.
 const WIDE_STEP_PAIRS_HEAP_CEILINGS: [usize; 2] = [65_120, 130_080];
 
 /// The closed-form `min_ticks` of the jump-entered rising spine `JR(b, d)`.
@@ -81,9 +81,9 @@ struct HeapRun {
 /// Run `min_ticks` on a generated shape under the allocation meter, checking
 /// the closed form and a liveness floor on the peak.
 ///
-/// The floor is one bit per level the spine suspends: every level's minimum
-/// is held at once at the spine's bottom, so a fold that holds none of them in
-/// the heap is not being metered.
+/// The floor is one bit per level the spine suspends: every level's minimum is
+/// held at once at the spine's bottom, so a fold that holds none of them in the
+/// heap is not being metered.
 fn min_ticks_heap_run(encoded: Encoding, expected: &BigUint, levels: usize) -> HeapRun {
     let version = encoded.version();
     let bytes = version.encode().len();
@@ -126,8 +126,8 @@ fn assert_heap_ceilings(name: &str, runs: [&HeapRun; 2], ceilings: [usize; 2]) {
 /// `min_ticks`' peak heap on `JR(40, d)` stays within its measured ceilings at
 /// two depths.
 ///
-/// The spine suspends one minimum per level, each one tick above the last
-/// after a 40-bit entry jump; this pins the bytes each suspended level costs.
+/// The spine suspends one minimum per level, each one tick above the last after
+/// a 40-bit entry jump; this pins the bytes each suspended level costs.
 #[test]
 fn min_ticks_peak_heap_on_the_rising_spine_stays_within_measured_ceilings() {
     let runs = [RISING_SPINE_SMALL_DEPTH, 2 * RISING_SPINE_SMALL_DEPTH].map(|d| {
@@ -170,8 +170,8 @@ fn min_ticks_peak_heap_on_copied_wide_step_pairs_stays_within_measured_ceilings(
 /// depth, whether the outermost suspended offset is packed inline or stored on
 /// its own.
 ///
-/// The fold's stacks grow by reallocation, and a settlement multiplies into
-/// the answer in place, so a doubled depth adds no allocation. With a 320-bit
+/// The fold's stacks grow by reallocation, and a settlement multiplies into the
+/// answer in place, so a doubled depth adds no allocation. With a 320-bit
 /// entry, every narrow record is pushed directly above the separately stored
 /// wide one, so a push that copies the entry below it into a big integer
 /// allocates once per level and fails here.

@@ -1,28 +1,28 @@
-//! In-process mode: each point's session over an in-memory duplex stream,
-//! timed by each side's own thread CPU clock.
+//! In-process mode: each point's session over an in-memory duplex stream, timed
+//! by each side's own thread CPU clock.
 //!
-//! Emulation measures what a link costs a session; this mode measures what
-//! the session costs each side's processor, with no kernel TCP stack, no
-//! link, and no second process. It builds each point's pair as emulation
-//! does ([`fixture::build`]), sets up the point's transport (TLS 1.3 by
-//! default) over a [`tokio::io::duplex`] stream, and runs the session with
-//! each side on a thread and a current-thread runtime of its own, as two
-//! peer processes would. Each side reads its thread's CPU clock, user and
-//! system time separately, around its session alone, and a [`Counting`]
-//! wrapper beneath TLS counts the writes and reads each side's end of the
-//! stream saw. The process's CPU time from the start until both sessions
-//! have ended is printed too, so that work a session runs on other threads
-//! still shows; each replica is dropped only after every reading.
+//! Emulation measures what a link costs a session; this mode measures what the
+//! session costs each side's processor, with no kernel TCP stack, no link, and
+//! no second process. It builds each point's pair as emulation does
+//! ([`fixture::build`]), sets up the point's transport (TLS 1.3 by default)
+//! over a [`tokio::io::duplex`] stream, and runs the session with each side on
+//! a thread and a current-thread runtime of its own, as two peer processes
+//! would. Each side reads its thread's CPU clock, user and system time
+//! separately, around its session alone, and a [`Counting`] wrapper beneath TLS
+//! counts the writes and reads each side's end of the stream saw. The process's
+//! CPU time from the start until both sessions have ended is printed too, so
+//! that work a session runs on other threads still shows; each replica is
+//! dropped only after every reading.
 //!
-//! The stream holds `--capacity` bytes in each direction, so a side that
-//! writes faster than its peer reads waits, as it would on a socket whose
-//! buffers are full. Nothing crosses a kernel, so a side's system time is
-//! what its own allocations and wake-ups cost.
+//! The stream holds `--capacity` bytes in each direction, so a side that writes
+//! faster than its peer reads waits, as it would on a socket whose buffers are
+//! full. Nothing crosses a kernel, so a side's system time is what its own
+//! allocations and wake-ups cost.
 //!
 //! The point's link and connection axes do not apply and are ignored. Each
-//! session prints one tab-separated line to standard output, after a
-//! header line; nothing is written to disk. Per-thread CPU time needs
-//! Linux; elsewhere the mode refuses to run.
+//! session prints one tab-separated line to standard output, after a header
+//! line; nothing is written to disk. Per-thread CPU time needs Linux; elsewhere
+//! the mode refuses to run.
 
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -52,23 +52,23 @@ struct Side {
     began: Instant,
     /// When it ended on this side.
     ended: Instant,
-    /// The replica, handed back so that dropping its tree falls outside
-    /// every measurement.
+    /// The replica, handed back so that dropping its tree falls outside every
+    /// measurement.
     replica: Rumors<Payload>,
 }
 
 /// What a session cost the whole process: user, then system CPU time.
 ///
-/// Each side's thread clock sees only that thread; a session whose work
-/// runs on other threads shows here.
+/// Each side's thread clock sees only that thread; a session whose work runs on
+/// other threads shows here.
 type ProcessCpu = (Duration, Duration);
 
 /// Runs `repetitions` sessions of each point, printing a line per session.
 ///
 /// # Errors
 ///
-/// If this platform has no per-thread CPU clock, or a fixture, handshake
-/// or session fails.
+/// If this platform has no per-thread CPU clock, or a fixture, handshake or
+/// session fails.
 pub fn run(points: &[(String, Point)], repetitions: u32, capacity: usize) -> Result<()> {
     ensure!(
         cfg!(target_os = "linux"),
@@ -122,12 +122,12 @@ fn build(point: &Point) -> Result<(Rumors<Payload>, Rumors<Payload>)> {
     })
 }
 
-/// Reconciles `a` and `b` once over a duplex stream of `capacity` bytes
-/// each way, returning the wall time, the process's CPU time, and what
-/// each side measured.
+/// Reconciles `a` and `b` once over a duplex stream of `capacity` bytes each
+/// way, returning the wall time, the process's CPU time, and what each side
+/// measured.
 ///
-/// The wall time runs from the first side's start to the last side's end;
-/// the process's CPU time from the start until both sessions have ended.
+/// The wall time runs from the first side's start to the last side's end; the
+/// process's CPU time from the start until both sessions have ended.
 fn session(
     a: Rumors<Payload>,
     b: Rumors<Payload>,
@@ -152,9 +152,8 @@ fn session(
     Ok((wall, process, [a, b]))
 }
 
-/// Runs one side on a thread of its own: completes its end of the TLS
-/// handshake as `role` (none for plain streams), waits at `start`, and
-/// gossips once.
+/// Runs one side on a thread of its own: completes its end of the TLS handshake
+/// as `role` (none for plain streams), waits at `start`, and gossips once.
 fn spawn(
     peer: Rumors<Payload>,
     stream: DuplexStream,
@@ -195,9 +194,9 @@ fn spawn(
     }))
 }
 
-/// Gossips once over `stream`, after every side has reached `start`,
-/// reading this thread's CPU clock, the time, and `tally` around the
-/// session alone: dropping the replica afterwards is not the session's.
+/// Gossips once over `stream`, after every side has reached `start`, reading
+/// this thread's CPU clock, the time, and `tally` around the session alone:
+/// dropping the replica afterwards is not the session's.
 async fn gossip<S>(peer: Rumors<Payload>, stream: S, tally: &Tally, start: &Barrier) -> Result<Side>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,

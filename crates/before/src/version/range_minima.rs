@@ -27,10 +27,10 @@
 //! learns when each one begins and ends. An emission reports whether it begins
 //! a new innermost distinct minimum, and calls back once for each distinct
 //! minimum it ends, innermost first. A close reports whether it ends the
-//! innermost one. Every distinct minimum begins once and ends once, and the
-//! one that ends is always the newest that has not yet ended, so the client's
-//! state forms a stack whose top is the innermost minimum. Callbacks supply
-//! client work outside this module's arithmetic bound.
+//! innermost one. Every distinct minimum begins once and ends once, and the one
+//! that ends is always the newest that has not yet ended, so the client's state
+//! forms a stack whose top is the innermost minimum. Callbacks supply client
+//! work outside this module's arithmetic bound.
 //!
 //! # Follow one minimum relative to the running height
 //!
@@ -42,8 +42,8 @@
 //!
 //! Optional *followers* hold `A - X` for fixed client values `X`. They move
 //! with the anchor, so their abstract value follows the minimum as `m - X`.
-//! Resolving the deferred distance moves the gap and every follower together
-//! to `A = m`. Expressions in which the deferred terms cancel can use the
+//! Resolving the deferred distance moves the gap and every follower together to
+//! `A = m`. Expressions in which the deferred terms cancel can use the
 //! anchor-relative values directly.
 //!
 //! # Updating the ranges
@@ -65,23 +65,22 @@
 //!
 //! Version heights have arbitrary precision. A wide early delta followed by
 //! many tiny deltas must not cause a full-width traversal for every later
-//! event. Under `suanpan`'s [cost rules](suanpan#costs), an accumulator
-//! update costs what it adds, not its receiver's width, and a sign read
-//! costs amortized O(1). Every update here is at shift zero, which adds no
-//! logarithm, except the rebuild of a copied boundary: shifted updates into a
-//! fresh accumulator of at most five limbs. Comparisons use leading digits
-//! for well-separated widths, and consuming merges retain the wider buffer
-//! while reading the narrower one.
+//! event. Under `suanpan`'s [cost rules](suanpan#costs), an accumulator update
+//! costs what it adds, not its receiver's width, and a sign read costs
+//! amortized O(1). Every update here is at shift zero, which adds no logarithm,
+//! except the rebuild of a copied boundary: shifted updates into a fresh
+//! accumulator of at most five limbs. Comparisons use leading digits for
+//! well-separated widths, and consuming merges retain the wider buffer while
+//! reading the narrower one.
 //!
 //! Each crossed boundary is consumed permanently; each closed boundary moves
 //! into the deferred distance once. Storing or retrieving a boundary costs a
-//! constant, because a boundary is copied only when a later push covers it,
-//! and only up to a bounded width. Equal ranges use compact counts. For a
-//! validated Version, arithmetic work is therefore amortized linear in encoded
-//! value bits plus topology events, and tracker-owned storage is linear in
-//! those inputs; state a client keeps per distinct minimum remains its own
-//! responsibility. Depth alone does not multiply the cost of a shared wide
-//! minimum.
+//! constant, because a boundary is copied only when a later push covers it, and
+//! only up to a bounded width. Equal ranges use compact counts. For a validated
+//! Version, arithmetic work is therefore amortized linear in encoded value bits
+//! plus topology events, and tracker-owned storage is linear in those inputs;
+//! state a client keeps per distinct minimum remains its own responsibility.
+//! Depth alone does not multiply the cost of a shared wide minimum.
 
 use core::cmp::Ordering;
 
@@ -152,8 +151,8 @@ impl RangeMinima {
 
     /// Advance the running height without changing any minimum.
     ///
-    /// The fold reads `delta`, not the potentially wider accumulated gap.
-    /// With no armed range there is no anchor, so the change needs no storage.
+    /// The fold reads `delta`, not the potentially wider accumulated gap. With
+    /// no armed range there is no anchor, so the change needs no storage.
     pub fn fold_height(&mut self, delta: &BigInt) {
         if self.armed() {
             self.anchor.fold_height(delta);
@@ -197,9 +196,9 @@ impl RangeMinima {
     /// Give pending ranges their first minimum at `v = h - below`.
     ///
     /// The owned `below` becomes the new height gap. With an existing anchor,
-    /// the displaced gap supplies `v - A = old_gap - below`; accounting for
-    /// any deferred distance then yields the connecting difference `v - m`.
-    /// Returns and calls back as [`Self::arm_at_height`] does.
+    /// the displaced gap supplies `v - A = old_gap - below`; accounting for any
+    /// deferred distance then yields the connecting difference `v - m`. Returns
+    /// and calls back as [`Self::arm_at_height`] does.
     pub fn arm_below<C>(
         &mut self,
         below: Accumulator,
@@ -253,7 +252,8 @@ impl RangeMinima {
         }
     }
 
-    /// Whether emitting at the current height would lower the innermost minimum.
+    /// Whether emitting at the current height would lower the innermost
+    /// minimum.
     ///
     /// A deferred distance may be resolved to decide comparable-width values;
     /// the minimum itself is unchanged by this query.
@@ -275,14 +275,15 @@ impl RangeMinima {
         self.propagate_drop(decrease, context, end);
     }
 
-    /// Carry a positive decrease from the innermost minimum toward outer ranges.
+    /// Carry a positive decrease from the innermost minimum toward outer
+    /// ranges.
     ///
-    /// The anchor already describes the new minimum. Equal boundaries pass
-    /// the decrease through unchanged. A positive boundary either retains the
-    /// part above the decrease, transmits the remaining decrease outward, or
+    /// The anchor already describes the new minimum. Equal boundaries pass the
+    /// decrease through unchanged. A positive boundary either retains the part
+    /// above the decrease, transmits the remaining decrease outward, or
     /// disappears exactly at equality. Every vanished boundary ends the
-    /// distinct minimum outside it, and all resulting zero boundaries merge into
-    /// one run.
+    /// distinct minimum outside it, and all resulting zero boundaries merge
+    /// into one run.
     fn propagate_drop<C>(
         &mut self,
         mut decrease: Positive,
@@ -349,7 +350,8 @@ impl RangeMinima {
         }
     }
 
-    /// Make the anchor equal the true minimum, updating the gap and all followers.
+    /// Make the anchor equal the true minimum, updating the gap and all
+    /// followers.
     pub fn resolve_deferred(&mut self) {
         self.anchor.resolve();
     }

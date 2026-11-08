@@ -9,9 +9,9 @@ use super::{Absolute, Integrand, NegativePart, Signed};
 ///
 /// The coefficient is zero or has the sign of the new difference `D'`, and
 /// magnitude at most two, as `Integrator::jump` requires when it applies the
-/// correction as a shift of zero or one bit. Equivalently, each `sigma` lies
-/// in `{-1, 0, 1}` and is monotone over `Less`, `Equal`, `Greater`, which the
-/// test checks directly too.
+/// correction as a shift of zero or one bit. Equivalently, each `sigma` lies in
+/// `{-1, 0, 1}` and is monotone over `Less`, `Equal`, `Greater`, which the test
+/// checks directly too.
 #[test]
 #[allow(clippy::type_complexity)]
 fn every_sign_change_corrects_nonnegatively() {

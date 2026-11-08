@@ -1,19 +1,18 @@
 //! Deterministic tree-shape staging for the wire-pin fixtures.
 //!
 //! A leaf's tree path is a pure function of its version and its network's
-//! secret, and a staged universe's secret and versions are a pure function
-//! of the staging script (the seeded network, the fork points, the send
-//! order) — payload bytes steer nothing. A fixture therefore stages a
-//! required shape in three steps:
-//! send a pool of messages, search the created versions for ones whose
-//! paths satisfy the shape, and redact the rest. Same script, same
-//! versions, same winners, every run: the searches here are deterministic,
-//! and each fixture's self-checks still verify the landed shape.
+//! secret, and a staged universe's secret and versions are a pure function of
+//! the staging script (the seeded network, the fork points, the send order) —
+//! payload bytes steer nothing. A fixture therefore stages a required shape in
+//! three steps: send a pool of messages, search the created versions for ones
+//! whose paths satisfy the shape, and redact the rest. Same script, same
+//! versions, same winners, every run: the searches here are deterministic, and
+//! each fixture's self-checks still verify the landed shape.
 
 use rumors::{Rumors, Version};
 
-/// A leaf's tree path in `network`'s network: its version's hash, keyed by
-/// the network's secret, as the library computes it.
+/// A leaf's tree path in `network`'s network: its version's hash, keyed by the
+/// network's secret, as the library computes it.
 pub fn leaf_path(network: &Rumors<u64>, version: &Version) -> [u8; 32] {
     rumors::testing::leaf_path(&network.snapshot(), version)
 }
@@ -23,15 +22,15 @@ pub fn path_radix(network: &Rumors<u64>, version: &Version) -> u8 {
     leaf_path(network, version)[0]
 }
 
-/// Send `count` messages carrying the payloads `from..from + count`, as
-/// one batch: one fresh version per payload, in payload order.
+/// Send `count` messages carrying the payloads `from..from + count`, as one
+/// batch: one fresh version per payload, in payload order.
 pub fn send_pool(rumors: &Rumors<u64>, from: u64, count: u64) {
     rumors.send_all(from..from + count).unwrap();
 }
 
-/// The live pool as `(payload, version)` in ascending payload order,
-/// restricted to payloads in `from..from + count`: the deterministic
-/// search order for the shape searches.
+/// The live pool as `(payload, version)` in ascending payload order, restricted
+/// to payloads in `from..from + count`: the deterministic search order for the
+/// shape searches.
 pub fn pool(rumors: &Rumors<u64>, from: u64, count: u64) -> Vec<(u64, Version)> {
     let mut pool: Vec<(u64, Version)> = rumors
         .snapshot()
@@ -43,8 +42,8 @@ pub fn pool(rumors: &Rumors<u64>, from: u64, count: u64) -> Vec<(u64, Version)> 
     pool
 }
 
-/// Redact every live message whose payload lies in `from..from + count`
-/// but is not listed in `keep`: the pool cleanup after a shape search.
+/// Redact every live message whose payload lies in `from..from + count` but is
+/// not listed in `keep`: the pool cleanup after a shape search.
 pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
     let losers: Vec<Version> = rumors
         .snapshot()
@@ -55,14 +54,14 @@ pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
     rumors.redact_all(&losers);
 }
 
-/// The first pool pair (in payload order) whose paths in `network`'s
-/// network agree on the leading `shared` bytes.
+/// The first pool pair (in payload order) whose paths in `network`'s network
+/// agree on the leading `shared` bytes.
 ///
 /// `distinct_next` additionally requires the byte after the shared span to
 /// differ (a split exactly one level below).
 ///
-/// Panics if the pool holds no such pair: enlarge the pool — the verdict
-/// is deterministic, never flaky.
+/// Panics if the pool holds no such pair: enlarge the pool — the verdict is
+/// deterministic, never flaky.
 pub fn shaped_pair(
     network: &Rumors<u64>,
     pool: &[(u64, Version)],
@@ -81,11 +80,11 @@ pub fn shaped_pair(
     panic!("no pool pair shares a {shared}-byte path prefix: enlarge the pool");
 }
 
-/// The first `count` pool payloads whose root radix in `network`'s network
-/// is not `avoid`: ballast that stays out of a fixture's disputed subtree.
+/// The first `count` pool payloads whose root radix in `network`'s network is
+/// not `avoid`: ballast that stays out of a fixture's disputed subtree.
 ///
-/// Panics if the pool runs dry: enlarge it — the verdict is
-/// deterministic, never flaky.
+/// Panics if the pool runs dry: enlarge it — the verdict is deterministic,
+/// never flaky.
 pub fn ballast_avoiding(
     network: &Rumors<u64>,
     pool: &[(u64, Version)],

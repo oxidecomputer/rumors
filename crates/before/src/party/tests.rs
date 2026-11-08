@@ -61,12 +61,12 @@ fn oracle_union_all(parties: impl IntoIterator<Item = tree::Party>) -> tree::Par
 /// Compare `join_all` with both independent semantic models.
 ///
 /// All three implementations must agree on success. On failure, the balanced
-/// production fold may group inputs differently from the sequential models;
-/// the contract requires each result to return every region it did not retain,
-/// so each model must conserve the complete union. Production must also
-/// conserve multiplicity: every point is owned as many times across the final
-/// receiver and returned parties as across the initial receiver and inputs, so
-/// no region is lost or comes back twice.
+/// production fold may group inputs differently from the sequential models; the
+/// contract requires each result to return every region it did not retain, so
+/// each model must conserve the complete union. Production must also conserve
+/// multiplicity: every point is owned as many times across the final receiver
+/// and returned parties as across the initial receiver and inputs, so no region
+/// is lost or comes back twice.
 fn assert_join_all_matches_all_models(mut acc: Party, inputs: Vec<Party>) {
     let initial = to_oracle_party(&acc);
     let oracle_inputs: Vec<tree::Party> = inputs.iter().map(to_oracle_party).collect();
@@ -180,8 +180,8 @@ fn asymmetric_fork_keeps_one_byte_for_its_one_byte_half() {
 /// The deepest operand the sizing families build.
 const MAX_SIZING_DEPTH: usize = 2_048;
 
-/// Describe `party`'s spare capacity, if its buffer holds more than its
-/// encoded bytes.
+/// Describe `party`'s spare capacity, if its buffer holds more than its encoded
+/// bytes.
 ///
 /// The seed's static storage has no allocation to inspect. The caller must
 /// already have dropped every other value sharing the result's buffer. The
@@ -495,8 +495,9 @@ mod constructed {
 
 /// Deep constructed parties keep synchronization equal to join then fork.
 ///
-/// The cases cover deep collapse, whole-branch reuse, overlap detected at depth,
-/// and empty or full operands. Kilolevel inputs also check iterative traversal.
+/// The cases cover deep collapse, whole-branch reuse, overlap detected at
+/// depth, and empty or full operands. Kilolevel inputs also check iterative
+/// traversal.
 mod sync_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node, spine};
     use super::*;
@@ -507,8 +508,8 @@ mod sync_constructed {
         Party::from_test_bits(bits.clone())
     }
 
-    /// The fused walk against its composition on one party pair, in both operand
-    /// orders (byte equality, `None` arms included).
+    /// The fused walk against its composition on one party pair, in both
+    /// operand orders (byte equality, `None` arms included).
     fn assert_matches_composition(a: &BitsWriter, b: &BitsWriter) {
         for (x, y) in [(a, b), (b, a)] {
             let fused = party(x).sync(&party(y));
@@ -634,12 +635,12 @@ mod without_constructed {
         }
     }
 
-    /// A deep `self` subtree under an unowned `other` cover survives whole:
-    /// the remainder is `self` itself, byte for byte, at every scale.
+    /// A deep `self` subtree under an unowned `other` cover survives whole: the
+    /// remainder is `self` itself, byte for byte, at every scale.
     ///
-    /// `self` is the leftmost `2^-k` cell and `other` owns only the right
-    /// half. The whole spine therefore survives and can be copied without
-    /// rebuilding its regions.
+    /// `self` is the leftmost `2^-k` cell and `other` owns only the right half.
+    /// The whole spine therefore survives and can be copied without rebuilding
+    /// its regions.
     #[test]
     fn deep_subtree_under_unowned_cover_splices_verbatim() {
         for k in SCALES {

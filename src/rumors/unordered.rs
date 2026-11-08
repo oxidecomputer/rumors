@@ -14,9 +14,9 @@ use super::channel::Channel;
 /// This enumerates every message not causally contained in the starting
 /// checkpoint, then every message learned afterwards: by local
 /// [`send`](crate::Rumors::send), by gossip, through any handle. Once the
-/// [`Peer`](crate::Peer) and every [`Rumors`](crate::Rumors) have dropped
-/// and no further change is possible, it yields whatever remains and ends
-/// with `None`.
+/// [`Peer`](crate::Peer) and every [`Rumors`](crate::Rumors) have dropped and
+/// no further change is possible, it yields whatever remains and ends with
+/// `None`.
 ///
 /// Each message arrives as an owned `(Version, Arc<T>)` — both handles are
 /// cheap reference bumps into shared storage — through either face:
@@ -43,7 +43,8 @@ pub struct UnorderedMessages<T: Send + Sync + 'static> {
 
 /// Summarize an observer without requiring its payloads to be debuggable.
 impl<T: Send + Sync + 'static> std::fmt::Debug for UnorderedMessages<T> {
-    /// Formats its completed frontier and whether a snapshot is being delivered.
+    /// Formats its completed frontier and whether a snapshot is being
+    /// delivered.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnorderedMessages")
             .field("checkpoint", &self.checkpoint)
@@ -52,7 +53,8 @@ impl<T: Send + Sync + 'static> std::fmt::Debug for UnorderedMessages<T> {
     }
 }
 
-/// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
+/// The outcome of [`UnorderedMessages::try_next`] or
+/// [`CausalMessages::try_next`].
 ///
 /// A non-blocking step that either yields a message or says why it can't.
 ///
@@ -68,8 +70,8 @@ pub enum TryNext<T> {
     Ended,
 }
 
-/// One in-progress pass: the frozen walk over its snapshot, and the
-/// snapshot's ceiling to absorb into the checkpoint when the walk drains.
+/// One in-progress pass: the frozen walk over its snapshot, and the snapshot's
+/// ceiling to absorb into the checkpoint when the walk drains.
 struct Pass {
     /// The remaining messages beyond the pass's starting checkpoint.
     walk: RangeOwned<causally::Down>,
@@ -88,9 +90,9 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
         }
     }
 
-    /// Open a pass over the latest snapshot if none is in progress. The
-    /// watch read guard lives only long enough to freeze the walk (a root
-    /// handle clone) and capture the ceiling.
+    /// Open a pass over the latest snapshot if none is in progress. The watch
+    /// read guard lives only long enough to freeze the walk (a root handle
+    /// clone) and capture the ceiling.
     fn open_pass(
         pass: &mut Option<Pass>,
         rx: &mut watch::Receiver<Inner<T>>,
@@ -112,15 +114,15 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// Resuming from this checkpoint will never skip messages, but it may
     /// replay an arbitrary number of them.
     ///
-    /// Folding the yielded versions yourself is not a substitute: the
-    /// causal order is partial, not total, so "the last version I saw" is
-    /// not well-defined, and such a fold is not a causally closed
-    /// boundary: resuming from it could skip messages. This checkpoint
-    /// moves only after a complete pass.
+    /// Folding the yielded versions yourself is not a substitute: the causal
+    /// order is partial, not total, so "the last version I saw" is not
+    /// well-defined, and such a fold is not a causally closed boundary:
+    /// resuming from it could skip messages. This checkpoint moves only after a
+    /// complete pass.
     ///
-    /// After the observer ends (`None`), this is the complete final
-    /// frontier. To merely pause in-process, just hold the observer: its
-    /// idle state is constant-size, and the checkpoint stays inside it.
+    /// After the observer ends (`None`), this is the complete final frontier.
+    /// To merely pause in-process, just hold the observer: its idle state is
+    /// constant-size, and the checkpoint stays inside it.
     ///
     /// # Examples
     ///
@@ -181,8 +183,8 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
 }
 
 /// Yields owned `(Version, Arc<T>)` pairs: cheap handles into the shared
-/// storage (the version's buffer and the message's allocation are shared,
-/// not copied).
+/// storage (the version's buffer and the message's allocation are shared, not
+/// copied).
 impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
     type Item = (Version, Arc<T>);
 

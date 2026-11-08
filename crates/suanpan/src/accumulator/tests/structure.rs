@@ -1,10 +1,9 @@
 //! Structural facts about stored forms that cost claims rest on.
 //!
-//! Each test states a fact about the representation an operation leaves
-//! behind: that a query leaves a known zero, that reading an operand compacts
-//! it, and that two shapes the fuel claims compare have the stored widths
-//! those claims assume. The values themselves are checked elsewhere; these
-//! check the forms.
+//! Each test states a fact about the representation an operation leaves behind:
+//! that a query leaves a known zero, that reading an operand compacts it, and
+//! that two shapes the fuel claims compare have the stored widths those claims
+//! assume. The values themselves are checked elsewhere; these check the forms.
 
 use core::cmp::Ordering;
 
@@ -96,8 +95,8 @@ proptest! {
 /// compacts it to one digit.
 ///
 /// The operand's comparison with zero cannot decide on its top digit, so it
-/// folds the two digits into one, which holds `2^32 + 1` below the digit
-/// limit; the operand keeps that form for every later read.
+/// folds the two digits into one, which holds `2^32 + 1` below the digit limit;
+/// the operand keeps that form for every later read.
 #[test]
 fn reading_a_two_digit_operand_compacts_it_to_one_digit() {
     let mut operand = fresh(true);

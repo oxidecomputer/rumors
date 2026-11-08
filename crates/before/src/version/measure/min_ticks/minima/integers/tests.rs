@@ -7,9 +7,9 @@ use proptest::prelude::*;
 
 use super::{IntegerStack, Magnitude, PACKED_BITS};
 
-/// A signed integer whose magnitude spans 0 to 300 bits, with every bit
-/// pattern reachable at each width, so both sides of [`PACKED_BITS`] and
-/// every piece and limb boundary occur.
+/// A signed integer whose magnitude spans 0 to 300 bits, with every bit pattern
+/// reachable at each width, so both sides of [`PACKED_BITS`] and every piece
+/// and limb boundary occur.
 fn arb_integer() -> impl Strategy<Value = BigInt> {
     (
         any::<bool>(),

@@ -24,8 +24,8 @@ async fn connected(transport: Transport) -> (End, End) {
 }
 
 /// Both ends of one loopback connection, established through `transport`'s
-/// stack after a warm-up of `warm_bytes` each way, if any, the accepting
-/// end first.
+/// stack after a warm-up of `warm_bytes` each way, if any, the accepting end
+/// first.
 async fn connected_warm(transport: Transport, warm_bytes: Option<u64>) -> (End, End) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -55,13 +55,13 @@ fn transports() -> impl Strategy<Value = Transport> {
     any::<bool>().prop_map(|tls| Transport { tls })
 }
 
-/// The divisor of the case count of a property whose cases each establish
-/// a loopback connection, over TLS in about half of them, and move up to
-/// tens of kilobytes across it.
+/// The divisor of the case count of a property whose cases each establish a
+/// loopback connection, over TLS in about half of them, and move up to tens of
+/// kilobytes across it.
 ///
-/// Beyond its bytes, a case costs a TCP handshake on a fresh runtime, and
-/// over TLS a key exchange and a signature, so it runs one case per this
-/// many of the configured count.
+/// Beyond its bytes, a case costs a TCP handshake on a fresh runtime, and over
+/// TLS a key exchange and a signature, so it runs one case per this many of the
+/// configured count.
 const CONNECTION_DIVISOR: u32 = 16;
 
 divided_proptest! {
@@ -102,8 +102,8 @@ divided_proptest! {
     }
 }
 
-/// Writes and flushes `sent` while reading the peer's payload, which must
-/// equal `expected`.
+/// Writes and flushes `sent` while reading the peer's payload, which must equal
+/// `expected`.
 async fn exchange(read: &mut ReadHalf, write: &mut WriteHalf, sent: &[u8], expected: &[u8]) {
     let send = async {
         write.write_all(sent).await.expect("write");
@@ -115,15 +115,15 @@ async fn exchange(read: &mut ReadHalf, write: &mut WriteHalf, sent: &[u8], expec
     assert_eq!(received, expected, "the payload arrives intact");
 }
 
-/// The bytes each side's warm-up sends: several of the warm-up's chunks,
-/// so it outsizes the read buffer and any TLS read-ahead many times over.
+/// The bytes each side's warm-up sends: several of the warm-up's chunks, so it
+/// outsizes the read buffer and any TLS read-ahead many times over.
 const WARM_BYTES: u64 = 4 * WARM_CHUNK as u64;
 
 /// The most plaintext one TLS record carries (RFC 8446, section 5.1).
 const TLS_RECORD_PLAINTEXT: usize = 1 << 14;
 
-/// The least a TLS 1.3 record adds to its plaintext: a five-byte header,
-/// the one-byte inner content type, and a sixteen-byte AEAD tag.
+/// The least a TLS 1.3 record adds to its plaintext: a five-byte header, the
+/// one-byte inner content type, and a sixteen-byte AEAD tag.
 const TLS_RECORD_OVERHEAD: usize = 5 + 1 + 16;
 
 divided_proptest! {
@@ -176,8 +176,8 @@ divided_proptest! {
 /// socket as one write operation.
 ///
 /// The counting wrapper forwards vectored writes and reports the socket as
-/// vectored, so a write the library hands over as slices reaches the
-/// kernel as one system call, not one per slice.
+/// vectored, so a write the library hands over as slices reaches the kernel as
+/// one system call, not one per slice.
 #[test]
 fn a_vectored_write_is_one_socket_write() {
     let counts = block_on(async {

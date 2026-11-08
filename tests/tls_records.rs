@@ -1,17 +1,17 @@
-//! Whether a session over TLS 1.3, at the default write batch range,
-//! writes records that each fit one TCP segment while its batches keep to
-//! the segment size, and records within TLS's largest plaintext otherwise.
+//! Whether a session over TLS 1.3, at the default write batch range, writes
+//! records that each fit one TCP segment while its batches keep to the segment
+//! size, and records within TLS's largest plaintext otherwise.
 //!
-//! The default write batch range ([`WRITE_BATCH_RANGE`]) starts at the
-//! most plaintext one TLS 1.3 record can carry while the record fills one
-//! TCP segment on a 1,500-byte Ethernet link over IPv4, and ends at the
-//! most plaintext any TLS 1.3 record carries. This suite runs one session
-//! over rustls, through `tokio-rustls`, on an in-process duplex stream,
-//! and parses the ciphertext each side writes beneath TLS into records,
-//! from their headers. It checks the claims the default rests on: every
-//! application-data record of items that each fit the segment size fits
-//! one segment, and every other record carries at most the largest batch,
-//! unless it carries a single item larger than its ceiling.
+//! The default write batch range ([`WRITE_BATCH_RANGE`]) starts at the most
+//! plaintext one TLS 1.3 record can carry while the record fills one TCP
+//! segment on a 1,500-byte Ethernet link over IPv4, and ends at the most
+//! plaintext any TLS 1.3 record carries. This suite runs one session over
+//! rustls, through `tokio-rustls`, on an in-process duplex stream, and parses
+//! the ciphertext each side writes beneath TLS into records, from their
+//! headers. It checks the claims the default rests on: every application-data
+//! record of items that each fit the segment size fits one segment, and every
+//! other record carries at most the largest batch, unless it carries a single
+//! item larger than its ceiling.
 //!
 //! Whether the kernel then sends each record in one segment depends on the
 //! socket and the path, which a library test cannot see.
@@ -33,16 +33,16 @@ use rustls::{ClientConfig, RootCertStore, ServerConfig};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, DuplexStream, ReadBuf};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
-/// Bytes each direction of the duplex stream buffers: more than the
-/// session sends in one direction, so no write waits for its reader.
+/// Bytes each direction of the duplex stream buffers: more than the session
+/// sends in one direction, so no write waits for its reader.
 const CAPACITY: usize = 4 << 20;
 
 /// The name the server's certificate is issued for.
 const SERVER_NAME: &str = "localhost";
 
-/// The TCP payload of one full-size segment on a 1,500-byte Ethernet link
-/// over IPv4 with the TCP timestamps option: the MTU less 20 bytes of IPv4
-/// header, 20 of TCP header, and 12 of timestamps.
+/// The TCP payload of one full-size segment on a 1,500-byte Ethernet link over
+/// IPv4 with the TCP timestamps option: the MTU less 20 bytes of IPv4 header,
+/// 20 of TCP header, and 12 of timestamps.
 const TCP_SEGMENT_PAYLOAD: usize = 1_500 - 20 - 20 - 12;
 
 /// The bytes of a TLS record header: content type, version, and length.
@@ -52,19 +52,19 @@ const RECORD_HEADER: usize = 5;
 /// content type and the 16-byte AEAD tag.
 const SEALING: usize = 1 + 16;
 
-/// The outer content type of every TLS 1.3 record sent after the
-/// handshake: application data.
+/// The outer content type of every TLS 1.3 record sent after the handshake:
+/// application data.
 const APPLICATION_DATA: u8 = 23;
 
 /// The most plaintext one TLS record carries: rustls splits larger writes.
 const MAX_FRAGMENT: usize = 1 << 14;
 
-/// The segment size of the default write batch range: the ceiling of a
-/// batch that starts with an item at most this large, while nothing waits.
+/// The segment size of the default write batch range: the ceiling of a batch
+/// that starts with an item at most this large, while nothing waits.
 const SEGMENT: usize = *WRITE_BATCH_RANGE.start();
 
-/// The largest batch of the default write batch range: the ceiling of
-/// every other batch.
+/// The largest batch of the default write batch range: the ceiling of every
+/// other batch.
 const LARGEST: usize = *WRITE_BATCH_RANGE.end();
 
 /// One TLS record as it crossed the wire.
@@ -134,12 +134,11 @@ struct Recorded {
     records: Arc<Mutex<Records>>,
 }
 
-/// Fail on a write or flush that waits, passing every other outcome
-/// through.
+/// Fail on a write or flush that waits, passing every other outcome through.
 ///
-/// After a wait, the session's batches grow to the largest batch whatever
-/// their first item, which [`records_keep_to_the_default_batch_range`]
-/// does not model; the duplex stream's capacity rules it out.
+/// After a wait, the session's batches grow to the largest batch whatever their
+/// first item, which [`records_keep_to_the_default_batch_range`] does not
+/// model; the duplex stream's capacity rules it out.
 fn never_waits<T>(poll: Poll<T>) -> Poll<T> {
     assert!(
         poll.is_ready(),
@@ -185,8 +184,8 @@ impl AsyncWrite for Recorded {
     }
 }
 
-/// An observer that records the length of every item its sessions send,
-/// in the order they are written.
+/// An observer that records the length of every item its sessions send, in the
+/// order they are written.
 ///
 /// Every sent stream's handler runs in the task that writes that stream's
 /// items, so one shared list records the write order.
@@ -214,11 +213,11 @@ impl StreamObserver for ItemLog {
     }
 }
 
-/// A server and a client configuration for TLS 1.3 alone, the client
-/// trusting the server's freshly generated certificate.
+/// A server and a client configuration for TLS 1.3 alone, the client trusting
+/// the server's freshly generated certificate.
 ///
-/// The server sends no session tickets, so every record after the
-/// handshake carries the session's bytes.
+/// The server sends no session tickets, so every record after the handshake
+/// carries the session's bytes.
 fn configs() -> (Arc<ServerConfig>, Arc<ClientConfig>) {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let certified = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_owned()])
@@ -245,8 +244,8 @@ fn configs() -> (Arc<ServerConfig>, Arc<ClientConfig>) {
     (Arc::new(server), Arc::new(client))
 }
 
-/// What one side wrote: its items in order, and the application-data
-/// records its ciphertext carried after the handshake.
+/// What one side wrote: its items in order, and the application-data records
+/// its ciphertext carried after the handshake.
 struct Side {
     /// The length of each item the session wrote, in order.
     items: Vec<usize>,
@@ -282,8 +281,8 @@ where
     Side { items, records }
 }
 
-/// Reconcile two disjoint sets of 5,000 messages over TLS 1.3 at the
-/// default write batch range, and return what each side wrote.
+/// Reconcile two disjoint sets of 5,000 messages over TLS 1.3 at the default
+/// write batch range, and return what each side wrote.
 fn session() -> [Side; 2] {
     let (a, b) = pair(Shape::symmetric(5_000), default::SYNC_MEMORY_BUDGET);
     let (server, client) = configs();
@@ -322,40 +321,39 @@ fn session() -> [Side; 2] {
     })
 }
 
-/// At the default write batch range, a session's TLS 1.3 records that keep
-/// to the segment size each fit one TCP segment, and its other records
-/// carry at most the largest batch.
+/// At the default write batch range, a session's TLS 1.3 records that keep to
+/// the segment size each fit one TCP segment, and its other records carry at
+/// most the largest batch.
 ///
-/// A record carrying a single item larger than its ceiling is the one
-/// exception to either bound.
+/// A record carrying a single item larger than its ceiling is the one exception
+/// to either bound.
 ///
-/// Each record's plaintext is the record's payload less its inner content
-/// type and AEAD tag, and must be whole items the session wrote, in order:
-/// each flush of the session's buffer reaches TLS as one write, which
-/// rustls seals as one record while it is at most a fragment. No write
-/// beneath TLS waits ([`never_waits`]), so a batch's ceiling follows from
-/// its first item and the batches before it: the segment size when the
-/// item fits it and fewer than [`CUTS_TO_GROW`] batches in a row before it
-/// were cut at their ceiling, and the largest batch otherwise. A batch was
-/// cut at its ceiling only if the item after it would not have fitted
-/// beside it under that ceiling, so only if it would not have fitted under
-/// the smallest ceiling the batch could have had: the segment size when its
-/// first item fits it. The test counts the records in a row that may have
-/// been cut by that measure, which are at least as many as were, and
-/// predicts the segment size for every record whose first item fits it and
-/// that follows fewer than [`CUTS_TO_GROW`] of them: where it predicts the
-/// segment size, the session must have used it, and elsewhere the largest
+/// Each record's plaintext is the record's payload less its inner content type
+/// and AEAD tag, and must be whole items the session wrote, in order: each
+/// flush of the session's buffer reaches TLS as one write, which rustls seals
+/// as one record while it is at most a fragment. No write beneath TLS waits
+/// ([`never_waits`]), so a batch's ceiling follows from its first item and the
+/// batches before it: the segment size when the item fits it and fewer than
+/// [`CUTS_TO_GROW`] batches in a row before it were cut at their ceiling, and
+/// the largest batch otherwise. A batch was cut at its ceiling only if the item
+/// after it would not have fitted beside it under that ceiling, so only if it
+/// would not have fitted under the smallest ceiling the batch could have had:
+/// the segment size when its first item fits it. The test counts the records in
+/// a row that may have been cut by that measure, which are at least as many as
+/// were, and predicts the segment size for every record whose first item fits
+/// it and that follows fewer than [`CUTS_TO_GROW`] of them: where it predicts
+/// the segment size, the session must have used it, and elsewhere the largest
 /// batch bounds either ceiling. A record predicted to keep to the segment size
-/// must fit the segment payload on the wire, header included, or carry its
-/// one item alone; any other record must carry at most the largest batch
-/// of plaintext, or one item. The segment payload is derived here from the
-/// link's headers, independently of the library's constant, so the test
-/// also checks that derivation.
+/// must fit the segment payload on the wire, header included, or carry its one
+/// item alone; any other record must carry at most the largest batch of
+/// plaintext, or one item. The segment payload is derived here from the link's
+/// headers, independently of the library's constant, so the test also checks
+/// that derivation.
 ///
 /// So that the bound cannot hold vacuously, the session must write many
-/// records, and some must be ones the segment size ended, where the next
-/// item would not have fitted: batches reach the ceiling, rather than
-/// each record carrying a frame or two.
+/// records, and some must be ones the segment size ended, where the next item
+/// would not have fitted: batches reach the ceiling, rather than each record
+/// carrying a frame or two.
 #[test]
 fn records_keep_to_the_default_batch_range() {
     let sides = session();

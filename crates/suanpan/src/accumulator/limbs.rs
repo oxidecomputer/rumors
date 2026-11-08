@@ -1,11 +1,10 @@
 //! The limbs a magnitude read returns, held inline while they fit.
 //!
 //! A read normalizes the digits it covers and emits each unsigned base-2^32
-//! digit from low to high; [`DigitPacker`] pairs them into 64-bit limbs as
-//! they arrive. Limbs stay inline until a third one arrives, so a magnitude
-//! below `2^128` reads without allocating, and a wider one is written into a
-//! single allocation sized to the digits read, with no intermediate digit
-//! buffer.
+//! digit from low to high; [`DigitPacker`] pairs them into 64-bit limbs as they
+//! arrive. Limbs stay inline until a third one arrives, so a magnitude below
+//! `2^128` reads without allocating, and a wider one is written into a single
+//! allocation sized to the digits read, with no intermediate digit buffer.
 
 use core::fmt;
 use core::ops::Deref;
@@ -17,8 +16,8 @@ use core::ops::Deref;
 ///
 /// `Limbs` dereferences to `[u64]`. The slice has no high zero limb, so it is
 /// empty exactly when the magnitude is zero. Up to two limbs, any magnitude
-/// below `2^128`, are held inline without allocating; a wider magnitude is
-/// held in one allocation.
+/// below `2^128`, are held inline without allocating; a wider magnitude is held
+/// in one allocation.
 ///
 /// ```
 /// use suanpan::Accumulator;
@@ -67,8 +66,8 @@ impl Limbs {
     }
 
     /// Append a limb, spilling to an allocation of `spill_capacity` limbs, or
-    /// more, when the inline storage is full, and growing a full allocation
-    /// by exactly one limb.
+    /// more, when the inline storage is full, and growing a full allocation by
+    /// exactly one limb.
     fn push(&mut self, limb: u64, spill_capacity: usize) {
         self.0 = match core::mem::replace(&mut self.0, Storage::Zero) {
             Storage::Zero => Storage::One(limb),

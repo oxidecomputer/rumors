@@ -216,8 +216,8 @@ fn a_member_byte_decodes_exactly_when_it_names_a_member() {
 }
 
 /// Every value of a step's tag byte either is refused or decodes to a step
-/// whose encoding is exactly the bytes decoded, so changing a step's tag
-/// never decodes to a step whose encoding differs from the bytes.
+/// whose encoding is exactly the bytes decoded, so changing a step's tag never
+/// decodes to a step whose encoding differs from the bytes.
 #[test]
 fn a_tag_byte_decodes_only_to_the_step_it_encodes() {
     let (bytes, tag_at, _) = one_clear(Member::ALL[0]);

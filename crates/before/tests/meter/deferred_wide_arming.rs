@@ -16,9 +16,8 @@ use num_bigint::BigUint;
 
 /// One public `Version::rank` run over `WA(w, w)`.
 ///
-/// Carries `min_ticks`' closed form as the cross-fold semantic leg
-/// (proving the generator builds the gap spine and the wide arming
-/// this band reasons about).
+/// Carries `min_ticks`' closed form as the cross-fold semantic leg (proving the
+/// generator builds the gap spine and the wide arming this band reasons about).
 fn run(w: usize) -> (u64, u64) {
     let v = Shape::WideArming.build2(w, w).version();
     let bytes = v.encode().len() as u64;
@@ -38,30 +37,30 @@ fn run(w: usize) -> (u64, u64) {
     (bytes, meter::densified_digits())
 }
 
-/// Suffix digits (and arming digits) of the band's small run (the
-/// large run doubles both).
+/// Suffix digits (and arming digits) of the band's small run (the large run
+/// doubles both).
 const WIDE_ARMING_SMALL: usize = 500;
 
-/// Absolute two-scale densify ceilings for rank on the wide-arming
-/// family: the measured record ×1.25, rounded up (the record and every
-/// re-pin's movement live in the pin commits).
+/// Absolute two-scale densify ceilings for rank on the wide-arming family: the
+/// measured record ×1.25, rounded up (the record and every re-pin's movement
+/// live in the pin commits).
 ///
-/// Flat per encoded byte across the doubling: the settle's densified
-/// spans are the dense trailing window's, which scale with the knob
-/// exactly as the input does. An image sized by a cluster's absolute
-/// digit position instead reads the never-written scale prefix into
-/// every image and leaves flatness while inflating the absolute record;
-/// the position axis itself is isolated (and killed) by the
-/// hoisted-window band, where spans stay fixed as positions grow.
+/// Flat per encoded byte across the doubling: the settle's densified spans are
+/// the dense trailing window's, which scale with the knob exactly as the input
+/// does. An image sized by a cluster's absolute digit position instead reads
+/// the never-written scale prefix into every image and leaves flatness while
+/// inflating the absolute record; the position axis itself is isolated (and
+/// killed) by the hoisted-window band, where spans stay fixed as positions
+/// grow.
 const WIDE_ARMING_DENSIFY_CEILINGS: (u64, u64) = (2_580, 5_160);
 
-/// rank's densified-image fill is flat per byte on the wide-arming family:
-/// the densify column stays within ×1.25 per byte across a `WA(w, w)`
-/// doubling, under absolute two-scale ceilings.
+/// rank's densified-image fill is flat per byte on the wide-arming family: the
+/// densify column stays within ×1.25 per byte across a `WA(w, w)` doubling,
+/// under absolute two-scale ceilings.
 ///
-/// `WA(w, w)` scales both factors of the settle's one aggregate product
-/// with the input; the fold's time on this family is judged in fuel by the
-/// board's `version_rank` cell.
+/// `WA(w, w)` scales both factors of the settle's one aggregate product with
+/// the input; the fold's time on this family is judged in fuel by the board's
+/// `version_rank` cell.
 #[test]
 fn rank_wide_arming_densify_is_flat_per_unit() {
     let (small_bytes, small) = run(WIDE_ARMING_SMALL);

@@ -1,13 +1,13 @@
 //! [`Span`]'s canonical byte encoding and strict decoder.
 //!
-//! The composite is the two endpoints' canonical encodings concatenated:
-//! each byte-aligned, independently canonical, and self-delimiting, so no
-//! length prefix is needed. Decoding validates both component encodings and
-//! their order before constructing the span.
+//! The composite is the two endpoints' canonical encodings concatenated: each
+//! byte-aligned, independently canonical, and self-delimiting, so no length
+//! prefix is needed. Decoding validates both component encodings and their
+//! order before constructing the span.
 //!
 //! Decoding the lower endpoint first reveals the byte boundary between them.
-//! The upper endpoint is then validated and compared with the lower endpoint
-//! in one pass. Each accepted endpoint owns storage sized to its own encoding;
+//! The upper endpoint is then validated and compared with the lower endpoint in
+//! one pass. Each accepted endpoint owns storage sized to its own encoding;
 //! equal endpoints share the lower endpoint's buffer, as [`Span::at`]'s do.
 
 use std::io::{self, Read, Write};
@@ -133,8 +133,8 @@ impl<'a> Span<'a> {
     }
 
     /// Validates an owned canonical encoding, giving each distinct endpoint
-    /// storage of its own; equal endpoints share one buffer, as
-    /// [`Span::at`]'s do.
+    /// storage of its own; equal endpoints share one buffer, as [`Span::at`]'s
+    /// do.
     pub(crate) fn decode_bytes(buf: Vec<u8>) -> Result<Span<'static>, Decode> {
         // A version encoding is self-delimiting and byte-aligned, so the
         // lower endpoint's encoding ends at the byte where the upper

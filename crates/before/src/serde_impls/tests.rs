@@ -53,9 +53,9 @@ fn cbor_byte_string(bytes: &[u8]) -> Vec<u8> {
     cbor
 }
 
-/// Checks that `T`'s binary deserializer reads `value` from a CBOR array of
-/// its canonical bytes, and rejects that array once a trailing zero byte makes
-/// its content non-canonical.
+/// Checks that `T`'s binary deserializer reads `value` from a CBOR array of its
+/// canonical bytes, and rejects that array once a trailing zero byte makes its
+/// content non-canonical.
 fn assert_reads_cbor_byte_array<T>(value: &T, canonical: &[u8]) -> Result<(), TestCaseError>
 where
     T: DeserializeOwned + PartialEq + Debug,
@@ -427,8 +427,8 @@ fn serde_composes_rank_and_span_in_larger_values() {
 /// Deserializes `T` from a human-readable map holding `entries`, in order.
 ///
 /// `serde`'s `MapDeserializer` reports itself as human-readable, so it stands
-/// in for any human-readable format, and it spells maps that JSON cannot:
-/// keys given as bytes or as integers.
+/// in for any human-readable format, and it spells maps that JSON cannot: keys
+/// given as bytes or as integers.
 fn read_map<'a, T, K>(entries: impl IntoIterator<Item = (K, &'a str)>) -> Result<T, ValueError>
 where
     T: DeserializeOwned,
@@ -454,18 +454,17 @@ where
 ///
 /// The accepted forms are:
 ///
-/// - the named record keyed by strings, as JSON writes it, and with its
-///   entries reversed, as formats that sort their keys (bencode, for one) may
-///   write it;
+/// - the named record keyed by strings, as JSON writes it, and with its entries
+///   reversed, as formats that sort their keys (bencode, for one) may write it;
 /// - the named record keyed by bytes, as csv hands over its header keys;
-/// - the field texts in order, as a sequence, which is how csv without
-///   headers and `rmp-serde`'s human-readable tuple mode write a struct, and
-///   also as a JSON array;
+/// - the field texts in order, as a sequence, which is how csv without headers
+///   and `rmp-serde`'s human-readable tuple mode write a struct, and also as a
+///   JSON array;
 /// - the field texts in a map keyed by field position.
 ///
-/// The rejected forms are the string-keyed record with a field omitted, with
-/// a field repeated, or with an unknown field added, and the sequence without
-/// its last field text.
+/// The rejected forms are the string-keyed record with a field omitted, with a
+/// field repeated, or with an unknown field added, and the sequence without its
+/// last field text.
 fn assert_readable_reads_every_complete_field_form<T>(
     value: &T,
     fields: &[(&'static str, String)],
@@ -585,15 +584,15 @@ proptest! {
     }
 }
 
-/// Deserializes `T` from `text` through `T`'s own human-readable
-/// deserializer, returning `None` when it rejects the text.
+/// Deserializes `T` from `text` through `T`'s own human-readable deserializer,
+/// returning `None` when it rejects the text.
 fn read_text<T: DeserializeOwned>(text: &str) -> Option<T> {
     let text: StrDeserializer<'_, ValueError> = text.into_deserializer();
     T::deserialize(text).ok()
 }
 
-/// A text for one record field: arbitrary, or the field's valid text under
-/// one small edit that a lenient parser might forgive.
+/// A text for one record field: arbitrary, or the field's valid text under one
+/// small edit that a lenient parser might forgive.
 #[derive(Clone, Debug)]
 enum FieldText {
     /// Arbitrary text, almost always invalid.
@@ -631,8 +630,8 @@ impl FieldText {
     }
 }
 
-/// Generates every [`FieldText`] variant, so valid, nearly valid, and
-/// arbitrary texts all occur.
+/// Generates every [`FieldText`] variant, so valid, nearly valid, and arbitrary
+/// texts all occur.
 fn arb_field_text() -> impl Strategy<Value = FieldText> {
     prop_oneof![
         any::<String>().prop_map(FieldText::Arbitrary),

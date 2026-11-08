@@ -1,27 +1,27 @@
-//! A two-peer session driver over a link that holds every byte until both
-//! peers stall.
+//! A two-peer session driver over a link that holds every byte until both peers
+//! stall.
 //!
 //! The link stands for a connection of unbounded latency and unbounded
-//! buffering. Bytes a peer writes are held, out of the reader's sight, and
-//! the writer never waits. When neither peer can progress, the driver asks
-//! its schedule how much of each direction's held bytes to release (see
-//! [`Release`]), then delivers them, in order, and resumes polling. Each side therefore fills
-//! whatever its admission lets it have outstanding before any reply arrives,
-//! and each release hands the reader everything its peer produced in the
-//! meantime at once. Byte order within a direction is preserved, as TCP
-//! preserves it.
+//! buffering. Bytes a peer writes are held, out of the reader's sight, and the
+//! writer never waits. When neither peer can progress, the driver asks its
+//! schedule how much of each direction's held bytes to release (see
+//! [`Release`]), then delivers them, in order, and resumes polling. Each side
+//! therefore fills whatever its admission lets it have outstanding before any
+//! reply arrives, and each release hands the reader everything its peer
+//! produced in the meantime at once. Byte order within a direction is
+//! preserved, as TCP preserves it.
 //!
-//! The schedule also chooses, at each stall, which kinds of each side's
-//! tasks to hold back until the next stall ([`Held`]). A session runs its
-//! tasks inside one future, so no executor can choose among them, but a
-//! backend can: a storage read or write that waits holds back the walk stage
-//! or assembler that called it while every other task runs. The driver
-//! installs a task pacer ([`pace_tasks`]) that holds back a task the same
-//! way, keeping its waker, outside any trace, until its kind is released.
+//! The schedule also chooses, at each stall, which kinds of each side's tasks
+//! to hold back until the next stall ([`Held`]). A session runs its tasks
+//! inside one future, so no executor can choose among them, but a backend can:
+//! a storage read or write that waits holds back the walk stage or assembler
+//! that called it while every other task runs. The driver installs a task pacer
+//! ([`pace_tasks`]) that holds back a task the same way, keeping its waker,
+//! outside any trace, until its kind is released.
 //!
 //! Everything runs on the calling thread, polled in a fixed order, so a
-//! session's allocator traffic is a deterministic function of the fixture
-//! and the schedule.
+//! session's allocator traffic is a deterministic function of the fixture and
+//! the schedule.
 //!
 //! [`drive`] polls the two futures itself rather than spawning them on an
 //! executor such as `futures::executor::LocalPool`. Its stall is the one
@@ -32,11 +32,11 @@
 //! # What the measurement sees
 //!
 //! The driver polls each peer inside [`labelled`] with that peer's
-//! [`Side::label`], so a trace attributes every block to the peer whose
-//! session allocated it, and [`polling`] tells code running inside a poll
-//! which peer it serves. The link's own buffers are harness state, not
-//! session state: every operation that can allocate them runs inside
-//! [`untraced`], so they reach no trace.
+//! [`Side::label`], so a trace attributes every block to the peer whose session
+//! allocated it, and [`polling`] tells code running inside a poll which peer it
+//! serves. The link's own buffers are harness state, not session state: every
+//! operation that can allocate them runs inside [`untraced`], so they reach no
+//! trace.
 
 use std::cell::{Cell, RefCell};
 use std::future::Future;
@@ -50,8 +50,8 @@ use alloc_meter::{Label, labelled, untraced};
 use rumors::testing::{Holding, TaskRole, pace_tasks};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-/// The distance between two sides' labels: room for the side's own label
-/// and one per [`Holding`] above it.
+/// The distance between two sides' labels: room for the side's own label and
+/// one per [`Holding`] above it.
 const SIDE_LABEL_STRIDE: u32 = 16;
 
 // Every holding's label stays below the next side's.
@@ -70,9 +70,8 @@ impl Side {
     /// Both sides, in the order the driver polls them.
     pub const BOTH: [Self; 2] = [Self::A, Self::B];
 
-    /// The label the driver polls this side's session under, carried by
-    /// every block the session allocates outside a region it attributes
-    /// to a holding.
+    /// The label the driver polls this side's session under, carried by every
+    /// block the session allocates outside a region it attributes to a holding.
     pub const fn label(self) -> Label {
         Label(SIDE_LABEL_STRIDE * (self.index() as u32 + 1))
     }
@@ -92,8 +91,8 @@ impl Side {
         Label(label.0 / SIDE_LABEL_STRIDE * SIDE_LABEL_STRIDE)
     }
 
-    /// This side's position in [`Side::BOTH`], which also indexes the
-    /// direction it writes into.
+    /// This side's position in [`Side::BOTH`], which also indexes the direction
+    /// it writes into.
     pub const fn index(self) -> usize {
         match self {
             Self::A => 0,
@@ -128,8 +127,8 @@ pub fn polling() -> Option<Side> {
 /// Which kinds of one side's tasks a stall holds back until the next stall.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Held {
-    /// Walk stages, which take replies, answer the questions in them, and
-    /// ask their own, as a slow backend read would hold them.
+    /// Walk stages, which take replies, answer the questions in them, and ask
+    /// their own, as a slow backend read would hold them.
     pub walk: bool,
     /// Assemblers, as a slow backend write would hold them.
     pub assembly: bool,
@@ -202,11 +201,11 @@ thread_local! {
 }
 
 /// The task pacer the driver installs: lets a task run unless the side being
-/// polled holds back its kind, in which case it keeps the task's waker for
-/// the release.
+/// polled holds back its kind, in which case it keeps the task's waker for the
+/// release.
 ///
-/// The waiting list grows outside any trace, so the pacer allocates nothing
-/// the measurement sees.
+/// The waiting list grows outside any trace, so the pacer allocates nothing the
+/// measurement sees.
 fn pace(role: TaskRole, waker: &Waker) -> bool {
     let Some(side) = polling() else {
         return true;
@@ -227,8 +226,8 @@ fn pace(role: TaskRole, waker: &Waker) -> bool {
     })
 }
 
-/// Installs the driver's task pacer and initializes its state on this
-/// thread, so that neither allocates during a measurement.
+/// Installs the driver's task pacer and initializes its state on this thread,
+/// so that neither allocates during a measurement.
 ///
 /// # Panics
 ///
@@ -268,8 +267,8 @@ fn set_pacing(held: [Held; 2]) -> usize {
     count
 }
 
-/// One direction of the link: bytes one side wrote, split into those still
-/// held and those released to the reader.
+/// One direction of the link: bytes one side wrote, split into those still held
+/// and those released to the reader.
 #[derive(Debug, Default)]
 struct Direction {
     /// Written and not yet released.
@@ -304,8 +303,8 @@ pub struct Link {
 impl Link {
     /// Creates an empty link.
     ///
-    /// The lock is taken once here, so that any allocation the platform
-    /// makes on a mutex's first use happens before a measurement begins.
+    /// The lock is taken once here, so that any allocation the platform makes
+    /// on a mutex's first use happens before a measurement begins.
     pub fn new() -> Self {
         let shared: Shared = Arc::default();
         drop(lock(&shared));
@@ -343,8 +342,8 @@ impl Link {
         })
     }
 
-    /// Releases the first `bytes` held bytes that `writer` wrote, and wakes
-    /// the reader if it waits.
+    /// Releases the first `bytes` held bytes that `writer` wrote, and wakes the
+    /// reader if it waits.
     fn release(&self, writer: Side, bytes: usize) {
         let waker = {
             let mut directions = lock(&self.shared);
@@ -429,8 +428,8 @@ impl AsyncWrite for Writer {
         Poll::Ready(Ok(()))
     }
 
-    /// Marks the direction closed, so the reader sees end of stream after
-    /// the last held byte.
+    /// Marks the direction closed, so the reader sees end of stream after the
+    /// last held byte.
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         lock(&self.shared)[self.into].closed = true;
         Poll::Ready(Ok(()))
@@ -442,12 +441,12 @@ impl AsyncWrite for Writer {
 pub enum Portion {
     /// Release nothing.
     Hold,
-    /// Release a prefix of `sixteenths / 16` of the held bytes, at least
-    /// one byte.
+    /// Release a prefix of `sixteenths / 16` of the held bytes, at least one
+    /// byte.
     ///
-    /// Values from 1 through 15 are meaningful. A coarse fraction keeps
-    /// every release a sizable share of what is held, so a schedule cannot
-    /// stretch a session into millions of one-byte rounds.
+    /// Values from 1 through 15 are meaningful. A coarse fraction keeps every
+    /// release a sizable share of what is held, so a schedule cannot stretch a
+    /// session into millions of one-byte rounds.
     Prefix(u8),
     /// Release every held byte.
     All,
@@ -467,9 +466,9 @@ impl Portion {
     }
 }
 
-/// What one stall releases: a portion of each side's held writes, and
-/// which of each side's task kinds stay held back until the next stall,
-/// both in [`Side::BOTH`] order.
+/// What one stall releases: a portion of each side's held writes, and which of
+/// each side's task kinds stay held back until the next stall, both in
+/// [`Side::BOTH`] order.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Release {
     /// The portion of each side's held writes delivered to its peer.
@@ -495,8 +494,8 @@ pub struct Drive {
     pub releases: usize,
     /// The most bytes one release delivered in one direction.
     pub largest_delivery: usize,
-    /// The polls the task pacer refused to each side's tasks, in
-    /// [`Side::BOTH`] order.
+    /// The polls the task pacer refused to each side's tasks, in [`Side::BOTH`]
+    /// order.
     pub refused: [Refused; 2],
 }
 
@@ -517,22 +516,21 @@ impl Wake for WakeFlag {
     }
 }
 
-/// Polls `a` and `b` over `link` until both complete, releasing held bytes
-/// and held-back tasks at each stall as `schedule` directs.
+/// Polls `a` and `b` over `link` until both complete, releasing held bytes and
+/// held-back tasks at each stall as `schedule` directs.
 ///
-/// Each round polls every side that was woken, in [`Side::BOTH`] order,
-/// under its label; a side's future is dropped under its label as soon as
-/// it completes, so its session state is freed before the other side's
-/// next poll. When no side was woken, both have stalled: the driver asks
-/// `schedule` for the release, its argument the bytes each side holds
-/// unreleased. A release that would move no byte and wake no held-back
-/// task releases every held byte and holds back nothing instead, so every
-/// stall makes progress.
+/// Each round polls every side that was woken, in [`Side::BOTH`] order, under
+/// its label; a side's future is dropped under its label as soon as it
+/// completes, so its session state is freed before the other side's next poll.
+/// When no side was woken, both have stalled: the driver asks `schedule` for
+/// the release, its argument the bytes each side holds unreleased. A release
+/// that would move no byte and wake no held-back task releases every held byte
+/// and holds back nothing instead, so every stall makes progress.
 ///
 /// Call [`prepare_pacing`] first.
 ///
-/// The driver's own wake flags are harness state, allocated outside any
-/// trace, so every block a trace sees inside the drive is the sessions'.
+/// The driver's own wake flags are harness state, allocated outside any trace,
+/// so every block a trace sees inside the drive is the sessions'.
 ///
 /// # Panics
 ///
@@ -610,8 +608,8 @@ pub fn drive<A: Future, B: Future>(
     )
 }
 
-/// Polls the future in `slot`, if it has not completed; on completion,
-/// stores its output in `out` and drops the future in place.
+/// Polls the future in `slot`, if it has not completed; on completion, stores
+/// its output in `out` and drops the future in place.
 fn poll_slot<F: Future>(
     mut slot: Pin<&mut Option<F>>,
     cx: &mut Context<'_>,

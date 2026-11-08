@@ -13,11 +13,11 @@
 //!   & meet        meet        meet       yes (pointwise meet)
 //! ```
 //!
-//! Union preserves endpoint order because it can only lower the lower bound
-//! and raise the upper bound. Pointwise join and meet preserve it because both
+//! Union preserves endpoint order because it can only lower the lower bound and
+//! raise the upper bound. Pointwise join and meet preserve it because both
 //! version operations are monotone. Intersection can instead raise the lower
-//! bound beyond, or make it concurrent with, the upper bound. It returns
-//! `None` unless the resulting lower endpoint is at most the upper endpoint.
+//! bound beyond, or make it concurrent with, the upper bound. It returns `None`
+//! unless the resulting lower endpoint is at most the upper endpoint.
 //!
 //! The three total operations also assign in place (`+=`, `|=`, `&=`), writing
 //! the computed span back to the receiver. Intersection has no assignment
@@ -171,10 +171,10 @@ impl<'a> Span<'a> {
     /// The largest [`Span`] every input (including `self`) covers, or `None` if
     /// the intersection is empty.
     ///
-    /// Like [`intersect`](Span::intersect) and unlike the total operators' `_all`
-    /// forms, items are true [`Span`]s only: a point item would silently empty
-    /// the intersection unless every input contains it; spell [`Span::at`]
-    /// to intersect with versions.
+    /// Like [`intersect`](Span::intersect) and unlike the total operators'
+    /// `_all` forms, items are true [`Span`]s only: a point item would silently
+    /// empty the intersection unless every input contains it; spell
+    /// [`Span::at`] to intersect with versions.
     ///
     /// # Complexity
     ///
@@ -218,8 +218,8 @@ impl<'a> Span<'a> {
     /// The *pointwise join* of `self` and `other`: the version lattice's join
     /// applied to each endpoint pair.
     ///
-    /// The method spelling of `self | other`, mirroring [`Version::join`].
-    /// A [`Version`] argument denotes its point span, so it joins into both
+    /// The method spelling of `self | other`, mirroring [`Version::join`]. A
+    /// [`Version`] argument denotes its point span, so it joins into both
     /// endpoints.
     ///
     /// # Complexity
@@ -300,9 +300,9 @@ impl<'a> Span<'a> {
     /// The *pointwise meet* of `self` and `other`: the version lattice's meet
     /// applied to each endpoint pair.
     ///
-    /// The method spelling of `self & other`, mirroring [`Version::meet`].
-    /// A [`Version`] argument denotes its point span, clamping both endpoints
-    /// to its past.
+    /// The method spelling of `self & other`, mirroring [`Version::meet`]. A
+    /// [`Version`] argument denotes its point span, clamping both endpoints to
+    /// its past.
     ///
     /// # Complexity
     ///
@@ -377,13 +377,13 @@ impl<'a> Span<'a> {
         Span::owned(lo, hi)
     }
 
-    /// Combine the receiver and input spans with a balanced fold of their
-    /// lower and upper endpoints.
+    /// Combine the receiver and input spans with a balanced fold of their lower
+    /// and upper endpoints.
     ///
     /// Adjacent spans sharing both endpoint buffers are equivalent under all
     /// four idempotent operations, so only one from each run enters the fold.
-    /// Inputs are borrowed until combined; intermediate endpoints are owned
-    /// and updated in place. Two point spans can combine their single versions
+    /// Inputs are borrowed until combined; intermediate endpoints are owned and
+    /// updated in place. Two point spans can combine their single versions
     /// directly instead of repeating the operation for both endpoints.
     fn fold_endpoints<'s, I>(&self, iter: I, ops: &SpanFoldOps) -> (Version, Version)
     where
@@ -457,8 +457,8 @@ impl<'a> Span<'a> {
 /// Endpoint operations for one kind of span fold.
 ///
 /// Borrowed inputs produce a new endpoint; an owned intermediate result can
-/// absorb the next input in place. Point spans have a separate combination
-/// that avoids computing the same endpoint twice.
+/// absorb the next input in place. Point spans have a separate combination that
+/// avoids computing the same endpoint twice.
 struct SpanFoldOps {
     /// Combine two borrowed lower endpoints into a fresh owned one.
     lo_refs: fn(&Version, &Version) -> Version,
@@ -472,7 +472,8 @@ struct SpanFoldOps {
     points: fn(&Version, &Version) -> (Version, Version),
 }
 
-/// Enclose two point versions with their meet and join, computing both together.
+/// Enclose two point versions with their meet and join, computing both
+/// together.
 fn union_points(a: &Version, b: &Version) -> (Version, Version) {
     a.hull(b)
 }
@@ -518,7 +519,8 @@ const UNION_OPS: SpanFoldOps = SpanFoldOps {
     points: union_points,
 };
 
-/// Endpoint operations for intersection: lower bounds join and upper bounds meet.
+/// Endpoint operations for intersection: lower bounds join and upper bounds
+/// meet.
 const INTERSECT_OPS: SpanFoldOps = SpanFoldOps {
     lo_refs: Version::join,
     hi_refs: Version::meet,
@@ -571,8 +573,7 @@ impl<'i, 's, T: Borrow<Span<'s>>> FoldInput<'_, 'i, T> {
 /// One group in the operators' balanced counter: an input exactly as the caller
 /// supplied it, or the owned endpoints a combine produced.
 enum Group<T> {
-    /// An input the fold has not yet combined, still in the caller's
-    /// form.
+    /// An input the fold has not yet combined, still in the caller's form.
     Input(T),
     /// The owned running endpoints of one or more combines.
     Merged { lo: Version, hi: Version },
@@ -620,10 +621,10 @@ macro_rules! span_total_binop_matrix {
 
 /// Generates a total span operator with a version on the left.
 ///
-/// Each implementation borrows the version through [`Span::at`], preserving
-/// its point-span fast path. The left operand cannot be generic over
-/// `Into<Span>`: that would also accept two versions and conflict with the
-/// version lattice's `|` and `&` operators.
+/// Each implementation borrows the version through [`Span::at`], preserving its
+/// point-span fast path. The left operand cannot be generic over `Into<Span>`:
+/// that would also accept two versions and conflict with the version lattice's
+/// `|` and `&` operators.
 macro_rules! span_version_lhs_matrix {
     ($(#[$doc:meta])* $Op:ident::$op:ident, $method:ident) => {
         $(#[$doc])*
@@ -1057,8 +1058,8 @@ span_union_fold! {
 }
 
 /// Generates the intersection-fold [`Product`] impl for one item shape:
-/// multiplying out an iterator of spans yields their intersection, the fold
-/// of `*`, through the same balanced n-ary fold as [`Span::intersect_all`].
+/// multiplying out an iterator of spans yields their intersection, the fold of
+/// `*`, through the same balanced n-ary fold as [`Span::intersect_all`].
 ///
 /// [`None`] covers both an empty iterator and a nonempty family sharing no
 /// version: the two ways there is no product. Intersection has no identity:

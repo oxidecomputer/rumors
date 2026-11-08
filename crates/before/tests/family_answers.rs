@@ -1,11 +1,10 @@
 //! Closed-form answers of the committed adversarial version families.
 //!
-//! The amplification board and the `focused-fuel` claims judge each
-//! operation's cost on these families, and a judgment is only as good as the
-//! shape it measures. These checks hold each generator to the tree its cost
-//! claims reason about: a family's `min_ticks` against its closed form, and a
-//! paired family's queries against the relations they must satisfy, each at
-//! two sizes.
+//! The amplification board and the `focused-fuel` claims judge each operation's
+//! cost on these families, and a judgment is only as good as the shape it
+//! measures. These checks hold each generator to the tree its cost claims
+//! reason about: a family's `min_ticks` against its closed form, and a paired
+//! family's queries against the relations they must satisfy, each at two sizes.
 
 use std::cmp::Ordering;
 
@@ -14,11 +13,11 @@ use before::testing::meter::{FREEZE_DRIFT_BITS, PROMOTION_REARM_ARM_BITS};
 use before::{Count, Party, Rank, Version};
 use num_bigint::BigUint;
 
-/// Converts an exact expected value into a tick count, by doubling and
-/// adding its 64-bit digits from the most significant down.
+/// Converts an exact expected value into a tick count, by doubling and adding
+/// its 64-bit digits from the most significant down.
 ///
-/// `Count` exposes no big-integer backend, so the conversion goes through
-/// its public arithmetic.
+/// `Count` exposes no big-integer backend, so the conversion goes through its
+/// public arithmetic.
 fn count_of(value: &BigUint) -> Count {
     let mut digits = value.iter_u64_digits().rev();
     let Some(first) = digits.next() else {
@@ -34,8 +33,8 @@ fn count_of(value: &BigUint) -> Count {
     count
 }
 
-/// Asserts that `version`, the family `name` at one size, has the minimum
-/// tick count `expected`.
+/// Asserts that `version`, the family `name` at one size, has the minimum tick
+/// count `expected`.
 fn assert_min_ticks(name: &str, version: &Version, expected: &BigUint) {
     assert_eq!(
         version.min_ticks(),
@@ -129,9 +128,9 @@ fn combs_match_their_closed_form() {
     }
 }
 
-/// The arming train of `n` blocks, each arming 50 digits wide over 100
-/// window gaps, in the alternating sign schedule the board's arming-train
-/// family uses, has the closed-form minimum tick count of its leaf heights.
+/// The arming train of `n` blocks, each arming 50 digits wide over 100 window
+/// gaps, in the alternating sign schedule the board's arming-train family uses,
+/// has the closed-form minimum tick count of its leaf heights.
 ///
 /// Each block adds its plateau once per window gap, moves the plateau by one
 /// arming (down on every odd block, up otherwise), then adds four kicks of
@@ -173,8 +172,8 @@ fn alternating_arming_train_matches_its_closed_form() {
     }
 }
 
-/// A one-leaf version of a `b`-bit height has that height as its minimum
-/// tick count, `2^b − 1`.
+/// A one-leaf version of a `b`-bit height has that height as its minimum tick
+/// count, `2^b − 1`.
 #[test]
 fn hugeleaf_matches_its_closed_form() {
     for bits in [32_000, 64_000] {
@@ -200,8 +199,8 @@ fn weight_comb_matches_its_closed_form() {
 }
 
 /// The freeze parade `FZ(k)` sums the spine's `64k − 1` unit leaves, the
-/// block's `k` wide drops, its internal half-minima differences, and its
-/// root's absolute minimum, in closed form.
+/// block's `k` wide drops, its internal half-minima differences, and its root's
+/// absolute minimum, in closed form.
 #[test]
 fn freeze_parade_matches_its_closed_form() {
     for k in [512, 1_024] {
@@ -223,13 +222,13 @@ fn freeze_parade_matches_its_closed_form() {
     }
 }
 
-/// The dense-suffix family `DS(p, p)` creates one deferral per block against
-/// a trailing dense mass: its minimum tick count is `p + p(2^A + 2^P + 2) +
+/// The dense-suffix family `DS(p, p)` creates one deferral per block against a
+/// trailing dense mass: its minimum tick count is `p + p(2^A + 2^P + 2) +
 /// 1`.
 ///
-/// It dominates its unit-block mate pointwise, so the pair's distance is
-/// their rank gap, the dominating side lags by nothing, and the dominated
-/// side lags by the whole distance.
+/// It dominates its unit-block mate pointwise, so the pair's distance is their
+/// rank gap, the dominating side lags by nothing, and the dominated side lags
+/// by the whole distance.
 #[test]
 fn dense_suffix_matches_its_closed_form_and_dominates_its_mate() {
     for p in [500, 1_000] {
@@ -262,8 +261,7 @@ fn dense_suffix_matches_its_closed_form_and_dominates_its_mate() {
 }
 
 /// The jump pair `JP(512, m, d)`'s distance is the sum of its two lags (rank
-/// modularity), at two sizes, the second doubling the first's teeth and
-/// digits.
+/// modularity), at two sizes, the second doubling the first's teeth and digits.
 #[test]
 fn jump_pair_distance_is_the_sum_of_its_lags() {
     for (teeth, digits) in [(512, 64), (1_024, 128)] {
@@ -278,8 +276,8 @@ fn jump_pair_distance_is_the_sum_of_its_lags() {
 }
 
 /// The tooth-tail pair `TT(g, m)`'s second operand runs one tick above the
-/// first everywhere but the shared terminal, so the first lies strictly
-/// below it.
+/// first everywhere but the shared terminal, so the first lies strictly below
+/// it.
 #[test]
 fn tooth_tail_orders_strictly() {
     for (spike, boundaries) in [(64, 4_096), (128, 8_192)] {
@@ -292,9 +290,9 @@ fn tooth_tail_orders_strictly() {
     }
 }
 
-/// The mask-drift triple's comb, viewed through its mask, lies strictly
-/// under the plateau, and the quadruple's sparse view lies strictly under
-/// its tooth-keeping view, so neither comparison exits early.
+/// The mask-drift triple's comb, viewed through its mask, lies strictly under
+/// the plateau, and the quadruple's sparse view lies strictly under its
+/// tooth-keeping view, so neither comparison exits early.
 #[test]
 fn mask_drift_views_order_strictly() {
     for teeth in [1_024, 2_048] {

@@ -57,9 +57,9 @@ fn meta() -> RenderMeta {
     }
 }
 
-/// Compaction bins each column tightly at [`RES`] octaves: `k0` is the
-/// lowest occupied bin, the first and last counts are nonzero, and the
-/// counts sum to the column's sample count.
+/// Compaction bins each column tightly at [`RES`] octaves: `k0` is the lowest
+/// occupied bin, the first and last counts are nonzero, and the counts sum to
+/// the column's sample count.
 #[test]
 fn compaction_bins_tightly_per_column() {
     let op = compact(&synthetic_atlas(), "", "`O(1)`.", Compensation::Claim("1"))
@@ -92,9 +92,9 @@ fn compaction_bins_tightly_per_column() {
     );
 }
 
-/// A compact dataset round-trips losslessly through write and read:
-/// meta, order, complexity strings (with JSON metacharacters and
-/// multibyte glyphs), histograms, and overlay points.
+/// A compact dataset round-trips losslessly through write and read: meta,
+/// order, complexity strings (with JSON metacharacters and multibyte glyphs),
+/// histograms, and overlay points.
 #[test]
 fn dataset_round_trips_losslessly() {
     let dir = temp_dir("roundtrip");
@@ -120,9 +120,9 @@ fn dataset_round_trips_losslessly() {
     std::fs::remove_dir_all(&dir).expect("round-trip output cleans up");
 }
 
-/// Zero-fuel samples are rejected at compaction: the guest meters every
-/// call, so a zero reading is a measurement bug, and the log-scale
-/// histogram could not even place it.
+/// Zero-fuel samples are rejected at compaction: the guest meters every call,
+/// so a zero reading is a measurement bug, and the log-scale histogram could
+/// not even place it.
 #[test]
 fn compaction_rejects_zero_fuel() {
     let mut data = synthetic_atlas();
@@ -199,9 +199,9 @@ fn read_rejects_each_tampered_document() {
     std::fs::remove_dir_all(&dir).expect("tamper output cleans up");
 }
 
-/// Gzipped documents read transparently: a dataset whose files are all
-/// stored as `.json.gz` loads byte-equal to the plain form (the
-/// committed dump's storage; the same reader serves both).
+/// Gzipped documents read transparently: a dataset whose files are all stored
+/// as `.json.gz` loads byte-equal to the plain form (the committed dump's
+/// storage; the same reader serves both).
 #[test]
 fn gzipped_documents_read_transparently() {
     let dir = temp_dir("gz");
@@ -228,12 +228,12 @@ fn gzipped_documents_read_transparently() {
     std::fs::remove_dir_all(&dir).expect("gz output cleans up");
 }
 
-/// `compact_dump` joins the dump against the roster by operation name
-/// and stamps the row's contract and claim.
+/// `compact_dump` joins the dump against the roster by operation name and
+/// stamps the row's contract and claim.
 ///
-/// A dump whose recorded size measure differs from the roster row's is
-/// refused, as is an operation the roster does not name: the
-/// measurements describe an input space the roster no longer declares.
+/// A dump whose recorded size measure differs from the roster row's is refused,
+/// as is an operation the roster does not name: the measurements describe an
+/// input space the roster no longer declares.
 #[test]
 fn compact_dump_joins_the_roster_and_rejects_measure_drift() {
     let spec = ROSTER

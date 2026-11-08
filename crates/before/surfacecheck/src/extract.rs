@@ -1,14 +1,13 @@
 //! The reachability traversal: every public item, named as its check names it.
 //!
 //! The traversal starts at the crate's root module and follows exactly what a
-//! user of the public API can reach: public modules, `pub use`
-//! re-exports (named and glob), public types and their impls, and public
-//! traits, recording each item under the path it is *reachable* at
-//! (`Party::seed` for a root re-export,
-//! `causally::since` inside a public module). The `paths` table's
-//! definition paths are deliberately not used for reachable naming: they
-//! name private modules (`party::Party`, `version::io`) and include
-//! items the public tree never reaches.
+//! user of the public API can reach: public modules, `pub use` re-exports
+//! (named and glob), public types and their impls, and public traits, recording
+//! each item under the path it is *reachable* at (`Party::seed` for a root
+//! re-export, `causally::since` inside a public module). The `paths` table's
+//! definition paths are deliberately not used for reachable naming: they name
+//! private modules (`party::Party`, `version::io`) and include items the public
+//! tree never reaches.
 //!
 //! Three categories come back, each checked against its owning inventory:
 //!
@@ -17,15 +16,14 @@
 //!   the exception lists in [`crate::check`];
 //! - **impls**: every reachable trait impl, one row per
 //!   `type: impl Trait for For` spelling, reconciled against the pinned
-//!   [`crate::census::TRAIT_IMPLS`]. Compiler-synthesized auto-trait
-//!   impls are excluded here because `before` pins those guarantees
-//!   directly (`src/testing/auto_traits.rs` asserts `Send + Sync + Unpin` on
-//!   every public API type at compile time); blanket impls are excluded
-//!   because they are foreign library plumbing (`From<T> for T`,
-//!   `Borrow`, `Any`, …), not API decisions made in this crate;
-//! - **items**: associated consts and types, module-level consts,
-//!   statics, and macros, reconciled against the pinned
-//!   [`crate::census::ITEMS`];
+//!   [`crate::census::TRAIT_IMPLS`]. Compiler-synthesized auto-trait impls are
+//!   excluded here because `before` pins those guarantees directly
+//!   (`src/testing/auto_traits.rs` asserts `Send + Sync + Unpin` on every
+//!   public API type at compile time); blanket impls are excluded because they
+//!   are foreign library plumbing (`From<T> for T`, `Borrow`, `Any`, …), not
+//!   API decisions made in this crate;
+//! - **items**: associated consts and types, module-level consts, statics, and
+//!   macros, reconciled against the pinned [`crate::census::ITEMS`];
 //! - **`usize` signatures**: every place a public `usize` can appear: a
 //!   function-like item's parameters, return type, or own generics, trait-impl
 //!   methods included; an impl's header, trait or inherent (its trait's
@@ -38,8 +36,8 @@
 //!   on a 32-bit target, so each one in a public signature or stored quantity
 //!   is a reviewed decision.
 //!
-//! `#[doc(hidden)]` items never appear in the JSON at all, so the ground
-//! truth here is the documented public surface.
+//! `#[doc(hidden)]` items never appear in the JSON at all, so the ground truth
+//! here is the documented public surface.
 
 use std::collections::BTreeSet;
 
@@ -54,36 +52,35 @@ mod tests;
 
 /// The publicly reachable surface, by category.
 ///
-/// A type reachable at two public paths contributes its methods and
-/// impls under both names; the reconcile step then surfaces the extra
-/// path as an uncovered item to triage, which is the honest reading
-/// (two public spellings are two rows of surface). A spelling whose path
-/// passes through one module twice, by a named or glob re-export of an
-/// enclosing module, is not a row: it names only items a shorter path names.
+/// A type reachable at two public paths contributes its methods and impls under
+/// both names; the reconcile step then surfaces the extra path as an uncovered
+/// item to triage, which is the honest reading (two public spellings are two
+/// rows of surface). A spelling whose path passes through one module twice, by
+/// a named or glob re-export of an enclosing module, is not a row: it names
+/// only items a shorter path names.
 #[derive(Debug, Default)]
 pub(crate) struct Surface {
     /// Function-like items: `Type::fn`, `module::fn`, `Trait::fn`.
     pub functions: BTreeSet<String>,
     /// Trait impls: `Type: impl trait::Path<Args> for ForType`.
     pub impls: BTreeSet<String>,
-    /// Associated consts and types, module consts, statics, and macros,
-    /// named by reachable path alone (`Rank::ZERO`,
-    /// `testing::laws::VERSION_SOLO`).
+    /// Associated consts and types, module consts, statics, and macros, named
+    /// by reachable path alone (`Rank::ZERO`, `testing::laws::VERSION_SOLO`).
     pub items: BTreeSet<String>,
     /// Signatures that mention `usize`, named as `owner: usize in sites`.
     ///
-    /// The owner is a `functions` or `items` row; an `impls` row, alone for
-    /// its header or followed by `:: method`, `:: const NAME`, or
-    /// `:: type NAME`; `Type: inherent impl` for an inherent impl's header;
-    /// `Type.field` or `Enum::Variant.field` for a public field, a tuple
-    /// field named by its index; or `Type: definition` for a type
-    /// definition's generics. The sites are the parameters, `return`,
-    /// `generics`, `header`, or `type` that mention `usize`.
+    /// The owner is a `functions` or `items` row; an `impls` row, alone for its
+    /// header or followed by `:: method`, `:: const NAME`, or `:: type NAME`;
+    /// `Type: inherent impl` for an inherent impl's header; `Type.field` or
+    /// `Enum::Variant.field` for a public field, a tuple field named by its
+    /// index; or `Type: definition` for a type definition's generics. The sites
+    /// are the parameters, `return`, `generics`, `header`, or `type` that
+    /// mention `usize`.
     pub usize_signatures: BTreeSet<String>,
 }
 
-/// Traverse the publicly reachable item tree and collect every public item
-/// into its [`Surface`] category.
+/// Traverse the publicly reachable item tree and collect every public item into
+/// its [`Surface`] category.
 pub(crate) fn public_surface(krate: &Crate) -> Surface {
     let root = module_of(krate, krate.root);
     let mut surface = Surface::default();
@@ -91,9 +88,8 @@ pub(crate) fn public_surface(krate: &Crate) -> Surface {
     surface
 }
 
-/// Look up an id in the index, panicking with the id on a dangling
-/// reference: the traversal must never silently skip surface it was pointed
-/// at.
+/// Look up an id in the index, panicking with the id on a dangling reference:
+/// the traversal must never silently skip surface it was pointed at.
 fn item_of(krate: &Crate, id: Id) -> &Item {
     krate
         .index
@@ -112,14 +108,13 @@ fn module_of(krate: &Crate, id: Id) -> &rustdoc_types::Module {
 /// Record one module's items under `prefix`, following re-exports.
 ///
 /// `expanding` holds the modules whose items the traversal is recording along
-/// the current path, the crate root first, whether entered by name or
-/// spliced in by a glob. A module already among them is not expanded
-/// again: a path through the same module twice, by a glob cycle
-/// (`pub use m::*` loops) or a named re-export of an enclosing module,
-/// spells only items a shorter path already spells, and would repeat
-/// without end. A module re-exported at two paths that do not pass through
-/// it twice is traversed once per path, because each path names distinct
-/// public surface.
+/// the current path, the crate root first, whether entered by name or spliced
+/// in by a glob. A module already among them is not expanded again: a path
+/// through the same module twice, by a glob cycle (`pub use m::*` loops) or a
+/// named re-export of an enclosing module, spells only items a shorter path
+/// already spells, and would repeat without end. A module re-exported at two
+/// paths that do not pass through it twice is traversed once per path, because
+/// each path names distinct public surface.
 ///
 /// Recurses, through [`walk_named`] and [`walk_use`], once per module
 /// expansion. Every expansion adds a module not yet in `expanding`, so the
@@ -157,8 +152,8 @@ fn expand_module(
 
 /// Record one reachable item under the name it is reachable at.
 ///
-/// `item.name` is the declared name; a renaming re-export reaches its
-/// target through [`walk_use`], which substitutes the `use` item's name.
+/// `item.name` is the declared name; a renaming re-export reaches its target
+/// through [`walk_use`], which substitutes the `use` item's name.
 fn walk_named(
     krate: &Crate,
     item: &Item,
@@ -268,9 +263,9 @@ fn walk_named(
     }
 }
 
-/// Follow a `pub use`: a named re-export surfaces its target under the
-/// `use` item's (possibly renaming) name; a glob re-export splices the
-/// target module's items into the current prefix.
+/// Follow a `pub use`: a named re-export surfaces its target under the `use`
+/// item's (possibly renaming) name; a glob re-export splices the target
+/// module's items into the current prefix.
 fn walk_use(
     krate: &Crate,
     use_: &rustdoc_types::Use,
@@ -308,9 +303,9 @@ fn walk_use(
     walk_named(krate, &renamed, prefix, surface, expanding);
 }
 
-/// Record a public type's impls: inherent methods as `Type::fn` function
-/// rows, inherent associated consts and types as `Type::NAME` item rows,
-/// and trait impls as census rows.
+/// Record a public type's impls: inherent methods as `Type::fn` function rows,
+/// inherent associated consts and types as `Type::NAME` item rows, and trait
+/// impls as census rows.
 fn walk_type(
     krate: &Crate,
     name: Option<&str>,
@@ -358,17 +353,17 @@ fn walk_type(
     }
 }
 
-/// Record one trait impl as a census row under the reachable path it was
-/// found at (`owner`: the implementing type's path, or the trait's path
-/// for impls reached from a trait page).
+/// Record one trait impl as a census row under the reachable path it was found
+/// at (`owner`: the implementing type's path, or the trait's path for impls
+/// reached from a trait page).
 ///
 /// Compiler-synthesized auto-trait impls are excluded (`before` pins
 /// `Send`/`Sync`/`Unpin` on every public API type at compile time in
 /// `src/testing/auto_traits.rs`, which is where that guarantee is reviewed),
 /// and blanket impls are excluded as foreign library plumbing, not API
-/// decisions of this crate. Everything else, derives included, is a
-/// row: deriving a trait is exactly the kind of API event the census
-/// exists to make diff-visible.
+/// decisions of this crate. Everything else, derives included, is a row:
+/// deriving a trait is exactly the kind of API event the census exists to make
+/// diff-visible.
 fn record_impl(krate: &Crate, impl_id: Id, owner: &str, surface: &mut Surface) {
     let impl_item = item_of(krate, impl_id);
     let ItemEnum::Impl(impl_) = &impl_item.inner else {
@@ -417,14 +412,14 @@ fn record_impl(krate: &Crate, impl_id: Id, owner: &str, surface: &mut Surface) {
     surface.impls.insert(row);
 }
 
-/// Record `function`'s `usize` signature row under the function-like row
-/// `row`, when any parameter, the return type, or the function's own generic
+/// Record `function`'s `usize` signature row under the function-like row `row`,
+/// when any parameter, the return type, or the function's own generic
 /// parameters mention `usize`.
 ///
-/// `self_type` is the implementing type when the function lives in an impl,
-/// so a `Self` in the signature counts as that type; inside a trait
-/// definition `Self` is unknown. The enclosing impl's own generics belong to
-/// its header row, which [`record_impl`] and the inherent-impl traversal record.
+/// `self_type` is the implementing type when the function lives in an impl, so
+/// a `Self` in the signature counts as that type; inside a trait definition
+/// `Self` is unknown. The enclosing impl's own generics belong to its header
+/// row, which [`record_impl`] and the inherent-impl traversal record.
 fn record_usize_signature(
     function: &Function,
     row: &str,
@@ -456,11 +451,11 @@ fn record_usize_signature(
     }
 }
 
-/// Record a public field's `usize` row, `owner.field: usize in type`, for
-/// each of `fields` whose type mentions `usize`.
+/// Record a public field's `usize` row, `owner.field: usize in type`, for each
+/// of `fields` whose type mentions `usize`.
 ///
-/// The owner is a struct or union path, or an enum variant's `Enum::Variant`;
-/// a tuple field's name is its index. Rustdoc's public JSON strips private
+/// The owner is a struct or union path, or an enum variant's `Enum::Variant`; a
+/// tuple field's name is its index. Rustdoc's public JSON strips private
 /// fields, so every field listed here is public.
 fn record_usize_fields(krate: &Crate, fields: &[Id], owner: &str, surface: &mut Surface) {
     for &field in fields {
@@ -478,8 +473,7 @@ fn record_usize_fields(krate: &Crate, fields: &[Id], owner: &str, surface: &mut 
 }
 
 /// Record a type definition's `usize` row, `Type: definition: usize in
-/// generics`, when its own generic parameters or where clauses mention
-/// `usize`.
+/// generics`, when its own generic parameters or where clauses mention `usize`.
 fn record_usize_definition(generics: &Generics, type_name: &str, surface: &mut Surface) {
     if mentions_usize(generics_nodes(generics), None) {
         surface
@@ -517,9 +511,8 @@ fn record_usize_associated(
     }
 }
 
-/// The pieces of a generics list that can contain types: each type
-/// parameter's bounds and default, each const parameter's type, and each
-/// where clause.
+/// The pieces of a generics list that can contain types: each type parameter's
+/// bounds and default, each const parameter's type, and each where clause.
 fn generics_nodes(generics: &Generics) -> Vec<Node<'_>> {
     let params = generics.params.iter().flat_map(|param| match &param.kind {
         GenericParamDefKind::Lifetime { .. } => Vec::new(),
@@ -658,9 +651,9 @@ pub(crate) fn mentions_usize<'a>(
     false
 }
 
-/// Render a trait reference for a census row: the definition path from
-/// the `paths` table (unambiguous across same-named traits), plus any
-/// generic arguments.
+/// Render a trait reference for a census row: the definition path from the
+/// `paths` table (unambiguous across same-named traits), plus any generic
+/// arguments.
 fn render_trait(krate: &Crate, trait_: &Path) -> String {
     let mut out = krate
         .paths
@@ -675,12 +668,12 @@ fn render_trait(krate: &Crate, trait_: &Path) -> String {
 
 /// Render a type for a census row.
 ///
-/// Named types render as their bare name (the last segment of the
-/// definition path): census rows are keyed under the reachable path of
-/// the type they were found at, which carries the disambiguation, and
-/// bare names keep the pinned census legible. A type shape this crate's
-/// surface never uses panics rather than rendering approximately; a
-/// new shape must be named here before it can be pinned.
+/// Named types render as their bare name (the last segment of the definition
+/// path): census rows are keyed under the reachable path of the type they were
+/// found at, which carries the disambiguation, and bare names keep the pinned
+/// census legible. A type shape this crate's surface never uses panics rather
+/// than rendering approximately; a new shape must be named here before it can
+/// be pinned.
 ///
 /// Recurses, with [`render_args`], once per level of type nesting, a depth
 /// `before`'s own signatures fix.
@@ -724,9 +717,9 @@ fn render_type(krate: &Crate, ty: &Type) -> String {
     }
 }
 
-/// Render generic arguments for a census row: types and consts, with
-/// lifetimes elided (they never distinguish two impls) and associated
-/// bindings elided (they are constraints, not identity).
+/// Render generic arguments for a census row: types and consts, with lifetimes
+/// elided (they never distinguish two impls) and associated bindings elided
+/// (they are constraints, not identity).
 fn render_args(krate: &Crate, args: &GenericArgs) -> String {
     let GenericArgs::AngleBracketed { args, .. } = args else {
         panic!("surfacecheck: unhandled generic-args shape in an impl census row: {args:?}");
@@ -754,8 +747,8 @@ fn push<'p>(prefix: &[&'p str], name: &'p str) -> Vec<&'p str> {
     out
 }
 
-/// The public name of an item at `prefix`: path segments joined
-/// with `::`, the crate root contributing nothing.
+/// The public name of an item at `prefix`: path segments joined with `::`, the
+/// crate root contributing nothing.
 fn join(prefix: &[&str], name: &str) -> String {
     if prefix.is_empty() {
         name.to_owned()

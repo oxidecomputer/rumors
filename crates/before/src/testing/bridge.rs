@@ -6,17 +6,17 @@
 //! correctness. These conversions require normal-form oracle trees, and a
 //! [`Party`] must also be nonempty because production has no anonymous party.
 //! The inverse `to_oracle_*` rebuilds the oracle's tree shape from the impl's
-//! internal stored bits (the party bits and the version's skyline stream), so
-//! a differential test can compare structures with `==` without
-//! round-tripping the byte codec (which is exercised separately). The checked
-//! inputs and reconstructed outputs are normalized, so structural `==` is
-//! semantic equality.
+//! internal stored bits (the party bits and the version's skyline stream), so a
+//! differential test can compare structures with `==` without round-tripping
+//! the byte codec (which is exercised separately). The checked inputs and
+//! reconstructed outputs are normalized, so structural `==` is semantic
+//! equality.
 //!
 //! Every conversion recurses once per tree level, on native frames. The depth
 //! is bounded by construction: each tree that crosses the bridge is an oracle
 //! tree, which its harness keeps inside the oracle's operating envelope (see
-//! [`tree`]), and whose own derived `Drop` recurses just as deep. The impl's own
-//! traversals are iterative.
+//! [`tree`]), and whose own derived `Drop` recurses just as deep. The impl's
+//! own traversals are iterative.
 
 use std::sync::Arc;
 
@@ -91,10 +91,10 @@ pub(crate) fn from_oracle_party(t: &tree::Party) -> Party {
 
 /// Build the impl `Version` whose canonical bits encode `t`.
 ///
-/// Recursive over a bounded oracle tree (test-only; the impl's own
-/// traversals are iterative): emits the min-lifted preorder stream,
-/// then transcodes it into the skyline coding the version stores. Panics if
-/// `t` is not normal because the production representation is canonical.
+/// Recursive over a bounded oracle tree (test-only; the impl's own traversals
+/// are iterative): emits the min-lifted preorder stream, then transcodes it
+/// into the skyline coding the version stores. Panics if `t` is not normal
+/// because the production representation is canonical.
 pub(crate) fn from_oracle_version(t: &tree::Version) -> Version {
     assert!(
         t.is_normal(),
@@ -144,11 +144,10 @@ fn read_id(reader: &mut PartyReader<'_>) -> tree::Party {
 /// Read one skyline subtree at `pos` into a raw oracle tree.
 ///
 /// Threads the running previous-leaf height: leaves carry their *absolute*
-/// heights, internal nodes a zero base. The caller normalizes once at the
-/// root.
+/// heights, internal nodes a zero base. The caller normalizes once at the root.
 ///
-/// The oracle base is the arbitrary-precision `BigUint` (matching the impl),
-/// so lowering is lossless for any magnitude: no `u64` truncation point.
+/// The oracle base is the arbitrary-precision `BigUint` (matching the impl), so
+/// lowering is lossless for any magnitude: no `u64` truncation point.
 fn read_ev(reader: &mut VersionTreeReader<'_>, prev: &mut Option<BigUint>) -> tree::Version {
     if reader.node() == VersionNode::Branch {
         let left = read_ev(reader, prev);
@@ -172,14 +171,15 @@ fn read_ev(reader: &mut VersionTreeReader<'_>, prev: &mut Option<BigUint>) -> tr
     tree::Version::Leaf(value)
 }
 
-/// Lower an impl `Party` to the oracle's structural tree by reading its encoded bits.
+/// Lower an impl `Party` to the oracle's structural tree by reading its encoded
+/// bits.
 pub(crate) fn to_oracle_party(p: &Party) -> tree::Party {
     read_id(&mut p.reader())
 }
 
 /// Lower an impl `Version` to the oracle's structural tree by reading its
-/// stored skyline stream: absolute leaf heights become a raw tree, which
-/// one normalization pass min-lifts into the oracle's canonical spelling.
+/// stored skyline stream: absolute leaf heights become a raw tree, which one
+/// normalization pass min-lifts into the oracle's canonical spelling.
 pub(crate) fn to_oracle_version(v: &Version) -> tree::Version {
     let raw = read_ev(&mut VersionTreeReader::new(v), &mut None);
     raw.normalized_for_test()

@@ -1,22 +1,21 @@
 //! The sync budget's boundary cases.
 //!
-//! `sync_memory_budget` promises that a smaller budget costs a session
-//! time, never completion. The liveness argument behind that promise uses
-//! no budget at all: it rests on admission granting a unit whose kind and
-//! depth hold nothing. In the serial configuration, a ledger budget of zero
-//! with every kind and depth's bound zero, that is the only grant there is,
-//! so a session admits one unit of each kind and depth at a time, and still
-//! finishes and converges. The public setter keeps every session far above
-//! that, at [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so
-//! these tests set the serial configuration through the test path
+//! `sync_memory_budget` promises that a smaller budget costs a session time,
+//! never completion. The liveness argument behind that promise uses no budget
+//! at all: it rests on admission granting a unit whose kind and depth hold
+//! nothing. In the serial configuration, a ledger budget of zero with every
+//! kind and depth's bound zero, that is the only grant there is, so a session
+//! admits one unit of each kind and depth at a time, and still finishes and
+//! converges. The public setter keeps every session far above that, at
+//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so these tests
+//! set the serial configuration through the test path
 //! ([`BudgetChoice::Serial`]) and probe the corners where the argument is
-//! easiest to break: asymmetric catch-up and wide mutual divergence,
-//! compounded backpressure (one-byte pipe buffers), sets that grow while a
-//! session runs, and sessions timed on a real clock rather than the paused
-//! one.
+//! easiest to break: asymmetric catch-up and wide mutual divergence, compounded
+//! backpressure (one-byte pipe buffers), sets that grow while a session runs,
+//! and sessions timed on a real clock rather than the paused one.
 //!
-//! A serial test asserts that its session completes and converges, and
-//! prints its hop count; it asserts nothing about speed.
+//! A serial test asserts that its session completes and converges, and prints
+//! its hop count; it asserts nothing about speed.
 
 use std::time::Duration;
 
@@ -42,9 +41,9 @@ const COMMON: usize = 2_048;
 /// Messages each peer adds alone in the two-sided fixtures below.
 const EXTRA: usize = 2_000;
 
-/// The divisor of the case count of a property here that reconciles
-/// thousands of messages: one case costs seconds in a debug build, so the
-/// default count runs one case.
+/// The divisor of the case count of a property here that reconciles thousands
+/// of messages: one case costs seconds in a debug build, so the default count
+/// runs one case.
 const CORNER_DIVISOR: u32 = 256;
 
 /// Build a bootstrapped pair of the network `network` names, then commit
@@ -90,8 +89,8 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
     rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
-/// Reconciles `pair` once over the delayed link on a paused clock,
-/// returning the reconciled pair and the one-way hops the session spent.
+/// Reconciles `pair` once over the delayed link on a paused clock, returning
+/// the reconciled pair and the one-way hops the session spent.
 ///
 /// Compute costs no virtual time on the paused clock, so the hop count is a
 /// deterministic function of the session's shape.

@@ -13,18 +13,18 @@ use crate::error::{ParseValue, TooWide};
 /// An unbounded natural-number count.
 ///
 /// Counts have no semantic ceiling, so this type is unbounded rather than
-/// fixed-width. Conversions from unsigned machine integers are total. Owned
-/// and borrowed conversions out to every unsigned machine integer return
+/// fixed-width. Conversions from unsigned machine integers are total. Owned and
+/// borrowed conversions out to every unsigned machine integer return
 /// [`TooWide`] when the count does not fit. The range of `usize` follows the
-/// target's pointer width, so the same count can convert to `usize` on a
-/// 64-bit target and return [`TooWide`] on a 32-bit one.
-/// [`limbs`](Count::limbs) spells any count in base-2^64 for consumers with
-/// their own wide arithmetic, and [`Display`](fmt::Display) and
-/// [`FromStr`](core::str::FromStr) use canonical unsigned decimal.
+/// target's pointer width, so the same count can convert to `usize` on a 64-bit
+/// target and return [`TooWide`] on a 32-bit one. [`limbs`](Count::limbs)
+/// spells any count in base-2^64 for consumers with their own wide arithmetic,
+/// and [`Display`](fmt::Display) and [`FromStr`](core::str::FromStr) use
+/// canonical unsigned decimal.
 ///
 /// Counts are totally ordered ([`Ord`]), can be added ([`Add`], [`AddAssign`],
-/// [`Sum`]), and support checked or saturating subtraction. [`ZERO`](Count::ZERO)
-/// is the additive identity.
+/// [`Sum`]), and support checked or saturating subtraction.
+/// [`ZERO`](Count::ZERO) is the additive identity.
 ///
 /// # Complexity
 ///
@@ -64,8 +64,8 @@ impl Default for Count {
 }
 
 impl Count {
-    /// The zero count: the empty run of ticks, and the identity for
-    /// [`Count`] addition. Equal to
+    /// The zero count: the empty run of ticks, and the identity for [`Count`]
+    /// addition. Equal to
     /// [`Version::new().min_ticks()`](crate::Version::min_ticks).
     ///
     /// # Example
@@ -178,8 +178,8 @@ impl CanonicalLimbs {
     }
 }
 
-/// An iterator over a [`Count`]'s base-2^64 limbs, least significant first;
-/// see [`Count::limbs`].
+/// An iterator over a [`Count`]'s base-2^64 limbs, least significant first; see
+/// [`Count::limbs`].
 ///
 /// Exact-size and [fused](core::iter::FusedIterator).
 #[must_use = "iterators are lazy and do nothing unless consumed"]

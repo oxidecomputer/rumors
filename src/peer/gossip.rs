@@ -2,8 +2,8 @@
 //! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire).
 //!
 //! A [`ForkGuard`] restores bootstrap forks abandoned before transmission.
-//! Retirement owns its consumed `Peer` until the outcome determines whether
-//! the identity can be returned to the caller.
+//! Retirement owns its consumed `Peer` until the outcome determines whether the
+//! identity can be returned to the caller.
 
 use std::{fmt, sync::Arc, time::Instant};
 
@@ -38,8 +38,8 @@ use crate::{
 
 use super::{Inner, Peer, SessionSizing, bootstrap::Bootstrap, connection::Connection};
 
-/// The completion marker each side writes after all of its session work,
-/// in the closing exchange: the CBOR text item `"."`.
+/// The completion marker each side writes after all of its session work, in the
+/// closing exchange: the CBOR text item `"."`.
 ///
 /// Receiving this marker confirms that the peer also committed. Its first byte
 /// differs from a preamble's, so a premature next session is reported as a
@@ -53,8 +53,8 @@ pub(crate) const COMPLETION_MARKER: [u8; 2] = [0x61, b'.'];
 /// generic state machine in every downstream binary. The non-generic,
 /// non-inlined drivers keep one copy in this crate.
 ///
-/// Erasure costs one virtual call per read or write poll beneath the
-/// framing buffers.
+/// Erasure costs one virtual call per read or write poll beneath the framing
+/// buffers.
 type DynRead<'a> = &'a mut (dyn AsyncBufRead + Unpin + Send + 'a);
 
 /// A session's write half with its concrete transport type erased.
@@ -62,25 +62,25 @@ type DynRead<'a> = &'a mut (dyn AsyncBufRead + Unpin + Send + 'a);
 /// See [`DynRead`] for why the erasure exists and what it costs.
 type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 
-/// Reconciled content and the pipe's halves, ready for identity transfer
-/// or completion.
+/// Reconciled content and the pipe's halves, ready for identity transfer or
+/// completion.
 type Reconciled<'a> = (tree::Root, PipeRead<DynRead<'a>>, DynWrite<'a>);
 
-/// The in-process participant every reconciliation starts: the walk over
-/// the local replica's tree.
+/// The in-process participant every reconciliation starts: the walk over the
+/// local replica's tree.
 type LocalParticipant = materialized::Handshaking<Local, materialized::Start>;
 
-/// The wire-bound participant every reconciliation starts: the proxy over
-/// the session's erased halves.
+/// The wire-bound participant every reconciliation starts: the proxy over the
+/// session's erased halves.
 type RemoteParticipant<'a> = streaming_remote::Handshaking<Local, DynRead<'a>, DynWrite<'a>>;
 
 /// The outcome of [`Peer::retire`].
 ///
-/// [`Retired`](Self::Retired) means this peer left the network, and carries
-/// a [`Connection`] that says whether the connection can carry another
-/// session. [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered)
-/// return the peer, still holding its identity, so it can keep gossiping or
-/// retry retirement; dropping either result discards that peer.
+/// [`Retired`](Self::Retired) means this peer left the network, and carries a
+/// [`Connection`] that says whether the connection can carry another session.
+/// [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered) return the
+/// peer, still holding its identity, so it can keep gossiping or retry
+/// retirement; dropping either result discards that peer.
 /// [`Declined`](Self::Declined) completed the session and returns the
 /// connection's halves, resting at the session boundary.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
@@ -88,18 +88,17 @@ pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
     /// This replica left the network, handing its identity to the remote peer.
     ///
     /// The peer was consumed once it began to send its identity, and cannot
-    /// resume gossip or retry. With [`Connection::Reusable`], the remote
-    /// peer confirmed completion. With [`Connection::Lost`], the session
-    /// failed after the handoff began, including while awaiting
-    /// [`Phase::Completion`], so the remote peer may or may not have
-    /// committed; if it did not, no peer holds the identity, which then
-    /// cannot be recycled (see [`Bookmark`]).
+    /// resume gossip or retry. With [`Connection::Reusable`], the remote peer
+    /// confirmed completion. With [`Connection::Lost`], the session failed
+    /// after the handoff began, including while awaiting [`Phase::Completion`],
+    /// so the remote peer may or may not have committed; if it did not, no peer
+    /// holds the identity, which then cannot be recycled (see [`Bookmark`]).
     Retired {
         /// Whether the connection can carry another session.
         connection: Connection<R, W, B>,
     },
-    /// The remote peer was also retiring, so the session changed neither replica.
-    /// Retry retirement with another peer.
+    /// The remote peer was also retiring, so the session changed neither
+    /// replica. Retry retirement with another peer.
     Declined {
         /// The unchanged peer, still usable.
         peer: Peer<T, B>,
@@ -108,9 +107,9 @@ pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
         /// The connection's write half, ready for another session.
         write: W,
     },
-    /// Retirement failed before the peer had to be consumed.
-    /// The returned peer can keep gossiping or retry retirement on a fresh
-    /// connection; discard the failed one.
+    /// Retirement failed before the peer had to be consumed. The returned peer
+    /// can keep gossiping or retry retirement on a fresh connection; discard
+    /// the failed one.
     Recovered {
         /// The unchanged peer, still usable.
         peer: Peer<T, B>,
@@ -142,11 +141,12 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W,
     }
 }
 
-/// One completed exchange, returned by [`gossip_once`](crate::Rumors::gossip_once)
-/// or yielded by the [`gossip`](crate::Rumors::gossip) stream.
+/// One completed exchange, returned by
+/// [`gossip_once`](crate::Rumors::gossip_once) or yielded by the
+/// [`gossip`](crate::Rumors::gossip) stream.
 ///
-/// One of these exists per successful session; a failed session is an
-/// `Err` instead (the terminal `Err` of the `gossip` stream).
+/// One of these exists per successful session; a failed session is an `Err`
+/// instead (the terminal `Err` of the `gossip` stream).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Gossiped {
@@ -157,17 +157,17 @@ pub struct Gossiped {
     pub converged: Version,
     /// Which trigger initiated the session on this side.
     pub led: Led,
-    /// What the session measured about itself; every count is local, so
-    /// the two ends of one session report their own numbers.
+    /// What the session measured about itself; every count is local, so the two
+    /// ends of one session report their own numbers.
     ///
-    /// The byte and frame counts cover only the data frames that compare
-    /// and transfer messages. The session's setup, any identity it donates,
-    /// and its completion confirmation share the connection with those
-    /// frames but are not counted, so the byte counts are less than the
-    /// bytes the session moved over the connection.
+    /// The byte and frame counts cover only the data frames that compare and
+    /// transfer messages. The session's setup, any identity it donates, and its
+    /// completion confirmation share the connection with those frames but are
+    /// not counted, so the byte counts are less than the bytes the session
+    /// moved over the connection.
     ///
-    /// See [`SessionStats`] for each field's meaning and where it is
-    /// counted at.
+    /// See [`SessionStats`] for each field's meaning and where it is counted
+    /// at.
     pub stats: SessionStats,
 }
 
@@ -177,14 +177,15 @@ pub struct Gossiped {
 /// close together, each side may record `Local` for what becomes one session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Led {
-    /// The local policy or an explicit [`gossip_once`](crate::Rumors::gossip_once)
-    /// call initiated the session.
+    /// The local policy or an explicit
+    /// [`gossip_once`](crate::Rumors::gossip_once) call initiated the session.
     Local,
     /// The remote's preamble arrived first: this side responded.
     Remote,
 }
 
-/// Whether a policy stream item requests gossip conditionally or unconditionally.
+/// Whether a policy stream item requests gossip conditionally or
+/// unconditionally.
 ///
 /// `()` converts to [`WhenChanged`](Self::WhenChanged), so the default changes
 /// stream needs no adaptation for [`Peer::gossip_when`]. Unconditional requests
@@ -200,16 +201,16 @@ pub enum Gossip {
     WhenChanged,
     /// Initiate a session whether or not anything changed locally.
     ///
-    /// A session between already-converged replicas is a short round-trip
-    /// that confirms the connection works end to end, and a session
-    /// between diverged ones converges them both ways — so an interval
-    /// stream of unconditional requests doubles as a liveness probe and an
-    /// anti-entropy net, pulling news a remote's own policy stream stayed
-    /// quiet about.
+    /// A session between already-converged replicas is a short round-trip that
+    /// confirms the connection works end to end, and a session between diverged
+    /// ones converges them both ways — so an interval stream of unconditional
+    /// requests doubles as a liveness probe and an anti-entropy net, pulling
+    /// news a remote's own policy stream stayed quiet about.
     Unconditionally,
 }
 
-/// Use unit-valued streams, including change subscriptions, as conditional initiation requests.
+/// Use unit-valued streams, including change subscriptions, as conditional
+/// initiation requests.
 impl From<()> for Gossip {
     /// Treat a change notification as a conditional initiation request.
     fn from((): ()) -> Self {
@@ -217,9 +218,8 @@ impl From<()> for Gossip {
     }
 }
 
-/// What a joiner holds once its whole party has arrived: everything it
-/// needs to become a peer, whether or not the completion exchange that
-/// follows succeeds.
+/// What a joiner holds once its whole party has arrived: everything it needs to
+/// become a peer, whether or not the completion exchange that follows succeeds.
 struct Received {
     /// The network's keys, derived from the provider's sealed secret item.
     keys: Arc<NetworkKeys>,
@@ -231,15 +231,15 @@ struct Received {
 
 /// Create joined peers and attach bookmark storage.
 impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
-    /// Run bootstrap over any connection, returning the new peer, if this
-    /// side received its whole identity, beside the session's result.
+    /// Run bootstrap over any connection, returning the new peer, if this side
+    /// received its whole identity, beside the session's result.
     ///
     /// The peer is independent of the result: once the whole identity has
-    /// arrived, this side keeps it however the session ends. No peer with
-    /// `Ok` means the counterparty was bootstrapping too.
+    /// arrived, this side keeps it however the session ends. No peer with `Ok`
+    /// means the counterparty was bootstrapping too.
     ///
-    /// A thin generic funnel: the only monomorphized-per-transport code is
-    /// the erasure of the two halves here.
+    /// A thin generic funnel: the only monomorphized-per-transport code is the
+    /// erasure of the two halves here.
     pub(crate) fn bootstrap_inner<'a, R, W>(
         config: Bootstrap<T>,
         read: &'a mut R,
@@ -301,8 +301,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         })
     }
 
-    /// The peer a bootstrap that received its whole party becomes, carrying
-    /// the builder's settings.
+    /// The peer a bootstrap that received its whole party becomes, carrying the
+    /// builder's settings.
     fn joined(config: Bootstrap<T>, codec: PayloadCodec, received: Received) -> Self {
         let Received { keys, party, root } = received;
         Self {
@@ -316,9 +316,9 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
 
     /// The transport-erased bootstrap body behind [`bootstrap_inner`].
     ///
-    /// Leaves the joiner's network keys, party, and content in `received`
-    /// once the whole party has arrived, then confirms completion. `Ok` with
-    /// nothing received means the counterparty was bootstrapping too.
+    /// Leaves the joiner's network keys, party, and content in `received` once
+    /// the whole party has arrived, then confirms completion. `Ok` with nothing
+    /// received means the counterparty was bootstrapping too.
     ///
     /// [`bootstrap_inner`]: Self::bootstrap_inner
     fn bootstrap_erased<'a>(
@@ -412,7 +412,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
 
 /// Run sessions and maintain bookmarks across ownership changes.
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Reconcile and donate, returning the peer only when handoff has not begun.
+    /// Reconcile and donate, returning the peer only when handoff has not
+    /// begun.
     ///
     /// Reconciliation publishes on both sides. Surviving message observers
     /// drain the retiring peer's final merged state before they end.
@@ -470,8 +471,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Time an established peer's session while retaining its recovery outcome.
     ///
-    /// The outcome must outlive the protocol future: after deadline cancellation,
-    /// retirement can return the peer only if its handoff never started.
+    /// The outcome must outlive the protocol future: after deadline
+    /// cancellation, retirement can return the peer only if its handoff never
+    /// started.
     async fn session(
         &self,
         intent: Intent,
@@ -510,8 +512,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// Hold the bookmark mutex through persistence, taking the replica lock
     /// only to read its current version and update the party. This records all
-    /// local events visible at that instant without holding the replica during I/O.
-    /// Remote-only version advances leave our checkpoint current.
+    /// local events visible at that instant without holding the replica during
+    /// I/O. Remote-only version advances leave our checkpoint current.
     async fn bookmark_update(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
         let loaded = bookmark.load().await?;
@@ -533,20 +535,21 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Synchronize with a remote peer, optionally donating our identity.
     ///
     /// Only `retire_inner` may pass `Intent::Retire`: it owns the consumed
-    /// `Peer`, so no writable handle can coexist with the donation. `outcome` becomes
-    /// `Intent::Retire` when the peer must be consumed, even on error or timeout.
+    /// `Peer`, so no writable handle can coexist with the donation. `outcome`
+    /// becomes `Intent::Retire` when the peer must be consumed, even on error
+    /// or timeout.
     ///
     /// Set `outcome` before first polling the identity write: after that point
-    /// the recipient may hold it. The deadline wrapper owns this flag so dropping
-    /// this future cannot lose the handoff decision.
+    /// the recipient may hold it. The deadline wrapper owns this flag so
+    /// dropping this future cannot lose the handoff decision.
     ///
     /// Success includes session statistics and the converged frontier, before
-    /// concurrent local commits. [`gossip`](crate::Rumors::gossip)
-    /// uses that frontier to decide whether further gossip is needed.
+    /// concurrent local commits. [`gossip`](crate::Rumors::gossip) uses that
+    /// frontier to decide whether further gossip is needed.
     ///
-    /// `staged` holds any preamble bytes already read by the continuous gossip driver.
-    /// The erased halves and [`Reconciliation`] keep protocol code generation
-    /// independent of the caller's concrete transport type.
+    /// `staged` holds any preamble bytes already read by the continuous gossip
+    /// driver. The erased halves and [`Reconciliation`] keep protocol code
+    /// generation independent of the caller's concrete transport type.
     // The arguments are the session's inputs, one per concern; bundling them
     // into a struct would only rename the arity.
     #[allow(clippy::too_many_arguments)]
@@ -884,18 +887,18 @@ struct Reconciliation<'a> {
     write: DynWrite<'a>,
     /// The peer's payload codec: the payload boundary in both directions.
     ///
-    /// Supplied leaves decode through it at wire ingress, and egress
-    /// replays only bytes it previously admitted (at send, or at an
-    /// earlier session's ingress). Its depth limit rides the greeting,
-    /// where the counterparty's must match.
+    /// Supplied leaves decode through it at wire ingress, and egress replays
+    /// only bytes it previously admitted (at send, or at an earlier session's
+    /// ingress). Its depth limit rides the greeting, where the counterparty's
+    /// must match.
     codec: PayloadCodec,
     /// The keys of the network whose tree `root` is, or `None` for a
     /// bootstrapper meeting another bootstrapper.
     ///
     /// Their path key places supplied leaves, and their hash key is the one
     /// `root`'s nodes cache their digests under, which this side lists and
-    /// compares. A bootstrapper meeting a bootstrapper holds no network
-    /// secret, lists nothing, and can be supplied nothing.
+    /// compares. A bootstrapper meeting a bootstrapper holds no network secret,
+    /// lists nothing, and can be supplied nothing.
     keys: Option<Arc<NetworkKeys>>,
     /// The peer's sizing as set, from which the session starts its local
     /// participant ([`SessionSizing::start`]).
@@ -905,9 +908,8 @@ struct Reconciliation<'a> {
     sizing: SessionSizing,
     /// The session's stats recorder, shared by both protocol participants.
     stats: Recorder,
-    /// The session's observation handle: inert unless a handler is
-    /// attached, and shared, like the recorder, by every layer that
-    /// moves a wire item.
+    /// The session's observation handle: inert unless a handler is attached,
+    /// and shared, like the recorder, by every layer that moves a wire item.
     observe: SessionHandle,
     /// The remote's role and the context needed to validate its greeting.
     remote_role: RemoteRole,
@@ -953,12 +955,12 @@ impl RemoteRole {
 }
 
 impl<'a> Reconciliation<'a> {
-    /// Reconcile content and return the pipe's halves, with any byte read
-    /// ahead of the closing items retained.
+    /// Reconcile content and return the pipe's halves, with any byte read ahead
+    /// of the closing items retained.
     ///
-    /// Box the protocol future at this non-generic boundary so consumers do
-    /// not instantiate its state machine. Prevent inlining from moving that
-    /// erasure back into downstream code.
+    /// Box the protocol future at this non-generic boundary so consumers do not
+    /// instantiate its state machine. Prevent inlining from moving that erasure
+    /// back into downstream code.
     #[inline(never)]
     fn reconcile(self) -> BoxFuture<'a, Result<Reconciled<'a>, Error>> {
         Box::pin(self.session())
@@ -1028,13 +1030,13 @@ enum SessionDefect {
     CompletionMarker([u8; 2]),
 }
 
-/// Finish the session with the closing exchange, read through the pipe's
-/// read half.
+/// Finish the session with the closing exchange, read through the pipe's read
+/// half.
 ///
-/// The pipe consumes exactly the bytes of each item it reads, and only
-/// looks at the next item's first byte in the read half's buffer, so after
-/// the epilogue the read half rests exactly at the session boundary, any
-/// bytes beyond it still in its buffer.
+/// The pipe consumes exactly the bytes of each item it reads, and only looks at
+/// the next item's first byte in the read half's buffer, so after the epilogue
+/// the read half rests exactly at the session boundary, any bytes beyond it
+/// still in its buffer.
 async fn finish_session<R: AsyncBufRead + Unpin + Send>(
     read: &mut PipeRead<R>,
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
@@ -1046,8 +1048,8 @@ async fn finish_session<R: AsyncBufRead + Unpin + Send>(
 /// Exchange completion markers concurrently so both sides can flush before
 /// waiting for a response.
 ///
-/// Existing replicas have committed at this point, and a joiner already
-/// holds its whole party, which it keeps if the exchange fails.
+/// Existing replicas have committed at this point, and a joiner already holds
+/// its whole party, which it keeps if the exchange fails.
 async fn epilogue(
     read: &mut (dyn AsyncRead + Unpin + Send + '_),
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
@@ -1086,7 +1088,8 @@ async fn epilogue(
 
 /// The event that ends the driver's idle wait, after its racing borrows end.
 enum Trigger {
-    /// Received initiation bytes (`true`), clean EOF (`false`), or an I/O error.
+    /// Received initiation bytes (`true`), clean EOF (`false`), or an I/O
+    /// error.
     Arrival(Result<bool, preamble::Error>),
     /// The local policy produced an item or ended.
     Tick(Option<Gossip>),
@@ -1096,8 +1099,8 @@ enum Trigger {
 struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
     /// The replica served by every session on this connection.
     peer: &'a Peer<T, B>,
-    /// The connection's read half, retained across session boundaries and
-    /// boxed so the driver is not generic over the transport.
+    /// The connection's read half, retained across session boundaries and boxed
+    /// so the driver is not generic over the transport.
     read: Box<dyn AsyncBufRead + Unpin + Send + 'a>,
     /// The connection's write half, retained across session boundaries.
     write: Box<dyn AsyncWrite + Unpin + Send + 'a>,
@@ -1117,17 +1120,17 @@ struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
 
 /// Restore a bootstrap fork unless its transmission has started.
 ///
-/// A fork restored after its removal reached storage stays unrecorded until
-/// the peer's next checkpoint, so a crash before then would drop it forever.
+/// A fork restored after its removal reached storage stays unrecorded until the
+/// peer's next checkpoint, so a crash before then would drop it forever.
 struct ForkGuard<'a, T: Send + Sync + 'static> {
     /// The unsent fork and its hold on reclamation.
     fork: Option<(Party, Reservation)>,
     /// The replica from which the fork was split.
     ///
     /// Borrowed rather than a sender of its own: every session builds this
-    /// guard, and a session future leaked instead of dropped never drops
-    /// it, so an owned sender would keep the replica's observers waiting
-    /// after every handle is gone.
+    /// guard, and a session future leaked instead of dropped never drops it, so
+    /// an owned sender would keep the replica's observers waiting after every
+    /// handle is gone.
     recover: &'a watch::Sender<Inner<T>>,
 }
 

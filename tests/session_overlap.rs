@@ -18,17 +18,17 @@ use crate::common::wire::{bootstrap_fork, wire_gossip};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
-/// The divisor of [`overlapped_install_never_loses_innocent_messages`]'s
-/// case count: one case runs the whole parking sweep, seconds of work in a
-/// debug build, so the default count runs one case.
+/// The divisor of [`overlapped_install_never_loses_innocent_messages`]'s case
+/// count: one case runs the whole parking sweep, seconds of work in a debug
+/// build, so the default count runs one case.
 const SWEEP_DIVISOR: u32 = 256;
 
 /// Build three replicas of the network `network` names at a ledger budget of
 /// zero ([`ledger_budget`](rumors::testing::ledger_budget)), then redact
 /// `target` only at B.
 ///
-/// The seed makes the trio reproducible: two calls with one seed build
-/// trios whose sessions take the same rounds.
+/// The seed makes the trio reproducible: two calls with one seed build trios
+/// whose sessions take the same rounds.
 fn redacted_trio(
     network: NetworkSeed,
     n: u64,
@@ -53,10 +53,11 @@ fn redacted_trio(
 
 /// Drive the three peers to agreement and return the common readout.
 ///
-/// Panics if they fail to agree within a bounded number of full-mesh
-/// rounds: overlapped sessions must still converge.
+/// Panics if they fail to agree within a bounded number of full-mesh rounds:
+/// overlapped sessions must still converge.
 fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
-    /// Maximum full-mesh passes allowed to settle the already completed sessions.
+    /// Maximum full-mesh passes allowed to settle the already completed
+    /// sessions.
     const ROUNDS: usize = 8;
     for _ in 0..ROUNDS {
         wire_gossip(a, b);

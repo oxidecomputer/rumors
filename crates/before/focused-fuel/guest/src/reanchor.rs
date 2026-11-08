@@ -1,10 +1,10 @@
 //! Probes of a join that re-anchors one wide payload at every level.
 //!
 //! The re-anchoring spine of depth `d` is a left spine whose right child at
-//! every level is the leaf pair `(0, 1)`: height 1 on the right-right
-//! quarter of each level's interval, zero elsewhere. Joining it with a flat
-//! version high enough to dominate it emits one leaf, recovering the same
-//! wide payload once at every level of the spine.
+//! every level is the leaf pair `(0, 1)`: height 1 on the right-right quarter
+//! of each level's interval, zero elsewhere. Joining it with a flat version
+//! high enough to dominate it emits one leaf, recovering the same wide payload
+//! once at every level of the spine.
 
 use before::testing::meter::registry::Shape;
 use before::{Party, Version};
@@ -13,9 +13,9 @@ use crate::measured_per;
 
 /// Builds the re-anchoring spine of `depth` levels.
 ///
-/// Each level's quarter is one owned cell of its own party, so one tick
-/// raises exactly that cell to height 1; the join of those versions holds
-/// height 1 on every level's quarter.
+/// Each level's quarter is one owned cell of its own party, so one tick raises
+/// exactly that cell to height 1; the join of those versions holds height 1 on
+/// every level's quarter.
 fn spine(depth: usize) -> Version {
     (0..depth)
         .map(|level| {
@@ -26,12 +26,12 @@ fn spine(depth: usize) -> Version {
         .fold(Version::new(), |spine, level| &spine | &level)
 }
 
-/// The party owning the right-right quarter of the interval `level` left
-/// steps below the root.
+/// The party owning the right-right quarter of the interval `level` left steps
+/// below the root.
 ///
-/// Spelled in the party encoding (two presence bits per node, `00` for an
-/// owned cell, a `1` marker, then zero padding) and decoded through the
-/// validating `Party::decode`.
+/// Spelled in the party encoding (two presence bits per node, `00` for an owned
+/// cell, a `1` marker, then zero padding) and decoded through the validating
+/// `Party::decode`.
 fn quarter(level: usize) -> Party {
     let mut bits: Vec<bool> = Vec::with_capacity(2 * level + 6);
     for _ in 0..level {

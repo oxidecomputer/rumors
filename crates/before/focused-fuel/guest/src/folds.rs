@@ -1,5 +1,5 @@
-//! Probes of the balanced folds over populations whose merges stay as large
-//! as the inputs they carry, so a fold's logarithmic factor shows.
+//! Probes of the balanced folds over populations whose merges stay as large as
+//! the inputs they carry, so a fold's logarithmic factor shows.
 //!
 //! The staggered population `SG(n, 64)` (`Shape::StaggerPopulation`) joins
 //! maximally interleaving region sets at every balanced merge; its ids are
@@ -10,8 +10,8 @@ use before::{Clock, Party, Version};
 
 use crate::measured_per;
 
-/// The blocks each staggered operand carries, held fixed while the
-/// population grows so its bytes grow nearly linearly with its size.
+/// The blocks each staggered operand carries, held fixed while the population
+/// grows so its bytes grow nearly linearly with its size.
 const TEETH: usize = 64;
 
 /// Builds the staggered versions and ids of `size` members.
@@ -50,8 +50,7 @@ pub fn join_all(size: usize) -> u64 {
     )
 }
 
-/// Measures `meet_all` over the staggered notch population of `size`
-/// members.
+/// Measures `meet_all` over the staggered notch population of `size` members.
 ///
 /// Member `i` is the unit plateau projected onto the complement of the
 /// staggered id `i`, so it carries notches of height zero exactly over that
@@ -117,9 +116,9 @@ pub fn party_join_all(size: usize) -> u64 {
 ///
 /// Replays the fold's documented order: the items pass through a balanced
 /// binary counter, where an arriving item joins each stack entry of its own
-/// weight in turn, and the surviving groups then join the receiver in
-/// arrival order. A join walks both operands once, so its cost is linear in
-/// their encoded sizes.
+/// weight in turn, and the surviving groups then join the receiver in arrival
+/// order. A join walks both operands once, so its cost is linear in their
+/// encoded sizes.
 fn merge_bytes(mut receiver: Party, ids: Vec<Party>) -> u64 {
     let size = |party: &Party| party.encode().len() as u64;
     let mut read = 0;
@@ -187,9 +186,8 @@ pub fn clock_join_all(size: usize) -> u64 {
 const SKELETON_FORKS: usize = 16;
 
 /// Measures `span_all` over sixteen forks of one dense spine of depth
-/// `2000 · 2^level`, each ticked once, so meets never shrink and every
-/// combine carries the whole skeleton; the units are the population's
-/// encoded bytes.
+/// `2000 · 2^level`, each ticked once, so meets never shrink and every combine
+/// carries the whole skeleton; the units are the population's encoded bytes.
 pub fn shared_skeleton_span_all(level: usize) -> u64 {
     let base = Shape::Dense.build1(2_000 << level).version();
     let mut parties = vec![Party::seed()];

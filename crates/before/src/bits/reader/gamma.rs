@@ -42,8 +42,8 @@ where
     Ok(mantissa - 1u32)
 }
 
-/// The length of a gamma code with `zeros` leading zeros, `2 · zeros + 1`,
-/// if it fits within `remaining` bits.
+/// The length of a gamma code with `zeros` leading zeros, `2 · zeros + 1`, if
+/// it fits within `remaining` bits.
 ///
 /// A run of 2^63 zeros or more fits in a stream of fewer than 2^64 bits, but
 /// its code's length does not fit a `u64`, so the length is computed with

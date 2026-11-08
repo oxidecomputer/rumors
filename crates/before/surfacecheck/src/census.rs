@@ -1,20 +1,20 @@
 //! The pinned censuses: every reachable trait impl, every reachable
-//! non-function item, and every function-like signature that mentions
-//! `usize`, by name.
+//! non-function item, and every function-like signature that mentions `usize`,
+//! by name.
 //!
 //! These lists are tamper-evidence, not judgment: adding, removing, or
-//! reshaping an impl (a derive included) changes the extracted set, and
-//! the reconcile fails until the diff-visible pin here moves with it.
-//! A row here says only that an impl exists and was reviewed. The resource
-//! board separately prices grouped trait families.
+//! reshaping an impl (a derive included) changes the extracted set, and the
+//! reconcile fails until the diff-visible pin here moves with it. A row here
+//! says only that an impl exists and was reviewed. The resource board
+//! separately prices grouped trait families.
 //!
 //! Row format, produced by [`crate::extract`]:
 //!
 //! - trait impls: `ReachablePath: impl trait::def::Path<Args> for ForType`
 //!   giving the reachable path of the type (or trait) the impl was found at,
-//!   the trait's definition path with generic arguments (lifetimes
-//!   elided), and the implementing type. An impl reachable at two public
-//!   paths holds two rows, one per spelling.
+//!   the trait's definition path with generic arguments (lifetimes elided), and
+//!   the implementing type. An impl reachable at two public paths holds two
+//!   rows, one per spelling.
 //! - items: the reachable path alone (`Rank::ZERO`).
 //! - `usize` signatures: `owner: usize in sites`. The owner is a function or
 //!   item row (`Type::method`, `Type::NAME`); a trait impl row, alone for its
@@ -24,9 +24,8 @@
 //!   index; or `Type: definition` for a type definition's generics. The sites
 //!   are `parameter name`, `return`, `generics`, `header`, or `type`.
 //!
-//! The feature-gated instrument trees carry no pins here: the module
-//! exceptions in [`crate::check`] cover them, with the reason at each
-//! entry.
+//! The feature-gated instrument trees carry no pins here: the module exceptions
+//! in [`crate::check`] cover them, with the reason at each entry.
 
 /// Every reachable trait impl outside the module-excepted trees.
 pub(crate) const TRAIT_IMPLS: &[&str] = &[
@@ -487,23 +486,23 @@ pub(crate) const TRAIT_IMPLS: &[&str] = &[
     "shape::Rise: impl core::marker::StructuralPartialEq for Rise",
 ];
 
-/// Every reachable associated const or type, module const, static, or
-/// macro outside the module-excepted trees.
+/// Every reachable associated const or type, module const, static, or macro
+/// outside the module-excepted trees.
 pub(crate) const ITEMS: &[&str] = &["Rank::ZERO", "Count::ZERO", "for_each_law_group"];
 
 /// Every place outside the module-excepted trees where a public `usize`
 /// appears.
 ///
-/// The places are a function-like item's parameters, return type, or
-/// generics; an impl's header; the type of a module const or static, of an
-/// associated const or type, or of a public struct, union, or variant field;
-/// and a type definition's generics.
+/// The places are a function-like item's parameters, return type, or generics;
+/// an impl's header; the type of a module const or static, of an associated
+/// const or type, or of a public struct, union, or variant field; and a type
+/// definition's generics.
 ///
-/// A `usize` changes meaning with the target's pointer width, so each row is
-/// a reviewed decision that its `usize` indexes into memory or counts what
-/// memory holds, which behaves alike on every target. The const `N` of the
-/// array conversions and of `shape::Cell` and `shape::Cells` counts the
-/// versions an array holds.
+/// A `usize` changes meaning with the target's pointer width, so each row is a
+/// reviewed decision that its `usize` indexes into memory or counts what memory
+/// holds, which behaves alike on every target. The const `N` of the array
+/// conversions and of `shape::Cell` and `shape::Cells` counts the versions an
+/// array holds.
 pub(crate) const USIZE_SIGNATURES: &[&str] = &[
     "Clock: impl core::convert::From<Clock> for [Clock; N]: usize in header",
     "Count: impl core::convert::From<usize> for Count :: from: usize in parameter n",

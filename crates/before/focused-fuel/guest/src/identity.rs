@@ -1,8 +1,8 @@
-//! Probes of the identity fast paths: operands that are clones of one
-//! another, byte-equal in distinct buffers, or empty.
+//! Probes of the identity fast paths: operands that are clones of one another,
+//! byte-equal in distinct buffers, or empty.
 //!
-//! Every operand is a dense spine (`Shape::Dense`) of the probe's depth, so
-//! the probes vary the operands' size while their structure stays alike.
+//! Every operand is a dense spine (`Shape::Dense`) of the probe's depth, so the
+//! probes vary the operands' size while their structure stays alike.
 
 use std::cmp::Ordering;
 
@@ -23,8 +23,8 @@ fn spine_and_clone(depth: usize) -> (Version, Version) {
     (spine, clone)
 }
 
-/// Builds a dense spine and a byte-equal copy decoded from its encoding,
-/// which holds a buffer of its own.
+/// Builds a dense spine and a byte-equal copy decoded from its encoding, which
+/// holds a buffer of its own.
 fn spine_and_redecoded(depth: usize) -> (Version, Version) {
     let spine = spine(depth);
     let redecoded =

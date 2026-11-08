@@ -17,11 +17,11 @@ const FIRST_WIDE_VERSION_BYTES: u64 = (1 << 29) + 1;
 /// A leaf of height `2^k` stores the gamma code of `2^k + 1`, whose final
 /// mantissa bit, set, lies at position `2k + 1`: `2^32 + 1` at this exponent,
 /// and `2^32 - 1` at the one before. Past position `2^32 - 1` this version
-/// holds a clear mantissa bit, then two set bits (the last mantissa bit and
-/// the padding marker), which differ from the leaf flag and zeros that open
-/// the stream, so the decode's result depends on reading those positions from
-/// the version's last byte. At the exponent before, the bits there are the
-/// marker and padding, `1000_0000`, the same as the stream's first byte.
+/// holds a clear mantissa bit, then two set bits (the last mantissa bit and the
+/// padding marker), which differ from the leaf flag and zeros that open the
+/// stream, so the decode's result depends on reading those positions from the
+/// version's last byte. At the exponent before, the bits there are the marker
+/// and padding, `1000_0000`, the same as the stream's first byte.
 const FIRST_WIDE_LEAF_EXPONENT: u64 = 1 << 31;
 
 /// A left payload width small enough that both join inputs remain addressable.
@@ -41,8 +41,8 @@ const JOIN_RIGHT_ABOVE: u64 = 2_047_483_646;
 /// largest `usize`; one more bit makes it `2^32`.
 const FIRST_UNINDEXABLE_STABILITY_WIDTH: u64 = 32 * (1 << 32) + 1;
 
-/// The panic message of a `suanpan` contribution that lands at a digit
-/// position its buffer cannot address.
+/// The panic message of a `suanpan` contribution that lands at a digit position
+/// its buffer cannot address.
 ///
 /// The panic condition is documented, under `add_shifted_limbs`'s `# Panics`
 /// and its siblings'; the message is not. This string is the message of
@@ -74,12 +74,12 @@ fn assert_panics(check: Check, a: u64, b: u64, message: &str) {
     );
 }
 
-/// The protocol distinguishes a pass, an in-band failure, a panic, and an
-/// abort without a panic.
+/// The protocol distinguishes a pass, an in-band failure, a panic, and an abort
+/// without a panic.
 ///
 /// A panic and an allocation failure end in the same wasm trap, so the panic
-/// control must carry its message and the allocation control must carry
-/// none; a harness that conflated them would fail one of the two.
+/// control must carry its message and the allocation control must carry none; a
+/// harness that conflated them would fail one of the two.
 #[test]
 fn harness_outcomes_are_live() {
     assert_passes(Check::Liveness, 0, 0);
@@ -107,8 +107,8 @@ fn forks_accept_the_first_count_past_usize() {
     assert_passes(Check::Forks, 1u64 << 32, 0);
 }
 
-/// Version validation and stored-byte adoption preserve the live length on
-/// both sides of wasm32's bit-position limit.
+/// Version validation and stored-byte adoption preserve the live length on both
+/// sides of wasm32's bit-position limit.
 ///
 /// Computing the padded buffer's `bytes.len() * 8` in `usize` already wraps at
 /// the lower witness and remains short by `2^32` at the upper witness, causing
@@ -124,21 +124,20 @@ fn version_decode_crosses_the_usize_position_boundary() {
 /// bit position `2^32`, keeping its exact bytes and live length and reading
 /// nothing past its last byte.
 ///
-/// The decoder's result must not depend on the width of `usize`; it meets
-/// that by counting its bit position in `u64` and converting it to a byte
-/// index only to read its buffer. Its word window sees only bytes already
-/// read, a single byte where the leaf's gamma code begins, so it reads every
-/// bit of this version one at a time. The version's last byte holds bit
-/// positions `2^32` through `2^32 + 7`: the mantissa's last two bits, zero
-/// then one, the marker, and padding.
-/// `version_decode_crosses_the_usize_position_boundary` pins the slice
-/// decoder at the same boundary.
+/// The decoder's result must not depend on the width of `usize`; it meets that
+/// by counting its bit position in `u64` and converting it to a byte index only
+/// to read its buffer. Its word window sees only bytes already read, a single
+/// byte where the leaf's gamma code begins, so it reads every bit of this
+/// version one at a time. The version's last byte holds bit positions `2^32`
+/// through `2^32 + 7`: the mantissa's last two bits, zero then one, the marker,
+/// and padding. `version_decode_crosses_the_usize_position_boundary` pins the
+/// slice decoder at the same boundary.
 ///
-/// The decode peaks at 40,989 wasm pages (2.50 GiB): the 512 MiB
-/// input, the decoder's byte buffer, the leaf's 256 MiB height, and the
-/// validator's copy of that height. After a change to the borsh decode path
-/// or to `Version`'s validation, this test may therefore abort on allocation,
-/// which the harness reports as a trap with no panic message.
+/// The decode peaks at 40,989 wasm pages (2.50 GiB): the 512 MiB input, the
+/// decoder's byte buffer, the leaf's 256 MiB height, and the validator's copy
+/// of that height. After a change to the borsh decode path or to `Version`'s
+/// validation, this test may therefore abort on allocation, which the harness
+/// reports as a trap with no panic message.
 #[test]
 fn version_borsh_decode_crosses_the_usize_position_boundary() {
     assert_passes(Check::VersionBorshDecode, FIRST_WIDE_LEAF_EXPONENT, 0);
@@ -149,13 +148,13 @@ fn version_borsh_decode_crosses_the_usize_position_boundary() {
 ///
 /// The comparison walk finishes an operand when its cursor reaches the
 /// operand's live length. At the upper witness that length is exactly `2^32`
-/// bits, so a 32-bit `usize` would hold it as zero: the walk would miss the
-/// end of the stream and advance past the final leaf, which panics.
+/// bits, so a 32-bit `usize` would hold it as zero: the walk would miss the end
+/// of the stream and advance past the final leaf, which panics.
 ///
-/// This pin cannot catch a starting position narrowed before it becomes a
-/// byte index. The walk opens each operand at its first bit and reads
-/// forward, so the only starting position it converts into a byte index is
-/// zero, however large the operands.
+/// This pin cannot catch a starting position narrowed before it becomes a byte
+/// index. The walk opens each operand at its first bit and reads forward, so
+/// the only starting position it converts into a byte index is zero, however
+/// large the operands.
 #[test]
 fn version_compare_crosses_the_usize_position_boundary() {
     for size in [FIRST_WIDE_VERSION_BYTES - 1, FIRST_WIDE_VERSION_BYTES] {
@@ -170,14 +169,13 @@ fn version_compare_crosses_the_usize_position_boundary() {
 /// The joined stream has `2k + 2j + 5` bits, always odd, so these are the
 /// lengths on either side of `2^32` that this family reaches, as the two
 /// asserted constants show. The guest compares the output's bytes with an
-/// independent synthesis and its `encoded_bits` with `2k + 2j + 5`, so a
-/// result whose bytes or reported length depend on the width of `usize`
-/// fails here.
+/// independent synthesis and its `encoded_bits` with `2k + 2j + 5`, so a result
+/// whose bytes or reported length depend on the width of `usize` fails here.
 ///
-/// The pin cannot see a writer's running bit count wrap. The writer reads
-/// that count only modulo 8 while appending, and the sealed result stores
-/// only its bytes, deriving its length from the canonical marker, so a count
-/// that wraps at `2^32` leaves this output unchanged.
+/// The pin cannot see a writer's running bit count wrap. The writer reads that
+/// count only modulo 8 while appending, and the sealed result stores only its
+/// bytes, deriving its length from the canonical marker, so a count that wraps
+/// at `2^32` leaves this output unchanged.
 #[test]
 fn version_join_output_crosses_the_usize_position_boundary() {
     assert_eq!(
@@ -213,9 +211,9 @@ fn rank_decode_accepts_the_first_exponent_past_usize() {
 /// would keep the first shift and wrap the second to zero. The identities
 /// compare the two operations with each other, never with an independently
 /// computed sum, so they detect a wrong shift only where its error does not
-/// cancel between them. Subtracting the deep rank from one is such a case:
-/// with the shift wrapped, the subtraction would take the deep rank's wide
-/// numerator from a numerator of one, which panics and traps the guest.
+/// cancel between them. Subtracting the deep rank from one is such a case: with
+/// the shift wrapped, the subtraction would take the deep rank's wide numerator
+/// from a numerator of one, which panics and traps the guest.
 #[test]
 fn rank_arithmetic_crosses_the_usize_gap_boundary() {
     for case in 1..=4 {
@@ -229,8 +227,8 @@ fn rank_arithmetic_crosses_the_usize_gap_boundary() {
 ///
 /// `Sum` aligns its summands in its own accumulator, apart from `+` and
 /// `checked_sub`, so `rank_arithmetic_crosses_the_usize_gap_boundary` cannot
-/// see it. Each case puts a small rank before the deep one, so the
-/// deep summand shifts the held value by the whole exponent gap:
+/// see it. Each case puts a small rank before the deep one, so the deep summand
+/// shifts the held value by the whole exponent gap:
 ///
 /// - Case 5 (half, then deep) shifts by `usize::MAX` bits.
 /// - Case 6 (one, then deep) shifts by `usize::MAX + 1` bits. Narrowing that
@@ -245,14 +243,13 @@ fn rank_arithmetic_crosses_the_usize_gap_boundary() {
 /// The guest judges cases 5 and 6 against the addition that test checks, and
 /// inverts all three by checked subtraction.
 ///
-/// No case begins with the deep summand: the accumulator's growth while
-/// landing the next one would exhaust the 4 GiB address space, and the guest
-/// would abort on allocation. Case 5 peaks at 58,399 wasm pages (3.56 GiB),
-/// as does that test's subtraction of the deep rank from one, leaving less
-/// room than one more copy of the deep rank's 512 MiB numerator. After a
-/// change to `Sum`, `+`, `checked_sub`, or `Rank::decode`, either test may
-/// therefore abort on allocation, which the harness reports as a trap with no
-/// panic message.
+/// No case begins with the deep summand: the accumulator's growth while landing
+/// the next one would exhaust the 4 GiB address space, and the guest would
+/// abort on allocation. Case 5 peaks at 58,399 wasm pages (3.56 GiB), as does
+/// that test's subtraction of the deep rank from one, leaving less room than
+/// one more copy of the deep rank's 512 MiB numerator. After a change to `Sum`,
+/// `+`, `checked_sub`, or `Rank::decode`, either test may therefore abort on
+/// allocation, which the harness reports as a trap with no panic message.
 #[test]
 fn rank_sum_straddles_the_usize_alignment_limit() {
     for case in 5..=7 {
@@ -264,16 +261,16 @@ fn rank_sum_straddles_the_usize_alignment_limit() {
 /// required buffer length cannot fit wasm32's `usize`, with the documented
 /// panic rather than an allocation failure.
 ///
-/// Together the cases reach every internal path by which a shifted
-/// contribution can land past the addressable digits, and the guest names
-/// each case's path beside it. The cases enter through the adding methods
-/// and `<<=`; the subtracting methods and `<<` reach the same paths. In each
-/// case, wrapping or narrowing the landing position would return normally
-/// after writing near the start of the buffer.
+/// Together the cases reach every internal path by which a shifted contribution
+/// can land past the addressable digits, and the guest names each case's path
+/// beside it. The cases enter through the adding methods and `<<=`; the
+/// subtracting methods and `<<` reach the same paths. In each case, wrapping or
+/// narrowing the landing position would return normally after writing near the
+/// start of the buffer.
 ///
 /// A limb stream lands each limb at a digit position, the shift's digits plus
-/// twice the limb's index, which becomes a buffer index only where the digit
-/// is stored, so it must not depend on the width of `usize` before then. The
+/// twice the limb's index, which becomes a buffer index only where the digit is
+/// stored, so it must not depend on the width of `usize` before then. The
 /// limb-stream cases differ in which term carries that position past
 /// `2^32 - 1`. In case 1 only the sum does, from shift digit `2^32 - 4` and
 /// index 2. In case 4 the index counter itself passes `usize::MAX`. In case 7
@@ -291,11 +288,11 @@ fn suanpan_rejects_unaddressable_digit_landings() {
 /// `u64::MAX` bits needs more 32-bit positions than `usize` can count, and
 /// `2^33 - 31` bits is the smallest request whose `i64` digit storage exceeds
 /// `isize::MAX` bytes; both fail the capacity computation. `2^33 - 32` bits is
-/// the largest valid layout, `2^31 - 8` bytes. The scalar accumulator's
-/// request of that size is granted and kept, so the digit accumulator's cannot
-/// fit beside it in the 4 GiB linear memory, and only the allocator can refuse
-/// it. A panicking narrowing of the position count, or an infallible
-/// reservation, traps instead of returning.
+/// the largest valid layout, `2^31 - 8` bytes. The scalar accumulator's request
+/// of that size is granted and kept, so the digit accumulator's cannot fit
+/// beside it in the 4 GiB linear memory, and only the allocator can refuse it.
+/// A panicking narrowing of the position count, or an infallible reservation,
+/// traps instead of returning.
 #[test]
 fn suanpan_ignores_unsatisfiable_reservations() {
     for bits in [u64::MAX, (1 << 33) - 31, (1 << 33) - 32] {
@@ -308,7 +305,8 @@ fn suanpan_ignores_unsatisfiable_reservations() {
 ///
 /// A known zero deposits nothing. A zero stored as the cancelling digits
 /// `[-2^32, 1]` must not deposit either: its digits would land at index
-/// `usize::MAX`, which the accumulator rejects with a panic, trapping the guest.
+/// `usize::MAX`, which the accumulator rejects with a panic, trapping the
+/// guest.
 #[test]
 fn suanpan_shifts_zero_onto_an_unaddressable_digit_position() {
     for case in 0..=1 {
@@ -332,9 +330,9 @@ fn suanpan_shifts_zero_onto_an_unaddressable_digit_position() {
 ///
 /// Each half rejects a wrong implementation on wasm32. One that returned early
 /// when the top index did not fit a `usize` would leave all eleven digits
-/// stored. One that truncated the index to a `usize` would turn position
-/// `2^32` into 0 at the first unindexable width, so its threshold of 2 would
-/// let the decision at digit 2 claim stability.
+/// stored. One that truncated the index to a `usize` would turn position `2^32`
+/// into 0 at the first unindexable width, so its threshold of 2 would let the
+/// decision at digit 2 claim stability.
 #[test]
 fn suanpan_stability_query_compacts_and_declines_past_the_usize_digit_index() {
     for width in [

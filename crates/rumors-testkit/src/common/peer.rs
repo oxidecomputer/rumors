@@ -1,12 +1,11 @@
 //! A simulated peer: a `Rumors<T>` paired with its observation log, plus
-//! helpers for the schedule executor (`gossip_step` for one bidirectional
-//! wire gossip session, `quiesce` for full-mesh convergence to a fixed
-//! point).
+//! helpers for the schedule executor (`gossip_step` for one bidirectional wire
+//! gossip session, `quiesce` for full-mesh convergence to a fixed point).
 //!
 //! Each peer owns a real `UnorderedMessages` observer. Every helper drains it
 //! after the operation it performs, so the log stays in event order and the
-//! generated schedules exercise the public observation API alongside gossip.
-//! A message redacted before a drain is never observed, matching both the
+//! generated schedules exercise the public observation API alongside gossip. A
+//! message redacted before a drain is never observed, matching both the
 //! observer's contract and the shadow simulator's model in `schedule::arb`.
 
 use rumors::{Rumors, TryNext, UnorderedMessages, Version};
@@ -25,21 +24,21 @@ pub struct Peer<T: Send + Sync + 'static> {
     /// All observations this peer has accumulated, across `insert_one`,
     /// `gossip_step`, and `quiesce` calls.
     ///
-    /// Drain order within a pass is the tree's iteration order; in practice
-    /// it is deterministic across runs, so the log is reproducible inside a
+    /// Drain order within a pass is the tree's iteration order; in practice it
+    /// is deterministic across runs, so the log is reproducible inside a
     /// counterexample.
     pub observations: Vec<(Version, T)>,
 }
 
 impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T> {
-    /// Wrap an already-forked `Rumors` as a simulated peer. Observation
-    /// starts at the wrapped set's current frontier: content already present
-    /// is never logged, only what arrives afterwards.
+    /// Wrap an already-forked `Rumors` as a simulated peer. Observation starts
+    /// at the wrapped set's current frontier: content already present is never
+    /// logged, only what arrives afterwards.
     ///
-    /// The caller must create `local` by bootstrapping from the shared
-    /// universe seed (directly, or via another peer), never as the first peer
-    /// of another network: only then are all peers pairwise
-    /// disjoint, the precondition for [`gossip_step`] to succeed.
+    /// The caller must create `local` by bootstrapping from the shared universe
+    /// seed (directly, or via another peer), never as the first peer of another
+    /// network: only then are all peers pairwise disjoint, the precondition for
+    /// [`gossip_step`] to succeed.
     pub fn new(local: Rumors<T>) -> Self {
         let since = local.snapshot().latest().clone();
         let observer = local.unordered_messages_since(since);
@@ -50,8 +49,8 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
         }
     }
 
-    /// Snapshot of the observation log, in insertion order. Convenience
-    /// for tests that read out `peer.observations` for assertions.
+    /// Snapshot of the observation log, in insertion order. Convenience for
+    /// tests that read out `peer.observations` for assertions.
     pub fn observations(&self) -> Vec<(Version, T)> {
         self.observations.clone()
     }
@@ -96,9 +95,9 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
     }
 }
 
-/// Bidirectional wire gossip between two peers: one session over an
-/// in-memory connection, after which both sides hold the same live content and
-/// version, and both observation logs have caught up.
+/// Bidirectional wire gossip between two peers: one session over an in-memory
+/// connection, after which both sides hold the same live content and version,
+/// and both observation logs have caught up.
 pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where
     T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -110,8 +109,8 @@ where
 
 /// Drive every peer to a full-mesh fixed point.
 ///
-/// See `quiesce_refs` for the fixed-point criterion and the
-/// non-termination guard.
+/// See `quiesce_refs` for the fixed-point criterion and the non-termination
+/// guard.
 pub fn quiesce<T>(peers: &mut [Peer<T>])
 where
     T: Clone + Eq + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -120,8 +119,8 @@ where
     quiesce_refs(&mut refs);
 }
 
-/// Drive every live slot to a full-mesh fixed point: [`quiesce`] over a
-/// slotted fleet, skipping retired peers' vacated slots.
+/// Drive every live slot to a full-mesh fixed point: [`quiesce`] over a slotted
+/// fleet, skipping retired peers' vacated slots.
 pub fn quiesce_slots<T>(slots: &mut [Option<Peer<T>>])
 where
     T: Clone + Eq + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -133,12 +132,11 @@ where
 /// The convergence core: full-mesh `gossip_step` rounds until every peer
 /// reports the same snapshot.
 ///
-/// Identical fingerprints are the fixed point itself — peers with equal
-/// content and version exchange nothing — so the loop stops the moment a
-/// round ends uniform instead of spending a further full mesh round to
-/// confirm that nothing changes. A bounded outer loop guards against
-/// pathological non-termination (which would itself be a bug the test
-/// should catch).
+/// Identical fingerprints are the fixed point itself — peers with equal content
+/// and version exchange nothing — so the loop stops the moment a round ends
+/// uniform instead of spending a further full mesh round to confirm that
+/// nothing changes. A bounded outer loop guards against pathological
+/// non-termination (which would itself be a bug the test should catch).
 fn quiesce_refs<T>(peers: &mut [&mut Peer<T>])
 where
     T: Clone + Eq + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -175,6 +173,6 @@ where
 /// Headroom on the convergence loop, used only to bound test pathologies.
 ///
 /// A single piece of information needs at most O(diameter) rounds to reach
-/// every peer over a full-mesh schedule, so 16 rounds per peer is
-/// dramatically more than enough.
+/// every peer over a full-mesh schedule, so 16 rounds per peer is dramatically
+/// more than enough.
 const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;

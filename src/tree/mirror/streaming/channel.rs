@@ -111,17 +111,17 @@ impl QueueRole {
 
 impl QueueKind {
     /// The place in a session whose state this edge's items are, for the
-    /// session-budget meter's attribution ([`super::holding`]), or `None`
-    /// where each item's place is its sender's.
+    /// session-budget meter's attribution ([`super::holding`]), or `None` where
+    /// each item's place is its sender's.
     ///
-    /// Each edge whose items the ledger charges belongs to the place they
-    /// are charged to. The edges of fixed capacity the charge leaves out, the
+    /// Each edge whose items the ledger charges belongs to the place they are
+    /// charged to. The edges of fixed capacity the charge leaves out, the
     /// assembly returns, the terminal leaf resolutions, and the assembled
-    /// supplies, belong to assembly, whose bound accounts for them. The
-    /// pipe's lanes carry supply runs, whose permits from the wire pools
-    /// price their nodes, beside every other frame, whose nodes the charge
-    /// of the chunk or the room of the question they belong to prices, so
-    /// each frame's sender names its node's place.
+    /// supplies, belong to assembly, whose bound accounts for them. The pipe's
+    /// lanes carry supply runs, whose permits from the wire pools price their
+    /// nodes, beside every other frame, whose nodes the charge of the chunk or
+    /// the room of the question they belong to prices, so each frame's sender
+    /// names its node's place.
     #[cfg_attr(not(any(test, feature = "test-internals")), expect(dead_code))]
     pub(crate) const fn holding(self) -> Option<Holding> {
         Some(match self {
@@ -153,9 +153,9 @@ pub use bounded::{Receiver, Sender};
 
 /// Create the production channel for a named protocol edge.
 ///
-/// With `test-internals`, each send's channel node is attributed to the
-/// edge's place, where it has one ([`QueueKind::holding`]), and each send
-/// is reported to the process's send hook (`observe_edge_sends`).
+/// With `test-internals`, each send's channel node is attributed to the edge's
+/// place, where it has one ([`QueueKind::holding`]), and each send is reported
+/// to the process's send hook (`observe_edge_sends`).
 #[cfg(not(test))]
 pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
     #[cfg(not(feature = "test-internals"))]

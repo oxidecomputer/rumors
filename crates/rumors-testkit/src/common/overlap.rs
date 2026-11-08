@@ -1,8 +1,8 @@
 //! Controlled interleavings of gossip sessions with local and remote changes.
 //!
 //! [`Session::step`] polls each endpoint once per round. A test can pause after
-//! any round, make changes through other handles, then finish the session.
-//! This exposes the gap between taking a snapshot and publishing its result.
+//! any round, make changes through other handles, then finish the session. This
+//! exposes the gap between taking a snapshot and publishing its result.
 //!
 //! [`execute_overlap`] runs these operations as a schedule. Its generator uses
 //! [`Knowledge`] to track which messages each peer can redact and when sessions
@@ -33,7 +33,8 @@ use crate::common::wire::{block_on, bootstrap_fork};
 /// Small pipe buffers make greeting and data writes yield between fragments.
 const OVERLAP_BUF: usize = 48;
 
-/// One session whose endpoints can be polled separately to choose an interleaving.
+/// One session whose endpoints can be polled separately to choose an
+/// interleaving.
 ///
 /// Each endpoint owns its connection end and a cloned replica handle. Other
 /// handles can mutate either replica while it is parked; dropping it cancels
@@ -130,29 +131,29 @@ pub enum OverlapEvent<T> {
         /// Message to insert.
         value: T,
     },
-    /// Redact the message created by the `Insert` at `target_event_idx`.
-    /// Valid by construction: the generator's shadow guarantees `peer`
-    /// has observed that message when this event runs.
+    /// Redact the message created by the `Insert` at `target_event_idx`. Valid
+    /// by construction: the generator's shadow guarantees `peer` has observed
+    /// that message when this event runs.
     Redact {
         /// Fleet index of the peer performing the redaction.
         peer: usize,
         /// Schedule index of the insertion being redacted.
         target_event_idx: EventIdx,
     },
-    /// One whole (non-overlapped) session between `a` and `b`, as the
-    /// serial executor runs them.
+    /// One whole (non-overlapped) session between `a` and `b`, as the serial
+    /// executor runs them.
     Gossip {
         /// One endpoint's fleet index.
         a: usize,
         /// The other endpoint's fleet index.
         b: usize,
     },
-    /// Open a session between `a` and `b` in `slot` without polling it;
-    /// it installs at its `Close`, or at a `Step` that completes it.
+    /// Open a session between `a` and `b` in `slot` without polling it; it
+    /// installs at its `Close`, or at a `Step` that completes it.
     ///
     /// Nothing forks here: each side forks its view under the polls that
-    /// complete its preamble exchange (`FORK_ROUNDS`), and the shadow
-    /// models exactly that.
+    /// complete its preamble exchange (`FORK_ROUNDS`), and the shadow models
+    /// exactly that.
     Open {
         /// Slot that will hold the unfinished session.
         slot: usize,
@@ -189,12 +190,12 @@ pub struct OverlapSchedule<T> {
     pub network: NetworkSeed,
 }
 
-/// Run an overlap schedule against a fresh fleet, close every session
-/// still open (in ascending slot order), and quiesce the fleet to a
-/// full-mesh fixed point.
+/// Run an overlap schedule against a fresh fleet, close every session still
+/// open (in ascending slot order), and quiesce the fleet to a full-mesh fixed
+/// point.
 ///
-/// Returns the fleet and the spec-shaped oracle; the caller asserts the
-/// two agree.
+/// Returns the fleet and the spec-shaped oracle; the caller asserts the two
+/// agree.
 pub fn execute_overlap_and_quiesce<T>(schedule: &OverlapSchedule<T>) -> (Vec<Peer<T>>, Oracle<T>)
 where
     T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
@@ -216,12 +217,11 @@ pub struct OverlapRun<T: Send + Sync + 'static> {
     pub resolved_versions: BTreeMap<EventIdx, Version>,
 }
 
-/// Run an overlap schedule against a fresh fleet and close every session
-/// still open (in ascending slot order), leaving the fleet as the schedule
-/// left it.
+/// Run an overlap schedule against a fresh fleet and close every session still
+/// open (in ascending slot order), leaving the fleet as the schedule left it.
 ///
-/// No quiescence: the observation logs and live sets are those the
-/// schedule alone produced.
+/// No quiescence: the observation logs and live sets are those the schedule
+/// alone produced.
 pub fn execute_overlap<T>(schedule: &OverlapSchedule<T>) -> OverlapRun<T>
 where
     T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
@@ -316,22 +316,23 @@ where
     }
 }
 
-/// How many session slots a generated schedule may hold open at once.
-/// Two suffices to overlap a session with a whole other session; a third
-/// lets overlaps themselves overlap.
+/// How many session slots a generated schedule may hold open at once. Two
+/// suffices to overlap a session with a whole other session; a third lets
+/// overlaps themselves overlap.
 const SLOTS: usize = 3;
 
-/// Polling rounds after which each side of an open session has forked
-/// its working state, indexed like [`Session`]'s sides (`a`, then `b`).
+/// Polling rounds after which each side of an open session has forked its
+/// working state, indexed like [`Session`]'s sides (`a`, then `b`).
 ///
-/// A side forks once its preamble exchange completes. [`Session::step`]
-/// polls `a` then `b` each round: in the first round `a` writes its
-/// preamble and parks on the read, then `b` writes its own, reads `a`'s,
-/// and forks; `a` reads `b`'s preamble and forks in the second round. A
-/// `Close` polls to completion, so it forks whichever side has not.
+/// A side forks once its preamble exchange completes. [`Session::step`] polls
+/// `a` then `b` each round: in the first round `a` writes its preamble and
+/// parks on the read, then `b` writes its own, reads `a`'s, and forks; `a`
+/// reads `b`'s preamble and forks in the second round. A `Close` polls to
+/// completion, so it forks whichever side has not.
 const FORK_ROUNDS: [usize; 2] = [2, 1];
 
-/// Generate local actions and overlapping sessions from a populated, converged fleet.
+/// Generate local actions and overlapping sessions from a populated, converged
+/// fleet.
 ///
 /// Insert `SessionPair`s into arbitrary actions so both session orderings
 /// receive regular coverage, including cases where one session starts with
@@ -402,16 +403,16 @@ fn fork_tree(n_peers: usize, raw: &[usize]) -> Vec<usize> {
         .collect()
 }
 
-/// Abstract action the strategy emits; concrete events are derived by
-/// the shadow in [`build_overlap_schedule`].
+/// Abstract action the strategy emits; concrete events are derived by the
+/// shadow in [`build_overlap_schedule`].
 #[derive(Debug, Clone)]
 enum Choice<T> {
     Insert {
         peer: usize,
         value: T,
     },
-    /// Redact the `idx % len`-th entry of the peer's shadow observation
-    /// log; dropped if the log is empty.
+    /// Redact the `idx % len`-th entry of the peer's shadow observation log;
+    /// dropped if the log is empty.
     RedactObservation {
         peer: usize,
         idx: usize,
@@ -420,8 +421,8 @@ enum Choice<T> {
         a: usize,
         b: usize,
     },
-    /// Open a session in `slot % SLOTS`; dropped if that slot is
-    /// occupied or `a == b`.
+    /// Open a session in `slot % SLOTS`; dropped if that slot is occupied or
+    /// `a == b`.
     Open {
         slot: usize,
         a: usize,
@@ -460,8 +461,8 @@ where
 
 /// Two sessions sharing a replica, with a change at one of the remote peers.
 ///
-/// One session pauses while the other completes. Vary which one is paused
-/// to exercise a redaction or send arriving before or after the other result.
+/// One session pauses while the other completes. Vary which one is paused to
+/// exercise a redaction or send arriving before or after the other result.
 #[derive(Debug, Clone)]
 struct SessionPair<T> {
     /// Where to insert this pair into the surrounding action sequence.
@@ -478,13 +479,15 @@ struct SessionPair<T> {
     park: usize,
     /// Whether to pause the session with the changed peer.
     changed_first: bool,
-    /// A value to send, or an index into the changed peer's observations to redact.
+    /// A value to send, or an index into the changed peer's observations to
+    /// redact.
     mutation: Result<T, usize>,
 }
 
 /// Generate and expand a pair of sessions sharing one replica.
 impl<T: Clone + Debug + 'static> SessionPair<T> {
-    /// Draw both orderings, a mutation, and positions within the surrounding schedule.
+    /// Draw both orderings, a mutation, and positions within the surrounding
+    /// schedule.
     fn arbitrary<S>(value_strategy: S, n_peers: usize) -> impl Strategy<Value = Self>
     where
         S: Strategy<Value = T> + Clone + 'static,
@@ -513,7 +516,8 @@ impl<T: Clone + Debug + 'static> SessionPair<T> {
             )
     }
 
-    /// Expand into actions on distinct peers; smaller fleets cannot host the pair.
+    /// Expand into actions on distinct peers; smaller fleets cannot host the
+    /// pair.
     fn choices(&self, n_peers: usize) -> Vec<Choice<T>> {
         if n_peers < 3 {
             return Vec::new();
@@ -562,9 +566,9 @@ impl<T: Clone + Debug + 'static> SessionPair<T> {
     }
 }
 
-/// An open session in the model: its endpoints, the polling rounds it
-/// has received, and each side's view at the round it forked
-/// ([`FORK_ROUNDS`]), taken once that round is reached.
+/// An open session in the model: its endpoints, the polling rounds it has
+/// received, and each side's view at the round it forked ([`FORK_ROUNDS`]),
+/// taken once that round is reached.
 struct OpenSession {
     a: usize,
     b: usize,
@@ -573,8 +577,8 @@ struct OpenSession {
 }
 
 impl OpenSession {
-    /// Advance the session by `rounds` polling rounds, forking any side
-    /// whose round is reached at the current `sim`.
+    /// Advance the session by `rounds` polling rounds, forking any side whose
+    /// round is reached at the current `sim`.
     fn poll(&mut self, rounds: usize, sim: &Knowledge) {
         self.rounds += rounds;
         for (side, fork) in self.forks.iter_mut().enumerate() {
@@ -584,8 +588,8 @@ impl OpenSession {
         }
     }
 
-    /// Drive the session to completion (as a `Close` does), forking any
-    /// side that has not, and deliver it into `sim`.
+    /// Drive the session to completion (as a `Close` does), forking any side
+    /// that has not, and deliver it into `sim`.
     fn close(mut self, sim: &mut Knowledge) {
         self.poll(FORK_ROUNDS[0].max(FORK_ROUNDS[1]), sim);
         let [fork_a, fork_b] = self.forks;
@@ -598,9 +602,8 @@ impl OpenSession {
     }
 }
 
-/// Per-peer knowledge sets, as in `schedule::arb`'s shadow: everything
-/// the peer has ever held, the subset currently live, and the exact
-/// observation order.
+/// Per-peer knowledge sets, as in `schedule::arb`'s shadow: everything the peer
+/// has ever held, the subset currently live, and the exact observation order.
 #[derive(Clone, Debug)]
 pub struct Knowledge {
     /// Per-peer set of `EventIdx`s whose message the peer has ever held.
@@ -621,18 +624,17 @@ impl Knowledge {
         }
     }
 
-    /// Merge what a session delivers between `a` and `b` into the
-    /// *current* state, given each side's view at its fork (`fork_a` for
-    /// `a`, `fork_b` for `b`).
+    /// Merge what a session delivers between `a` and `b` into the *current*
+    /// state, given each side's view at its fork (`fork_a` for `a`, `fork_b`
+    /// for `b`).
     ///
-    /// The session carries each side's fork-time content only: messages
-    /// one fork-time side held live propagate to a counterparty that has
-    /// never known them; messages either fork-time side had redacted die
-    /// on both current sides (deletion honoring, tombstone-free). A
-    /// message redacted *after* the fork stays dead locally --
-    /// `ever_known` guards resurrection -- and its counterparty learns
-    /// that deletion only from a later session, exactly as the wire
-    /// behaves.
+    /// The session carries each side's fork-time content only: messages one
+    /// fork-time side held live propagate to a counterparty that has never
+    /// known them; messages either fork-time side had redacted die on both
+    /// current sides (deletion honoring, tombstone-free). A message redacted
+    /// *after* the fork stays dead locally -- `ever_known` guards resurrection
+    /// -- and its counterparty learns that deletion only from a later session,
+    /// exactly as the wire behaves.
     fn merge_session(&mut self, fork_a: &Knowledge, fork_b: &Knowledge, a: usize, b: usize) {
         let combined: std::collections::BTreeSet<EventIdx> = fork_a.ever_known[a]
             .union(&fork_b.ever_known[b])
@@ -661,13 +663,12 @@ impl Knowledge {
     }
 }
 
-/// Build an overlap schedule by driving the shadow in lockstep with the
-/// emitted events, each open session modeled by its sides' views at the
-/// rounds they fork, returning the schedule with the shadow's final
-/// state.
+/// Build an overlap schedule by driving the shadow in lockstep with the emitted
+/// events, each open session modeled by its sides' views at the rounds they
+/// fork, returning the schedule with the shadow's final state.
 ///
-/// Every emitted `Redact` names a message its peer holds in the model,
-/// and the model forks where the live session does.
+/// Every emitted `Redact` names a message its peer holds in the model, and the
+/// model forks where the live session does.
 fn build_overlap_schedule<T: Clone>(
     n_peers: usize,
     fork_parents: Vec<usize>,

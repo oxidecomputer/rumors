@@ -16,15 +16,15 @@
 //! # Walking the common partition
 //!
 //! A version divides party space wherever its height changes; a party divides
-//! it wherever ownership changes. The algorithms walk those divisions
-//! together. The next boundary is whichever current region ends first. After
-//! advancing every input that ends there, all inputs are again constant until
-//! the following boundary. Each such interval therefore has one height and one
+//! it wherever ownership changes. The algorithms walk those divisions together.
+//! The next boundary is whichever current region ends first. After advancing
+//! every input that ends there, all inputs are again constant until the
+//! following boundary. Each such interval therefore has one height and one
 //! ownership answer per operand.
 //!
 //! Materialization emits the source version's changes while the party owns the
-//! interval and emits zero elsewhere. When an entire version subtree lies in
-//! an unowned region, the walk skips it as a unit: every height in that subtree
+//! interval and emits zero elsewhere. When an entire version subtree lies in an
+//! unowned region, the walk skips it as a unit: every height in that subtree
 //! has the same projected value, zero. [`VersionWriter`] then performs the
 //! ordinary sibling collapses needed to leave one canonical version.
 //!
@@ -44,9 +44,9 @@
 //! Thus each version change is decoded once and updates only the quantities a
 //! later ownership case can inspect.
 //!
-//! Full ordering stops after finding evidence against both causal directions.
-//! A directional operator stops as soon as its requested direction is
-//! impossible, and equality stops at the first unequal interval.
+//! Full ordering stops after finding evidence against both causal directions. A
+//! directional operator stops as soon as its requested direction is impossible,
+//! and equality stops at the first unequal interval.
 //!
 //! # Cost
 //!
@@ -415,8 +415,8 @@ impl CursorSet for Comparison<'_> {
         [Self::B_PARTY, Self::B, Self::A_PARTY, Self::A].into_iter()
     }
 
-    /// An absent mask reads zero: one all-owned region over the whole
-    /// interval, which never steps.
+    /// An absent mask reads zero: one all-owned region over the whole interval,
+    /// which never steps.
     fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::A => self.a.depth(),
@@ -431,8 +431,8 @@ impl CursorSet for Comparison<'_> {
     /// that side; a Party slot changes ownership but no height.
     ///
     /// The watchers are `diff` always, plus the side's height integrator when
-    /// present. A mask crossing carries no delta: ownership is per-region
-    /// state read between boundaries.
+    /// present. A mask crossing carries no delta: ownership is per-region state
+    /// read between boundaries.
     fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::A => {
