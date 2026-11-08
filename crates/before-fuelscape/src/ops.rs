@@ -2299,7 +2299,7 @@ pub const ROSTER: &[OpSpec] = &[
 ///
 /// The reviewed half of the totality binding: the parity test in
 /// `tests.rs` enforces membership both ways, so these reasons are for
-/// the owner's eyes.
+/// the reader reviewing each exemption.
 ///
 /// Two recurring genres: constant-input constructors and other O(1)
 /// forms have no honest size axis to plot, and delegating wrappers are

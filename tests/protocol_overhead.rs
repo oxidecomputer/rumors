@@ -20,13 +20,12 @@
 use rumors_testkit::common;
 
 use bytes::Bytes;
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors, Version};
+use rumors::{Rumors, Version};
+use rumors_testkit::common::seed::NetworkSeed;
 
 /// The seed of every independently built network, fixed so the pinned byte
 /// counts are measured on the same networks every run.
-const NETWORK_SEED: u64 = 0x4f56_4552_4845_4144;
+const NETWORK_SEED: NetworkSeed = NetworkSeed::new(0x4f56_4552_4845_4144);
 
 /// The message changes made after the replicas fork.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,9 +113,7 @@ fn build(shape: Shape) -> (Rumors<Bytes>, Rumors<Bytes>) {
         shape.left_redacts + shape.right_redacts <= shape.shared,
         "redaction sets must be disjoint subsets of the shared set",
     );
-    let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(NETWORK_SEED))
-        .sync_window_floor()
-        .into_rumors();
+    let left = NETWORK_SEED.peer().sync_memory_budget(0).into_rumors();
     left.send_all((0..shape.shared).map(|_| Bytes::new()))
         .expect("send shared messages");
     let mut shared: Vec<Version> = left
@@ -176,11 +173,11 @@ fn check(expected: &[Cell]) -> Vec<Cell> {
 #[test]
 fn small_reconciliation_cost_at_documented_shared_sizes() {
     let measured = check(&[
-        Cell::new(Shape::new(0, 1, 1, 0, 0), 188, 191),
-        Cell::new(Shape::new(100, 1, 1, 0, 0), 2_543, 2_789),
-        Cell::new(Shape::new(1_000, 1, 1, 0, 0), 7_246, 8_186),
-        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 7_537, 10_187),
-        Cell::new(Shape::new(65_536, 1, 1, 0, 0), 8_333, 17_305),
+        Cell::new(Shape::new(0, 1, 1, 0, 0), 193, 189),
+        Cell::new(Shape::new(100, 1, 1, 0, 0), 1_975, 2_014),
+        Cell::new(Shape::new(1_000, 1, 1, 0, 0), 5_489, 5_729),
+        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 5_913, 7_518),
+        Cell::new(Shape::new(65_536, 1, 1, 0, 0), 6_059, 12_514),
     ]);
     assert!(
         measured
@@ -194,10 +191,10 @@ fn small_reconciliation_cost_at_documented_shared_sizes() {
 #[test]
 fn insertion_batches_reduce_cost_per_change() {
     let measured = check(&[
-        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 7_537, 10_187),
-        Cell::new(Shape::new(10_000, 10, 10, 0, 0), 9_405, 25_900),
-        Cell::new(Shape::new(10_000, 100, 100, 0, 0), 25_287, 146_858),
-        Cell::new(Shape::new(10_000, 1_000, 1_000, 0, 0), 71_999, 314_132),
+        Cell::new(Shape::new(10_000, 1, 1, 0, 0), 5_913, 7_518),
+        Cell::new(Shape::new(10_000, 10, 10, 0, 0), 6_718, 20_581),
+        Cell::new(Shape::new(10_000, 100, 100, 0, 0), 14_113, 113_414),
+        Cell::new(Shape::new(10_000, 1_000, 1_000, 0, 0), 49_192, 240_844),
     ]);
     assert!(
         measured
@@ -211,10 +208,10 @@ fn insertion_batches_reduce_cost_per_change() {
 #[test]
 fn redaction_batches_reduce_cost_per_change() {
     let measured = check(&[
-        Cell::new(Shape::new(10_000, 0, 0, 1, 0), 7_425, 9_299),
-        Cell::new(Shape::new(10_000, 0, 0, 10, 0), 8_432, 17_911),
-        Cell::new(Shape::new(10_000, 0, 0, 100, 0), 16_950, 95_138),
-        Cell::new(Shape::new(10_000, 0, 0, 1_000, 0), 38_123, 264_202),
+        Cell::new(Shape::new(10_000, 0, 0, 1, 0), 5_810, 6_611),
+        Cell::new(Shape::new(10_000, 0, 0, 10, 0), 6_206, 13_441),
+        Cell::new(Shape::new(10_000, 0, 0, 100, 0), 9_456, 74_542),
+        Cell::new(Shape::new(10_000, 0, 0, 1_000, 0), 20_330, 201_277),
     ]);
     assert!(
         measured
@@ -228,9 +225,9 @@ fn redaction_batches_reduce_cost_per_change() {
 #[test]
 fn mixed_changes_have_stable_directional_costs() {
     check(&[
-        Cell::new(Shape::new(10_000, 1, 0, 0, 1), 10_215, 7_521),
-        Cell::new(Shape::new(10_000, 100, 0, 0, 100), 153_290, 23_522),
-        Cell::new(Shape::new(10_000, 1_000, 0, 0, 1_000), 315_597, 45_527),
+        Cell::new(Shape::new(10_000, 1, 0, 0, 1), 7_183, 5_868),
+        Cell::new(Shape::new(10_000, 100, 0, 0, 100), 116_073, 12_085),
+        Cell::new(Shape::new(10_000, 1_000, 0, 0, 1_000), 242_744, 26_420),
     ]);
 }
 

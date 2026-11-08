@@ -1,5 +1,7 @@
 //! Source-error propagation across the backend traversal operations used by the adapter.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
+use crate::tree::mirror::streaming::message::listed;
 use std::convert::Infallible;
 
 use futures::{StreamExt, stream};
@@ -11,13 +13,16 @@ use crate::tree::{
     },
     typed::{
         Prefix,
+        hash::PATH_LEN,
         height::{Height, S},
     },
 };
 
 use super::{
-    super::{DecodeError, EncodeError, Scope, decode_reply, encode_reply},
-    LeafCase, NodeAt, codec, hash, leaf_run, runtime, unbounded,
+    super::{
+        DecodeError, EncodeError, LeafEdge, ReplyLevel, Scope, decode_whole_reply, encode_reply,
+    },
+    LeafCase, NodeAt, codec, fixture_bounds, hash, leaf_run, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::{
     convert::Convert,
@@ -46,41 +51,53 @@ where
 
         for fail_after in 0..Self::HEIGHT {
             // A failing supply may appear on either side of a positional
-            // reaction. Neither ordering may publish the pending frame.
-            for (listing, reactions) in [
+            // reaction. Either way, only the frames of the reactions before
+            // the supply are published, each flagged to continue.
+            for (listing, reactions, before) in [
                 (
-                    vec![(supply_radix + 1, hash(supply_radix + 1))],
+                    vec![listed(supply_radix + 1, hash(supply_radix + 1))],
                     vec![
                         Reaction::Supply(
                             supply_radix,
-                            <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf))),
+                            <Failing<Local> as Backend>::erase(FailingNode::new(
+                                Self::node(leaf).into(),
+                            )),
                         ),
                         Reaction::Query(Vec::new()),
                     ],
+                    0,
                 ),
                 (
-                    vec![(supply_radix - 1, hash(supply_radix - 1))],
+                    vec![listed(supply_radix - 1, hash(supply_radix - 1))],
                     vec![
                         Reaction::Query(Vec::new()),
                         Reaction::Supply(
                             supply_radix,
-                            <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf))),
+                            <Failing<Local> as Backend>::erase(FailingNode::new(
+                                Self::node(leaf).into(),
+                            )),
                         ),
                     ],
+                    1,
                 ),
             ] {
                 let backend = Failing::after(Local, fail_after);
                 let mut encoded = encode_reply(
                     backend.clone(),
                     RunBudget::default(),
-                    Scope::new(parent.erase(), &listing),
-                    Reply { reactions },
+                    Scope::unbounded(parent.erase(), &listing),
+                    Reply {
+                        reactions,
+                        charge: Default::default(),
+                        last: true,
+                        carried: Default::default(),
+                    },
                 );
                 let (yielded, error, ended) = runtime.block_on(async {
                     let mut yielded = Vec::new();
                     let error = loop {
                         match encoded.next().await {
-                            Some(Ok(frame)) => yielded.push(frame.into_parts()),
+                            Some(Ok(frame)) => yielded.push(frame.into_parts().0),
                             Some(Err(error)) => break error,
                             None => panic!("the injected encoding failure was not reached"),
                         }
@@ -88,9 +105,10 @@ where
                     let ended = encoded.next().await.is_none();
                     (yielded, error, ended)
                 });
-                assert!(
-                    yielded.is_empty(),
-                    "height {} failure {fail_after} published its pending frame",
+                assert_eq!(
+                    yielded,
+                    vec![Frame::Reaction(WireReaction::Query(Vec::new()), Flow::Continue); before],
+                    "height {} failure {fail_after} published a frame of the failing supply",
                     Self::HEIGHT,
                 );
                 assert!(ended, "an encoding stream continued after its source error");
@@ -103,46 +121,56 @@ where
                 assert_history(&backend, fail_after, Self::HEIGHT);
             }
 
-            // Once a frame has been yielded it remains valid, but the frame
-            // pending when traversal fails must not escape with a false End.
+            // The frames of completed reactions are yielded as they complete,
+            // each flagged to continue, and a traversal failure ends the
+            // stream before any frame of the failing reaction, so no frame
+            // escapes with a false End.
             let backend = Failing::after(Local, fail_after);
             let lower = [supply_radix - 2, supply_radix - 1];
             let mut encoded = encode_reply(
                 backend.clone(),
                 RunBudget::default(),
-                Scope::new(parent.erase(), &lower.map(|radix| (radix, hash(radix)))),
+                Scope::unbounded(
+                    parent.erase(),
+                    &lower.map(|radix| listed(radix, hash(radix))),
+                ),
                 Reply {
                     reactions: vec![
-                        Reaction::Match,
-                        Reaction::Match,
+                        Reaction::Match(LaterMatches::NONE),
+                        Reaction::Query(Vec::new()),
                         Reaction::Supply(
                             supply_radix,
-                            <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf))),
+                            <Failing<Local> as Backend>::erase(FailingNode::new(
+                                Self::node(leaf).into(),
+                            )),
                         ),
                     ],
+                    charge: Default::default(),
+                    last: true,
+                    carried: Default::default(),
                 },
             );
             let (yielded, error) = runtime.block_on(async {
-                let first = encoded
-                    .next()
-                    .await
-                    .expect("the first completed frame is published")
-                    .expect("the first match needs no backend traversal")
-                    .into_parts();
-                let error = match encoded.next().await {
-                    Some(Err(error)) => error,
-                    Some(Ok(_)) => panic!("the pending frame escaped after a source failure"),
-                    None => panic!("the injected encoding failure was not reported"),
+                let mut yielded = Vec::new();
+                let error = loop {
+                    match encoded.next().await {
+                        Some(Ok(frame)) => yielded.push(frame.into_parts().0),
+                        Some(Err(error)) => break error,
+                        None => panic!("the injected encoding failure was not reported"),
+                    }
                 };
                 assert!(
                     encoded.next().await.is_none(),
                     "the failed stream terminates"
                 );
-                (first, error)
+                (yielded, error)
             });
             assert_eq!(
                 yielded,
-                (Frame::Reaction(WireReaction::Match, Flow::Continue), None,),
+                [
+                    Frame::Reaction(WireReaction::Match(LaterMatches::NONE), Flow::Continue),
+                    Frame::Reaction(WireReaction::Query(Vec::new()), Flow::Continue),
+                ],
             );
             assert_encode_failure(
                 error,
@@ -162,13 +190,16 @@ where
                 sentinel.clone(),
             ]);
             let error = runtime
-                .block_on(decode_reply::<Failing<Local>, _>(
+                .block_on(decode_whole_reply::<Failing<Local>, _>(
+                    &mut LeafEdge::new(),
                     backend.clone(),
-                    u64::MAX,
+                    &fixture_bounds(),
                     unbounded(),
-                    Scope::new(parent.erase(), &[]),
+                    ReplyLevel::Branch,
+                    &Scope::unbounded(parent.erase(), &[]),
                     &mut frames,
                     codec(),
+                    Some(&crate::tree::typed::PathKey::fixture()),
                 ))
                 .err()
                 .expect("the injected decoding failure was not reached");
@@ -213,6 +244,25 @@ fn assert_encode_failure(error: EncodeError<Failure<Infallible>>, expected: Oper
     }
 }
 
+/// The first fixture leaf whose path byte at every level lies in
+/// `2..u8::MAX`, so the supply radix at each height has two lower radixes
+/// and one higher radix beside it.
+///
+/// A leaf's path is its version's hash under the fixture secret, so the
+/// search is deterministic;
+/// each candidate qualifies with probability about (253/256)³², about 0.7.
+fn interior_radix_leaf() -> LeafCase {
+    const CANDIDATES: u64 = 64;
+    (0..CANDIDATES)
+        .map(|offset| LeafCase::new(0xfeed_face + offset, 7))
+        .find(|leaf| {
+            <[u8; PATH_LEN]>::from(leaf.path())
+                .iter()
+                .all(|radix| (2..u8::MAX).contains(radix))
+        })
+        .expect("some early candidate has every path byte away from both ends")
+}
+
 /// Require the exact injected operation in a decoder failure.
 fn assert_decode_failure(error: DecodeError<Failure<Infallible>>, expected: Operation) {
     match error {
@@ -221,12 +271,14 @@ fn assert_decode_failure(error: DecodeError<Failure<Infallible>>, expected: Oper
     }
 }
 
-/// Every injectable traversal reports its exact source error. Encoding keeps
-/// frames completed before the failure but withholds the pending frame and all
-/// later work; decoding leaves the following reply untouched.
+/// Every injectable traversal reports its exact source error.
+///
+/// Encoding yields the frames of the reactions completed before the
+/// failure, each flagged to continue, and no frame of the failing reaction
+/// or of any later one; decoding leaves the following reply untouched.
 #[test]
 fn backend_source_failures_are_exhaustive_and_atomic() {
-    let leaf = LeafCase::new(0xfeed_face, 7);
+    let leaf = interior_radix_leaf();
     let runtime = runtime();
     for height in 1..32 {
         at_height!(

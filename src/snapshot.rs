@@ -18,16 +18,14 @@ pub use crate::tree::Iter;
 /// changes never show through. Hold it as long as you like; it keeps its
 /// messages alive, not the [`Peer`](crate::Peer).
 pub struct Snapshot<T: Send + Sync + 'static> {
-    /// The gossip network whose state was captured.
-    network: Network,
-    /// The immutable live set and causal frontier.
+    /// The immutable live set and causal frontier, with its network's keys.
     tree: Tree<T>,
 }
 
 impl<T: Send + Sync + 'static> Snapshot<T> {
     /// Makes a new snapshot.
-    pub(crate) fn new(network: Network, tree: Tree<T>) -> Self {
-        Self { network, tree }
+    pub(crate) fn new(tree: Tree<T>) -> Self {
+        Self { tree }
     }
 
     /// The snapshotted tree, for crate-internal instruments.
@@ -38,7 +36,7 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
 
     /// Return the gossip network this snapshot belongs to.
     pub fn network(&self) -> Network {
-        self.network
+        self.tree.keys().network()
     }
 
     /// The causal frontier of everything this set has ever done.
@@ -70,10 +68,12 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
         self.tree.len()
     }
 
-    /// Returns the Merkle root over the live messages.
+    /// Returns the digest of the Merkle root over the live messages: a MAC
+    /// under the network's hash key, equal for any two replicas of one
+    /// network that hold equal live sets.
     ///
-    /// Test support for checking the tree's internal comparison signal. Use
-    /// snapshot equality or the read methods in application code.
+    /// Test support for checking the tree's comparison signal. Use snapshot
+    /// equality or the read methods in application code.
     #[cfg(any(test, feature = "test-internals"))]
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         self.tree.hash()
@@ -179,7 +179,6 @@ impl<T: Send + Sync + 'static> Clone for Snapshot<T> {
     /// Clones the snapshot by sharing its immutable tree.
     fn clone(&self) -> Self {
         Self {
-            network: self.network,
             tree: self.tree.clone(),
         }
     }
@@ -190,7 +189,7 @@ impl<T: Send + Sync + 'static> fmt::Debug for Snapshot<T> {
     /// Summarizes the captured state without walking or printing its messages.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Snapshot")
-            .field("network", &self.network)
+            .field("network", &self.network())
             .field("latest", self.tree.latest())
             .field("len", &self.tree.len())
             .finish_non_exhaustive()
@@ -201,7 +200,7 @@ impl<T: Send + Sync + 'static> fmt::Debug for Snapshot<T> {
 impl<T: Send + Sync + 'static> PartialEq for Snapshot<T> {
     /// Compares the network, live messages, and causal frontier.
     fn eq(&self, other: &Self) -> bool {
-        self.network == other.network && self.tree == other.tree
+        self.tree == other.tree
     }
 }
 

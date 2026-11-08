@@ -1,5 +1,5 @@
-//! Sweeps the board's measurement ladder once and judges the verdict of record
-//! over that one sweep.
+//! Sweeps the board's measurement ladder once and judges the acceptance
+//! verdict over that one sweep.
 //!
 //! The board's module docs say why one sweep serves every consumer. Each
 //! consumer reads only the merged cells [`merge_samples`] returned, so judging
@@ -52,7 +52,7 @@ pub struct Ladder {
     pub(super) top: Vec<Measured>,
 }
 
-/// The board's verdict of record over one ladder: the acceptance summary and
+/// The board's acceptance verdict over one ladder: the acceptance summary and
 /// the worst-case ranking pin's result.
 #[derive(Debug, Clone, Copy)]
 pub struct Verdict {
@@ -254,7 +254,7 @@ impl Ladder {
             .collect()
     }
 
-    /// Judges the ladder and renders the verdict of record to `out`: the
+    /// Judges the ladder and renders the acceptance verdict to `out`: the
     /// acceptance matrices, then the worst-case ranking pin's check.
     ///
     /// Both judgments always run, so a red cell never hides ranking drift

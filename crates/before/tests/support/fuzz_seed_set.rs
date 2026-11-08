@@ -1,4 +1,4 @@
-//! The fuzz seed corpus of record: one derivation, two consumers.
+//! The fuzz seed corpus: one derivation, two consumers.
 //!
 //! `fuzz/seeds/<target>/<name>` holds canonical encodings that seed the
 //! libFuzzer corpus. Hand-authored seed bytes rot silently when the wire
@@ -51,7 +51,7 @@ pub struct Seed {
     pub bytes: Vec<u8>,
 }
 
-/// Every seed file of record, derived from the live API.
+/// Every seed file the corpus holds, derived from the live API.
 ///
 /// The decode seeds are canonical encodings and deliberate rejection
 /// witnesses. The operation and law seeds use the framing shared with their

@@ -1,5 +1,10 @@
 # The abstract model of the streaming mirror protocol
 
+**ARCHIVED:** This development is archived and is not maintained
+alongside the code. Its theorems are about its own model of the protocol,
+not a specification of the current implementation, and the code does not
+rely on them.
+
 This is the design document for the formal deadlock-freedom artifact. It is
 the single specification that `quint/streamingMirror.qnt` (Phase A/B) and the
 Lean package (Phase C/D) both transcribe; when the three disagree, this file
@@ -8,20 +13,59 @@ here first.
 
 The modeled system is the connected-session core of
 `src/tree/mirror/streaming/` — the **in-memory driver** (`mirror_connected`,
-`streaming/driver.rs`): two conforming parties on the `Local` backend. The
-remote transport (`remote/`, running over a caller-supplied `Link`) sits
-below this model's abstraction: a remote session drives the same walk,
-queue, and assembler machinery modeled here, the model's wire edge is a
-bounded in-order FIFO, and capacity monotonicity (§1.iv) covers a
-conforming link's larger buffering — while the remote adaptation layer
-itself (codec, proxy pumps, stream supply) is outside the model, validated
-by the link conformance suite and the trace bridges instead. Structural
-claims below were extracted from the Rust (2026-07-15, re-audited
-2026-07-23) and adversarially cross-checked; the load-bearing citations
-are repeated here as durable anchors (file and item — the 07-15 line
-numbers rotted within days). The one divergence the 07-23 re-audit
-flagged (the pairing loops' dequeue order) is resolved by the
-dequeue-order class amendment in §5.
+`streaming/driver.rs`): two conforming parties on the `Local` backend,
+whose wire edges are independent per-level bounded in-order FIFOs.
+
+The remote transport (`remote/`) drives the same walk, queue, and
+assembler machinery, but its wire edges are not independent. A remote
+session runs over one ordered duplex byte stream. Its pipe
+(`remote/pipe.rs`) multiplexes one logical stream per answering level
+onto that byte stream: a work-conserving multiplexer writes whatever
+frames are staged, and a demultiplexer routes frames in pipe order to
+per-level decoders, which park decoded replies until the walk takes
+them. Parking at each level holds every reply that side can have
+invited (`parking_capacity`, `remote/proxy/work/queues.rs`), and the
+decoder never waits for room, so under conforming traffic delivery never
+waits on the walk. This model's base theorems therefore do not cover
+the remote session directly; the mux tier models the shared pipe. What
+holds, and what bridges the gap:
+
+- **Kernel-checked, at message grain:** `elastic_deadlock_free`
+  (Mux/Elastic.lean, restated in Mux/Statement.lean). With unbounded
+  per-stream reply parking, every pair of strategies that push whenever
+  they hold a pushable frame is deadlock-free at every pipe capacity
+  C ≥ 1, on every well-formed margin-0 skeleton. Its contrast is
+  `wc_impossibility` and `wc_impossibility_K`: with a one-slot
+  demultiplexer, or with parking of fixed depth (kernel-checked for
+  responder depths 1 to 3, derived beyond), some skeleton defeats every
+  such pair.
+- **Argued in the Rust, not kernel-checked:** that the remote session
+  is an instance of that elastic variant. The pipe module's docs list
+  every wait on the receive path and why each ends without the walk,
+  and `parking_capacity`'s docs derive why no conforming reply finds
+  parking full. The same argument covers what lies below the model's
+  grain: the model's pipe carries whole replies, while the Rust splits
+  replies into frames, interleaves frames of different logical streams,
+  and buffers frames per stream on both sides of the pipe. Positive
+  message-grain statements do not transfer to bytes for free
+  (Mux/Basic.lean, "The byte-denomination caveat").
+- **Not composed:** `elastic_deadlock_free` is stated at the base
+  model's floor capacities, and capacity monotonicity (§1.iv,
+  `Sched.deadlock_free_wide`) is stated for the un-muxed system only.
+  Both reduce to the same progress lemma (`Sched.progress_of_inv`, over
+  `InvPW` states), but no theorem covers the elastic pipe at the
+  shipping walk's window-widened capacities.
+- **Outside the model:** the remote adaptation layer's own machinery
+  (codec, the proxy's local question records and next-scope queues) is
+  validated by the Rust test suites, with each queue's capacity rationale
+  in its constructor's docs (`remote/proxy/work/queues.rs`).
+
+Structural claims below were extracted from the Rust (2026-07-15,
+re-audited 2026-07-23) and adversarially cross-checked; the
+load-bearing citations are repeated here as durable anchors (file and
+item — the 07-15 line numbers rotted within days). The one divergence
+the 07-23 re-audit flagged (the pairing loops' dequeue order) is
+resolved by the dequeue-order class amendment in §5.
 
 ## 1. What is proved, what is assumed
 
@@ -326,7 +370,7 @@ order (scope order = query order = BFS/radix order of the skeleton):
    the divergence flagged here by the 07-23 re-audit is closed by
    quantifying the `.impl` theorems over the prologue order itself
    rather than re-pinning the model to one order — the dequeue-order
-   class subsection below states the class, the claim of record, and
+   class subsection below states the class, the claim, and
    the reply-first residue.**
 2. **Publication obligations** (the poset the axioms guard): per D child c —
    `send wire(c)`, `send lowerRes(c)`, `send asked(g)` for each child g of
@@ -405,7 +449,7 @@ dequeue choice; none is the shipping Rust, and none is covered):
 - a prologue interleaved with the scope's sends (both receives always
   precede every publication of the scope).
 
-**Claim of record** (fixed 2026-07-23, before any Lean transcription;
+**The claim** (fixed 2026-07-23, before any Lean transcription;
 kernel-proven 2026-07-24): under `wellFormed` and margin 0
 (`∀ σ, dCount σ ≤ capLevel`), every assignment's `.impl` session is
 deadlock-free and terminating, at the floor capacities and at every
@@ -527,7 +571,7 @@ trivially ordered.)
   the same design space, the mirror-image of D5: the parent summary of
   a scope departs only after every other send of the scope — all
   wires, and every D child's resolution and full query quota. This is
-  the order `materialized/levels.rs` produces ("Launch every `Pending`
+  the order `materialized/work/levels.rs` produces ("Launch every `Pending`
   slot's work before publishing its enclosing parent resolution").
   Under D6 (mode `AxMode.impl`: D6 instead of D5, all else as `.full`)
   deadlock freedom additionally requires the capacity margin
@@ -542,8 +586,8 @@ trivially ordered.)
 W), N2 (drop D1 at the root), N3 (drop D1 internally), N4 (drop D2),
 N5/`ledgerGap` (drop D3), and the Lean controls `Control.jam` (drop D4) and
 `Control.pdelay` (drop D5 with D6 unasserted; the Quint spec predates all
-three and has no `AX_D4`/`AX_D5`/`AX_D6` consts — the Lean model is the
-model of record for them).
+three and has no `AX_D4`/`AX_D5`/`AX_D6` consts — only the Lean model
+carries them).
 Dropping a guard removes those poset edges and nothing else; the
 checker then searches the freed linearizations for a stuck state. One
 scaffolding const, `WIRE_FIRST`, is **not an axiom**: because the wire

@@ -8,27 +8,30 @@ control item 0 (30 bytes) / preamble /
 55799_1([
     "rumors",
     2,
-    h'b2f7f581d6de3c06a822fd6e7e8265fb',
+    h'85075c6362fdf6d4e12c2575ea5bcd04',
     0,
 ])
-control item 1 (187 bytes) / greeting /
+control item 1 (102 bytes) / sealed network secret /
+/ contents drawn fresh each session; not rendered /
+control item 2 (180 bytes) / greeting /
 24_0(<<{
     "listing": {
-        30_0: h'873255e39c6ccc1019916b8d5c5eb211a991ea504acd727d',
-        130_0: h'ad151bc8bfcf8e311bf94802769422676fec3e83d495d637',
-        142_0: h'1b5c7a2a860aa40597f61b26a1d3d54b48591068e45aed32',
+        18: [h'79cff020eec2cca873e9de8c07bd45d0', 0],
+        140_0: [h'2fd8b36399c79634d44ec3417b73cfb9', 0],
+        250_0: [h'ab960c889178340a019f70bea3b3c1ca', 0],
     },
     "set_len": 3,
     "version": 53846_1(h'92'),
+    "grandchildren": 3,
     "max_version_bytes": 1,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 262144_2,
 }>>)
-control item 2 (5 bytes) / party hand-off /
+control item 3 (5 bytes) / party hand-off /
 53845_1(h'48')
-control item 3 (2 bytes) / epilogue /
+control item 4 (2 bytes) / epilogue /
 "."
-Responder stream 0 (height 31), epoch 0, 50 wire bytes
+Responder stream 0 (height 31), 48 wire bytes
   frame 0 (15 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'92'), 3>>)>>)]
   frame 1 (15 bytes) / Supply(Continue) /
@@ -47,14 +50,17 @@ control item 0 (30 bytes) / preamble /
     h'00000000000000000000000000000000',
     0,
 ])
-control item 1 (103 bytes) / greeting /
+control item 1 (70 bytes) / bootstrap key /
+/ contents drawn fresh each session; not rendered /
+control item 2 (118 bytes) / greeting /
 24_0(<<{
     "listing": {},
     "set_len": 0,
     "version": 53846_1(h'e0'),
+    "grandchildren": 0,
     "max_version_bytes": 0,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 262144_2,
 }>>)
-control item 2 (2 bytes) / epilogue /
+control item 3 (2 bytes) / epilogue /
 "."

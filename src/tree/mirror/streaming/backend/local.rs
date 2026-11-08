@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::mem;
 use std::pin::pin;
 
 use async_stream::try_stream;
@@ -13,12 +12,14 @@ use crate::{
     tree::{
         self,
         mirror::streaming::{
-            Backend, ErasedNode, Leaf, Node, Root,
+            Backend, ErasedNode, Leaf, Node, Root, Summary,
             backend::{BoxNodeStream, NodeStream},
+            byte_set::ByteSet,
             convert::Convert,
+            holding::Holding,
         },
         typed::{
-            self, LeafRun, Path, Prefix,
+            self, ErasedPrefix, Path, Prefix, SortedRun,
             height::{Height, S, Z},
         },
     },
@@ -32,7 +33,7 @@ mod tests;
 pub use adversarial::with_schedule;
 
 /// Read aggregate metadata from the in-memory tree's stored memos.
-impl<H: Height> Node for typed::Node<H> {
+impl<H: Height> Node for typed::View<H> {
     type Backend = Local;
     type Height = H;
 
@@ -46,32 +47,77 @@ impl<H: Height> Node for typed::Node<H> {
         self.len()
     }
 
+    /// Derive the grandchild count from the stored aggregate and the path.
+    fn grandchild_count(&self) -> usize {
+        self.grandchild_count()
+    }
+
     /// Return the largest encoded version bound in the subtree.
     fn version_bytes(&self) -> usize {
         self.version_bytes()
     }
 }
 
-/// Read comparison metadata without a height marker.
-impl ErasedNode for typed::untyped::Node {
+/// Read comparison metadata without a height marker, viewing the stored
+/// node from the coordinate each query names.
+impl ErasedNode for typed::ErasedView {
     /// Borrow the subtree's ordered version bounds.
     fn span(&self) -> Span<'_> {
         self.span()
     }
 
-    /// Read the memoized subtree digest.
-    fn hash(&self) -> typed::Hash {
-        self.hash()
+    /// Read the subtree digest at `at` under `key`: a whole node's memo,
+    /// computed on first read, or a peeled view's, computed on each read.
+    ///
+    /// For the session-budget meter, computing it is hashing's own work
+    /// ([`Holding::Hashing`]), whichever place's code read it.
+    fn hash(&self, at: &ErasedPrefix, key: &typed::HashKey) -> typed::Hash {
+        Holding::Hashing.create(|| self.at(at).hash(key))
     }
 
     /// Return the stored leaf count.
     fn len(&self) -> usize {
         self.len()
     }
+
+    /// Derive the grandchild count at `at` from the stored aggregate and
+    /// the visible path.
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize {
+        self.at(at).grandchild_count()
+    }
+
+    /// Count the children listing this node at `at` yields, from its
+    /// shape.
+    fn child_count(&self, at: &ErasedPrefix) -> usize {
+        self.at(at).child_count()
+    }
+
+    /// Read the digest, child count and grandchild count at `at` from one
+    /// view of the stored node, placed once.
+    ///
+    /// For the session-budget meter, the whole read is hashing's own work
+    /// ([`Holding::Hashing`]), as [`hash`](ErasedNode::hash) is: the counts
+    /// beside the digest allocate nothing.
+    fn summary(&self, at: &ErasedPrefix, key: &typed::HashKey) -> Summary {
+        Holding::Hashing.create(|| {
+            let view = self.at(at);
+            Summary {
+                hash: view.hash(key),
+                child_count: view.child_count(),
+                grandchildren: view.grandchild_count(),
+            }
+        })
+    }
+
+    /// Collect the radices listing this node at `at` yields, from its fan
+    /// or its visible path, in one pass with no handle cloned.
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet {
+        self.at(at).child_radices().collect()
+    }
 }
 
 /// Store leaf payloads directly in the in-memory tree.
-impl Leaf for typed::Node<Z> {
+impl Leaf for typed::View<Z> {
     /// Borrow the stored message.
     fn message(&self) -> &Message {
         self.message()
@@ -86,45 +132,47 @@ impl Leaf for typed::Node<Z> {
     }
 }
 
-/// The in-memory backend: [`typed::Node`] handles over the crate's own tree.
+/// The in-memory backend: [`typed::View`] handles over the crate's own
+/// tree, each the size of a stored node's handle.
 ///
-/// Zero-sized — the nodes carry all the state — so the cloneable-handle
-/// contract of [`Backend`] is satisfied by `Copy`.
+/// Zero-sized — the handles carry all the state — so the cloneable-handle
+/// contract of [`Backend`] is satisfied by `Copy`. Its nodes are immutable
+/// and shared, and it takes no locks, so its operations never wait on other
+/// session work.
+///
+/// Each handle is a view of a stored node from one level of its compressed
+/// path, so listing a compressed node's one child shares the node rather
+/// than copying it, and listing allocates nothing beyond the handles it
+/// yields. Reassembly builds a node from a view only where the view joins a
+/// new branch. A handle holds the stored node alone: the level it views
+/// the node from is its height, a type at [`Node`](Backend::Node), and the
+/// coordinate the session keeps beside it at [`Erased`](Backend::Erased).
 #[derive(Default, Clone, Copy, Debug)]
 pub struct Local;
 
-// The handle is pointer-sized, as required by the window's per-reference price.
-const _: () = assert!(std::mem::size_of::<typed::Node<Z>>() == std::mem::size_of::<*const ()>());
-
 /// Implement backend operations with the crate's in-memory typed tree.
 impl Backend for Local {
-    /// Use the typed in-memory node at every height.
-    type Node<H: Height> = typed::Node<H>;
-    /// Use the untyped node representation shared by every height.
+    /// Use the typed in-memory view at every height.
+    type Node<H: Height> = typed::View<H>;
+    /// Use the erased view: the stored node, shared by every height.
     ///
-    /// The typed node is a phantom tag over this value, so erasure and
-    /// restoration are field moves.
-    type Erased = typed::untyped::Node;
+    /// The typed view is a phantom tag over the same stored node, so
+    /// erasure is a field move, and restoration a move, after checking the
+    /// coordinate in debug builds.
+    type Erased = typed::ErasedView;
     /// In-memory tree operations cannot fail.
     type Error = Infallible;
 
     /// Remove a node's phantom height tag.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
-        node.into_untyped()
+        node.erase()
     }
 
-    /// Restore a node's phantom height tag.
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
-        typed::Node::from_untyped(erased)
-    }
-
-    /// Price one in-flight node reference as one pointer.
-    ///
-    /// The `Arc` handle has the same layout at every height. Its children,
-    /// hash, and version bounds belong to the tree rather than the session,
-    /// so neither argument changes the price.
-    fn node_bytes(_children: usize, _version_bound: usize) -> usize {
-        std::mem::size_of::<typed::Node<Z>>()
+    /// Restore a node's phantom height tag from its coordinate, checking
+    /// the coordinate against the stored node's path bytes in debug builds
+    /// ([`typed::View::placed`]).
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H> {
+        typed::View::placed(at, erased)
     }
 
     /// Stream one branch's children in radix order.
@@ -135,7 +183,7 @@ impl Backend for Local {
     {
         let children = stream::iter(
             parent
-                .child_iter()
+                .children()
                 .map(move |(radix, child)| Ok((prefix.push(radix), child))),
         );
         #[cfg(test)]
@@ -144,10 +192,12 @@ impl Backend for Local {
         children
     }
 
-    /// Assemble one in-memory branch from its surviving children.
+    /// Assemble one in-memory branch from its surviving children, returning
+    /// the original node whole when they are its own.
     fn parent<H>(
         self,
         _prefix: Prefix<S<H>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where
@@ -155,8 +205,10 @@ impl Backend for Local {
         S<H>: Height,
     {
         // A deleted child simply doesn't join the reassembly, and deleting
-        // every child deletes the parent: `branch` of the empty set is `None`.
-        let parent = future::ready(Ok(typed::Node::branch(
+        // every child deletes the parent: `rebuild` of the empty set is
+        // `None`.
+        let parent = future::ready(Ok(typed::View::rebuild(
+            original,
             children
                 .into_iter()
                 .filter_map(|(radix, child)| Some((radix, child?)))
@@ -174,9 +226,9 @@ impl Backend for Local {
         prefix: Prefix<H>,
         node: Self::Node<H>,
     ) -> impl NodeStream<Self, Z> {
-        // The default level-by-level explosion pays an allocation per
-        // virtual level, which is costly for compressed paths. In-memory
-        // nodes walk their own leaves directly, skipping compressed spans.
+        // The default explodes level by level, one listing per level of a
+        // compressed path. A view walks its stored node's leaves directly,
+        // skipping compressed spans.
         let leaves = stream::iter(node.leaves(&prefix).map(Ok));
         #[cfg(test)]
         return adversarial::stream(leaves);
@@ -184,67 +236,79 @@ impl Backend for Local {
         leaves
     }
 
-    /// Build each same-prefix leaf run as one in-memory subtree.
+    /// Build each same-prefix leaf run as one in-memory subtree, one leaf
+    /// at a time.
+    ///
+    /// Each run builds over its open right spine ([`SortedRun`]), so a
+    /// subtree of any size assembles in transient memory bounded by one fan
+    /// per path byte, and each node is built once, with its whole
+    /// compressed prefix: one node per branch point and one per leaf. The
+    /// default level-by-level fold would instead rebuild a node at every
+    /// virtual level a compressed path spans.
     fn assemble<'a, H: Convert>(
         self,
         leaves: BoxNodeStream<'a, Self, Z>,
     ) -> impl NodeStream<Self, H> + 'a {
-        // Buffer one maximal same-prefix run in the bulk builder's own entry
-        // format, then consume it directly. This avoids both the default
-        // level-by-level assembly and a second run-sized conversion buffer.
-        // The remaining transient grows with the subtree being inserted and
-        // is released as soon as that subtree joins the replica.
         let assembled = try_stream! {
             let mut leaves = pin!(leaves);
-            let mut current: Option<Prefix<H>> = None;
-            let mut run = LeafRun::new();
+            let mut run: Option<SortedRun<H>> = None;
             while let Some(item) = leaves.next().await {
-                let (prefix, leaf) = item?;
-                let target = Prefix::<H>::containing(&Path::from(prefix));
-                if current != Some(target)
-                    && let Some(finished) = current.replace(target)
+                let (path, leaf) = item?;
+                let target = Prefix::<H>::containing(&Path::from(path));
+                if run.as_ref().is_none_or(|run| run.prefix() != target)
+                    && let Some(finished) = run.replace(SortedRun::new(target))
                 {
-                    yield (
-                        finished,
-                        mem::take(&mut run).build(&finished),
-                    );
+                    yield viewed(finished.finish());
                 }
-                run.push(prefix, leaf);
+                // A decoded leaf is a whole view of the node `leaf` built,
+                // so building its node returns that node.
+                run.as_mut()
+                    .expect("a run is open once a leaf has arrived")
+                    .push(path, leaf.into_node());
             }
-            if let Some(finished) = current {
-                yield (finished, run.build(&finished));
+            if let Some(finished) = run {
+                yield viewed(finished.finish());
             }
         };
         #[cfg(test)]
-        return adversarial::stream(assembled);
+        return adversarial::stream(Box::pin(assembled));
         #[cfg(not(test))]
         assembled
     }
 }
 
-// `tree::Root` is exactly the `Local` instance of the session's generic
-// `Root`: the same (ceiling, optional root node) pair, concretely typed.
+/// View a finished run's subtree whole, at its prefix.
+fn viewed<H: Height>((prefix, node): (Prefix<H>, typed::Node<H>)) -> (Prefix<H>, typed::View<H>) {
+    (prefix, typed::View::from(node))
+}
+
+// `tree::Root` corresponds to the `Local` instance of the session's
+// generic `Root`: the same (ceiling, optional root) pair, with the root
+// stored as a node rather than viewed.
 
 /// Convert the crate's in-memory root into the backend-generic form.
 impl From<tree::Root> for Root<Local> {
-    /// Move the ceiling and optional root node without changing them.
+    /// Move the ceiling, and view the root node whole.
     fn from(root: tree::Root) -> Self {
         let tree::Root { ceiling, node } = root;
         Root {
             ceiling,
-            root: node,
+            root: node.map(typed::View::from),
         }
     }
 }
 
 /// Convert the backend-generic in-memory root into the crate's root type.
 impl From<Root<Local>> for tree::Root {
-    /// Move the ceiling and optional root node without changing them.
+    /// Move the ceiling, and build the root's node from its view.
+    ///
+    /// A root has no path above it to hide, so its view is whole, and
+    /// building its node returns the stored node itself.
     fn from(root: Root<Local>) -> Self {
         let Root { ceiling, root } = root;
         tree::Root {
             ceiling,
-            node: root,
+            node: root.map(typed::View::into_node),
         }
     }
 }

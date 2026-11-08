@@ -8,8 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Peer, Rumors, Version, causally};
+use rumors::{Rumors, Version, causally};
 
+use rumors_testkit::common::property::LOCAL_DIVISOR;
+use rumors_testkit::common::seed::{distinct_network_seeds, network_seed};
+use rumors_testkit::divided_proptest;
 use serde::{Deserialize, Serialize, Serializer};
 
 /// Commit `values` to `peer` as one batch, returning the [`Version`]s it
@@ -27,8 +30,8 @@ proptest! {
     /// Each individual send returns the version stored with that message;
     /// equal payloads sent twice remain distinct messages.
     #[test]
-    fn send_returns_its_stamped_version(value in any::<u64>()) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    fn send_returns_its_stamped_version(value in any::<u64>(), network in network_seed()) {
+        let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let first = peer.send(value).unwrap();
         let second = peer.send(value).unwrap();
         let snapshot = peer.snapshot();
@@ -42,8 +45,11 @@ proptest! {
     /// Every value committed in a batch becomes exactly one live leaf:
     /// no duplicates, no omissions.
     #[test]
-    fn batch_commits_one_leaf_per_value(values in vec(any::<u64>(), 0..=32)) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    fn batch_commits_one_leaf_per_value(
+        values in vec(any::<u64>(), 0..=32),
+        network in network_seed(),
+    ) {
+        let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let created = batch_send(&peer, &values);
         let snapshot = peer.snapshot();
         prop_assert_eq!(created.len(), values.len());
@@ -57,8 +63,9 @@ proptest! {
     #[test]
     fn snapshot_readers_describe_exact_live_membership(
         items in vec((any::<u64>(), any::<bool>()), 0..=32),
+        network in network_seed(),
     ) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let values: Vec<_> = items.iter().map(|(value, _)| *value).collect();
         let created = batch_send(&peer, &values);
         peer.redact_all(
@@ -97,8 +104,8 @@ proptest! {
     /// All `Version`s created within a single batch are distinct, even
     /// when several values in the batch are equal.
     #[test]
-    fn distinct_versions_per_batch(values in vec(any::<u64>(), 1..=32)) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    fn distinct_versions_per_batch(values in vec(any::<u64>(), 1..=32), network in network_seed()) {
+        let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let created = batch_send(&peer, &values);
         prop_assert_eq!(created.len(), values.len());
         let unique: BTreeSet<_> =
@@ -110,8 +117,12 @@ proptest! {
     /// distinct leaves — each send creates a fresh `Version`, so content
     /// equality does not collapse messages.
     #[test]
-    fn duplicate_values_get_distinct_versions(n in 1usize..=16, value in any::<u64>()) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    fn duplicate_values_get_distinct_versions(
+        n in 1usize..=16,
+        value in any::<u64>(),
+        network in network_seed(),
+    ) {
+        let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let values: Vec<u64> = std::iter::repeat_n(value, n).collect();
         let created = batch_send(&peer, &values);
         prop_assert_eq!(created.len(), n);
@@ -130,8 +141,9 @@ proptest! {
     #[test]
     fn local_versions_form_a_chain(
         batches in vec(vec(any::<u64>(), 1..=8), 1..=8),
+        network in network_seed(),
     ) {
-        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();
 
         // Versions in commit order: per batch, the created versions sorted
         // into their (total) causal order; batches concatenated in commit
@@ -164,12 +176,13 @@ proptest! {
             let shuffled = Just(values.clone()).prop_shuffle();
             (Just(values), shuffled)
         }),
+        network in network_seed(),
     ) {
         // Each peer is its own fresh seed (the two never gossip, so they
         // need not share a universe). Read the live multiset directly off
         // the snapshot.
         let multiset_of = |values: &[u64]| -> BTreeMap<u64, usize> {
-            let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+            let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
             for (_, v) in peer.snapshot().iter() {
@@ -186,38 +199,48 @@ proptest! {
 #[derive(Deserialize, Eq, PartialEq, Serialize)]
 struct OpaquePayload(u64);
 
-/// Snapshot traits inspect the stored representation rather than requiring
-/// the payload to implement the corresponding traits. Its iterator also has
-/// the public, nameable `Iter` type.
-#[test]
-fn snapshot_traits_do_not_inherit_payload_bounds() {
-    let rumors = Peer::<OpaquePayload>::seed().into_rumors();
-    rumors.send(OpaquePayload(7)).unwrap();
-    let snapshot = rumors.snapshot();
-    let clone = snapshot.clone();
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-    assert!(snapshot == clone);
-    let rendered = format!("{snapshot:?}");
-    assert!(rendered.starts_with("Snapshot"));
-    let _: rumors::Iter<'_, OpaquePayload> = snapshot.iter();
-}
+    /// Snapshot traits inspect the stored representation rather than requiring
+    /// the payload to implement the corresponding traits. Its iterator also has
+    /// the public, nameable `Iter` type.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn snapshot_traits_do_not_inherit_payload_bounds(network in network_seed()) {
+        let rumors = network.peer::<OpaquePayload>().into_rumors();
+        rumors.send(OpaquePayload(7)).unwrap();
+        let snapshot = rumors.snapshot();
+        let clone = snapshot.clone();
 
-/// Snapshot equality covers the network, live set, and causal frontier.
-#[test]
-fn snapshot_equality_compares_complete_replica_state() {
-    let rumors = Peer::<u64>::seed().into_rumors();
-    let initial = rumors.snapshot();
-    assert_eq!(initial, initial.clone());
+        assert!(snapshot == clone);
+        let rendered = format!("{snapshot:?}");
+        assert!(rendered.starts_with("Snapshot"));
+        let _: rumors::Iter<'_, OpaquePayload> = snapshot.iter();
+    }
 
-    let version = rumors.send(1).unwrap();
-    assert_ne!(initial, rumors.snapshot(), "the live set changed");
-    rumors.redact(&version);
-    let advanced_empty = rumors.snapshot();
-    assert!(initial.is_empty() && advanced_empty.is_empty());
-    assert_ne!(initial, advanced_empty, "the causal frontier changed");
+    /// Snapshot equality covers the network, live set, and causal frontier.
+    ///
+    /// The claim holds for every pair of distinct network seeds.
+    #[test]
+    fn snapshot_equality_compares_complete_replica_state(
+        (network, other_network) in distinct_network_seeds(),
+    ) {
+        let rumors = network.peer::<u64>().into_rumors();
+        let initial = rumors.snapshot();
+        assert_eq!(initial, initial.clone());
 
-    let other = Peer::<u64>::seed().into_rumors().snapshot();
-    assert_ne!(initial, other, "the network changed");
+        let version = rumors.send(1).unwrap();
+        assert_ne!(initial, rumors.snapshot(), "the live set changed");
+        rumors.redact(&version);
+        let advanced_empty = rumors.snapshot();
+        assert!(initial.is_empty() && advanced_empty.is_empty());
+        assert_ne!(initial, advanced_empty, "the causal frontier changed");
+
+        let other = other_network.peer::<u64>().into_rumors().snapshot();
+        assert_ne!(initial, other, "the network changed");
+    }
 }
 
 /// A value whose serialization fails on demand, so a test can fire
@@ -249,67 +272,75 @@ impl<'de> serde::Deserialize<'de> for Explosive {
     }
 }
 
-/// A batch whose closure panics commits nothing, earlier-queued sends
-/// included.
-///
-/// [`Rumors::batch`](rumors::Rumors::batch) commits iff the closure
-/// returns `Ok`; a panic's unwind exits the closure without returning, so
-/// the commit call never runs and nothing publishes — structurally, with
-/// no unwind detection anywhere.
-///
-/// `Batch::send` panics when a value fails to serialize (its documented
-/// panic contract), which is this test's panic source: the first send is
-/// queued, the second detonates.
-#[test]
-fn a_panicked_batch_commits_nothing() {
-    let rumors: Rumors<Explosive> = Peer::seed().sync_window_floor().into_rumors();
-    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        rumors.batch(|batch| {
-            batch.send(Explosive {
-                value: 1,
-                fail: false,
-            })?;
-            // The documented serialization panic fires here, after the
-            // first send is queued; the unwind exits the closure.
-            batch.send(Explosive {
-                value: 2,
-                fail: true,
-            })?;
-            Ok::<(), rumors::EncodeError>(())
-        })
-    }));
-    assert!(unwound.is_err(), "the second send must panic");
-    assert_eq!(
-        rumors.snapshot().len(),
-        0,
-        "a batch whose closure panicked must commit nothing"
-    );
-}
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-/// A batch commits nothing until — and everything once — the closure
-/// returns `Ok`: mid-closure the set is untouched (queueing publishes
-/// nothing), and the `Ok` return lands sends and redactions together,
-/// all-or-nothing.
-#[test]
-fn a_batch_commits_iff_the_closure_returns_ok() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let doomed = rumors.send(7).unwrap();
+    /// A batch whose closure panics commits nothing, earlier-queued sends
+    /// included.
+    ///
+    /// [`Rumors::batch`](rumors::Rumors::batch) commits iff the closure
+    /// returns `Ok`; a panic's unwind exits the closure without returning, so
+    /// the commit call never runs and nothing publishes — structurally, with
+    /// no unwind detection anywhere.
+    ///
+    /// `Batch::send` panics when a value fails to serialize (its documented
+    /// panic contract), which is this test's panic source: the first send is
+    /// queued, the second detonates.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn a_panicked_batch_commits_nothing(network in network_seed()) {
+        let rumors: Rumors<Explosive> = network.peer().sync_memory_budget(0).into_rumors();
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            rumors.batch(|batch| {
+                batch.send(Explosive {
+                    value: 1,
+                    fail: false,
+                })?;
+                // The documented serialization panic fires here, after the
+                // first send is queued; the unwind exits the closure.
+                batch.send(Explosive {
+                    value: 2,
+                    fail: true,
+                })?;
+                Ok::<(), rumors::EncodeError>(())
+            })
+        }));
+        assert!(unwound.is_err(), "the second send must panic");
+        assert_eq!(
+            rumors.snapshot().len(),
+            0,
+            "a batch whose closure panicked must commit nothing"
+        );
+    }
 
-    rumors
-        .batch(|batch| {
-            batch.send(1)?;
-            batch.send(2)?;
-            batch.redact(&doomed);
-            // Nothing queued is visible while the closure runs: the batch
-            // publishes only at its commit.
-            assert_eq!(rumors.snapshot().len(), 1, "queueing publishes nothing");
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat payloads are within any depth limit");
+    /// A batch commits nothing until — and everything once — the closure
+    /// returns `Ok`: mid-closure the set is untouched (queueing publishes
+    /// nothing), and the `Ok` return lands sends and redactions together,
+    /// all-or-nothing.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn a_batch_commits_iff_the_closure_returns_ok(network in network_seed()) {
+        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+        let doomed = rumors.send(7).unwrap();
 
-    let live: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
-    assert_eq!(live.len(), 2, "the sends landed and the redaction took");
-    assert!(live.contains(&1) && live.contains(&2));
+        rumors
+            .batch(|batch| {
+                batch.send(1)?;
+                batch.send(2)?;
+                batch.redact(&doomed);
+                // Nothing queued is visible while the closure runs: the batch
+                // publishes only at its commit.
+                assert_eq!(rumors.snapshot().len(), 1, "queueing publishes nothing");
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat payloads are within any depth limit");
+
+        let live: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+        assert_eq!(live.len(), 2, "the sends landed and the redaction took");
+        assert!(live.contains(&1) && live.contains(&2));
+    }
 }
 
 /// Pure CBOR array nesting from a type satisfying the payload contract:
@@ -324,214 +355,230 @@ impl Arr {
     }
 }
 
-/// A depth-rejected send, `?`-propagated out of the closure, cancels
-/// the whole batch: earlier-queued actions included — the
-/// cancel-on-error pin.
-///
-/// The error carries the configured limit, and the tree is
-/// untouched.
-#[test]
-fn a_depth_error_cancels_the_whole_batch() {
-    let limit = 4;
-    let rumors: Rumors<Arr> = Peer::seed()
-        .payload_depth_limit(limit)
-        .sync_window_floor()
-        .into_rumors();
-    let deep = Arr::nested(4);
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-    let error = rumors
-        .batch(|batch| {
-            batch.send(Arr(vec![]))?;
-            batch.send(deep.clone())?;
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect_err("the second send exceeds the limit");
-    assert!(
-        matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
-        "the rejection is the depth case naming the limit: {error:?}"
-    );
-    assert_eq!(
-        rumors.snapshot().len(),
-        0,
-        "a cancelled batch commits nothing, earlier-queued sends included"
-    );
-}
+    /// A depth-rejected send, `?`-propagated out of the closure, cancels
+    /// the whole batch: earlier-queued actions included — the
+    /// cancel-on-error pin.
+    ///
+    /// The error carries the configured limit, and the tree is
+    /// untouched.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn a_depth_error_cancels_the_whole_batch(network in network_seed()) {
+        let limit = 4;
+        let rumors: Rumors<Arr> = network.peer()
+            .payload_depth_limit(limit)
+            .sync_memory_budget(0)
+            .into_rumors();
+        let deep = Arr::nested(4);
 
-/// A user `Err` return cancels the batch — the deliberate abort
-/// affordance — and comes back verbatim.
-#[test]
-fn a_user_error_cancels_the_batch() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let error = rumors
-        .batch(|batch| {
-            batch.send(1).unwrap();
-            batch.send(2).unwrap();
-            Err::<(), &str>("changed my mind")
-        })
-        .expect_err("the closure aborts deliberately");
-    assert_eq!(error, "changed my mind");
-    assert_eq!(
-        rumors.snapshot().len(),
-        0,
-        "an aborted batch commits nothing"
-    );
-}
+        let error = rumors
+            .batch(|batch| {
+                batch.send(Arr(vec![]))?;
+                batch.send(deep.clone())?;
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect_err("the second send exceeds the limit");
+        assert!(
+            matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
+            "the rejection is the depth case naming the limit: {error:?}"
+        );
+        assert_eq!(
+            rumors.snapshot().len(),
+            0,
+            "a cancelled batch commits nothing, earlier-queued sends included"
+        );
+    }
 
-/// [`Rumors::send_all`](rumors::Rumors::send_all) is one all-or-nothing
-/// commit: a depth-rejected message anywhere in the iterator is the
-/// returned error, and nothing lands.
-///
-/// The messages admitted before the rejected one are cancelled with it,
-/// and admission stops at the rejected message rather than draining the
-/// iterator.
-#[test]
-fn send_all_commits_nothing_when_a_message_is_rejected() {
-    let limit = 4;
-    let rumors: Rumors<Arr> = Peer::seed()
-        .payload_depth_limit(limit)
-        .sync_window_floor()
-        .into_rumors();
+    /// A user `Err` return cancels the batch — the deliberate abort
+    /// affordance — and comes back verbatim.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn a_user_error_cancels_the_batch(network in network_seed()) {
+        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+        let error = rumors
+            .batch(|batch| {
+                batch.send(1).unwrap();
+                batch.send(2).unwrap();
+                Err::<(), &str>("changed my mind")
+            })
+            .expect_err("the closure aborts deliberately");
+        assert_eq!(error, "changed my mind");
+        assert_eq!(
+            rumors.snapshot().len(),
+            0,
+            "an aborted batch commits nothing"
+        );
+    }
 
-    let mut drawn = 0;
-    let error = rumors
-        .send_all(
-            [
-                Arr::nested(0),
-                Arr::nested(1),
-                Arr::nested(4),
-                Arr::nested(2),
-            ]
-            .into_iter()
-            .inspect(|_| drawn += 1),
-        )
-        .expect_err("the third message exceeds the limit");
-    assert!(
-        matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
-        "the rejection is the depth case naming the limit: {error:?}"
-    );
-    assert_eq!(
-        rumors.snapshot().len(),
-        0,
-        "a rejected send_all commits nothing, earlier-admitted messages included"
-    );
-    assert_eq!(drawn, 3, "admission stops at the rejected message");
-}
+    /// [`Rumors::send_all`](rumors::Rumors::send_all) is one all-or-nothing
+    /// commit: a depth-rejected message anywhere in the iterator is the
+    /// returned error, and nothing lands.
+    ///
+    /// The messages admitted before the rejected one are cancelled with it,
+    /// and admission stops at the rejected message rather than draining the
+    /// iterator.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn send_all_commits_nothing_when_a_message_is_rejected(network in network_seed()) {
+        let limit = 4;
+        let rumors: Rumors<Arr> = network.peer()
+            .payload_depth_limit(limit)
+            .sync_memory_budget(0)
+            .into_rumors();
 
-/// [`Rumors::redact_all`](rumors::Rumors::redact_all) removes every held
-/// version it names, skips versions not currently held, and lands as
-/// one commit: a change observer sees exactly one tick for the whole
-/// redaction.
-#[test]
-fn redact_all_removes_the_held_skips_the_unheld_and_commits_once() {
-    use futures::{FutureExt, StreamExt};
-
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, &[1, 2, 3, 4]);
-    // Versions come back through observation, by payload: a batch's
-    // versions carry no input-order correspondence.
-    let version_of = |payload: u64| -> Version {
-        rumors
-            .snapshot()
-            .iter()
-            .find(|(_, m)| **m == payload)
-            .map(|(v, _)| v.clone())
-            .expect("the payload is live")
-    };
-    let targets = [version_of(1), version_of(2), version_of(3)];
-    // Redacting the first version singly makes it a version not held
-    // when the bulk redaction names it again.
-    rumors.redact(&targets[0]);
-
-    let mut changes = rumors.changes();
-    assert_eq!(
-        changes.next().now_or_never(),
-        Some(Some(())),
-        "a fresh observer's first tick is immediate"
-    );
-    assert_eq!(changes.next().now_or_never(), None, "then quiet");
-
-    rumors.redact_all(&targets);
-    assert_eq!(
-        changes.next().now_or_never(),
-        Some(Some(())),
-        "the whole redaction is one commit, one tick"
-    );
-    assert_eq!(changes.next().now_or_never(), None, "and only one");
-
-    let live: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
-    assert_eq!(
-        live,
-        vec![4],
-        "the two held versions are gone, the unheld one skipped, the rest untouched"
-    );
-}
-
-/// A rejected [`Batch::send_all`](rumors::Batch::send_all) handled inside
-/// the closure leaves the batch alive with the admitted prefix queued.
-///
-/// A [`Batch::redact_all`] in the same closure lands with that prefix as
-/// one commit.
-///
-/// [`Batch::redact_all`]: rumors::Batch::redact_all
-#[test]
-fn batch_send_all_handled_locally_keeps_the_admitted_prefix() {
-    let limit = 4;
-    let rumors: Rumors<Arr> = Peer::seed()
-        .payload_depth_limit(limit)
-        .sync_window_floor()
-        .into_rumors();
-    rumors.send_all([Arr::nested(3)]).unwrap();
-    let doomed: Vec<Version> = rumors.snapshot().versions().cloned().collect();
-
-    rumors
-        .batch(|batch| {
-            let error = batch
-                .send_all([
+        let mut drawn = 0;
+        let error = rumors
+            .send_all(
+                [
                     Arr::nested(0),
                     Arr::nested(1),
                     Arr::nested(4),
                     Arr::nested(2),
-                ])
-                .expect_err("the third message exceeds the limit");
-            assert!(matches!(error, rumors::EncodeError::Depth { .. }));
-            batch.redact_all(&doomed);
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("the closure handles the rejection itself");
+                ]
+                .into_iter()
+                .inspect(|_| drawn += 1),
+            )
+            .expect_err("the third message exceeds the limit");
+        assert!(
+            matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
+            "the rejection is the depth case naming the limit: {error:?}"
+        );
+        assert_eq!(
+            rumors.snapshot().len(),
+            0,
+            "a rejected send_all commits nothing, earlier-admitted messages included"
+        );
+        assert_eq!(drawn, 3, "admission stops at the rejected message");
+    }
 
-    let mut live: Vec<Arr> = rumors
-        .snapshot()
-        .iter()
-        .map(|(_, m)| (*m).clone())
-        .collect();
-    live.sort_by_key(|a| a.0.len());
-    assert_eq!(
-        live,
-        vec![Arr::nested(0), Arr::nested(1)],
-        "the admitted prefix and the redaction land together; the rest never queued"
-    );
-}
+    /// [`Rumors::redact_all`](rumors::Rumors::redact_all) removes every held
+    /// version it names, skips versions not currently held, and lands as
+    /// one commit: a change observer sees exactly one tick for the whole
+    /// redaction.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn redact_all_removes_the_held_skips_the_unheld_and_commits_once(network in network_seed()) {
+        use futures::{FutureExt, StreamExt};
 
-/// Batches nest: the closure may use the same handle, and the nested
-/// operations commit first, the outer batch after, as separate commits
-/// (inner-before-outer).
-#[test]
-fn nested_batches_commit_inner_before_outer() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    rumors
-        .batch(|batch| {
-            batch.send(1)?;
-            // Re-entrant single send and nested batch, both on the same
-            // handle: each commits immediately, before the outer batch.
-            rumors.send(2)?;
-            rumors.batch(|inner| inner.send(3))?;
-            let mid: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
-            assert!(
-                mid.contains(&2) && mid.contains(&3) && !mid.contains(&1),
-                "inner commits land before the outer batch: {mid:?}"
-            );
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat payloads are within any depth limit");
-    assert_eq!(rumors.snapshot().len(), 3, "the outer batch lands last");
+        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+        batch_send(&rumors, &[1, 2, 3, 4]);
+        // Versions come back through observation, by payload: a batch's
+        // versions carry no input-order correspondence.
+        let version_of = |payload: u64| -> Version {
+            rumors
+                .snapshot()
+                .iter()
+                .find(|(_, m)| **m == payload)
+                .map(|(v, _)| v.clone())
+                .expect("the payload is live")
+        };
+        let targets = [version_of(1), version_of(2), version_of(3)];
+        // Redacting the first version singly makes it a version not held
+        // when the bulk redaction names it again.
+        rumors.redact(&targets[0]);
+
+        let mut changes = rumors.changes();
+        assert_eq!(
+            changes.next().now_or_never(),
+            Some(Some(())),
+            "a fresh observer's first tick is immediate"
+        );
+        assert_eq!(changes.next().now_or_never(), None, "then quiet");
+
+        rumors.redact_all(&targets);
+        assert_eq!(
+            changes.next().now_or_never(),
+            Some(Some(())),
+            "the whole redaction is one commit, one tick"
+        );
+        assert_eq!(changes.next().now_or_never(), None, "and only one");
+
+        let live: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+        assert_eq!(
+            live,
+            vec![4],
+            "the two held versions are gone, the unheld one skipped, the rest untouched"
+        );
+    }
+
+    /// A rejected [`Batch::send_all`](rumors::Batch::send_all) handled inside
+    /// the closure leaves the batch alive with the admitted prefix queued.
+    ///
+    /// A [`Batch::redact_all`] in the same closure lands with that prefix as
+    /// one commit.
+    ///
+    /// [`Batch::redact_all`]: rumors::Batch::redact_all
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn batch_send_all_handled_locally_keeps_the_admitted_prefix(network in network_seed()) {
+        let limit = 4;
+        let rumors: Rumors<Arr> = network.peer()
+            .payload_depth_limit(limit)
+            .sync_memory_budget(0)
+            .into_rumors();
+        rumors.send_all([Arr::nested(3)]).unwrap();
+        let doomed: Vec<Version> = rumors.snapshot().versions().cloned().collect();
+
+        rumors
+            .batch(|batch| {
+                let error = batch
+                    .send_all([
+                        Arr::nested(0),
+                        Arr::nested(1),
+                        Arr::nested(4),
+                        Arr::nested(2),
+                    ])
+                    .expect_err("the third message exceeds the limit");
+                assert!(matches!(error, rumors::EncodeError::Depth { .. }));
+                batch.redact_all(&doomed);
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("the closure handles the rejection itself");
+
+        let mut live: Vec<Arr> = rumors
+            .snapshot()
+            .iter()
+            .map(|(_, m)| (*m).clone())
+            .collect();
+        live.sort_by_key(|a| a.0.len());
+        assert_eq!(
+            live,
+            vec![Arr::nested(0), Arr::nested(1)],
+            "the admitted prefix and the redaction land together; the rest never queued"
+        );
+    }
+
+    /// Batches nest: the closure may use the same handle, and the nested
+    /// operations commit first, the outer batch after, as separate commits
+    /// (inner-before-outer).
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn nested_batches_commit_inner_before_outer(network in network_seed()) {
+        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+        rumors
+            .batch(|batch| {
+                batch.send(1)?;
+                // Re-entrant single send and nested batch, both on the same
+                // handle: each commits immediately, before the outer batch.
+                rumors.send(2)?;
+                rumors.batch(|inner| inner.send(3))?;
+                let mid: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+                assert!(
+                    mid.contains(&2) && mid.contains(&3) && !mid.contains(&1),
+                    "inner commits land before the outer batch: {mid:?}"
+                );
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat payloads are within any depth limit");
+        assert_eq!(rumors.snapshot().len(), 3, "the outer batch lands last");
+    }
 }

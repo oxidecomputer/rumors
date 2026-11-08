@@ -7,7 +7,7 @@
 //! own generator.
 
 use proptest::test_runner::{RngAlgorithm, TestRng};
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
 /// A deterministic 64-bit word stream from a fixed seed.

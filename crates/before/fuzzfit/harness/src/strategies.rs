@@ -54,7 +54,7 @@ pub struct Budget {
     pub max_fold: u32,
 }
 
-/// The budget of record for both legs.
+/// The program budget for both legs.
 ///
 /// One program stays well under about 10⁹ fuel and a few thousand guest
 /// calls. The enforcement suite's case count controls its total duration.

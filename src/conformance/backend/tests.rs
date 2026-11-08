@@ -11,25 +11,18 @@ use proptest::prelude::*;
 
 use before::Span;
 
-use super::{
-    BOUND_SWEEP_CEILING, Measure, check, fan_slot_excess, histories, ledger, node_bytes_monotone,
-    reference_slot_excess, run,
-};
+use super::{Measure, check, histories, ledger, run};
 use crate::{
     Version,
     message::Message,
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream,
-            convert::Convert,
-            window::{
-                FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES,
-                WindowConfig,
-            },
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, QueueKind, Summary,
+            byte_set::ByteSet, convert::Convert, with_kind_capacity,
         },
         typed::{
-            self, Hash, Path, Prefix,
+            self, ErasedPrefix, Hash, HashKey, Path, Prefix,
             height::{Height, S, Z},
         },
     },
@@ -37,9 +30,9 @@ use crate::{
 
 /// Serializes the tests in this module.
 ///
-/// The census ledger and every honesty knob are process-global, so tests
+/// The census ledger and every knob are process-global, so tests
 /// overlapping in one process (plain `cargo test` runs tests as threads)
-/// would reprice each other's in-flight sessions and drain each other's
+/// would change each other's in-flight sessions and drain each other's
 /// violations. Every test holds this lock for its whole body — through
 /// [`serialized`] directly or through a [`Knob`] guard — which makes
 /// plain `cargo test` sound, not merely nextest's process-per-test.
@@ -133,63 +126,35 @@ impl Drop for Dishonest {
 }
 
 impl Measure for Local {
-    fn measure<H: Height>(node: &Self::Node<H>) -> usize {
-        // A `Local` node is an `Arc` handle into the session-resident
-        // tree: its shallow size is everything it keeps resident.
-        std::mem::size_of_val(node)
+    fn measure<H: Height>(_node: &Self::Node<H>) -> usize {
+        // A `Local` node is an `Arc` handle into the replica's own tree:
+        // what the handle reaches is the replica's storage at rest, and the
+        // handle itself is inline in whatever holds it.
+        0
     }
 
-    fn measure_erased(node: &Self::Erased) -> usize {
-        std::mem::size_of_val(node)
+    fn measure_erased(_node: &Self::Erased) -> usize {
+        0
     }
 }
 
-/// Cover the decode-fan allowance and leave enough to widen dispute queues.
-const LOCAL_BUDGET: usize = SUPPLY_DECODE_ENVELOPE_BYTES + 64 * 1024;
-
-/// Local handle prices cover measured nodes, and wider queues reconcile within
-/// the fixture's peak-increase allowance.
+/// The in-memory backend's operations keep their contracts, and
+/// reconciliation at [`CENSUS_BUDGET`] stays within its peak-increase
+/// budget.
 #[test]
 fn local_backend_conforms() {
     let _serial = serialized();
-    pollster::block_on(check(Local, LOCAL_BUDGET));
-}
-
-/// A budget spent entirely on decode fans fails to exercise wider queues.
-#[test]
-#[should_panic(expected = "does not widen any queue above the floor")]
-fn a_decode_only_budget_fails_the_widening_check() {
-    let _serial = serialized();
-    pollster::block_on(check(Local, SUPPLY_DECODE_ENVELOPE_BYTES));
+    pollster::block_on(check(Local, CENSUS_BUDGET));
 }
 
 /// A materializing reference backend, shaped like a database row store.
 ///
 /// Each node value owns a buffer sized like the row it would keep
 /// resident (header, child table, version bounds), on top of a `Local`
-/// handle standing in for the store.
-///
-/// The priced header is the honesty knob ([`PRICED_HEADER`]): the real
-/// row header is [`ROW_HEADER`] bytes and the cost function prices the
-/// knob's value, so the knob's honest resting value is the real header
-/// and anything less underprices — what the lying tests opt into
-/// through the knob's guard.
-///
-/// Its node is aligned wider than a pointer ([`MaterializedNode`]), so
-/// the decode-fan and reference slots the session keeps it in pad
-/// beyond the in-memory layout the window's slot constants derive from;
-/// that padding ([`SLOT_PADDING`]) is the backend's to price, and
-/// [`PRICED_SLOT_PADDING`] is the knob that prices it honestly at rest.
+/// handle standing in for the store. Its handle is wider and more aligned
+/// than a pointer ([`MaterializedNode`]).
 #[derive(Clone, Copy, Debug)]
 struct Materializing;
-
-/// The header bytes [`Materializing::node_bytes`] prices: honest at the
-/// real [`ROW_HEADER`], lying below it.
-static PRICED_HEADER: Knob = Knob::new(ROW_HEADER);
-
-/// Extra bytes the bulk walk's yielded rows keep resident: honest at
-/// zero, over-holding above it.
-static WALK_SLACK: Knob = Knob::new(0);
 
 /// Leaves the bulk walk silently drops: honest at zero.
 static WALK_SKIPS: Knob = Knob::new(0);
@@ -202,11 +167,6 @@ static LEAVES_SWAP: Knob = Knob::new(0);
 /// walked subtree: honest at zero, escaping above it.
 static WALK_ESCAPES: Knob = Knob::new(0);
 
-/// Extra bytes the exploded interior child rows keep resident (leaf
-/// children stay honest, so the walk's leaf check is silent): honest at
-/// zero, over-holding above it.
-static CHILDREN_SLACK: Knob = Knob::new(0);
-
 /// Interior `parent` calls (a fan of at least one real child) answered
 /// with `Ok(None)`, spent one per call: honest at zero.
 static PARENT_DROPS: Knob = Knob::new(0);
@@ -214,10 +174,6 @@ static PARENT_DROPS: Knob = Knob::new(0);
 /// Whether an empty group presented to `parent` is answered with a
 /// conjured node instead of `None`: honest at zero.
 static PARENT_CONJURES: Knob = Knob::new(0);
-
-/// Extra bytes bulk-assembled rows keep resident: honest at zero,
-/// over-holding above it.
-static ASSEMBLE_SLACK: Knob = Knob::new(0);
 
 /// Leaves bulk assembly silently drops: honest at zero.
 static ASSEMBLE_SKIPS: Knob = Knob::new(0);
@@ -238,33 +194,53 @@ static ASSEMBLE_RETAGS: Knob = Knob::new(0);
 /// zero, deflating the aggregate above it.
 static VERSION_DEFLATE: Knob = Knob::new(0);
 
+/// Grandchildren added to every branch's `grandchildren` answer: honest at
+/// zero, an overcount of the children its children list above it.
+static GRANDCHILDREN_SKEW: Knob = Knob::new(0);
+
 /// Bytes added to a leaf's `version_bytes` answer: honest at zero,
 /// pushing a leaf's claimed encoding past its parents' aggregates above
 /// it.
 static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 
-/// Bytes [`Materializing::node_bytes`] subtracts at [`DIP_FAN`] alone:
-/// honest at zero, a monotonicity dip above it.
-static PRICED_DIP: Knob = Knob::new(0);
+/// Children added to every node's `child_count` answer: honest at zero, an
+/// overcount of the children listing it yields above it.
+static CHILDREN_SKEW: Knob = Knob::new(0);
 
-/// The version bound above which [`Materializing::node_bytes`] prices
-/// [`STEP_DROP`] fewer header bytes: honest at zero (no step), a
-/// step-shaped monotonicity dip above it.
-static PRICED_BOUND_STEP: Knob = Knob::new(0);
+/// Whether every digest the row store reports has its first byte's low bit
+/// flipped: honest at zero, digests consistent with each other but not the
+/// in-memory backend's above it.
+static DIGEST_FLIP: Knob = Knob::new(0);
 
-/// The one version bound at which [`Materializing::node_bytes`] prices
-/// one byte less than at the bound before it: honest at zero (no dip),
-/// a point dip above it.
-static PRICED_BOUND_DIP: Knob = Knob::new(0);
+/// A digest as the row store reports it: `hash` itself, or with its first
+/// byte's low bit flipped while [`DIGEST_FLIP`] is set.
+fn reported(hash: Hash) -> Hash {
+    let mut bytes = *hash.as_bytes();
+    if DIGEST_FLIP.get() > 0 {
+        bytes[0] ^= 1;
+    }
+    Hash::from(bytes)
+}
 
-/// The bound the point-dip control dips at: inside the dense sweep and
-/// off every power of two and its neighbors, so only a sweep dense
-/// through it compares across the dip.
-const DIP_BOUND: usize = 101;
+/// Whether every node's `child_radices` answer drops its radices: honest
+/// at zero, an answer of no radices for a node with children above it.
+static RADICES_DROP: Knob = Knob::new(0);
 
-/// The slot padding [`Materializing::node_bytes`] prices: honest at the
-/// real [`SLOT_PADDING`], lying below it.
-static PRICED_SLOT_PADDING: Knob = Knob::new(SLOT_PADDING);
+/// Whether listing a node's children yields its first two in swapped
+/// order: honest at zero, out of radix order above it.
+static CHILDREN_SWAP: Knob = Knob::new(0);
+
+/// Whether listing the root's children yields its first child twice:
+/// honest at zero, a repeated radix above it.
+///
+/// Confined to the root because a repeat at every level compounds: the
+/// bulk walk explodes through this listing, so a leaf under a chain of
+/// single-child nodes would be walked once for every doubling along it.
+static CHILDREN_REPEAT: Knob = Knob::new(0);
+
+/// Bytes listing each child allocates and frees, beyond the row it
+/// yields: honest at zero, scratch the listing never reports above it.
+static LISTING_SCRATCH: Knob = Knob::new(0);
 
 /// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
 /// at zero, a residency-changing re-tag above it.
@@ -274,55 +250,28 @@ static ASSUME_SLACK: Knob = Knob::new(0);
 /// at zero, a residency-changing re-tag above it.
 static ERASE_SLACK: Knob = Knob::new(0);
 
-/// The threshold bound the step control places strictly inside the
-/// sweep grid's widest gap, between the neighbors of the two largest
-/// powers of two: no adjacent grid pair straddles it, so the grid alone
-/// cannot see the step.
-const STEP_THRESHOLD: usize = (BOUND_SWEEP_CEILING / 2 + 1 + BOUND_SWEEP_CEILING - 1) / 2;
+/// Which endpoint every erased node's version bounds collapse to, where
+/// the session classifies subtrees against a counterparty's version:
+/// honest at zero, the floor at [`TO_FLOOR`], the ceiling at
+/// [`TO_CEILING`].
+static SPAN_COLLAPSE: Knob = Knob::new(0);
 
-/// The header bytes the step drops: the width of that gap, the largest
-/// drop the gap's two grid endpoints tolerate; across it they price
-/// equal, which the sweep's non-strict comparison accepts.
-const STEP_DROP: usize = (BOUND_SWEEP_CEILING - 1) - (BOUND_SWEEP_CEILING / 2 + 1);
+/// [`SPAN_COLLAPSE`]'s setting that reports each node's floor as its
+/// ceiling too, under-reporting the ceiling.
+const TO_FLOOR: usize = 1;
 
-/// The bytes the session's slots pad around a [`MaterializedNode`]
-/// beyond the in-memory layout the window prices: the larger of the
-/// decode-fan slot's and the reference slots' excess, so one price
-/// covers both.
-const SLOT_PADDING: usize = {
-    let fan = fan_slot_excess::<Materializing>();
-    let reference = reference_slot_excess::<Materializing, Z>();
-    if fan > reference { fan } else { reference }
-};
+/// [`SPAN_COLLAPSE`]'s setting that reports each node's ceiling as its
+/// floor too, over-reporting the floor.
+const TO_CEILING: usize = 2;
 
-// The control below zeroes the priced padding; it convicts only if the
-// real padding is positive, which the node's alignment guarantees.
-const _: () = assert!(
-    SLOT_PADDING > 0,
-    "a node aligned wider than a pointer pads its slots",
-);
-
-// The same padding written out from the layouts by hand, independently
-// of the suite's excess functions, so an over-estimate there cannot
-// hide behind a price that covers it. On a 64-bit target: `Prefix<Z>`
-// is 34 bytes at alignment 2, the in-memory handle one 8-byte `Arc`,
-// and `Hash` 24 bytes, so the window's decode-fan pair is 48 bytes
-// (`FAN_SLOT_BYTES` 40) and its query, resolution, and listing slots
-// 16 + 24 + 25 bytes (`REFERENCE_SLOT_BYTES` 65). `MaterializedNode` is
-// 32 bytes at alignment 16: the fan pair grows to 80 bytes (excess
-// 80 - 32 - 40 = 8), the query slot to 48 (16 of padding against the
-// handle's 8, excess 8), and the resolution slot keeps 16 of padding
-// either way (24 - 8 and 48 - 32); the padding is 8. Layouts differ at
-// other pointer widths, so the pin is gated.
-const _: () = assert!(
-    std::mem::size_of::<usize>() != 8
-        || (FAN_SLOT_BYTES == 40 && REFERENCE_SLOT_BYTES == 65 && SLOT_PADDING == 8),
-    "the derived slot padding matches the hand-computed 64-bit layout",
-);
-
-/// The one fan [`PRICED_DIP`] carves the dip at: an arbitrary interior
-/// value the monotonicity sweep's adjacent-fan comparisons must cross.
-const DIP_FAN: usize = 7;
+/// `span`, collapsed to one endpoint as [`SPAN_COLLAPSE`] directs.
+fn collapsed(span: Span<'_>) -> Span<'_> {
+    match SPAN_COLLAPSE.get() {
+        TO_FLOOR => Span::at(span.lo().clone()),
+        TO_CEILING => Span::at(span.hi().clone()),
+        _ => span,
+    }
+}
 
 /// The bytes a materialized row spends beyond its child table and bounds.
 const ROW_HEADER: usize = 64;
@@ -330,14 +279,15 @@ const ROW_HEADER: usize = 64;
 /// The bytes one child entry occupies in a materialized row.
 const ROW_ENTRY: usize = 24;
 
-/// Cover row-backed decode fans with enough left to widen dispute queues.
-const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
+/// The budget each census runs its backend's session at beside a budget of
+/// zero, 4 MiB, and the most the larger run's peak may exceed the
+/// zero-budget run's.
+const CENSUS_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
 ///
 /// Aligned wider than a pointer, as a handle carrying a 16-byte row id
-/// would be: the shape the window's slot constants say owes its extra
-/// slot padding to its own price.
+/// would be.
 #[derive(Clone, Debug)]
 #[repr(align(16))]
 struct MaterializedNode<N> {
@@ -355,7 +305,7 @@ impl<N> MaterializedNode<N> {
 }
 
 /// Supply node metadata, with controllable size errors for conformance tests.
-impl<H> Node for MaterializedNode<typed::Node<H>>
+impl<H> Node for MaterializedNode<typed::View<H>>
 where
     H: Height,
 {
@@ -370,6 +320,17 @@ where
     /// Return the underlying node's exact leaf count.
     fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    /// Read the underlying node's grandchild count, skewed above the leaves
+    /// to exercise a miscounting backend.
+    fn grandchild_count(&self) -> usize {
+        let skew = if H::HEIGHT == 0 {
+            0
+        } else {
+            GRANDCHILDREN_SKEW.get()
+        };
+        self.inner.grandchild_count() + skew
     }
 
     /// Alter the version-size aggregate to exercise undercounts and overcounts.
@@ -388,7 +349,7 @@ where
     }
 }
 
-impl Leaf for MaterializedNode<typed::Node<Z>> {
+impl Leaf for MaterializedNode<typed::View<Z>> {
     fn message(&self) -> &Message {
         self.inner.message()
     }
@@ -396,38 +357,73 @@ impl Leaf for MaterializedNode<typed::Node<Z>> {
     async fn leaf(version: Version, message: Message) -> Result<Self, Infallible> {
         // Eager persistence at the conversion boundary: the payload is
         // written to the store here, so the resident row keeps only the
-        // header and bounds — the thin-handle shape the leaf seam prices
-        // at `node_bytes(0, bounds)`.
-        let node = typed::Node::leaf(version, message);
+        // header and bounds.
+        let node = typed::View::leaf(version, message);
         let row = ROW_HEADER + bounds_of(&node);
         Ok(Self::wrap(node, row))
     }
 }
 
 /// The two encoded bounds of a freshly built node, in bytes.
-fn bounds_of<H: Height>(node: &typed::Node<H>) -> usize {
-    node.ceiling().as_bytes().len() + node.floor().as_bytes().len()
+fn bounds_of<H: Height>(node: &typed::View<H>) -> usize {
+    let span = node.span();
+    span.hi().as_bytes().len() + span.lo().as_bytes().len()
 }
 
 // The erased observations pass through the row wrapper; the row itself
 // carries no readable state.
 impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
+    /// Borrow the wrapped node's version bounds, collapsed to one endpoint
+    /// to exercise a backend whose erased bounds disagree with its leaves.
     fn span(&self) -> Span<'_> {
-        self.inner.span()
+        collapsed(self.inner.span())
     }
 
-    fn hash(&self) -> Hash {
-        self.inner.hash()
+    /// Read the wrapped node's digest, flipped as [`DIGEST_FLIP`] says.
+    fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash {
+        reported(self.inner.hash(at, key))
+    }
+
+    /// Read the wrapped node's summary, its digest flipped as
+    /// [`hash`](ErasedNode::hash) flips it and its child count skewed as
+    /// [`child_count`](ErasedNode::child_count) skews it.
+    fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
+        let summary = self.inner.summary(at, key);
+        Summary {
+            hash: reported(summary.hash),
+            child_count: summary.child_count + CHILDREN_SKEW.get(),
+            ..summary
+        }
     }
 
     fn len(&self) -> usize {
         self.inner.len()
     }
+
+    /// Read the wrapped node's grandchild count.
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize {
+        self.inner.grandchild_count(at)
+    }
+
+    /// Read the wrapped node's child count, skewed to exercise a backend
+    /// whose count disagrees with its listing.
+    fn child_count(&self, at: &ErasedPrefix) -> usize {
+        self.inner.child_count(at) + CHILDREN_SKEW.get()
+    }
+
+    /// Read the wrapped node's child radices, dropped to exercise a backend
+    /// whose radices disagree with its listing.
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet {
+        if RADICES_DROP.get() > 0 {
+            return ByteSet::EMPTY;
+        }
+        self.inner.child_radices(at)
+    }
 }
 
 impl Backend for Materializing {
-    type Node<H: Height> = MaterializedNode<typed::Node<H>>;
-    type Erased = MaterializedNode<typed::untyped::Node>;
+    type Node<H: Height> = MaterializedNode<typed::View<H>>;
+    type Erased = MaterializedNode<typed::ErasedView>;
     type Error = Infallible;
 
     // Erasure re-tags the store's handle; the resident row rides along
@@ -438,51 +434,24 @@ impl Backend for Materializing {
         let MaterializedNode { inner, mut row } = node;
         row.resize(row.len() + ERASE_SLACK.get(), 0);
         MaterializedNode {
-            inner: inner.into_untyped(),
+            inner: <Local as Backend>::erase(inner),
             row,
         }
     }
 
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H> {
         let MaterializedNode { inner, mut row } = erased;
         row.resize(row.len() + ASSUME_SLACK.get(), 0);
         MaterializedNode {
-            inner: typed::Node::from_untyped(inner),
+            inner: <Local as Backend>::assume(at, inner),
             row,
-        }
-    }
-
-    fn node_bytes(children: usize, version_bound: usize) -> usize {
-        let priced = std::mem::size_of::<MaterializedNode<typed::Node<Z>>>()
-            + PRICED_SLOT_PADDING.get()
-            + PRICED_HEADER.get()
-            + ROW_ENTRY * children
-            + version_bound;
-        // The monotonicity-lying knobs: a dip at one fan, invisible to
-        // every check that does not compare across it, and a step in
-        // the bound, invisible to a grid whose points all sit on one
-        // side of it.
-        let priced = if children == DIP_FAN {
-            priced.saturating_sub(PRICED_DIP.get())
-        } else {
-            priced
-        };
-        let priced = if version_bound != 0 && version_bound == PRICED_BOUND_DIP.get() {
-            priced.saturating_sub(2)
-        } else {
-            priced
-        };
-        let step = PRICED_BOUND_STEP.get();
-        if step != 0 && version_bound > step {
-            priced.saturating_sub(STEP_DROP)
-        } else {
-            priced
         }
     }
 
     async fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> Result<Option<Self::Node<S<H>>>, Self::Error>
     where
@@ -496,21 +465,21 @@ impl Backend for Materializing {
             return Ok(None);
         }
         // The other direction of the presence lie: a group with no real
-        // child answered with a node conjured from nothing (a leaf
-        // re-tagged at the parent's height; the tag is phantom, and the
-        // check on trial reads only the answer's presence).
+        // child answered with a node conjured from nothing (a leaf under a
+        // path reaching the parent's height; the check on trial reads only
+        // the answer's presence).
         if fan == 0 && PARENT_CONJURES.get() != 0 {
-            let conjured = typed::Node::from_untyped(typed::untyped::Node::leaf(
-                Version::new(),
-                Message::new(0),
-            ));
+            let leaf = typed::untyped::Node::leaf(Version::new(), Message::new(0));
+            let lifted = (0..S::<H>::HEIGHT).fold(leaf, |node, _| node.beneath(0));
+            let conjured = typed::View::from(typed::Node::<S<H>>::from_untyped(lifted));
             return Ok(Some(MaterializedNode::wrap(conjured, ROW_HEADER)));
         }
         let children = children
             .into_iter()
             .map(|(radix, child)| (radix, child.map(|child| child.inner)))
             .collect();
-        let parent = <Local as Backend>::parent(Local, prefix, children).await?;
+        let original = original.map(|original| original.inner);
+        let parent = <Local as Backend>::parent(Local, prefix, original, children).await?;
         Ok(parent.map(|node| {
             let row = ROW_HEADER + ROW_ENTRY * fan + bounds_of(&node);
             MaterializedNode::wrap(node, row)
@@ -522,22 +491,24 @@ impl Backend for Materializing {
         H: Height,
         S<H>: Height,
     {
-        stream! {
+        // The reference listing: the in-memory backend's, behind knobs that
+        // repeat the root's first child ([`CHILDREN_REPEAT`]) and swap any
+        // node's first two ([`CHILDREN_SWAP`]), honest at rest.
+        let repeat = CHILDREN_REPEAT.get() != 0 && prefix.as_bytes().is_empty();
+        let listed = stream! {
             let mut children = pin!(<Local as Backend>::children(Local, prefix, parent.inner));
             while let Some(child) = children.next().await {
+                // Scratch the listing fills and frees, held nowhere.
+                std::hint::black_box(Vec::<u8>::with_capacity(LISTING_SCRATCH.get()));
                 yield child.map(|(prefix, node)| {
                     // A lazily loaded row: header and bounds, its child
-                    // table not yet materialized. The over-holding knob
-                    // ([`CHILDREN_SLACK`]) inflates interior rows only:
-                    // leaf-height children re-enter the walk's own leaf
-                    // check through `leaves`, and the control's subject
-                    // is the check on exploded interior references.
-                    let slack = if H::HEIGHT > 0 { CHILDREN_SLACK.get() } else { 0 };
-                    let row = ROW_HEADER + bounds_of(&node) + slack;
+                    // table not yet materialized.
+                    let row = ROW_HEADER + bounds_of(&node);
                     (prefix, MaterializedNode::wrap(node, row))
                 });
             }
-        }
+        };
+        swapped_head(CHILDREN_SWAP.get() != 0, repeated_head(repeat, listed))
     }
 
     fn leaves<H: Convert>(
@@ -546,8 +517,7 @@ impl Backend for Materializing {
         node: Self::Node<H>,
     ) -> impl NodeStream<Self, Z> {
         // The reference bulk walk: the default explosion behind knobs
-        // that drop leaves ([`WALK_SKIPS`]), inflate the yielded rows
-        // ([`WALK_SLACK`]), re-tag the first leaf out of the walked
+        // that drop leaves ([`WALK_SKIPS`]), re-tag the first leaf out of the walked
         // subtree ([`WALK_ESCAPES`]), and swap the first two leaves
         // ([`LEAVES_SWAP`]) — honest at rest, the negative controls'
         // subject when set.
@@ -558,8 +528,7 @@ impl Backend for Materializing {
         .skip(WALK_SKIPS.get())
         .enumerate()
         .map(|(index, item)| {
-            item.map(|(prefix, mut leaf)| {
-                leaf.row.resize(leaf.row.len() + WALK_SLACK.get(), 0);
+            item.map(|(prefix, leaf)| {
                 let prefix = if index == 0 && WALK_ESCAPES.get() != 0 {
                     escaped(prefix)
                 } else {
@@ -576,8 +545,7 @@ impl Backend for Materializing {
         leaves: BoxNodeStream<'a, Self, Z>,
     ) -> impl NodeStream<Self, H> + 'a {
         // The reference bulk assembly: the default fold behind knobs
-        // that drop supplied leaves ([`ASSEMBLE_SKIPS`]), inflate the
-        // assembled rows ([`ASSEMBLE_SLACK`]), swallow one assembled
+        // that drop supplied leaves ([`ASSEMBLE_SKIPS`]), swallow one assembled
         // node ([`ASSEMBLED_DROPS`]), re-tag one to its neighbor's
         // prefix ([`ASSEMBLE_RETAGS`]), and swap the first two
         // ([`ASSEMBLE_SWAP`]) — honest at rest, the negative controls'
@@ -589,8 +557,7 @@ impl Backend for Materializing {
                 (index + 1 != ASSEMBLED_DROPS.get()).then_some((index, item))
             })
             .map(|(index, item)| {
-                item.map(|(prefix, mut node)| {
-                    node.row.resize(node.row.len() + ASSEMBLE_SLACK.get(), 0);
+                item.map(|(prefix, node)| {
                     let prefix = if index + 1 == ASSEMBLE_RETAGS.get() {
                         neighbor(prefix)
                     } else {
@@ -604,17 +571,20 @@ impl Backend for Materializing {
 }
 
 impl Measure for Materializing {
+    // The row is what the handle keeps resident behind it; the handle's
+    // own bytes are inline in whatever holds it.
     fn measure<H: Height>(node: &Self::Node<H>) -> usize {
-        std::mem::size_of_val(node) + node.row.len()
+        node.row.len()
     }
 
     fn measure_erased(node: &Self::Erased) -> usize {
-        std::mem::size_of_val(node) + node.row.len()
+        node.row.len()
     }
 }
 
 /// `inner` with its first two items in swapped order when `swap` holds:
-/// the order-lying adaptor behind the walk's and the assembly's controls.
+/// the order-lying adaptor behind the walk's, the assembly's, and the
+/// listing's order controls.
 fn swapped_head<T>(swap: bool, inner: impl Stream<Item = T>) -> impl Stream<Item = T> {
     stream! {
         let mut inner = pin!(inner);
@@ -624,6 +594,21 @@ fn swapped_head<T>(swap: bool, inner: impl Stream<Item = T>) -> impl Stream<Item
             for item in [second, first].into_iter().flatten() {
                 yield item;
             }
+        }
+        while let Some(item) = inner.next().await {
+            yield item;
+        }
+    }
+}
+
+/// `inner` with its first item yielded twice when `repeat` holds: the
+/// duplicating adaptor behind the listing's repeat control.
+fn repeated_head<T: Clone>(repeat: bool, inner: impl Stream<Item = T>) -> impl Stream<Item = T> {
+    stream! {
+        let mut inner = pin!(inner);
+        if repeat && let Some(first) = inner.next().await {
+            yield first.clone();
+            yield first;
         }
         while let Some(item) = inner.next().await {
             yield item;
@@ -652,20 +637,28 @@ fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
     Prefix::<H>::containing(&Path::from(Prefix::<Z>::from(path)))
 }
 
-/// Row prices cover owned buffers and slot padding, and reconciliation stays
-/// within the fixture's peak-increase allowance.
+/// The row store's operations keep their contracts, and reconciliation
+/// stays within the fixture's peak-increase budget.
 #[test]
 fn materializing_backend_conforms() {
     let _serial = serialized();
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// Wider queues can reconcile a clustered fixture without increasing its peak.
+/// A larger budget can reconcile a clustered fixture without increasing its
+/// peak, with the outgoing replies' edge at one slot.
+///
+/// The edge's progress argument needs one slot; its further slots let a
+/// budgeted walk queue more reply chunks ahead of its encoder, and the
+/// rows those chunks' nodes keep alive raise this fixture's budgeted peak
+/// above the zero-budget run's, within the budget the check allows
+/// ([`materializing_backend_conforms`]). At one slot both runs peak alike,
+/// which is the witness this test needs: the census comparison must accept
+/// a budgeted peak no higher than the zero-budget run's.
 #[test]
-fn wider_queues_need_not_increase_the_peak() {
+fn a_larger_budget_need_not_increase_the_peak() {
     let _serial = serialized();
-    // Put every leaf below one 30-byte prefix. The configured window widens
-    // near the root, while the actual disputes stay deep and serialize.
+    // Put every leaf below one 30-byte prefix, so every dispute sits deep.
     let paths = histories()
         .into_iter()
         .flatten()
@@ -675,56 +668,50 @@ fn wider_queues_need_not_increase_the_peak() {
             path[30..].copy_from_slice(&u16::try_from(index).unwrap().to_be_bytes());
             (version, Path::from(path))
         });
-    Path::with_leaf_paths(paths, || {
-        let (floor, floor_stats) =
-            run_to_quiescence(run(Materializing, WindowConfig::Budget(0), 0))
-                .expect("the floor session must complete");
-        let (wider, wider_stats) = run_to_quiescence(run(
-            Materializing,
-            WindowConfig::Budget(MATERIALIZING_BUDGET),
-            0,
-        ))
-        .expect("the wider session must complete");
-        assert!(wider_stats.window_granted > floor_stats.window_granted);
-        assert!(wider <= floor, "wider {wider}, floor {floor}");
-        run_to_quiescence(check(Materializing, MATERIALIZING_BUDGET))
-            .expect("conformance must accept the lower or equal peak");
+    with_kind_capacity(QueueKind::OutgoingResponses, 1, || {
+        Path::with_leaf_paths(paths, || {
+            let floor = run_to_quiescence(run(Materializing, 0, 0))
+                .expect("the zero-budget session must complete");
+            let wider = run_to_quiescence(run(Materializing, CENSUS_BUDGET, 0))
+                .expect("the budgeted session must complete");
+            assert!(wider <= floor, "budgeted {wider}, zero-budget {floor}");
+            run_to_quiescence(check(Materializing, CENSUS_BUDGET))
+                .expect("conformance must accept the lower or equal peak");
+        })
     });
 }
 
-/// An underpricing cost function fails the run by name.
-///
-/// The same backend with a header priced below the row's real header
-/// must be caught by the pointwise check the moment a session assembles
-/// a node — this is the suite's reason to exist, so its detection is
-/// itself pinned.
-#[test]
-#[should_panic(expected = "underpriced node")]
-fn underpricing_fails_the_pointwise_check() {
-    let _dishonest = PRICED_HEADER.set(0);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
-}
-
-/// Row slack that clears the assembly seam's fan headroom.
-///
-/// The capped pointwise check prices at the run's widest fan, which
-/// exceeds the honest row's own fan by at most the radix's worth of
-/// entries ([`FAN`](crate::tree::mirror::streaming::window::FAN) ×
-/// [`ROW_ENTRY`] bytes, 6 KiB); 64 KiB of slack is unambiguously past
-/// it.
+/// Row slack far past any row the reference backend builds: a full fan's
+/// child table is [`FAN`](crate::tree::mirror::streaming::FAN) ×
+/// [`ROW_ENTRY`] bytes, 6 KiB.
 const BULK_OVERHOLD: usize = 64 * 1024;
 
-/// A bulk walk that over-holds memory in its yielded rows is caught by
-/// the walk seam's pointwise check: the negative control proving the
-/// suite exercises and prices the backend's own `leaves` override.
+/// A backend whose erased bounds report each subtree's floor as its
+/// ceiling drops unredacted messages, and the completeness check convicts
+/// the session.
 ///
-/// One extra byte per row suffices: the honest reference walk is priced
-/// exactly, so the check is tight at this seam.
+/// The deletion filter reads a subtree mixing redacted and unseen leaves
+/// as wholly seen, and drops it whole. The typed bounds stay honest, so no
+/// seam that checks an aggregate against them can see the fault; only the
+/// session's verdicts do.
 #[test]
-#[should_panic(expected = "underpriced walked leaf")]
-fn overholding_walk_fails_the_pointwise_check() {
-    let _dishonest = WALK_SLACK.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+#[should_panic(expected = "converged short")]
+fn bounds_collapsed_to_the_floor_fail_the_completeness_check() {
+    let _dishonest = SPAN_COLLAPSE.set(TO_FLOOR);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A backend whose erased bounds report each subtree's ceiling as its
+/// floor resurrects redacted messages, and the completeness check convicts
+/// the session.
+///
+/// The deletion filter reads a subtree mixing redacted and unseen leaves
+/// as wholly unseen, and ships it whole.
+#[test]
+#[should_panic(expected = "resurrected redactions")]
+fn bounds_collapsed_to_the_ceiling_fail_the_completeness_check() {
+    let _dishonest = SPAN_COLLAPSE.set(TO_CEILING);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A bulk walk that silently drops a leaf is caught by the walk seam's
@@ -733,17 +720,7 @@ fn overholding_walk_fails_the_pointwise_check() {
 #[should_panic(expected = "mis-sized leaf walk")]
 fn short_walk_fails_the_len_check() {
     let _dishonest = WALK_SKIPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
-}
-
-/// A bulk assembly whose nodes over-hold memory is caught by the
-/// assembly seam's capped pointwise check: the negative control proving
-/// the suite exercises and prices the backend's own `assemble` override.
-#[test]
-#[should_panic(expected = "bulk-assembled node over-holds")]
-fn overholding_bulk_assembly_fails_the_capped_check() {
-    let _dishonest = ASSEMBLE_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that silently drops a supplied leaf is caught by the
@@ -752,7 +729,7 @@ fn overholding_bulk_assembly_fails_the_capped_check() {
 #[should_panic(expected = "bulk-assembled len")]
 fn lossy_bulk_assembly_fails_the_len_check() {
     let _dishonest = ASSEMBLE_SKIPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A `parent` that answers a fan of real children with no parent is
@@ -766,7 +743,7 @@ fn lossy_bulk_assembly_fails_the_len_check() {
 #[should_panic(expected = "parent contract: fan")]
 fn an_interior_parent_answering_none_fails_the_presence_check() {
     let _dishonest = PARENT_DROPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A `parent` that answers an empty group with a node is convicted by
@@ -776,17 +753,17 @@ fn an_interior_parent_answering_none_fails_the_presence_check() {
 #[should_panic(expected = "parent contract: fan 0 yielded Some")]
 fn a_parent_conjured_from_an_empty_group_fails_the_presence_check() {
     let _dishonest = PARENT_CONJURES.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A bulk walk that yields two leaves out of path order is convicted by
-/// name at the walk's order check: count and prices are unchanged, so
-/// nothing else would notice.
+/// name at the walk's order check: the count is unchanged, so nothing else
+/// would notice.
 #[test]
 #[should_panic(expected = "unordered leaf walk")]
 fn a_swapped_walk_fails_the_order_check() {
     let _dishonest = LEAVES_SWAP.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A bulk walk that yields a leaf outside the walked prefix is convicted
@@ -797,19 +774,7 @@ fn a_swapped_walk_fails_the_order_check() {
 #[should_panic(expected = "escaped leaf walk")]
 fn an_escaping_walk_fails_the_containment_check() {
     let _dishonest = WALK_ESCAPES.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
-}
-
-/// A `children` override whose exploded interior rows over-hold memory
-/// is convicted by name at the explosion's pointwise check.
-///
-/// The walk's leaf check never sees an interior child, so this check is
-/// the only one that prices the references the window prices per depth.
-#[test]
-#[should_panic(expected = "underpriced child")]
-fn overholding_children_fail_the_pointwise_check() {
-    let _dishonest = CHILDREN_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that yields two nodes out of run order is convicted by
@@ -820,7 +785,7 @@ fn overholding_children_fail_the_pointwise_check() {
 #[should_panic(expected = "unordered assembly")]
 fn a_swapped_assembly_fails_the_order_check() {
     let _dishonest = ASSEMBLE_SWAP.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that folds a run and then swallows its node is
@@ -833,7 +798,7 @@ fn a_swapped_assembly_fails_the_order_check() {
 #[should_panic(expected = "unassembled run")]
 fn a_swallowed_assembled_node_fails_the_run_check() {
     let _dishonest = ASSEMBLED_DROPS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// Bulk assembly that yields a node at a prefix other than its own run's
@@ -849,7 +814,7 @@ fn a_swallowed_assembled_node_fails_the_run_check() {
 #[should_panic(expected = "unsupplied assembly")]
 fn a_re_tagged_assembled_node_fails_the_run_check() {
     let _dishonest = ASSEMBLE_RETAGS.set(1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A loss both sides share is invisible to their agreement and caught
@@ -863,7 +828,121 @@ fn a_re_tagged_assembled_node_fails_the_run_check() {
 #[should_panic(expected = "converged short")]
 fn a_symmetric_loss_fails_the_completeness_check() {
     let _serial = serialized();
-    pollster::block_on(run(Materializing, WindowConfig::Budget(0), 1));
+    pollster::block_on(run(Materializing, 0, 1));
+}
+
+/// A listing that allocates beyond the rows it yields is convicted by
+/// name at the listing's allocation check.
+///
+/// Each child listed allocates one scratch byte beyond its row.
+#[test]
+#[should_panic(expected = "allocating listing")]
+fn an_allocating_listing_fails_the_listing_check() {
+    let _dishonest = LISTING_SCRATCH.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// Drain one listing of `node`, viewed whole at `prefix`, through the
+/// charged in-memory backend, returning the contract violations it
+/// recorded.
+fn violations_listing<H>(prefix: Prefix<S<H>>, node: typed::Node<S<H>>) -> Vec<String>
+where
+    H: Height,
+    S<H>: Height,
+{
+    let parent = super::ChargedNode::wrap(typed::View::from(node), 0);
+    let listed = pollster::block_on(
+        super::Charged::new(Local)
+            .children(prefix, parent)
+            .collect::<Vec<_>>(),
+    );
+    assert_eq!(listed.len(), 1, "a compressed node lists one child");
+    ledger::take_violations()
+}
+
+/// Listing a compressed leaf that another handle shares allocates nothing
+/// beyond the row it yields, though the leaf's version and payload bytes
+/// have never been cloned.
+///
+/// The leaf sits one level below its parent's height, so its listing
+/// yields it with one path byte hidden; the retained handle is the one the
+/// replica keeps.
+#[test]
+fn listing_a_shared_fresh_compressed_leaf_allocates_nothing() {
+    let _serial = serialized();
+    let mut version = Version::new();
+    version.tick(&crate::tree::arb::nth_party(0));
+    let node = typed::Node::<S<Z>>::beneath(typed::Node::leaf(version, Message::new(7u64)), 1);
+    let retained = node.clone();
+    let mut path = [0; 32];
+    path[31] = 1;
+    let prefix = Prefix::<S<Z>>::containing(&Path::from(path));
+    let violations = violations_listing(prefix, node);
+    assert!(violations.is_empty(), "{violations:?}");
+    drop(retained);
+}
+
+/// A providing prune allocates nothing beyond its rows at any listing,
+/// including the listings its recursion makes below the node it starts at.
+///
+/// The root holds a compressed child, mixed because the peer's version
+/// knows one of its two leaves and not the other, beside a third, unknown
+/// leaf. Providing the root lists the root and then, in the recursion, the
+/// compressed child, which the replica's root still shares.
+#[test]
+fn a_providing_prune_lists_without_allocating() {
+    use crate::tree::{
+        mirror::streaming::{materialized::unknown::unknown_providing, stats::Recorder},
+        traverse::{Action, act},
+    };
+    let _serial = serialized();
+    let path_from = |head: &[u8]| {
+        let mut bytes = [0u8; 32];
+        bytes[..head.len()].copy_from_slice(head);
+        Path::from(bytes)
+    };
+    let versions = [0, 1, 2].map(|party| {
+        let mut version = Version::new();
+        version.tick(&crate::tree::arb::nth_party(party));
+        version
+    });
+    let known = versions[0].clone();
+    let actions = vec![
+        (
+            path_from(&[1, 2, 5, 7]),
+            versions[0].clone(),
+            Action::Insert(Message::new(())),
+        ),
+        (
+            path_from(&[1, 2, 5, 8]),
+            versions[1].clone(),
+            Action::Insert(Message::new(())),
+        ),
+        (
+            path_from(&[9]),
+            versions[2].clone(),
+            Action::Insert(Message::new(())),
+        ),
+    ];
+    let root = act(None, actions, &mut |_, _| ()).expect("three leaves build a root");
+    let replica = root.clone();
+    let charged = super::Charged::new(Local);
+    let erased = <super::Charged<Local> as Backend>::erase(super::ChargedNode::wrap(
+        typed::View::from(root),
+        0,
+    ));
+    let (survivor, _) = pollster::block_on(unknown_providing(
+        &charged,
+        &known,
+        Prefix::new().erase(),
+        erased,
+        &Recorder::default(),
+    ))
+    .expect("the in-memory backend lists exactly the children it reports");
+    assert!(survivor.is_some(), "the unknown leaves survive");
+    let violations = ledger::take_violations();
+    assert!(violations.is_empty(), "{violations:?}");
+    drop(replica);
 }
 
 /// A deflated `version_bytes` answer is caught by the assembly seam's floor.
@@ -875,7 +954,62 @@ fn a_symmetric_loss_fails_the_completeness_check() {
 #[should_panic(expected = "deflated version_bytes: bulk-assembled node")]
 fn deflated_version_bytes_fails_the_assembly_floor() {
     let _dishonest = VERSION_DEFLATE.set(usize::MAX);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A branch whose `grandchildren` answer disagrees with the children its
+/// children list is caught where the session lists its children.
+#[test]
+#[should_panic(expected = "mis-propagated grandchildren")]
+fn miscounted_grandchildren_fails_the_listing_check() {
+    let _dishonest = GRANDCHILDREN_SKEW.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A node whose `child_count` answer disagrees with the children listing
+/// it yields is convicted by name where the session lists its children.
+///
+/// Skewed by one, every node's answer overcounts, so the root's listing
+/// alone, which the suite makes before the session, yields one child
+/// fewer than its parent reports.
+#[test]
+#[should_panic(expected = "miscounted children")]
+fn miscounted_children_fail_the_listing_check() {
+    let _dishonest = CHILDREN_SKEW.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A node whose `child_radices` answer disagrees with the radices listing
+/// it yields is convicted by name where the session lists its children.
+///
+/// Dropped to nothing, every branch's answer misses every child, so the
+/// root's listing alone, which the suite makes before the session, shows
+/// it.
+#[test]
+#[should_panic(expected = "misreported child radices")]
+fn misreported_radices_fail_the_listing_check() {
+    let _dishonest = RADICES_DROP.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A listing that yields two children out of radix order is convicted by
+/// name at the listing's order check: the count and the radix set are
+/// unchanged, so neither of their checks would notice.
+#[test]
+#[should_panic(expected = "unordered children")]
+fn a_swapped_listing_fails_the_order_check() {
+    let _dishonest = CHILDREN_SWAP.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
+}
+
+/// A listing that yields one child twice is convicted by name at the
+/// listing's order check, as a radix listed after an equal one: the radix
+/// set absorbs the repeat.
+#[test]
+#[should_panic(expected = "unordered children")]
+fn a_repeating_listing_fails_the_order_check() {
+    let _dishonest = CHILDREN_REPEAT.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A leaf whose `version_bytes` answer exceeds the walked node's
@@ -885,22 +1019,7 @@ fn deflated_version_bytes_fails_the_assembly_floor() {
 #[should_panic(expected = "walked leaf encodes")]
 fn inflated_leaf_version_bytes_fails_the_walk_check() {
     let _dishonest = LEAF_VERSION_INFLATE.set(1024 * 1024);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
-}
-
-/// A backend whose node is aligned wider than a pointer and whose price
-/// omits the slot padding that alignment costs is convicted by name at
-/// the first leaf it constructs.
-///
-/// The window's slot constants derive from the in-memory layout and
-/// leave a wider layout's extra padding to the backend's price; the
-/// leaf check folds that excess into its comparison, so pricing the
-/// node value alone falls short by exactly the padding.
-#[test]
-#[should_panic(expected = "underpriced leaf: ")]
-fn unpriced_slot_padding_fails_the_pointwise_check() {
-    let _dishonest = PRICED_SLOT_PADDING.set(0);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A re-tag that grows the node's residency on the way back to a typed
@@ -910,7 +1029,7 @@ fn unpriced_slot_padding_fails_the_pointwise_check() {
 #[should_panic(expected = "re-tagged node changed residency: erased")]
 fn a_residency_changing_assume_fails_the_re_tag_check() {
     let _dishonest = ASSUME_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
 /// A re-tag that grows the node's residency on the way to an erased
@@ -920,63 +1039,39 @@ fn a_residency_changing_assume_fails_the_re_tag_check() {
 #[should_panic(expected = "re-tagged node changed residency: typed")]
 fn a_residency_changing_erase_fails_the_re_tag_check() {
     let _dishonest = ERASE_SLACK.set(BULK_OVERHOLD);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A cost function with a dip between quantile evaluation points is
-/// caught by the monotonicity sweep before any session runs.
+/// A backend whose digests agree with each other but differ from the
+/// in-memory backend's converges with itself, and is caught by comparing
+/// the converged root's digest with the in-memory backend's.
 ///
-/// The dip is the smallest adjacent fans reveal: one byte more than the
-/// per-child entry, so [`DIP_FAN`] prices one byte below the fan before
-/// it. The sweep runs first and catches it a priori — no session has to
-/// happen to assemble a node at the dipped fan for the lie to surface.
+/// Its replicas could not reconcile with in-memory ones: every comparison
+/// between the two would differ.
 #[test]
-#[should_panic(expected = "monotone in children")]
-fn dipping_node_bytes_fails_the_monotonicity_sweep() {
-    let _dishonest = PRICED_DIP.set(ROW_ENTRY + 1);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+#[should_panic(expected = "not the in-memory backend's")]
+fn self_consistent_foreign_digests_fail_the_reference_check() {
+    let _dishonest = DIGEST_FLIP.set(1);
+    pollster::block_on(check(Materializing, CENSUS_BUDGET));
 }
 
-/// A leaf priced below its post-custody residency is caught at
-/// construction: the negative control for the leaf seam of the account.
-///
-/// The session budget charges every decode-fan slot at
-/// `node_bytes(0, bounds)`, so a backend whose leaf handles keep more
-/// resident than that price must fail the pointwise check the moment
-/// one is constructed — before any parent assembles.
-#[test]
-#[should_panic(expected = "underpriced leaf")]
-fn leaf_underpricing_fails_at_construction() {
-    let _dishonest = PRICED_HEADER.set(0);
-    let leaf = pollster::block_on(
-        <super::ChargedNode<MaterializedNode<typed::Node<Z>>> as Leaf>::leaf(
-            Version::new(),
-            Message::new(7),
-        ),
-    )
-    .expect("the reference backend constructs leaves infallibly");
-    drop(leaf);
-    let violations = ledger::take_violations();
-    assert!(
-        !violations.is_empty(),
-        "a lying leaf price must land a violation on the ledger",
-    );
-    panic!("{}", violations.join("\n"));
-}
-
-/// Leaf construction and cloning charge both handles; dropping them restores
-/// the live balance while preserving the peak until it is reset.
+/// Leaf construction and cloning charge both node values, each its measured
+/// size; dropping them restores the live balance while preserving the peak
+/// until it is reset.
 #[test]
 fn ledger_settles_over_clone_and_drop() {
     let _serial = serialized();
     ledger::reset_peak();
     let before = ledger::peak();
-    let leaf = pollster::block_on(<super::ChargedNode<typed::Node<Z>> as Leaf>::leaf(
-        Version::new(),
-        Message::new(7),
-    ))
-    .expect("a local leaf constructs infallibly");
-    let handle = std::mem::size_of::<typed::Node<Z>>();
+    let leaf = pollster::block_on(
+        <super::ChargedNode<MaterializedNode<typed::View<Z>>> as Leaf>::leaf(
+            Version::new(),
+            Message::new(7),
+        ),
+    )
+    .expect("the reference backend constructs leaves infallibly");
+    let handle = ledger::peak() - before;
+    assert!(handle > 0, "constructing a leaf charges its row");
     let clone = leaf.clone();
     assert_eq!(ledger::peak(), before + 2 * handle);
     drop(leaf);
@@ -1026,77 +1121,4 @@ proptest! {
         ledger::reset_peak();
         prop_assert_eq!(ledger::peak(), before, "every charge must settle exactly once");
     }
-}
-
-/// One case of the bound-monotonicity property: the price at `bound`
-/// does not exceed the price at any larger bound, at one fan.
-fn assert_monotone_in_bound<B: Backend<Node<Z>: Leaf>>(fan: usize, bound: usize, delta: usize) {
-    let there = bound.saturating_add(delta);
-    let here_priced = B::node_bytes(fan, bound);
-    let there_priced = B::node_bytes(fan, there);
-    assert!(
-        here_priced <= there_priced,
-        "node_bytes must be monotone in version bound: bound {bound} prices {here_priced} B, \
-         bound {there} prices {there_priced} B, at fan {fan}",
-    );
-}
-
-proptest! {
-    /// Local prices do not fall when a sampled version bound grows, including
-    /// pairs between the deterministic sweep's grid points.
-    #[test]
-    fn local_node_bytes_is_monotone_in_the_version_bound(
-        fan in 0..=FAN,
-        bound in 0..=BOUND_SWEEP_CEILING,
-        delta in 0..=BOUND_SWEEP_CEILING,
-    ) {
-        let _serial = serialized();
-        assert_monotone_in_bound::<Local>(fan, bound, delta);
-    }
-
-    /// Row prices do not fall when a sampled version bound grows, including
-    /// pairs between the deterministic sweep's grid points.
-    #[test]
-    fn materializing_node_bytes_is_monotone_in_the_version_bound(
-        fan in 0..=FAN,
-        bound in 0..=BOUND_SWEEP_CEILING,
-        delta in 0..=BOUND_SWEEP_CEILING,
-    ) {
-        let _serial = serialized();
-        assert_monotone_in_bound::<Materializing>(fan, bound, delta);
-    }
-
-    /// A step-shaped dip strictly inside a grid gap fails the
-    /// bound-monotonicity property by name: the case the grid sweep
-    /// cannot see, which the sibling control shows it passing.
-    ///
-    /// The committed seed supplies a failing pair even if random draws miss it.
-    #[test]
-    #[should_panic(expected = "monotone in version bound")]
-    fn a_step_dip_fails_the_monotonicity_property(
-        fan in 0..=FAN,
-        bound in 0..=BOUND_SWEEP_CEILING,
-        delta in 0..=BOUND_SWEEP_CEILING,
-    ) {
-        let _dishonest = PRICED_BOUND_STEP.set(STEP_THRESHOLD);
-        assert_monotone_in_bound::<Materializing>(fan, bound, delta);
-    }
-}
-
-/// A point dip at one bound inside the dense sweep is caught by the
-/// sweep's adjacent-bound comparison before any session runs: the
-/// price at [`DIP_BOUND`] falls one byte below the bound before it.
-#[test]
-#[should_panic(expected = "monotone in version bound")]
-fn a_point_dip_fails_the_dense_sweep() {
-    let _dishonest = PRICED_BOUND_DIP.set(DIP_BOUND);
-    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
-}
-
-/// A price drop between sparse grid points can pass the sweep; the property
-/// test can detect it by sampling a closer pair that straddles the drop.
-#[test]
-fn a_step_dip_hides_from_the_grid_sweep() {
-    let _dishonest = PRICED_BOUND_STEP.set(STEP_THRESHOLD);
-    node_bytes_monotone::<Materializing>();
 }

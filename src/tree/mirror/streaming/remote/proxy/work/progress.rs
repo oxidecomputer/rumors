@@ -1,9 +1,10 @@
 //! Ordering trace for the proxy's progress-critical publications.
 //!
-//! Every event identifies its endpoint, session stage, and question height. An
-//! encoder publishes that question, and a decoder answers it before publishing
-//! any derived scopes. The stage keeps overlapping walk and terminal activity
-//! on separate ledgers at leaf height.
+//! Every event identifies its endpoint, session stage, and question height.
+//! An encoder publishes that question; as the walk takes each chunk of the
+//! reply answering it, the proxy publishes the scopes the chunk's questions
+//! create. The stage keeps overlapping walk and terminal activity on
+//! separate ledgers at leaf height.
 
 /// One endpoint-local progress identity.
 #[derive(Clone, Copy)]
@@ -41,32 +42,39 @@ impl Progress {
         self
     }
 
-    /// Record a flushed wire reply at the height of the questions it asks.
-    pub fn wire_reply(self, _height: usize, _questions: usize) {
+    /// Record a frame handed to the multiplexer, at the height of the
+    /// questions it carries.
+    pub fn wire_frame(self, _height: usize, _questions: usize) {
         #[cfg(test)]
         trace::record_stage(
             self.work,
             self.stage,
-            trace::Kind::WireReply {
+            trace::Kind::WireFrame {
                 questions: _questions,
             },
             _height,
         );
     }
 
-    /// Record one question published after its wire reply.
+    /// Record one question published after the frame carrying it.
     pub fn local_question(self, _height: usize) {
         #[cfg(test)]
         trace::record_stage(self.work, self.stage, trace::Kind::LocalQuestion, _height);
     }
 
-    /// Record a decoded answer at its question's height, with its derived scope count.
-    pub fn decoded_reply(self, _height: usize, _scopes: usize) {
+    /// Record a taken chunk of an answer at its question's height, with the
+    /// count of scopes the proxy publishes for it; `opening` marks an
+    /// answer's first chunk.
+    pub fn taken(self, _height: usize, _opening: bool, _scopes: usize) {
         #[cfg(test)]
         trace::record_stage(
             self.work,
             self.stage,
-            trace::Kind::DecodedReply { scopes: _scopes },
+            if _opening {
+                trace::Kind::TakenReply { scopes: _scopes }
+            } else {
+                trace::Kind::TakenChunk { scopes: _scopes }
+            },
             _height,
         );
     }

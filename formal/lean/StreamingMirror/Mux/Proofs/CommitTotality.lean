@@ -7,8 +7,8 @@ per-channel child order totally order each scope's publications.
 Existence is the landed Progress pillar (`walk_uncommitted_choosable`);
 this file adds the uniqueness half and packages both as unique
 existence (spelled out — the artifact is Mathlib-free, so no `∃!`). The
-statement discharges the commit-control boundary of the mux campaign
-(the commits-stay-adversarial ruling): the harness keeps
+statement discharges the commit-control boundary of the mux campaign:
+the harness keeps
 `walkCommit` adversarial and lets σ gate pushes only, and this theorem
 is why that costs nothing under `.impl` — the adversary's commit
 "choices" are forced, so the probe's fused commit+fire is WLOG and
@@ -348,8 +348,7 @@ Existence is the Progress pillar (`walk_uncommitted_choosable`, the
 consequence for the mux campaign: `walkCommit` may stay adversarial in
 the harness while σ gates pushes only — the adversary has no commit
 choice to abuse — and every strategy consultation on a forced run
-happens after a forced commit (the cross-examination's strengthening,
-consumed by T3). -/
+happens after a forced commit (a strengthening T3 consumes). -/
 theorem commit_totality (hwf : sk.wellFormed = true) :
     ∀ s, Reachable sk .impl s → ∀ pk, pk ∈ sk.walkKeys →
       (s.walk pk).phase = 2 → (s.walk pk).committed = none →

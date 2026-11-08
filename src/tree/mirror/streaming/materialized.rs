@@ -9,12 +9,13 @@
 //! sides hold beneath it. A *stage* reconciles scopes at one tree height.
 //!
 //! Each stage pairs pending [`Query`]s with the peer's replies, in order.
-//! [`Work::assemble`] rebuilds the tree from the results. Three bounded streams
+//! [`Work::assemble`] rebuilds the tree from the results. Three streams
 //! connect adjacent stages:
 //!
 //! - **queries** flow down: one queue item per question asked, in question
 //!   order (message order, then radix order);
-//! - **replies** are the incoming stream: exactly one message per query;
+//! - **replies** are the incoming stream: exactly one reply per query, in
+//!   chunks the stage acts on as they arrive, the last marked;
 //! - **returns** flow up: exactly one `Option<Node>` per query, in query
 //!   order — the reconciled scope, `None` meaning it resolved to nothing
 //!   (recursive deletion, the same reading as [`Backend::parent`]'s `None`
@@ -27,13 +28,14 @@
 //! and every producer produces items 1..k in that order: replies pair with
 //! queries, returns pair with queries, and level items arrive in resolution
 //! order. Completeness travels *inside* message and item boundaries, never in
-//! their absence.
+//! their absence. A reply's match covers the later children that also
+//! match, which carry no reaction; the resolver resolves each as it reaches
+//! it, so covering awaits nothing and changes no pairing.
 //!
 //! Within one pairing loop, the query is dequeued *before* its wire reply is
 //! awaited. Either order pairs the same k-th items — the argument above is
-//! indifferent — but query-first frees the queue slot one wire round trip
-//! earlier, so a K-slot edge admits K truly in-flight scopes rather than
-//! K − 1.
+//! indifferent — but query-first frees the stage to take the next query as
+//! soon as the reply arrives.
 //!
 //! The first progress-critical ordering invariant is **wire before internal
 //! publication**. The walk yields every outgoing query or reply before
@@ -41,92 +43,284 @@
 //! therefore cannot withhold the wire action that lets the counterparty
 //! advance.
 //!
+//! An answer leaves in chunks, each ending at one question, and each
+//! question is built and sent down only after the chunk carrying it, so the
+//! peer holds every question this side waits on.
+//!
 //! The second is **resolution before dependent work**. For every disputed
 //! child, the walk publishes the [`Resolution`] containing its
-//! [`Resolve::Pending`] slots before it sends the child queries whose returns
-//! fill those slots. The responder does the same at the root. Before a parent
-//! resolution is published, all of the descendant work needed to fulfill it
-//! has already been launched. Thus a blocked one-slot query sender has made its
-//! resolution available, while a blocked resolution sender is behind an older
-//! resolution whose dependent work is already in flight.
+//! [`Resolve::Pending`] slots, right after the answer's first chunk, before
+//! it sends the child queries whose returns fill those slots. The responder
+//! does the same at the root. Before a parent resolution is published, all
+//! of the descendant work needed to fulfill it has already been launched.
+//! Thus a blocked query sender has made its resolution available, while a
+//! blocked resolution sender is behind an older resolution whose dependent
+//! work is already in flight.
 //!
-//! This makes one slot *sufficient* for every query and resolution channel: the
-//! liveness floor. Actual capacities come from the session's
-//! [`Window`](super::window) — one slot serializes the descent into a wire
-//! round trip per disputed scope, and widening only relaxes the wait graph, so
-//! the argument above covers every width. A blocked response pump has
-//! likewise already published the response which releases it; the initiator's
-//! root query and return and the responder's root resolution each occur exactly
-//! once; leaf resolutions contain no `Pending` slots and can be assembled
-//! immediately.
+//! This makes one slot *sufficient* for every query and resolution channel:
+//! the liveness floor. Those channels are unbounded, since the ledger already
+//! charges what they hold. A blocked response pump has likewise already
+//! published the response which releases it; the initiator's root query and
+//! return and the responder's root resolution each occur exactly once; leaf
+//! resolutions contain no `Pending` slots and can be assembled immediately.
+//!
+//! What can hold the walk is admission: before it builds an answer's own
+//! items, and before each question, a stage waits until the endpoint's ledger
+//! admits the work against its budget. A unit whose kind and depth hold
+//! nothing is always admitted, and the units ahead of it at its kind and
+//! depth release once deeper work completes, so every admission is
+//! granted; the ledger's [`admission`](super::ledger) module gives the
+//! induction.
 //!
 //! This argument assumes each edge is *independent*: a full edge stalls only
 //! its own producer, never delivery on another edge. Within one process that
-//! holds by construction because every edge has its own channel. Over a wire it
-//! is a premise the transport must supply, which is why the [link
-//! contract](crate::link) demands independently flow-controlled streams.
-//! Multiplexing every stream through one FIFO can create a wait cycle between
-//! stages even when each stream works in isolation; the conformance suite
-//! exercises this failure mode.
+//! holds by construction because every edge has its own channel. Over a wire,
+//! every level's replies share one connection, so the premise holds only
+//! because the receiving side reads every frame as it arrives and never waits
+//! on the walk to do so; the remote proxy's `pipe` module lists every wait on
+//! that receive path and why each ends without the walk. A reader that
+//! instead waited for each frame's stage to accept it could create a wait
+//! cycle between stages even when each level works in isolation.
 //!
 //! [`Work::assemble`]'s inter-level return queue is the one exception. A reply
 //! can launch a full fan of child scopes before their parent resolution is
-//! available to the assembler. That queue therefore holds one full fan rather
-//! than using the session window; [`Work::assemble`] points to the capacity
-//! argument at the queue constructor.
+//! available to the assembler. That queue therefore holds one full fan;
+//! [`Work::assemble`] points to the capacity argument at the queue
+//! constructor.
 //!
 //! # Memory model
 //!
 //! At most one backend query per prefix: whoever explodes a node carries
 //! the fan to every consumer that needs it (queries carry their children;
 //! pruning returns the survivors it built), so [`Backend::children`] — which
-//! may be a database read — is never repeated. The price is that an answer's
-//! local batch may hold a fan of queries containing a fan of node handles
-//! apiece, at most fan² handles per recursive stage at full fan-out. Bounded
-//! query and resolution channels retain only one item; the exceptional fan
-//! queue retains completed node handles. On the wire, the memory unit is one
-//! reply message.
+//! may be a database read — is never repeated. An answer explores each
+//! disputed child only when the chunk asking about it is reached, so its
+//! built items are one question's at a time. Everything the walk builds is
+//! charged on the endpoint's ledger out of the grant that admitted it, and
+//! every question carries the room set aside for the peer's reply; on the
+//! wire, a decoded reply waits for its stage chunk by chunk, within that
+//! room. The ledger holds at most the endpoint's budget beside what its
+//! kinds and depths of unit hold within their bounds
+//! ([`ledger`](super::ledger)).
 
 use std::marker::PhantomData;
 use std::pin::pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::counter::widen;
 use crate::message::PayloadDepthLimit;
+use crate::network::NetworkKeys;
 use crate::tree::{
     mirror::streaming::{
-        Backend, ErasedNode, Leaf, Root,
+        Backend, ErasedNode, Leaf, Node as _, Root,
         erased::{self, Reaction, Reply},
-        message::Greeting,
+        ledger::{Charge, Ledger, ReplyBound, max},
+        message::{CountError, Grandchildren, Greeting, Listed},
         protocol::{self, BoxResponses, Requests},
         stats::Recorder,
-        window::{ReplicaSize, WindowConfig},
     },
     typed::{
-        ErasedPrefix, Hash, Prefix,
+        ErasedPrefix, HashKey, Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
 use before::Version;
+
 use futures::{Stream, StreamExt, future::BoxFuture};
-use tokio::sync::oneshot;
+
+#[cfg(any(test, feature = "test-internals"))]
+use crate::tree::mirror::streaming::ledger::Bounds;
 
 mod error;
+mod fixed;
 pub(super) mod progress;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 pub(super) mod transcript;
-pub(super) mod unknown;
+pub(crate) mod unknown;
 mod work;
 use super::channel::{Receiver, Sender};
-use work::{Resolver, Work};
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use fixed::assembly_allowance;
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use fixed::fixed_allowance;
+pub(crate) use fixed::session_allowance;
+/// Named for the documentation of `LaterMatches`, which links the covered
+/// set's net price.
+#[cfg(doc)]
+pub(crate) use work::covered_set_price;
+pub(crate) use work::largest_grant;
+use work::{LeafRequest, OpeningAdvance, Resolver, Work};
+#[cfg(test)]
+pub(crate) use work::{Left, Ready, parked_price, parked_room};
+pub(crate) use work::{
+    OUTGOING_REPLY_CHUNKS, Overdraft, ReplyQuota, derived_bytes, floor_allowance, grant_bounds,
+    parked_bytes,
+};
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use work::{grant_bound, scratch};
 
 pub use error::{Error, Violation};
 
 /// Construct a typed protocol-violation result.
 fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
     Err(Error::Violation(violation))
+}
+
+/// How a session divides what it may hold: the most it holds in all, and
+/// the budget its ledger admits work against
+/// ([`Allowances::requested`]).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SessionBudget {
+    /// The most the session holds in all: what its ledger admits against
+    /// its budget, what its kinds and depths of unit hold within their
+    /// bounds, its fixed state, and its wire pools together.
+    pub(crate) memory: usize,
+    /// The budget its ledger admits work against beside the bounds of its
+    /// kinds and depths ([`Handshaking::budget`]).
+    pub(crate) ledger: usize,
+}
+
+/// What a session sets aside out of its memory budget beside its ledger,
+/// and the least ledger budget a session the public API runs gets.
+///
+/// Every session a peer runs takes its two budgets from here, so wherever
+/// they do not saturate, a memory budget `M` and its ledger's budget `B`
+/// keep `M = B + A + X` (admission's module docs,
+/// [`ledger`](super::ledger)), where `A` is the floor allowance
+/// ([`floor_allowance`]) and `X` the session allowance at the peer's own
+/// message-size target ([`session_allowance`]); and a requested memory
+/// budget never leaves its ledger less than the largest grant
+/// ([`largest_grant`]), saturated or not.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Allowances {
+    /// The floor allowance beside the session allowance, `A + X`,
+    /// saturating at `usize::MAX`.
+    set_aside: usize,
+    /// The largest grant: the least ledger budget a requested memory
+    /// budget gets, so that its ledger can always admit any one unit
+    /// against the budget, whatever its kinds and depths hold.
+    largest_grant: usize,
+}
+
+impl Allowances {
+    /// The allowances of a session over `B`'s nodes whose peer's own
+    /// message-size target is `target`.
+    pub(crate) const fn of<B: Backend<Node<Z>: Leaf>>(target: usize) -> Self {
+        Self::new(
+            floor_allowance::<B::Erased, B::Error>(),
+            largest_grant::<B::Erased, B::Error>(),
+            session_allowance::<B>(target),
+        )
+    }
+
+    /// The allowances made of the floor allowance `floor`, the largest
+    /// grant `largest_grant`, and the session allowance `session`.
+    ///
+    /// [`of`](Self::of) derives the three from types. Tests pass them
+    /// directly to reach a saturated session allowance, which only a
+    /// `usize` narrower than 64 bits gives, at the largest targets.
+    const fn new(floor: usize, largest_grant: usize, session: usize) -> Self {
+        Self {
+            set_aside: floor.saturating_add(session),
+            largest_grant,
+        }
+    }
+
+    /// The least memory budget a session runs on through the public API:
+    /// the floor allowance, the largest grant beside it, and the session
+    /// allowance, saturating at `usize::MAX`.
+    ///
+    /// At this budget its ledger admits exactly the largest grant, so it
+    /// can always admit any one unit against the budget while every kind
+    /// and depth holds within its bound. No proof needs that room:
+    /// admission admits every unit at every ledger budget, zero included,
+    /// and the budget criterion holds from zero where tested. The room is
+    /// for speed. At a ledger budget of zero, a session admits nothing
+    /// beyond its kinds and depths' bounds, so between large replicas
+    /// that differ throughout it waits far more often. Two replicas of a
+    /// million 100-byte messages that differ throughout, on the test kit's
+    /// simulated link with a 12.5 MB bandwidth-delay product, take about
+    /// 14.5 times as long at this minimum as with no limit, and about 127
+    /// times at a ledger budget of zero beside the same allowances.
+    /// A peer raises every requested budget to this
+    /// ([`requested`](Self::requested)), so only the test path's ledger
+    /// budgets reach below it ([`ledger`](Self::ledger)).
+    ///
+    /// The wire pools grow with the target, so the minimum does too: about
+    /// two runs at the target in each direction beside a fixed part.
+    pub(crate) const fn minimum(self) -> usize {
+        self.set_aside.saturating_add(self.largest_grant)
+    }
+
+    /// What the memory budget `memory` leaves beside the floor and session
+    /// allowances, or zero.
+    pub(crate) const fn left(self, memory: usize) -> usize {
+        memory.saturating_sub(self.set_aside)
+    }
+
+    /// The budgets of a session on the memory budget its peer was given,
+    /// `memory`.
+    ///
+    /// The session holds at most the larger of `memory` and the
+    /// [`minimum`](Self::minimum), and its ledger admits what `memory`
+    /// leaves beside the two allowances, but never less than the largest
+    /// grant. Below saturation, the memory budget is exactly the ledger's
+    /// beside the two allowances. Where the allowances saturate, which only
+    /// a `usize` narrower than 64 bits allows at the largest targets, the
+    /// minimum is `usize::MAX`, which no address space holds, and the
+    /// ledger still gets the largest grant.
+    pub(crate) const fn requested(self, memory: usize) -> SessionBudget {
+        SessionBudget {
+            memory: max(memory, self.minimum()),
+            ledger: max(self.left(memory), self.largest_grant),
+        }
+    }
+
+    /// The budgets of a session whose ledger admits exactly `ledger`, below
+    /// the largest grant included: the ledger beside the two allowances,
+    /// saturating.
+    ///
+    /// This is the test path's ([`ledger_budget`](crate::testing::ledger_budget)).
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) const fn ledger(self, ledger: usize) -> SessionBudget {
+        SessionBudget {
+            memory: self.set_aside.saturating_add(ledger),
+            ledger,
+        }
+    }
+}
+
+/// The largest message-size target, at most `target`, whose
+/// [`minimum`](Allowances::minimum) over `B`'s nodes is within the memory
+/// budget `memory`, or zero if none is.
+///
+/// The minimum never shrinks as the target grows, since the wire pools grow
+/// with it ([`session_allowance`]), so the targets within `memory` are all
+/// those up to the result, and a binary search over `0..=target` finds it
+/// exactly. A peer clamps its own target to this, so that the room for its
+/// messages on their way never raises its memory budget.
+pub(crate) const fn affordable_target<B: Backend<Node<Z>: Leaf>>(
+    memory: usize,
+    target: usize,
+) -> usize {
+    if Allowances::of::<B>(target).minimum() <= memory {
+        return target;
+    }
+    // `fits` is zero or a target within `memory`, and `exceeds` a target
+    // past it; each step halves the gap between them and keeps both roles.
+    let (mut fits, mut exceeds) = (0, target);
+    while exceeds - fits > 1 {
+        let middle = fits + (exceeds - fits) / 2;
+        if Allowances::of::<B>(middle).minimum() <= memory {
+            fits = middle;
+        } else {
+            exceeds = middle;
+        }
+    }
+    fits
 }
 
 /// Tracks supplied leaves against the peer's declared set length.
@@ -194,6 +388,41 @@ pub struct Query<E> {
     pub(crate) prefix: ErasedPrefix,
     /// Our children of the node (empty if we don't have it at all).
     pub(crate) ours: Vec<(u8, E)>,
+    /// The node `ours` was listed from, which the scope's assembly hands
+    /// the backend ([`Backend::parent`]'s `original`), or `None` if we
+    /// don't have it.
+    pub(crate) original: Option<E>,
+    /// The bound on the peer's reply, from the grandchild count the peer
+    /// gave the node.
+    pub(crate) bound: ReplyBound,
+    /// What the question holds: its queue slot and the buffer of its
+    /// children, until the resolver has finished the reply.
+    ///
+    /// The stage's resolver walks that buffer as the reply arrives, moving
+    /// each child into a slot of the parent resolution, whose own charge
+    /// covers the slots.
+    pub(crate) charge: Charge,
+    /// The parts of the room set aside for what the peer's reply becomes
+    /// that stay with the question ([`ledger`]).
+    ///
+    /// [`ledger`]: super::ledger
+    pub(crate) reservation: Reserved,
+}
+
+/// The part of the room a question sets aside for the peer's reply that
+/// stays with the question: the parent resolution's slots.
+///
+/// The other parts travel with the question's record instead
+/// ([`Carried::Question`](super::message::Carried::Question)): the room the
+/// reply's chunks park in, to the decoder, which charges each chunk its
+/// part as it decodes, and the records part, in the record's own charge, to
+/// the proxy, which charges each record it derives from the reply's
+/// questions its part as the stage takes the reply from parking.
+#[derive(Default)]
+pub(crate) struct Reserved {
+    /// The parent resolution's slots, which the resolution keeps until its
+    /// assembly.
+    pub(crate) slots: Charge,
 }
 
 /// One scope's resolution: its children in radix order, each resolved
@@ -203,6 +432,12 @@ pub struct Resolution<E> {
     pub(crate) prefix: ErasedPrefix,
     /// The possibly-resolved children of the node.
     pub(crate) resolved: Vec<(u8, Resolve<E>)>,
+    /// The node this side held at the prefix before the walk explored it,
+    /// handed to [`Backend::parent`] as its `original`, or `None` if this
+    /// side held nothing there.
+    pub(crate) original: Option<E>,
+    /// What the resolution holds: its queue slot and its slots.
+    pub(crate) charge: Charge,
 }
 
 /// One child's slot in a [`Resolution`].
@@ -230,15 +465,20 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
     state: State,
     /// The tree consumed by this session.
     root: Root<B>,
-    /// The session's window choice, resolved against the exchanged set
-    /// sizes; see [`window`](super::window).
-    window: WindowConfig,
     /// This side's supply-run byte target, carried by the greeting; the
     /// session runs at the minimum of the two ends' targets.
     target_message_size: u64,
-    /// The session's stats recorder; the walk and the window solve write
-    /// through it, and the session driver snapshots it after completion.
+    /// The session's stats recorder; the walk writes through it, and the
+    /// session driver snapshots it after completion.
     stats: Recorder,
+    /// The endpoint's ledger, which admits and charges the walk's work
+    /// against the endpoint's budget.
+    ledger: Ledger,
+    /// The keys of the network whose tree this session reconciles, whose
+    /// hash key the digests this side lists and compares are cached under;
+    /// `None` only for a bootstrapper meeting another bootstrapper
+    /// ([`hash_key`]).
+    keys: Option<Arc<NetworkKeys>>,
 }
 
 /// A stage that has been opened but has not yet sent its greeting.
@@ -266,25 +506,15 @@ pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     fan: Vec<(u8, B::Erased)>,
 }
 
-/// A one-shot result passed from the opening pump to the first internal stage.
-///
-/// The opening owns the producer. The first internal stage takes this receiver;
-/// deeper stages have no opening result.
-pub(crate) enum OpeningHandoff<E> {
-    /// Root children the initiator supplied before the responder asked.
-    Supplies(oneshot::Receiver<Vec<(u8, Vec<(u8, E)>)>>),
-    /// Initiator-owned root children already pruned against the peer's version.
-    Survivors(oneshot::Receiver<Vec<(u8, Option<E>)>>),
-}
-
 /// The remote tree properties retained from its greeting.
 struct PeerSummary {
     /// The peer's causal version, used to bound supplies and join ceilings.
     version: Version,
-    /// The peer's declared message count and maximum encoded version size.
-    size: ReplicaSize,
-    /// The peer's root-fan listing, consumed by the elected initiator.
-    listing: Vec<(u8, Hash)>,
+    /// The peer's declared message count, which bounds what it can supply.
+    messages: u64,
+    /// The peer's grandchild count of its root, which bounds its reply to
+    /// the opening question.
+    grandchildren: Grandchildren,
 }
 
 impl PeerSummary {
@@ -292,8 +522,13 @@ impl PeerSummary {
     fn from_greeting(greeting: Greeting) -> Self {
         Self {
             version: greeting.version,
-            size: ReplicaSize::new(greeting.set_len, greeting.max_version_bytes),
-            listing: greeting.listing,
+            messages: greeting.set_len,
+            // An empty tree counts none; one reaction more costs a
+            // conforming reply nothing.
+            grandchildren: usize::try_from(greeting.grandchildren)
+                .ok()
+                .and_then(Grandchildren::new)
+                .unwrap_or(Grandchildren::ONE),
         }
     }
 }
@@ -302,14 +537,18 @@ impl PeerSummary {
 struct Opening<B: Backend<Node<Z>: Leaf>> {
     /// The peer's causal version, retained through the descent.
     peer_version: Version,
-    /// The peer's root-fan listing, used only by an elected initiator.
-    peer_listing: Vec<(u8, Hash)>,
-    /// The session-total allowance for supplies received from the peer.
+    /// The session's count of supplied leaves against the set length the
+    /// peer declared.
     ledger: SupplyLedger,
     /// The joined ceiling assigned to reconstructed nodes.
     ceiling: Version,
     /// The local root fan computed for the greeting.
     fan: Vec<(u8, B::Erased)>,
+    /// The local root the fan was listed from, erased, which the root
+    /// scope's assembly hands the backend as its `original`.
+    root: Option<B::Erased>,
+    /// The peer's grandchild count of its root.
+    peer_grandchildren: Grandchildren,
     /// The work accumulator configured from both greetings.
     work: Work<B>,
 }
@@ -333,8 +572,6 @@ where
     queries: Receiver<Query<B::Erased>>,
     /// One resolved scope per query, in query order, to the stage above.
     returns: Sender<Option<B::Erased>>,
-    /// Opening-only state, consumed by the first descent stage.
-    opening: Option<OpeningHandoff<B::Erased>>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
     work: Work<B>,
@@ -355,15 +592,11 @@ where
 /// themselves (height `Z`), not an assembled scope one height up, because
 /// nothing exists below a leaf to assemble from.
 pub struct Completing<B: Backend<Node<Z>: Leaf>> {
-    /// The peer's declared greeting version: the containment bound every
-    /// supplied leaf is checked against
-    /// ([`Violation::UncontainedSupply`]).
-    their_version: Version,
     /// The counterparty's declared-set-length ledger, charged by every
     /// absorbed supply ([`SupplyLedger`]).
     ledger: SupplyLedger,
     /// Where each requested leaf will sit, one per request, in order.
-    queries: Receiver<Prefix<Z>>,
+    queries: Receiver<LeafRequest>,
     /// The requested leaves' resolutions, in request order.
     returns: Sender<Option<B::Erased>>,
     /// The accumulated work to drive the pipeline.
@@ -373,21 +606,59 @@ pub struct Completing<B: Backend<Node<Z>: Leaf>> {
 }
 
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
-    /// Begin a session and advertise `target_message_size` in its greeting.
-    pub fn start(backend: B, root: Root<B>, target_message_size: u64) -> Self {
+    /// Begin a session that lists and compares digests under `keys` and
+    /// advertises `target_message_size` in its greeting.
+    ///
+    /// `keys` must be the keys of the network whose tree `root` is, since
+    /// every node caches its digest under that network's hash key. They may
+    /// be `None` only when `root` is empty and its counterparty is
+    /// bootstrapping too ([`hash_key`]).
+    ///
+    /// Its ledger admits what the library's default memory budget gives it
+    /// at that target ([`Allowances::requested`]) until
+    /// [`budget`](Self::budget) selects another.
+    pub fn start(
+        backend: B,
+        root: Root<B>,
+        keys: Option<Arc<NetworkKeys>>,
+        target_message_size: u64,
+    ) -> Self {
+        let target = usize::try_from(target_message_size).unwrap_or(usize::MAX);
+        let budget = Allowances::of::<B>(target).requested(crate::default::SYNC_MEMORY_BUDGET);
         Self {
             backend,
             state: Start,
             root,
-            window: WindowConfig::default(),
             target_message_size,
             stats: Recorder::default(),
+            ledger: Ledger::new(budget.ledger, grant_bounds::<B::Erased, B::Error>()),
+            keys,
         }
     }
 
-    /// Select this session's window choice; see [`window`](super::window).
-    pub fn window(mut self, window: WindowConfig) -> Self {
-        self.window = window;
+    /// Select the budget this session's ledger admits its work against
+    /// ([`ledger`](super::ledger)).
+    ///
+    /// The budget is the most the ledger counts of what each kind and depth
+    /// of unit holds beyond its bound; within their bounds they hold the
+    /// floor allowance at most.
+    pub fn budget(mut self, budget: usize) -> Self {
+        self.ledger = Ledger::new(budget, grant_bounds::<B::Erased, B::Error>());
+        self
+    }
+
+    /// Run this session's ledger in the serial configuration: a budget of
+    /// zero with every bound zero ([`ledger`](super::ledger)).
+    ///
+    /// It admits a unit only while its kind and depth hold nothing, one
+    /// unit of each kind and depth at a time.
+    ///
+    /// It is the configuration the liveness argument rests on at its most
+    /// serial, for tests; a budget of zero alone still pipelines within each
+    /// kind and depth's bound.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn serial(mut self) -> Self {
+        self.ledger = Ledger::new(0, Bounds::ZERO);
         self
     }
 
@@ -399,6 +670,15 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     pub fn stats(mut self, stats: Recorder) -> Self {
         self.stats = stats;
         self
+    }
+
+    /// Share the session's ledger, so a test holding its clone can read
+    /// what the ledger holds and has claimed once the session completes.
+    ///
+    /// Call it after [`budget`](Self::budget), which replaces the ledger.
+    #[cfg(test)]
+    pub(crate) fn ledger(&self) -> Ledger {
+        self.ledger.clone()
     }
 }
 
@@ -416,27 +696,70 @@ impl<B: Backend<Node<Z>: Leaf>, State: Send> protocol::Phase for Handshaking<B, 
 /// (see [`Greeting`] for the trade). The fan itself is retained through
 /// [`Connecting`]/[`Connected`] so the descent never re-asks the backend for
 /// the root's children.
+///
+/// # Errors
+///
+/// Returns [`Error::Count`] if the backend miscounts the root's children,
+/// and [`Error::Backend`] if exploding the root fails.
 pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
     backend: &B,
     root: Option<B::Node<height::Root>>,
-) -> Result<Vec<(u8, B::Erased)>, B::Error> {
+) -> Result<Vec<(u8, B::Erased)>, Error<B::Error>> {
     match root {
         Some(node) => {
-            erased::ops::children_of(backend, Prefix::new().erase(), B::erase(node)).await
+            Ok(erased::ops::children_of(backend, Prefix::new().erase(), B::erase(node)).await?)
         }
         None => Ok(Vec::new()),
     }
 }
 
-/// Derive the wire listing for a materialized fan.
+/// Derive the wire listing for a materialized fan, its digests those cached
+/// under the hash key of `keys` ([`Listed::of`]).
 ///
 /// In particular, the greeting and the initiator's opening question
 /// ([`Work::initiator_level`]) are paired positionally by the remote proxy.
 /// Deriving every listing here keeps those representations identical.
-pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<(u8, Hash)> {
-    fan.iter()
-        .map(|(radix, node)| (*radix, node.hash()))
-        .collect()
+///
+/// The fan is the children of the node at `scope`, each at the coordinate
+/// `scope` extended by its radix. The listing holds exactly one entry per
+/// node of the fan, as every listing's price counts it.
+///
+/// # Errors
+///
+/// Returns a [`CountError`] if the backend reports a count no node can
+/// have for any node of the fan ([`Listed::of`]).
+///
+/// # Panics
+///
+/// Panics if the fan is nonempty and `keys` is `None` ([`hash_key`]).
+pub(crate) fn fan_listing<E: ErasedNode>(
+    scope: ErasedPrefix,
+    fan: &[(u8, E)],
+    keys: Option<&NetworkKeys>,
+) -> Result<Vec<Listed>, CountError> {
+    // Collecting results into a vector cannot size it from the iterator,
+    // which may stop early, so it would grow past the fan's length.
+    let mut listing = Vec::with_capacity(fan.len());
+    for (radix, node) in fan {
+        listing.push(Listed::of(scope, *radix, node, hash_key(keys))?);
+    }
+    Ok(listing)
+}
+
+/// The key this side's digests are cached under: the hash key of `keys`,
+/// the keys of the tree the session reconciles.
+///
+/// Every digest a session lists or compares is of a node of this side's own
+/// tree, so a session over an empty tree asks for none.
+///
+/// # Panics
+///
+/// Panics if `keys` is `None`. Only a bootstrapper meeting another
+/// bootstrapper runs a session without keys, since neither holds a network
+/// secret, and its tree is empty: such a session never calls this.
+pub(crate) fn hash_key(keys: Option<&NetworkKeys>) -> &HashKey {
+    keys.expect("a session without keys has an empty tree, which lists and compares no digest")
+        .hash()
 }
 
 impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
@@ -444,29 +767,40 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
 
     /// Build and send this participant's greeting.
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let fan = greeting_fan(&self.backend, self.root.root.clone())
-            .await
-            .map_err(Error::Backend)?;
+        let fan = greeting_fan(&self.backend, self.root.root.clone()).await?;
+        // The root's grandchild count bounds the peer's first reply, so it
+        // is checked as every count a listing carries is.
+        let grandchildren = match &self.root.root {
+            Some(root) => widen(
+                Grandchildren::counted(root.grandchild_count())
+                    .map_err(Error::Count)?
+                    .get(),
+            ),
+            None => 0,
+        };
         let greeting = Greeting {
             version: self.root.ceiling.clone(),
             // The greeting's sizes come from the root's own aggregates,
             // so they cannot drift from the tree they describe.
             set_len: self.root.len(),
             max_version_bytes: self.root.max_version_bytes(),
+            grandchildren,
             // The walk is not the wire: on a wire session the proxy
             // stamps its codec's configured limit over this field at
             // send, so an in-process participant carries the default.
             payload_depth_limit: PayloadDepthLimit::default().get(),
             target_message_size: self.target_message_size,
-            listing: fan_listing(&fan),
+            listing: fan_listing(Prefix::new().erase(), &fan, self.keys.as_deref())
+                .map_err(Error::Count)?,
         };
         let next = Handshaking {
             backend: self.backend,
             state: Connecting { fan },
             root: self.root,
-            window: self.window,
             target_message_size: self.target_message_size,
             stats: self.stats,
+            ledger: self.ledger,
+            keys: self.keys,
         };
         Ok((greeting, next))
     }
@@ -484,9 +818,10 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, 
                 fan: self.state.fan,
             },
             root: self.root,
-            window: self.window,
             target_message_size: self.target_message_size,
             stats: self.stats,
+            ledger: self.ledger,
+            keys: self.keys,
         })
     }
 }
@@ -508,20 +843,19 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
 
 /// Prepare the role-independent work shared by both descent openings.
 impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Connected<B>> {
+    /// Gather the state either descent opening consumes.
     fn open(self) -> Opening<B> {
         let Connected { peer, fan } = self.state;
-        let local_size = ReplicaSize::new(self.root.len(), self.root.max_version_bytes());
         let ceiling = self.root.ceiling | &peer.version;
-        let window = self.window.resolve([local_size, peer.size], B::node_bytes);
-        self.stats.window_granted(window.widest());
-        let ledger = SupplyLedger::new(peer.size.messages());
-        let work = Work::new(self.backend, window, self.stats);
+        let ledger = SupplyLedger::new(peer.messages);
+        let work = Work::new(self.backend, self.stats, self.ledger, self.keys);
         Opening {
             peer_version: peer.version,
-            peer_listing: peer.listing,
             ledger,
             ceiling,
             fan,
+            root: self.root.root.map(B::erase),
+            peer_grandchildren: peer.grandchildren,
             work,
         }
     }
@@ -539,16 +873,25 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
 
     /// Open the elected initiator's first descent stage.
     fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
+        // The peer may have answered the opening question its greeting
+        // carried, so its room is charged before the session's tasks run
+        // ([`OpeningAdvance`]).
+        let opening = OpeningAdvance::admit::<B::Erased, B::Error>(
+            &self.ledger,
+            self.state.fan.len(),
+            self.state.peer.grandchildren,
+        );
         let Opening {
             peer_version,
-            peer_listing,
             ledger,
             ceiling,
             fan,
+            root,
+            peer_grandchildren,
             mut work,
         } = self.open();
-        let (responses, queries, returns, early, finish) =
-            work.initiator_level(peer_version.clone(), ceiling, fan, peer_listing);
+        let (responses, queries, returns, finish) =
+            work.initiator_level(ceiling, fan, root, peer_grandchildren, opening);
 
         (
             responses,
@@ -557,7 +900,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Initiator<B> for Handshaking<B, Connec
                 ledger,
                 queries,
                 returns,
-                opening: Some(OpeningHandoff::Survivors(early)),
                 work,
                 finish,
                 height: PhantomData,
@@ -576,14 +918,15 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connec
     ) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let Opening {
             peer_version,
-            peer_listing: _,
             ledger,
             ceiling,
             fan,
+            root,
+            peer_grandchildren: _,
             mut work,
         } = self.open();
-        let (responses, queries, returns, early, finish) =
-            work.responder_level(peer_version.clone(), ledger.clone(), ceiling, fan, requests);
+        let (responses, queries, returns, finish) =
+            work.responder_level(peer_version.clone(), ceiling, fan, root, requests);
 
         (
             responses,
@@ -592,7 +935,6 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Responder<B> for Handshaking<B, Connec
                 ledger,
                 queries,
                 returns,
-                opening: Some(OpeningHandoff::Supplies(early)),
                 work,
                 finish,
                 height: PhantomData,
@@ -629,7 +971,6 @@ where
         let (responses, queries, upper, lower) = self.work.internal_level::<H>(
             self.their_version.clone(),
             self.ledger.clone(),
-            self.opening.take(),
             requests,
             self.queries,
         );
@@ -643,7 +984,6 @@ where
                 ledger: self.ledger,
                 queries,
                 returns,
-                opening: None,
                 work: self.work,
                 finish: self.finish,
                 height: PhantomData,
@@ -664,7 +1004,7 @@ where
         requests: impl Requests<B, S<Z>>,
     ) -> (BoxResponses<B, Z, Self::Error>, Self::Next) {
         let (responses, queries, upper, lower) = self.work.leaf_parent_level(
-            self.their_version.clone(),
+            self.their_version,
             self.ledger.clone(),
             requests,
             self.queries,
@@ -675,7 +1015,6 @@ where
         (
             responses,
             Completing {
-                their_version: self.their_version,
                 ledger: self.ledger,
                 queries,
                 returns,
@@ -724,7 +1063,6 @@ where
     ) -> Result<Root<B>, Self::Error> {
         let stats = self.work.stats();
         let absorb = absorb::<B>(
-            self.their_version,
             self.ledger,
             requests.erase(),
             self.queries,
@@ -741,9 +1079,9 @@ where
     }
 }
 
-/// The initiator's terminal loop: pair each pending leaf request with its
-/// final [`Reply`] and pass its provision up, prefix-less, like every
-/// return.
+/// The initiator's terminal loop: pair each pending leaf request with the
+/// chunks of its final [`Reply`] and pass its provision up, prefix-less,
+/// like every return.
 ///
 /// The reply is classified by the [`Resolver`] every descending stage
 /// uses, over a request that holds nothing. One rule is the terminal
@@ -754,10 +1092,9 @@ where
 /// [`messages_gained`](crate::SessionStats::messages_gained) by the
 /// resolver's supply arm.
 async fn absorb<B>(
-    their_version: Version,
     ledger: SupplyLedger,
     requests: impl Stream<Item = Reply<B::Erased>> + Send,
-    mut queries: Receiver<Prefix<Z>>,
+    mut queries: Receiver<LeafRequest>,
     mut returns: Sender<Option<B::Erased>>,
     stats: Recorder,
 ) -> Result<(), Error<B::Error>>
@@ -765,8 +1102,10 @@ where
     B: Backend<Node<Z>: Leaf>,
 {
     let mut requests = pin!(requests);
-    while let Some(prefix) = queries.recv().await {
-        let Some(Reply { reactions }) = requests.next().await else {
+    while let Some((prefix, request, reservation)) = queries.recv().await {
+        // The request's queue slot is free once dequeued.
+        drop(request);
+        let Some(mut chunk) = requests.next().await else {
             return violation(Violation::UnansweredQuery);
         };
 
@@ -776,19 +1115,42 @@ where
         let request = Query {
             prefix: scope.erase(),
             ours: Vec::new(),
+            original: None,
+            bound: ReplyBound::LEAF,
+            charge: Charge::default(),
+            reservation,
         };
-        let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, &stats);
-        for reaction in reactions {
-            if let Reaction::Supply(radix, _) = &reaction
-                && *radix != expected
-            {
-                return violation(Violation::InvalidSupply);
+        let mut resolver = Resolver::<B>::new(request, &ledger, &stats);
+        loop {
+            let Reply {
+                reactions,
+                charge: received,
+                last,
+                carried,
+            } = chunk;
+            for reaction in reactions {
+                if let Reaction::Supply(radix, _) = &reaction
+                    && *radix != expected
+                {
+                    return violation(Violation::InvalidSupply);
+                }
+                let routed = resolver.react(reaction)?;
+                debug_assert!(
+                    routed.is_none(),
+                    "a request that holds nothing routes no query"
+                );
             }
-            let routed = resolver.react(reaction)?;
-            debug_assert!(
-                routed.is_none(),
-                "a request that holds nothing routes no query"
-            );
+            // The chunk is used up, so its charges return now, before the
+            // loop waits for the next one: the peer's admission may wait on
+            // them.
+            drop((received, carried));
+            if last {
+                break;
+            }
+            let Some(next) = requests.next().await else {
+                return violation(Violation::UnansweredQuery);
+            };
+            chunk = next;
         }
         let Resolution { mut resolved, .. } = resolver.finish()?;
         let supply = match resolved.pop() {

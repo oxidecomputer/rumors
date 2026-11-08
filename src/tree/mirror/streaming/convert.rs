@@ -107,7 +107,8 @@ where
         let Some((prefix, group)) = finished else {
             return Ok(None);
         };
-        let parent = backend.clone().parent(prefix, group).await?;
+        // Built from leaves alone: no node stood at the prefix before.
+        let parent = backend.clone().parent(prefix, None, group).await?;
         Ok(parent.map(|parent| (prefix, parent)))
     }
 

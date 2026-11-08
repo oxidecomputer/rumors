@@ -20,7 +20,8 @@ pub enum Action {
 ///
 /// Actions at one path must be causally ascending, as
 /// [`Tree::act`](crate::tree::Tree::act) guarantees. The observer receives the
-/// last applied version at each changed key. A key that starts and ends absent
+/// last applied version at each changed key, and whether that key held a leaf
+/// before the batch and holds none after it. A key that starts and ends absent
 /// contributes no history. An occupied key whose actions are all skipped
 /// reports an empty version: the caller's changed flag remains conservative,
 /// but its ceiling does not advance.
@@ -38,7 +39,7 @@ pub enum Action {
 pub fn act(
     node: Option<Node<Root>>,
     mut actions: Vec<(Path, Version, Action)>,
-    on_action: &mut dyn FnMut(&Version),
+    on_action: &mut dyn FnMut(&Version, bool),
 ) -> Option<Node<Root>> {
     #[cfg(test)]
     crate::tree::panic_injection::fire_if_armed();
@@ -58,7 +59,7 @@ pub trait Act: Height {
     fn act(
         node: Option<Node<Self>>,
         actions: &[(Path, Version, Action)],
-        on_action: &mut dyn FnMut(&Version),
+        on_action: &mut dyn FnMut(&Version, bool),
     ) -> Option<Node<Self>>;
 }
 
@@ -71,7 +72,7 @@ where
     fn act(
         node: Option<Node<Self>>,
         actions: &[(Path, Version, Action)],
-        on_action: &mut dyn FnMut(&Version),
+        on_action: &mut dyn FnMut(&Version, bool),
     ) -> Option<Node<Self>> {
         #[cfg(test)]
         crate::tree::panic_injection::fire_if_armed();
@@ -126,7 +127,7 @@ impl Act for Z {
     fn act(
         mut node: Option<Node<Self>>,
         actions: &[(Path, Version, Action)],
-        on_action: &mut dyn FnMut(&Version),
+        on_action: &mut dyn FnMut(&Version, bool),
     ) -> Option<Node<Self>> {
         let existed_before = node.is_some();
         let mut last_applied = None;
@@ -156,7 +157,10 @@ impl Act for Z {
         // outside this batch. Otherwise the last applied version bounds the
         // earlier actions, since each key's actions are causally ascending.
         if existed_before || node.is_some() {
-            on_action(last_applied.unwrap_or(&Version::default()));
+            on_action(
+                last_applied.unwrap_or(&Version::default()),
+                existed_before && node.is_none(),
+            );
         }
         node
     }

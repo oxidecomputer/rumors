@@ -3,14 +3,15 @@
 # `ci` is the build-everything tier — lints, docs, the feature matrix, the
 # full test and doctest run, bench compilation, fuzz-target verification, and
 # the viz bundle;
-# the justfile's `ci` recipe line is the roster of record, ordered
+# the justfile's `ci` recipe line names every leg this job runs, ordered
 # cheap-first. It builds the fuzz targets but does not run the smoke (`just all`
 # adds that locally — libFuzzer minutes are a poor per-commit spend). The
 # `instruments` job beside it re-runs the gate judgments that belong on a
 # shared runner: dependency policy, the board verdicts and pins, and surface
 # totality. Its job comment says which instruments stay local and why.
-# The `properties` job runs Rumors in release at the larger case count pinned
-# by `test-release` in the justfile.
+# The `properties` job runs Rumors in release codegen, with overflow checks
+# and debug assertions, at the larger case count pinned by `test-release` in
+# the justfile.
 # The justfile owns each job's roster. The workflow names only those groups,
 # so adding or removing a check cannot leave a copied workflow list behind.
 #

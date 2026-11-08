@@ -1,27 +1,23 @@
 //! The streaming mirror: fixed-memory reconciliation over lazy node streams.
 //!
 //! The streaming mirror reconciles two replicas under a fixed memory bound,
-//! descending the tree over lazily opened per-level streams. Two implementor
-//! roles recur through every layer below: *the walk* is the in-process
-//! participant, the protocol run directly over a backend's tree; *the proxy*
-//! is the wire-bound participant, the same protocol driven by frames on a
-//! link. The layers, each separate for one reason:
+//! descending the tree over lazily populated per-level streams. Two
+//! implementor roles recur through every layer below: *the walk* is the
+//! in-process participant, the protocol run directly over a backend's tree;
+//! *the proxy* is the wire-bound participant, the same protocol driven by
+//! frames on one connection.
 //!
-//! - [`backend`]: materiality — what a node *is* and what holding one costs.
-//! - [`protocol`]: the type-level phase schedule every implementor advances
-//!   through.
-//! - [`materialized`]: the walk, and the home of the deadlock-freedom
-//!   argument.
-//! - [`remote`]: the proxy — codec, proxy state machine, adapter, stream
-//!   binding.
-//! - [`window`]: how one byte budget becomes per-height channel capacities.
-//! - [`message`]: the wire vocabulary, the greeting included.
-//! - [`erased`]: the height-erased seam both implementors run on — the
-//!   wire vocabulary's erased twin, its typed exits, and the dispatch
-//!   back into the height-typed backend surface.
-//! - [`convert`]: the leaf conversion boundary between backends.
-//! - [`driver`], [`channel`], [`tasks`]: plumbing — phase scheduling and
-//!   error routing, named bounded edges, task completion.
+//! Both implementors advance through one type-level phase schedule
+//! ([`protocol`]) over a backend's node handles ([`backend`]). The walk
+//! lives in [`materialized`], which also holds the deadlock-freedom
+//! argument; the proxy lives in [`remote`], with its codec, its state
+//! machine, its adapter, and the pipe that carries every logical stream
+//! over the connection. Each endpoint admits its work against its byte
+//! budget through its [`ledger`], which charges what each item holds to the
+//! place the item waits in. The implementors exchange the protocol's
+//! messages ([`message`], the greeting included) in a height-erased form
+//! ([`erased`]), which dispatches back into the height-typed backend. The
+//! remaining modules hold the supporting code these share.
 //!
 //! Start reading at [`materialized`]'s session-dataflow section, then
 //! [`remote`].
@@ -43,30 +39,49 @@
 #![allow(clippy::type_complexity)]
 
 mod backend;
+pub(crate) mod byte_set;
 mod channel;
 pub(crate) mod convert;
 mod driver;
 mod erased;
+pub mod holding;
+pub(crate) mod ledger;
 pub mod materialized;
 pub(crate) mod message;
 mod protocol;
 pub mod remote;
 pub mod stats;
-mod tasks;
+pub(crate) mod tasks;
 #[cfg(test)]
 mod testing;
-pub(crate) mod window;
 
-pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
+/// The tree's maximum branching factor: one child per `u8` radix.
+///
+/// Also the capacity floor of the assembly fan queues: those channels must
+/// admit one *full* fan of children, whatever the budget.
+pub(crate) const FAN: usize = u8::MAX as usize + 1;
+
+pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root, Summary};
+// The send observation hook, and the edge names its reports carry.
+#[cfg(any(test, feature = "test-internals"))]
+pub use channel::{EdgeSend, EdgeSendHook, QueueKind, observe_edge_sends};
+// The backend conformance suite runs one fixture with an edge capped.
+#[cfg(test)]
+pub(crate) use channel::with_kind_capacity;
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) use backend::BoxNodeStream;
 #[cfg(test)]
 pub use backend::NodeStream;
+// The conformance suite recounts a node's grandchildren by exploding its
+// children at their runtime height.
+#[cfg(test)]
+pub(crate) use erased::ops;
 #[cfg(test)]
 pub use testing::{
-    Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Operation, ReplyCorruption,
+    Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Miscount, Misreport, Operation,
+    ReplyCorruption,
 };
 
 use futures::future::BoxFuture;
@@ -121,15 +136,24 @@ where
     where
         Self: 'a,
     {
-        Box::pin(async move {
-            let Handshaken {
-                client: local,
-                server: remote,
-                local_key,
-                remote_key,
-            } = self;
-            descend(local, remote, local_key, remote_key).await
-        })
+        Box::pin(self.descent())
+    }
+
+    /// The reconciliation [`reconcile`](Self::reconcile) boxes, unboxed, so
+    /// that a test can read its size from its type.
+    ///
+    /// This returns [`descend`]'s future itself: an `async fn` awaiting it
+    /// would keep a second copy of the participants for the whole run.
+    pub(crate) fn descent(
+        self,
+    ) -> impl Future<Output = Result<(C::Output, S::Output), Error<C::Error, S::Error>>> {
+        let Handshaken {
+            client: local,
+            server: remote,
+            local_key,
+            remote_key,
+        } = self;
+        descend(local, remote, local_key, remote_key)
     }
 }
 

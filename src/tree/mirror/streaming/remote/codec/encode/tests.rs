@@ -1,3 +1,5 @@
+use crate::tree::mirror::streaming::message::LaterMatches;
+use crate::tree::mirror::streaming::message::listed;
 use proptest::prelude::*;
 use std::{
     pin::Pin,
@@ -15,6 +17,7 @@ use crate::{
 };
 
 use super::super::{
+    budget::RunBudget,
     error::Origin,
     frame::{MAX_QUERY_CHILDREN, listing_len},
     signal::{End, Flow, Speaker, Stream},
@@ -55,7 +58,7 @@ fn query_count_covers_every_fan_and_flow() {
         let children = (0..count)
             .map(|radix| {
                 let radix = radix as u8;
-                (radix, Hash::from([radix; MERKLE_HASH_LEN]))
+                listed(radix, Hash::from([radix; MERKLE_HASH_LEN]))
             })
             .collect::<Vec<_>>();
         for flow in FLOWS {
@@ -85,11 +88,17 @@ fn body_free_frames_are_exhaustive() {
     let stream = stream(4);
     let cases: Vec<(WireFrame, Signal)> = vec![
         (
-            (stream, Frame::Reaction(Reaction::Match, Flow::Continue)),
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue),
+            ),
             Signal::Match(Flow::Continue),
         ),
         (
-            (stream, Frame::Reaction(Reaction::Match, Flow::End)),
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
+            ),
             Signal::Match(Flow::End),
         ),
         ((stream, Frame::End(End::Reply)), Signal::End(End::Reply)),
@@ -123,7 +132,7 @@ proptest! {
         let mut body = Vec::new();
         for (version, value) in &records {
             let message = Message::new(*value);
-            run.push(version, &message).unwrap();
+            run.push(version, &message, RunBudget::default()).unwrap();
             let mut content = Vec::new();
             cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
             ciborium::ser::into_writer(version, &mut content).unwrap();
@@ -207,7 +216,8 @@ impl AsyncWrite for FailingAsyncWriter {
     }
 }
 
-/// Async write and flush failures retain their exact operation, stream, and speaker.
+/// Async write and flush failures retain their exact operation, stream, and
+/// speaker: a flush failure names the last frame written.
 #[test]
 fn async_writer_errors_are_contextual() {
     let stream = stream(12);
@@ -225,7 +235,8 @@ fn async_writer_errors_are_contextual() {
         ));
 
         let mut writer = FrameWrite::new(speaker, FailingAsyncWriter(AsyncFailure::Flush));
-        let error = pollster::block_on(writer.frame(&frame)).unwrap_err();
+        pollster::block_on(writer.frame(&frame)).expect("writing does not flush");
+        let error = pollster::block_on(writer.flush()).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,

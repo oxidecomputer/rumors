@@ -2,12 +2,12 @@
 source: src/bookmark/format/tests.rs
 expression: annotated(&encode(&sample_record()))
 ---
-d9d9f7830658206f5f0acf87a69322bc7c7bfb3354101768b429bd31bc20619a5a3e04adbaad5bd818582a8183505a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5ad9d256432aa58083d9d25541a2d9d2554148d9d2554192
+d9d9f783085820a129b455b55392a32f5c636c56dc959da2cfd9215e3a7df4cdf2705b4fbce08fd818582a8183505a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5ad9d256432aa58083d9d25541a2d9d2554148d9d2554192
 
 55799( / self-described CBOR /
   [
-    6 / bookmark format version /
-    h'6f5f0acf87a69322bc7c7bfb3354101768b429bd31bc20619a5a3e04adbaad5b' / integrity: SHA3-256 of the version and payload items /
+    8 / bookmark format version /
+    h'a129b455b55392a32f5c636c56dc959da2cfd9215e3a7df4cdf2705b4fbce08f' / integrity: SHA3-256 of the version and payload items /
     24(<< / embedded record, 42 byte(s) /
       [ / 1 network(s), newest first /
         [

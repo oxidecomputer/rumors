@@ -12,17 +12,18 @@
 //! schedule around it stays fully typed. This module owns the seam
 //! between the two:
 //!
-//! - [`Reply`] and [`Reaction`] are [`message::Reply`]'s and
-//!   [`message::Reaction`]'s erased twins, converted exactly at the
-//!   schedule boundary: [`super::protocol::Requests::erase`] where a typed
-//!   request stream enters a walk worker, and [`reply_channel`]'s typed exit
-//!   where a worker's responses become the schedule's typed response stream.
-//!   Every conversion is a phantom-tag swap over values the program
-//!   already holds.
+//! - [`Reply`] is [`message::Reply`]'s erased twin, converted exactly at
+//!   the schedule boundary: [`super::protocol::Requests::erase`] where a
+//!   typed request stream enters a walk worker, and [`reply_channel`]'s
+//!   typed exit where a worker's responses become the schedule's typed
+//!   response stream. Both carry the one [`Reaction`] type, whose supplied
+//!   nodes stay erased, so every conversion is a phantom-tag swap that
+//!   re-tags no node.
 //! - [`ops`] carries erased node operations back into the height-typed
 //!   [`Backend`] surface, selecting the type-level height from the one
 //!   runtime witness every erased scope carries: its prefix's byte
-//!   length.
+//!   length. The same prefix is the node's coordinate, which re-tagging
+//!   checks against the node in debug builds ([`Backend::assume`]).
 //!
 //! # What the types stop proving, and what catches it instead
 //!
@@ -30,12 +31,14 @@
 //! pairing a height-5 payload with a height-6 consumer. This module's two
 //! boundary conversions are instantiated at one height parameter apiece. Inside
 //! the walk, height agreement is a runtime-witnessed property: every prefix
-//! re-tag debug-asserts its byte length against the claimed height, the [`ops`]
+//! re-tag asserts its byte length against the claimed height, the [`ops`]
 //! dispatch derives its height from that same length (so the coordinate and the
-//! witness cannot drift apart), and every channel keeps its [`QueueRole`]
-//! height label for the instrumented diagnostics. The behavioral tests exercise
-//! exactly these pairings.
+//! witness cannot drift apart), every node re-tag checks that coordinate
+//! against the node's own path in debug builds ([`Backend::assume`]), and
+//! every channel keeps its [`QueueRole`] height label for the instrumented
+//! diagnostics. The behavioral tests exercise exactly these pairings.
 
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -45,67 +48,75 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{QueueRole, Receiver, Sender, channel},
-        message,
+        ledger::Charge,
+        message::{self, Carried},
     },
-    typed::{
-        Hash,
-        height::{Height, Z},
-    },
+    typed::height::{Height, Z},
 };
 
 /// [`message::Reply`] with its height forgotten: what the walk's workers
 /// produce and consume.
 pub(crate) struct Reply<E> {
-    /// The ordered reactions to one earlier query.
+    /// The next reactions to one earlier query, in prefix order.
     pub reactions: Vec<Reaction<E>>,
+    /// What the reply holds, charged to the endpoint that built it and
+    /// returned when its consumer has used it.
+    pub charge: Charge,
+    /// Whether these reactions end the reply.
+    pub last: bool,
+    /// What the chunk carries for its encoder beyond its own items
+    /// ([`Carried`]); a chunk this side decoded carries nothing.
+    pub carried: Carried,
 }
 
-/// [`message::Reaction`] with its height forgotten.
-pub(crate) enum Reaction<E> {
-    /// A supplied subtree at its explicit radix.
-    Supply(u8, E),
-    /// Agreement with the corresponding queried child.
-    Match,
-    /// A request to compare the corresponding child's listing.
-    Query(Vec<(u8, Hash)>),
-}
+/// The one reaction type, typed reply and erased alike: its supplied nodes
+/// are erased handles at every height ([`message::Reaction::Supply`]).
+pub(crate) use message::Reaction;
 
 /// Erase one typed reply where a schedule-typed request stream enters a
-/// walk worker.
+/// walk worker: the reactions move as they are.
 pub(crate) fn erase_reply<B, H>(reply: message::Reply<B, H>) -> Reply<B::Erased>
 where
     B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
+    let message::Reply {
+        reactions,
+        charge,
+        last,
+        carried,
+        height: PhantomData,
+    } = reply;
     Reply {
-        reactions: reply
-            .reactions
-            .into_iter()
-            .map(|reaction| match reaction {
-                message::Reaction::Supply(radix, node) => Reaction::Supply(radix, B::erase(node)),
-                message::Reaction::Match => Reaction::Match,
-                message::Reaction::Query(listing) => Reaction::Query(listing),
-            })
-            .collect(),
+        reactions,
+        charge,
+        last,
+        carried,
     }
 }
 
-/// Re-tag one erased reply at the typed exit of [`reply_channel`].
-fn assume_reply<B, H>(reply: Reply<B::Erased>) -> message::Reply<B, H>
+/// Tag one erased reply with its height at the typed exit of
+/// [`reply_channel`]: the reactions move as they are.
+///
+/// Their supplied nodes stay erased, since the scope that decides their
+/// coordinates is known only to the reply's consumer.
+pub(crate) fn assume_reply<B, H>(reply: Reply<B::Erased>) -> message::Reply<B, H>
 where
     B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
+    let Reply {
+        reactions,
+        charge,
+        last,
+        carried,
+    } = reply;
     message::Reply {
-        reactions: reply
-            .reactions
-            .into_iter()
-            .map(|reaction| match reaction {
-                Reaction::Supply(radix, node) => message::Reaction::Supply(radix, B::assume(node)),
-                Reaction::Match => message::Reaction::Match,
-                Reaction::Query(listing) => message::Reaction::Query(listing),
-            })
-            .collect(),
+        reactions,
+        charge,
+        last,
+        carried,
+        height: PhantomData,
     }
 }
 
@@ -185,7 +196,9 @@ pub(crate) mod ops {
 
     use super::*;
     use crate::tree::{
-        mirror::streaming::backend::BoxNodeStream,
+        mirror::streaming::{
+            ErasedNode, FAN, backend::BoxNodeStream, materialized::Error, message::CountError,
+        },
         typed::{
             ErasedPrefix, Prefix,
             height::{Pred, S},
@@ -222,47 +235,89 @@ pub(crate) mod ops {
         }};
     }
 
-    /// Collect one typed node's children, addressed by radix.
+    /// Collect one typed node's children, addressed by radix, into a
+    /// vector of capacity `count`, the number its backend reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CountError::ChildrenListed`] if the backend lists a
+    /// different number of children than `count`. Listing stops at the
+    /// first child beyond `count`, so the vector never grows past its
+    /// capacity. Returns [`Error::Backend`] if listing fails.
     async fn children_of_typed<B, H>(
         backend: &B,
         prefix: Prefix<S<H>>,
         node: B::Node<S<H>>,
-    ) -> Result<Vec<(u8, B::Node<H>)>, B::Error>
+        count: usize,
+    ) -> Result<Vec<(u8, B::Node<H>)>, Error<B::Error>>
     where
         B: Backend<Node<Z>: Leaf>,
         H: Height,
         S<H>: Height,
     {
         let mut children = pin!(backend.clone().children(prefix, node));
-        let mut fan = Vec::new();
+        let mut fan = Vec::with_capacity(count);
         while let Some(item) = children.next().await {
             let (prefix, child) = item?;
+            if fan.len() == count {
+                return Err(Error::Count(CountError::ChildrenListed {
+                    reported: count,
+                    listed: count + 1,
+                }));
+            }
             let (_, radix) = prefix.pop();
             fan.push((radix, child));
+        }
+        if fan.len() != count {
+            return Err(Error::Count(CountError::ChildrenListed {
+                reported: count,
+                listed: fan.len(),
+            }));
         }
         Ok(fan)
     }
 
     /// Collect one erased node's children, addressed by radix
-    /// ([`children_of_typed`], erased).
+    /// ([`children_of_typed`], erased), into a vector of exactly their
+    /// number ([`ErasedNode::child_count`]), which a question's price
+    /// counts at its capacity.
     ///
-    /// `prefix` is the node's own prefix; its length names the height the
-    /// node is re-tagged at, so a walk cannot explode a node at any level
-    /// other than the one its coordinate claims.
+    /// `prefix` is the node's own prefix, its coordinate; its length names
+    /// the height the node is re-tagged at, and re-tagging checks its bytes
+    /// against the node's path ([`Backend::assume`]), so a walk cannot
+    /// explode a node at any level other than the one it sits at.
+    ///
+    /// The backend's child count becomes the vector's capacity, so it is
+    /// checked first: a backend reading corrupted storage could report one
+    /// no node can have, or list a different number of children than it
+    /// reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CountError::Children`] if the backend reports more than a
+    /// fan of children, before listing any;
+    /// [`CountError::ChildrenListed`] if it lists a different number than
+    /// it reports; and [`Error::Backend`] if listing fails.
     pub(crate) async fn children_of<B>(
         backend: &B,
         prefix: ErasedPrefix,
         node: B::Erased,
-    ) -> Result<Vec<(u8, B::Erased)>, B::Error>
+    ) -> Result<Vec<(u8, B::Erased)>, Error<B::Error>>
     where
         B: Backend<Node<Z>: Leaf>,
     {
+        let count = node.child_count(&prefix);
+        if count > FAN {
+            return Err(Error::Count(CountError::Children(count)));
+        }
         at_parent_height!(prefix.height(), H => {
+            let prefix = prefix.assume::<H>();
             let children =
                 children_of_typed::<B, <H as Pred>::Pred>(
                     backend,
-                    prefix.assume::<H>(),
-                    B::assume::<H>(node),
+                    prefix,
+                    B::assume(&prefix, node),
+                    count,
                 )
                 .await?;
             Ok(children
@@ -276,22 +331,33 @@ pub(crate) mod ops {
     /// child group ([`Backend::parent`], erased).
     ///
     /// `prefix` is the parent's own prefix, carrying the same
-    /// length-is-height witness as [`children_of`].
+    /// length-is-height witness as [`children_of`], and each child's
+    /// coordinate is `prefix` extended by its radix; `original` is the node
+    /// listed at `prefix` before the session explored it, if any, erased
+    /// there.
     pub(crate) async fn parent<B>(
         backend: B,
         prefix: ErasedPrefix,
+        original: Option<B::Erased>,
         children: Vec<(u8, Option<B::Erased>)>,
     ) -> Result<Option<B::Erased>, B::Error>
     where
         B: Backend<Node<Z>: Leaf>,
     {
         at_parent_height!(prefix.height(), H => {
+            let prefix = prefix.assume::<H>();
             let children = children
                 .into_iter()
-                .map(|(radix, child)| (radix, child.map(B::assume::<<H as Pred>::Pred>)))
+                .map(|(radix, child)| {
+                    (radix, child.map(|child| B::assume(&prefix.push(radix), child)))
+                })
                 .collect();
             Ok(backend
-                .parent::<<H as Pred>::Pred>(prefix.assume::<H>(), children)
+                .parent::<<H as Pred>::Pred>(
+                    prefix,
+                    original.map(|original| B::assume(&prefix, original)),
+                    children,
+                )
                 .await?
                 .map(B::erase))
         })
@@ -311,7 +377,8 @@ pub(crate) mod ops {
         B: Backend<Node<Z>: Leaf>,
     {
         at_height!(prefix.height(), H => {
-            Box::pin(backend.leaves::<H>(prefix.assume::<H>(), B::assume::<H>(node)))
+            let prefix = prefix.assume::<H>();
+            Box::pin(backend.leaves::<H>(prefix, B::assume(&prefix, node)))
         })
     }
 
@@ -322,11 +389,11 @@ pub(crate) mod ops {
     /// The one dispatch keyed by an explicit height rather than a prefix:
     /// its input is a whole leaf stream, and the target height is the
     /// consuming scope's — whose prefix length the caller derives it from.
-    pub(crate) fn assemble<B>(
+    pub(crate) fn assemble<'a, B>(
         backend: B,
         height: usize,
-        leaves: BoxNodeStream<'static, B, Z>,
-    ) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send>>
+        leaves: BoxNodeStream<'a, B, Z>,
+    ) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send + 'a>>
     where
         B: Backend<Node<Z>: Leaf>,
     {

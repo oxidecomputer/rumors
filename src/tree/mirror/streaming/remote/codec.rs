@@ -10,23 +10,38 @@
 //!
 //! A frame begins with its logical stream index and signal state. Both use a
 //! one-byte canonical integer; other values are reserved. The stream index
-//! repeats the transport's label so a mislabeled stream produces a precise
-//! conformance error. The decoder also checks that the speaker, stream, and
-//! state belong together before reading the frame body.
+//! is what the session's pipe routes each frame by. The decoder also checks
+//! that the speaker, stream, and state belong together before reading the
+//! frame body.
 //!
-//! Reply and stream lifetimes are deliberately orthogonal. Every nonempty
-//! reply ends on its final reaction; an empty reply is one bare reply-end
-//! frame. After its final reply, a producer sends a separate bare stream-end
-//! control. The session demultiplexer consumes that control and closes the
-//! logical receiver, so the protocol adapter sees only complete replies. This
-//! lets a lazy reply stream flush each item immediately without looking ahead
-//! to discover whether that item is also the stream's last.
+//! Reply and stream lifetimes are deliberately orthogonal. The last frame a
+//! sender transmits for a nonempty reply carries the reply's end; an empty
+//! reply is one bare reply-end frame. That last frame is the reply's last
+//! reaction, which sits before the end of the question's listing when the
+//! reply's match covers every listed child after it: the receiver then
+//! checks, at the end, that every listed child after the last frame is
+//! covered, so the end is never inferred, only checked. A supply after the
+//! last listed child is a frame of its own and carries the end itself. A producer that sent any reply ends its logical stream with a
+//! separate bare stream-end frame after its final reply. The session
+//! demultiplexer consumes that frame and closes the logical receiver, so the
+//! protocol adapter sees only complete replies. This lets a producer hand
+//! each reply to the pipe as soon as it is built, without looking ahead to
+//! discover whether that reply is also the stream's last.
+//!
+//! A match that covers no later child is body-free. A reply's one match
+//! names every later listed child that also matches, and those children
+//! take no frame; a match covering any carries them as its body, one CBOR
+//! byte string holding the covered radixes in [`ByteSet`]'s canonical
+//! encoding (the ascending radixes below 32 of them, the 32-byte bitmap
+//! from 32 on). A body naming no radix is not canonical, so ingress rejects
+//! it, as it does any body that is not a set's canonical encoding.
 //!
 //! An empty query is wholly represented by its signal. A nonempty query's
-//! body is a `{radix: hash}` map with one entry per reported child: CBOR
-//! deterministic encoding mandates ascending keys and the wire's canonical
-//! form mandates strictly ascending radixes, so the two disciplines are
-//! one rule, enforced once at ingress. A supply body is a [`LeafRun`]
+//! body is a `{radix: [hash, count − 1]}` map with one entry per reported
+//! child, `count` being the child's grandchild count as its lister counts
+//! it: CBOR deterministic encoding mandates ascending keys and the wire's
+//! canonical form mandates strictly ascending radixes, so the two
+//! disciplines are one rule, enforced once at ingress. A supply body is a [`LeafRun`]
 //! behind the embedded-CBOR-sequence tag (63) wrapping a byte string —
 //! the byte-string head is the run's exact length, preserving O(1) skip
 //! and up-front pricing — and the run's records are each the same shape
@@ -46,9 +61,14 @@
 //! Encoding trusts the protocol and adapter to produce phase-correct,
 //! canonically ordered frames; it performs no redundant semantic validation.
 //! Decoding is the trust boundary and validates every peer-controlled signal,
-//! query, and supply-run structure before returning a frame. [`FrameRead`]
+//! match body, query, and supply-run structure before returning a frame;
+//! the reply decoder then validates each match's covered radixes against
+//! the question's listing. [`FrameRead`]
 //! and [`FrameWrite`] apply that same grammar directly to Tokio byte streams
 //! without buffering a complete outgoing frame.
+
+#[cfg(doc)]
+use crate::tree::mirror::streaming::byte_set::ByteSet;
 
 mod budget;
 #[cfg(any(test, feature = "test-internals"))]
@@ -60,20 +80,23 @@ mod frame;
 pub(crate) mod greeting;
 mod signal;
 
-#[cfg(test)]
+pub(crate) use budget::FULL_FAN_QUERY_FRAME_LEN;
 pub use budget::SUPPLY_FRAME_OVERHEAD;
-pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
+pub use budget::{MAX_RUN_BUDGET_BYTES, RunBudget};
+#[cfg(test)]
+pub(crate) use frame::MAX_QUERY_CHILDREN;
 
 #[cfg(any(test, feature = "test-internals"))]
 pub use crate::tree::mirror::cbor::HeadError;
 #[cfg(any(test, feature = "test-internals"))]
 pub use capture::{
-    HookCapture, HookStream, LinkCapture, assert_items_account_for, render_hook_capture,
-    stream_label,
+    HookCapture, HookStream, PipeCapture, assert_items_account_for, render_hook_capture,
 };
 pub use decode::FrameRead;
 #[cfg(test)]
 pub use decode::{decode, decode_exact};
+#[cfg(any(test, feature = "test-internals"))]
+pub use encode::CUTS_TO_GROW;
 pub use encode::FrameWrite;
 #[cfg(test)]
 pub use encode::encode;
@@ -110,7 +133,8 @@ pub use signal::{End, Flow, Speaker, Stream};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn supply_frame_head(declared: usize) -> Vec<u8> {
     use crate::tree::mirror::cbor;
-    let stream = Stream::new(0).expect("stream 0 is within the stream range");
+    // An interior reply stream, where the initiator may place a supply.
+    let stream = Stream::new(4).expect("stream 4 is within the stream range");
     let mut bytes = Vec::new();
     cbor::write_head(&mut bytes, cbor::MAJOR_ARRAY, 3);
     cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(stream.index()));
@@ -208,15 +232,16 @@ impl std::fmt::Debug for PreparedFrame {
 /// where every reaction form is admissible.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
+    use crate::tree::mirror::streaming::message::{LaterMatches, listed};
     use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
     let stream = Stream::new(4).expect("stream 4 is within the stream range");
     let frame = match shape {
-        FrameShape::BodyFree => Frame::Reaction(Reaction::Match, Flow::End),
+        FrameShape::BodyFree => Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
         FrameShape::Query { children } => {
             let children = (0..children)
                 .map(|radix| {
                     let radix = u8::try_from(radix).expect("a listing fits the radix space");
-                    (radix, Hash::from([radix; MERKLE_HASH_LEN]))
+                    listed(radix, Hash::from([radix; MERKLE_HASH_LEN]))
                 })
                 .collect();
             Frame::Reaction(Reaction::Query(children), Flow::End)

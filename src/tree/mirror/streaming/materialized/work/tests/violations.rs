@@ -4,7 +4,9 @@
 //! counterparty cannot cheaply select a type-level height. Connected-session
 //! tests separately check that these violations cross the public driver.
 
-use std::{collections::BTreeSet, convert::Infallible};
+use crate::network::NetworkKeys;
+use crate::tree::mirror::streaming::message::{Listed, listed};
+use std::{collections::BTreeSet, convert::Infallible, marker::PhantomData};
 
 use futures::stream::{self, StreamExt};
 use proptest::prelude::*;
@@ -20,13 +22,12 @@ use crate::{
             materialized::{
                 Error, Query, SupplyLedger, Violation, Work, work::queues::internal_child_queries,
             },
-            message::{Reaction, Reply},
+            message::{LaterMatches, Reaction, Reply},
             protocol::BoxResponses,
             stats::Recorder,
-            window::Window,
         },
         typed::{
-            self, Hash, Path, Prefix,
+            self, Path, Prefix,
             height::{Height, Root, S, UnderRoot, Z},
         },
     },
@@ -48,8 +49,12 @@ enum ScriptedViolation {
     UnansweredQuery,
     /// Leave at least one held child unanswered.
     UnfinishedReply,
-    /// Match after exhausting the held children.
+    /// Match a child of a question that holds none.
     UnexpectedMatch,
+    /// Match again after a match that covers every later held child.
+    RepeatedMatch,
+    /// Cover the match's own child as a later one.
+    UnlistedCover,
     /// Query after exhausting the held children.
     UnexpectedQuery,
     /// Supply a child already held locally.
@@ -58,8 +63,6 @@ enum ScriptedViolation {
     InvalidSupply,
     /// Supply past a held child without resolving it.
     InvalidSupplySkipsHeld,
-    /// Supply content beyond the declared version.
-    UncontainedSupply,
 }
 
 /// Convert a scripted case to the violation it must report.
@@ -71,11 +74,12 @@ impl From<ScriptedViolation> for Violation {
             ScriptedViolation::UnansweredQuery => Violation::UnansweredQuery,
             ScriptedViolation::UnfinishedReply => Violation::UnfinishedReply,
             ScriptedViolation::UnexpectedMatch => Violation::UnexpectedMatch,
+            ScriptedViolation::RepeatedMatch => Violation::RepeatedMatch,
+            ScriptedViolation::UnlistedCover => Violation::UnlistedCover,
             ScriptedViolation::UnexpectedQuery => Violation::UnexpectedQuery,
             ScriptedViolation::UnexpectedSupply => Violation::UnexpectedSupply,
             ScriptedViolation::InvalidSupply => Violation::InvalidSupply,
             ScriptedViolation::InvalidSupplySkipsHeld => Violation::InvalidSupply,
-            ScriptedViolation::UncontainedSupply => Violation::UncontainedSupply,
         }
     }
 }
@@ -87,21 +91,23 @@ fn arb_scripted_violation() -> impl Strategy<Value = ScriptedViolation> {
         Just(ScriptedViolation::UnansweredQuery),
         Just(ScriptedViolation::UnfinishedReply),
         Just(ScriptedViolation::UnexpectedMatch),
+        Just(ScriptedViolation::RepeatedMatch),
+        Just(ScriptedViolation::UnlistedCover),
         Just(ScriptedViolation::UnexpectedQuery),
         Just(ScriptedViolation::UnexpectedSupply),
         Just(ScriptedViolation::InvalidSupply),
         Just(ScriptedViolation::InvalidSupplySkipsHeld),
-        Just(ScriptedViolation::UncontainedSupply),
     ]
 }
 
-/// Build a node at any traversal height from one path-compressed leaf.
+/// Build a node at any traversal height from one path-compressed leaf,
+/// viewed whole.
 trait TestHeight: Height + Sized {
-    fn node(version: &mut Version) -> typed::Node<Self>;
+    fn node(version: &mut Version) -> typed::View<Self>;
 }
 
 impl TestHeight for Z {
-    fn node(version: &mut Version) -> typed::Node<Self> {
+    fn node(version: &mut Version) -> typed::View<Self> {
         leaf(version)
     }
 }
@@ -110,17 +116,14 @@ impl<H: TestHeight> TestHeight for S<H>
 where
     S<H>: Height,
 {
-    fn node(version: &mut Version) -> typed::Node<Self> {
-        typed::Node::beneath(H::node(version), 0)
+    fn node(version: &mut Version) -> typed::View<Self> {
+        typed::Node::beneath(H::node(version).into_node(), 0).into()
     }
 }
 
 /// Build one malformed reply script at query height `H`, with the version
-/// the scripted counterparty is taken to have declared.
-///
-/// The declared version is snapshotted after every honest node is built,
-/// so containment never preempts the structural fault under injection; the
-/// `UncontainedSupply` script alone ticks past the snapshot.
+/// the scripted counterparty is taken to have declared: the join of every
+/// node the script builds, snapshotted after the last.
 fn violation_script<H>(
     injection: ScriptedViolation,
     parent: u8,
@@ -135,9 +138,8 @@ where
         .iter()
         .map(|&radix| (radix, H::node(&mut version)))
         .collect::<Vec<_>>();
-    let supplied = H::node(&mut version);
+    let supplied = <Local as Backend>::erase(H::node(&mut version));
     let declared = version.clone();
-    let escaped = H::node(&mut version);
     let mut path = [0; 32];
     path[0] = parent;
     let prefix = Prefix::<S<H>>::containing(&Path::from(path));
@@ -147,38 +149,96 @@ where
             .iter()
             .map(|(radix, node)| (*radix, <Local as Backend>::erase(node.clone())))
             .collect(),
+        original: None,
+        bound: Default::default(),
+        charge: Default::default(),
+        reservation: Default::default(),
     };
 
-    let matches = || {
-        std::iter::repeat_with(|| Reaction::Match)
-            .take(ours.len())
-            .collect::<Vec<_>>()
+    // A conforming match of the first `held` children: one reaction at the
+    // first, covering the rest.
+    let held: Vec<u8> = radixes.iter().copied().collect();
+    let matching = |held: &[u8]| match held.split_first() {
+        None => Vec::new(),
+        Some((_, later)) => vec![Reaction::Match(LaterMatches::new(
+            later.iter().copied().collect(),
+        ))],
     };
+    let matches = || matching(&held);
     let (query, replies) = match injection {
         ScriptedViolation::UnaskedReply => (
             None,
             vec![Reply {
                 reactions: Vec::new(),
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
         ScriptedViolation::UnfinishedReply => (
             Some(query),
             vec![Reply {
-                reactions: std::iter::repeat_with(|| Reaction::Match)
-                    .take(ours.len() - 1)
-                    .collect(),
+                reactions: matching(&held[..held.len() - 1]),
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
             }],
         ),
-        ScriptedViolation::UnexpectedMatch => {
+        ScriptedViolation::UnexpectedMatch => (
+            Some(Query {
+                ours: Vec::new(),
+                ..query
+            }),
+            vec![Reply {
+                reactions: vec![Reaction::Match(LaterMatches::NONE)],
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
+            }],
+        ),
+        ScriptedViolation::RepeatedMatch => {
             let mut reactions = matches();
-            reactions.push(Reaction::Match);
-            (Some(query), vec![Reply { reactions }])
+            reactions.push(Reaction::Match(LaterMatches::NONE));
+            (
+                Some(query),
+                vec![Reply {
+                    reactions,
+                    charge: Default::default(),
+                    last: true,
+                    carried: Default::default(),
+                    height: PhantomData,
+                }],
+            )
         }
+        ScriptedViolation::UnlistedCover => (
+            Some(query),
+            vec![Reply {
+                reactions: vec![Reaction::Match(LaterMatches::new(
+                    held[..1].iter().copied().collect(),
+                ))],
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
+            }],
+        ),
         ScriptedViolation::UnexpectedQuery => {
             let mut reactions = matches();
             reactions.push(Reaction::Query(Vec::new()));
-            (Some(query), vec![Reply { reactions }])
+            (
+                Some(query),
+                vec![Reply {
+                    reactions,
+                    charge: Default::default(),
+                    last: true,
+                    carried: Default::default(),
+                    height: PhantomData,
+                }],
+            )
         }
         ScriptedViolation::UnexpectedSupply => (
             Some(query),
@@ -187,6 +247,10 @@ where
                     *radixes.first().expect("the strategy produces a child"),
                     supplied,
                 )],
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
             }],
         ),
         ScriptedViolation::InvalidSupply => {
@@ -195,12 +259,20 @@ where
                 Some(Query {
                     prefix: prefix.erase(),
                     ours: Vec::new(),
+                    original: None,
+                    bound: Default::default(),
+                    charge: Default::default(),
+                    reservation: Default::default(),
                 }),
                 vec![Reply {
                     reactions: vec![
                         Reaction::Supply(radix, supplied.clone()),
                         Reaction::Supply(radix, supplied),
                     ],
+                    charge: Default::default(),
+                    last: true,
+                    carried: Default::default(),
+                    height: PhantomData,
                 }],
             )
         }
@@ -208,25 +280,19 @@ where
             Some(Query {
                 prefix: prefix.erase(),
                 ours: vec![(5, <Local as Backend>::erase(ours[0].1.clone()))],
+                original: None,
+                bound: Default::default(),
+                charge: Default::default(),
+                reservation: Default::default(),
             }),
             vec![Reply {
                 reactions: vec![Reaction::Supply(7, supplied)],
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
             }],
         ),
-        ScriptedViolation::UncontainedSupply => {
-            // Structurally a legal supply — the query holds nothing, the
-            // radix is fresh — so only the version escape is at fault.
-            let radix = *radixes.first().expect("the strategy produces a child");
-            (
-                Some(Query {
-                    prefix: prefix.erase(),
-                    ours: Vec::new(),
-                }),
-                vec![Reply {
-                    reactions: vec![Reaction::Supply(radix, escaped)],
-                }],
-            )
-        }
     };
     (query, replies, declared)
 }
@@ -238,8 +304,7 @@ where
     H: Height,
     S<H>: Height,
 {
-    let (mut queries, queries_rx) =
-        internal_child_queries::<Local>(H::HEIGHT, 1, &Recorder::default());
+    let (mut queries, queries_rx) = internal_child_queries::<Local>(H::HEIGHT);
     if let Some(query) = query {
         pollster::block_on(queries.send(query)).expect("the walk is live");
     }
@@ -267,6 +332,7 @@ fn reported_violation<H: Height>(
     match error {
         Error::Violation(violation) => violation,
         Error::Backend(error) => match error {},
+        Error::Count(error) => panic!("the in-memory backend keeps every count in range: {error}"),
     }
 }
 
@@ -282,7 +348,12 @@ impl InjectHeight for Z {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(
+            Local,
+            Recorder::default(),
+            Default::default(),
+            Some(crate::network::NetworkKeys::fixture()),
+        );
         let (responses, _resolutions) = work.leaf_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -299,7 +370,12 @@ impl InjectHeight for S<Z> {
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(
+            Local,
+            Recorder::default(),
+            Default::default(),
+            Some(crate::network::NetworkKeys::fixture()),
+        );
         let (responses, _asked, _upper, _lower) = work.leaf_parent_level(
             declared,
             SupplyLedger::new(u64::MAX),
@@ -322,11 +398,15 @@ where
     fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(
+            Local,
+            Recorder::default(),
+            Default::default(),
+            Some(crate::network::NetworkKeys::fixture()),
+        );
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,
             SupplyLedger::new(u64::MAX),
-            None,
             stream::iter(requests),
             queries,
         );
@@ -392,11 +472,10 @@ proptest! {
     /// Every malformed opening reply is reported as its exact public
     /// `Violation`.
     ///
-    /// The responder's opening leg reads the root question and the
-    /// initiator's early supplies with arms of its own: the opening reply
-    /// is not paired positionally against the held fan, so the resolver
-    /// cannot classify it. An arbitrary held fan and channel poll order
-    /// pin those arms to the taxonomy.
+    /// The responder's opening leg reads the root question with arms of
+    /// its own: the opening reply is not paired positionally against the
+    /// held fan, so the resolver cannot classify it. An arbitrary held fan
+    /// and channel poll order pin those arms to the taxonomy.
     #[test]
     fn opening_fault_reports_exact_violation(
         injection in arb_opening_injection(),
@@ -412,9 +491,8 @@ proptest! {
 /// One deliberately malformed opening reply and the exact violation it
 /// must surface.
 ///
-/// The opening reply is the root question followed by the initiator's
-/// early supplies, in ascending radix order and at radices the responder
-/// does not hold; each shape below breaks one clause of that grammar.
+/// The opening reply is the root question and nothing else; each shape
+/// below breaks that grammar once.
 #[derive(Clone, Copy, Debug)]
 enum OpeningInjection {
     /// The reply stream ends before the opening reply.
@@ -425,21 +503,11 @@ enum OpeningInjection {
     UnfinishedReply,
     /// A `Match`, ahead of the root question or after it.
     Match { trailing: bool },
-    /// A supply ahead of the root question, at a radix this side holds or
-    /// at a fresh one.
-    LeadingSupply { held: bool },
+    /// A supply ahead of the root question or after it, at a radix this
+    /// side holds or at a fresh one.
+    Supply { trailing: bool, held: bool },
     /// A second `Query` after the root question.
     TrailingQuery,
-    /// Two early supplies in descending radix order.
-    DescendingSupplies,
-    /// The same early radix supplied twice.
-    DuplicateSupply,
-    /// An early supply at a radix this side holds.
-    HeldSupply,
-    /// An early supply whose version escapes the declared version.
-    UncontainedSupply,
-    /// An early supply past the declared set length.
-    OverdrawnSupply,
 }
 
 impl OpeningInjection {
@@ -449,22 +517,9 @@ impl OpeningInjection {
             Self::UnaskedReply => Violation::UnaskedReply,
             Self::UnfinishedReply => Violation::UnfinishedReply,
             Self::Match { .. } => Violation::UnexpectedMatch,
-            Self::LeadingSupply { held: true } | Self::HeldSupply => Violation::UnexpectedSupply,
-            Self::LeadingSupply { held: false }
-            | Self::DescendingSupplies
-            | Self::DuplicateSupply => Violation::InvalidSupply,
+            Self::Supply { held: true, .. } => Violation::UnexpectedSupply,
+            Self::Supply { held: false, .. } => Violation::InvalidSupply,
             Self::TrailingQuery => Violation::UnexpectedQuery,
-            Self::UncontainedSupply => Violation::UncontainedSupply,
-            Self::OverdrawnSupply => Violation::OverdrawnSupply,
-        }
-    }
-
-    /// The declared set length the script runs under: spent only where
-    /// the overrun is the fault.
-    fn ledger(self) -> SupplyLedger {
-        match self {
-            Self::OverdrawnSupply => SupplyLedger::new(0),
-            _ => SupplyLedger::new(u64::MAX),
         }
     }
 }
@@ -475,13 +530,9 @@ fn arb_opening_injection() -> impl Strategy<Value = OpeningInjection> {
         Just(OpeningInjection::UnaskedReply),
         Just(OpeningInjection::UnfinishedReply),
         any::<bool>().prop_map(|trailing| OpeningInjection::Match { trailing }),
-        any::<bool>().prop_map(|held| OpeningInjection::LeadingSupply { held }),
+        (any::<bool>(), any::<bool>())
+            .prop_map(|(trailing, held)| OpeningInjection::Supply { trailing, held }),
         Just(OpeningInjection::TrailingQuery),
-        Just(OpeningInjection::DescendingSupplies),
-        Just(OpeningInjection::DuplicateSupply),
-        Just(OpeningInjection::HeldSupply),
-        Just(OpeningInjection::UncontainedSupply),
-        Just(OpeningInjection::OverdrawnSupply),
     ]
 }
 
@@ -489,9 +540,7 @@ fn arb_opening_injection() -> impl Strategy<Value = OpeningInjection> {
 /// whose root fan holds one child per radix in `radixes`.
 ///
 /// The root question matches the held fan exactly, so a script whose
-/// fault lies past the question is answered without a dispute. The
-/// declared version is snapshotted after every contained node is built;
-/// the `UncontainedSupply` script alone ticks past the snapshot.
+/// fault lies past the question is answered without a dispute.
 fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Violation {
     let mut version = Version::new();
     let ours = radixes
@@ -500,58 +549,82 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         .collect::<Vec<_>>();
     let theirs = ours
         .iter()
-        .map(|(radix, node)| (*radix, node.hash()))
-        .collect::<Vec<(u8, Hash)>>();
+        .map(|(radix, node)| listed(*radix, node.hash(NetworkKeys::fixture().hash())))
+        .collect::<Vec<Listed>>();
     let fan = ours
         .into_iter()
         .map(|(radix, node)| (radix, <Local as Backend>::erase(node)))
         .collect::<Vec<(u8, Erased)>>();
-    let contained = [UnderRoot::node(&mut version), UnderRoot::node(&mut version)];
+    let supplied = <Local as Backend>::erase(UnderRoot::node(&mut version));
     let declared = version.clone();
-    let escaped = UnderRoot::node(&mut version);
 
     let held = *radixes.first().expect("the strategy produces a child");
-    let mut fresh = (0..=u8::MAX).filter(|radix| !radixes.contains(radix));
-    let low = fresh.next().expect("at most eight radices are held");
-    let high = fresh.next().expect("at most eight radices are held");
+    let fresh = (0..=u8::MAX)
+        .find(|radix| !radixes.contains(radix))
+        .expect("at most eight radices are held");
     let question = || Reaction::Query(theirs.clone());
-    let supply = |radix: u8, index: usize| Reaction::Supply(radix, contained[index].clone());
-    let one = |reactions: Vec<Reaction<Local, UnderRoot>>| vec![Reply { reactions }];
+    let one = |reactions: Vec<Reaction<Erased>>| {
+        vec![Reply {
+            reactions,
+            charge: Default::default(),
+            last: true,
+            carried: Default::default(),
+            height: PhantomData,
+        }]
+    };
     let requests = match injection {
         OpeningInjection::UnansweredQuery => Vec::new(),
         OpeningInjection::UnaskedReply => vec![
             Reply {
                 reactions: vec![question()],
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
             },
             Reply {
                 reactions: Vec::new(),
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+                height: PhantomData,
             },
         ],
         OpeningInjection::UnfinishedReply => one(Vec::new()),
-        OpeningInjection::Match { trailing: false } => one(vec![Reaction::Match]),
-        OpeningInjection::Match { trailing: true } => one(vec![question(), Reaction::Match]),
-        OpeningInjection::LeadingSupply { held: true } => one(vec![supply(held, 0), question()]),
-        OpeningInjection::LeadingSupply { held: false } => one(vec![supply(low, 0), question()]),
+        OpeningInjection::Match { trailing: false } => {
+            one(vec![Reaction::Match(LaterMatches::NONE)])
+        }
+        OpeningInjection::Match { trailing: true } => {
+            one(vec![question(), Reaction::Match(LaterMatches::NONE)])
+        }
+        OpeningInjection::Supply {
+            trailing,
+            held: is_held,
+        } => {
+            let radix = if is_held { held } else { fresh };
+            let supply = Reaction::Supply(radix, supplied);
+            if trailing {
+                one(vec![question(), supply])
+            } else {
+                one(vec![supply, question()])
+            }
+        }
         OpeningInjection::TrailingQuery => one(vec![question(), Reaction::Query(Vec::new())]),
-        OpeningInjection::DescendingSupplies => {
-            one(vec![question(), supply(high, 0), supply(low, 1)])
-        }
-        OpeningInjection::DuplicateSupply => one(vec![question(), supply(low, 0), supply(low, 1)]),
-        OpeningInjection::HeldSupply => one(vec![question(), supply(held, 0)]),
-        OpeningInjection::UncontainedSupply => {
-            one(vec![question(), Reaction::Supply(low, escaped)])
-        }
-        OpeningInjection::OverdrawnSupply => one(vec![question(), supply(low, 0)]),
     };
 
-    let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+    let mut work = Work::new(
+        Local,
+        Recorder::default(),
+        Default::default(),
+        Some(crate::network::NetworkKeys::fixture()),
+    );
     // The channels the leg publishes into stay open for the run: a closed
     // one ends the leg quietly instead of reporting.
-    let (responses, _asked, _returns, _early, _finish) = work.responder_level(
+    let (responses, _asked, _returns, _finish) = work.responder_level(
         declared.clone(),
-        injection.ledger(),
         declared,
         fan,
+        None,
         stream::iter(requests),
     );
     reported_violation(work, responses)

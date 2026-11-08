@@ -12,7 +12,7 @@ use crate::{
     tree::{
         Root,
         arb::nth_party,
-        mirror::streaming::window::FAN,
+        mirror::streaming::FAN,
         traverse::{Action, act},
         typed::{Node as TreeNode, Path, height},
     },
@@ -70,7 +70,7 @@ where
             Action::Insert(Message::new(value.clone())),
         ));
     }
-    act(node, actions, &mut |_| ())
+    act(node, actions, &mut |_, _| ())
 }
 
 /// Wrap a node as a [`Root`] whose ceiling is the node's own.

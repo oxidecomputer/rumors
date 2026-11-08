@@ -1,8 +1,8 @@
 # rumors — project notes
 
-A guidepost, not a manual: it orients and points, and the documentation of
-record is the rustdoc. Keep this file small and accurate; when detail needs a
-durable home, put it in the docs and point there.
+A guidepost, not a manual: it orients and points, and the rustdoc holds the
+documentation. Keep this file small and accurate; when detail needs a durable
+home, put it in the docs and point there.
 
 ## Orientation
 
@@ -22,11 +22,16 @@ tour, and the comment above each recipe says what it checks and why.
   `just fmt`.
 - After editing crate-level rustdoc, run `just readme`: the READMEs are
   derived, never hand-edited.
-- Before committing, get the checks that can read the change fully clean:
-  `just gate` for anything that can alter what builds or runs, its
-  build-free tier `just gate-lints` for a change confined to plain comments
-  and test doc comments, and nothing for a commit-message rewrite. The
-  comment above the `gate` recipe gives the reasoning.
+- Choose verification by what your diff can break: the comment above each
+  recipe says what it checks. Before a commit, run the recipes that check
+  what you touched. A change that can alter what builds or runs needs at
+  least `just clippy` and the affected tests; a change confined to plain
+  comments and test doc comments needs only the build-free tier
+  `just gate-lints`; a rewrite of a commit message alone needs no check.
+- Get `just gate` fully clean on the tip proposed for `main`, and on every
+  commit `main`'s first-parent line gains: its merges, and commits made
+  directly on `main`. Commits inside a merged branch need not each pass the
+  gate; first-parent bisection (below) is what makes that safe.
 - After a gate leg fails, fix it and rerun that leg and any leg the fix can
   reach, not the whole gate: the legs that passed still hold for what they
   read.
@@ -45,7 +50,7 @@ justfile's `nightly_toolchain` give the reason and the bump procedure.
 
 - Unit and protocol tests live in a sibling file: `mod tests;` in the source,
   `tests.rs` next to it. Cross-peer suites are binaries in `tests/`, built on
-  the fixtures in `crates/rumors-testkit` (its `common` module doc maps them).
+  the fixtures in `crates/rumors-testkit` (its `common` module doc describes them).
 - Give every test a doc comment stating the behavior and invariant it
   protects. The gate's `testdoc` checks that the comment exists; review holds
   it to the standard.
@@ -91,17 +96,20 @@ No gate leg checks these; review does.
 - Nothing in the tree refers to code that no longer exists: no "formerly", no
   "was removed", no deleted API names. Restate prose in terms of what is;
   provenance lives in git history.
-- Code may cite the Lean artifact by *theorem or definition name*, never by
-  file path, when a kernel-checked statement backs the claim, and still states
-  the invariant inline.
-- The model of record is uniform-hash and authenticated-honest-peer: the
+- The assumed model is uniform-hash and authenticated-honest-peer: the
   transport is pre-authenticated and authorized, and an authorized peer already
   holds write authority over the set. Hostile peers are off-model, so no
-  design or cost argument rests on adversary economics, and fail-fast checks
-  detect conformance bugs rather than enforce security. Add no machinery to
-  guarantee termination against non-conforming peers or links (applications
-  own deadlines for those waits); preserve progress under conforming traffic
-  and propagate detected failures promptly.
+  design or cost argument rests on a hostile peer's economics, and fail-fast
+  checks detect conformance bugs rather than enforce security. An adversary
+  outside the peers is in model: it observes the transport, steers gossip
+  timing and topology (cutting connections included), and triggers
+  insertions and redactions through the application, but cannot alter a
+  session or make a peer depart from the protocol. The protocol's integrity
+  must not depend on the transport's confidentiality, nor on that adversary
+  being unable to infer replica contents or versions. Add no machinery to
+  guarantee termination against non-conforming peers or connections
+  (applications own deadlines for those waits); preserve progress under
+  conforming traffic and propagate detected failures promptly.
 - Never let two independently `seed`ed universes interact. Within a universe,
   the linearity of parties is the invariant everything rests on (see
   `before`'s `Party` docs).
@@ -109,10 +117,10 @@ No gate leg checks these; review does.
   so reason about it in version ceilings and floors, not markers.
 - The `insta` snapshots and the exact byte counts in
   `tests/protocol_overhead.rs` pin the wire and storage formats. Re-accept
-  them only for a deliberate, owner-ruled change to a format or to the capture
-  renderer, named in the re-accepting commit, never to accommodate drift. Once
-  a release ships, a wire format change means a new protocol version, never a
-  mutation of a released one.
+  them only for a deliberate change to a format or to the capture renderer,
+  named in the re-accepting commit, never to accommodate drift. Once a release
+  ships, a wire format change means a new protocol version, never a mutation
+  of a released one.
   - A bookmark snapshot that moves because the encoding changed is an on-disk
     format change: bump `BOOKMARK_FORMAT_VERSION` in the same commit.
   - A snapshot that moves only because its test fixture changed is a fixture

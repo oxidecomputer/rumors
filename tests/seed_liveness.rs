@@ -5,7 +5,7 @@
 //! No regression corpus may go silently dead when a module moves,
 //! retires, or a seed lands in a location the library never reads.
 //!
-//! Committed seeds are instruments of record — each `cc` line replays a
+//! Committed seeds are regression instruments — each `cc` line replays a
 //! shrunk failure before novel cases are generated — but a seed replays
 //! only from the one path proptest resolves from its test's source
 //! location. The default persistence (`SourceParallel`) walks up from

@@ -1,9 +1,9 @@
 # rumors workspace verification. `just --list` is the tour.
 #
 #   inner loop   just check / just test <filter>
-#   commit gate  just gate    fully clean before every commit that changes code
+#   commit gate  just gate    fully clean on what main's first-parent line gains
 #   CI           just ci      with ci-instruments and ci-properties, one per CI job
-#   full sweep   just all     CI plus the local-only fuzz and Lean checks
+#   full sweep   just all     CI plus the local-only fuzz checks
 #
 # `#[ignore]`d instruments have no recipe; each one's doc gives its cost and
 # the command that runs it.
@@ -49,6 +49,9 @@ fuzzfit_target := justfile_directory() + "/target/fuzzfit"
 fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/fuel/fuzzfit_guest.wasm"
 
 fuelscape_target := justfile_directory() + "/target/before-fuelscape"
+curves_target := justfile_directory() + "/target/budget-curves-build"
+netperf_target := justfile_directory() + "/target/netperf"
+curves_out := justfile_directory() + "/target/budget-curves"
 surfacecheck_target := justfile_directory() + "/target/surfacecheck"
 
 wasm32pins_target := justfile_directory() + "/target/wasm32-pins"
@@ -91,9 +94,9 @@ test-all *args:
 
 # Package-scoped: before's operation meters pin the dev profile.
 
-# Run rumors' tests at CI's property-case count, in the release profile.
+# Run the tests at CI's property-case count, in release codegen with overflow and debug assertions.
 test-release *args:
-    PROPTEST_CASES={{ proptest_ci_cases }} cargo nextest run --all-features --locked --cargo-profile release --profile high-count --no-fail-fast {{ args }}
+    PROPTEST_CASES={{ proptest_ci_cases }} cargo nextest run --all-features --locked --cargo-profile release-checked --profile high-count --no-fail-fast {{ args }}
 
 # Nightly's merged mode compiles one doctest harness per crate rather than
 # one binary per example, whose link time dominated the gate. A separate
@@ -129,22 +132,22 @@ fmt:
 fmt-check:
     cargo fmt --all --check
 
-# ── commit gate: everything a commit must pass, fully clean ──────────────────
+# ── commit gate: everything main's first-parent line must pass, fully clean ──
 # Each tools/ checker runs its self-test first, so a checker bug fails the
 # gate instead of passing everything. Each tool's header documents its rules.
 
 # doclint and testdoc walk named roots, never `.`, whose untracked trees
-# (agent worktrees under `.claude/`) would otherwise enter the verdict.
+# (worktrees nested under `.claude/`) would otherwise enter the verdict.
 
 # Flag doc-comment summaries and included-figure layouts that render wrong.
 doclint:
     ./tools/doclint --self-test
-    ./tools/doclint benches crates examples src tests
+    ./tools/doclint benches crates src tests
 
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
     ./tools/testdoc --self-test
-    ./tools/testdoc benches crates examples src tests
+    ./tools/testdoc benches crates src tests
 
 # Hold every workflow step to committed or immutably-pinned code.
 workflowlint:
@@ -159,14 +162,6 @@ manifestlint:
     ./tools/manifestlint --self-test
     ./tools/manifestlint
 
-# Fails when the committed wire captures stop matching the meter's patterns,
-# never on the measured digest share.
-
-# Check the wire-capture renderer vocabulary via the digest-share meter.
-digestshare:
-    ./tools/digestshare --self-test
-    ./tools/digestshare
-
 # The READMEs derive from crate-level rustdoc via cargo-rdme, with the
 # intra-doc links it cannot resolve stripped to code spans; never hand-edit
 # them. Needs cargo-rdme at the version tools/readme pins.
@@ -180,16 +175,18 @@ readme-check:
     ./tools/readme self-test
     ./tools/readme check
 
-# The rustdoc is the documentation of record, so broken intra-doc links fail
-# the gate. A page missing the fuelscape widget's assets shows empty charts
+# The rustdoc is where the documentation lives, so broken intra-doc links
+# fail the gate. A page missing the fuelscape widget's assets shows empty charts
 # and fails nothing else, so tools/fuelscape-assets requires them exactly
 # once on every page with a chart and on no other.
 
 # Build the rustdoc with warnings denied; hold the widget assets to their pages.
+# The explicit target dir, as in the recipes below, keeps the pages where the
+# asset check reads them even when CARGO_TARGET_DIR points elsewhere.
 docs:
-    RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps --target-dir target/doc-public
     ./tools/fuelscape-assets --self-test
-    ./tools/fuelscape-assets target/doc
+    ./tools/fuelscape-assets target/doc-public/doc
 
 # Rendering private items catches stale links in private modules, but
 # silences `private_intra_doc_links`, so neither pass replaces `docs`. Its
@@ -228,11 +225,12 @@ amp-board-smoke:
 
 # cargo-audit checks every tracked Cargo.lock against RustSec, the gate's
 # one network fetch: vulnerabilities fail, other advisories warn. cargo-deny
-# holds the default members to one version per crate; deny.toml names each
-# tolerated duplicate's holdout, and tool-only duplicates are exempt because
-# they never ship. Needs `cargo install cargo-audit cargo-deny`.
+# reports crates that ship at more than one version in the default members,
+# as warnings; deny.toml gives the reasoning, and tool-only and
+# development-only duplicates are exempt because they never ship. Needs
+# `cargo install cargo-audit cargo-deny`.
 
-# Audit advisories on every lockfile and hold the workspace to single crate versions.
+# Audit advisories on every lockfile and report duplicate crate versions that ship.
 supply-chain:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -281,18 +279,21 @@ fuzz-build:
 # but changes no verdict. Nothing caps peak memory, which concurrency
 # multiplies.
 
-# A commit needs the checks that can read what it changes. A change confined
-# to plain comments and test doc comments cannot alter what builds or runs,
-# so the build-free tier `gate-lints` judges it completely; a rewrite of a
-# commit message alone needs no check. Everything else, rustdoc included
-# (it builds as doctests and as docs with warnings denied), needs the whole
-# gate.
+# The gate is the full check: it must pass on the tip proposed for `main`
+# and on every commit `main`'s first-parent line gains, its merges and
+# commits made directly on `main`. A commit inside a merged branch needs
+# only the recipes that can read what it changes. A change
+# confined to plain comments and test doc comments cannot alter what builds
+# or runs, so the build-free tier `gate-lints` judges it completely; a
+# rewrite of a commit message alone needs no check. Rustdoc builds as
+# doctests and as docs with warnings denied, so a rustdoc change needs the
+# doc recipes too.
 
-# Run the pre-commit gate; it must come up fully clean before every commit that changes code.
+# Run the full gate; it must come up fully clean on the tip proposed for main.
 gate: gate-lints gate-streams
 
 # Run the build-free gate tier, sequentially.
-gate-lints: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check
+gate-lints: fmt-check doclint testdoc workflowlint manifestlint readme-check
 
 # Each stream logs to its own file, and failing streams' logs replay in full
 # at the end. A stream that records neither an ok nor a failed marker
@@ -354,6 +355,8 @@ gate-streams:
     start_stream internal-docs 10 _gate-internal-docs
     start_stream docsrs       10 _gate-docsrs
     start_stream audit        10 _gate-audit
+    start_stream curves       10 _gate-curves
+    start_stream netperf      10 _gate-netperf
     wait
 
     failed=$(cd "$logs" && ls *.failed 2>/dev/null | sed 's/\.failed$//')
@@ -402,6 +405,8 @@ _gate-surface: surface-totality
 _gate-internal-docs: docs-internal
 _gate-docsrs: docs-docsrs
 _gate-audit: supply-chain
+_gate-curves: budget-curves-lint
+_gate-netperf: netperf-check
 
 # ── artifacts the gate doesn't reach ─────────────────────────────────────────
 # `serde,borsh` is checked as a pair because both derive on the same types.
@@ -518,6 +523,50 @@ fuelscape-test: fuzzfit-build
     cargo clippy -p before-fuelscape --all-targets --target-dir {{ fuelscape_target }} -- -D warnings
     FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run --ignore-default-filter -p before-fuelscape --target-dir {{ fuelscape_target }}
 
+# Lint the budget-curves tool, which no workspace-wide recipe compiles.
+budget-curves-lint:
+    cargo clippy -p rumors-budget-curves --all-targets --locked --target-dir {{ curves_target }} -- -D warnings
+
+# The link-measurement tool builds alone, with `-p`, so cargo resolves the
+# library's features for it alone and never compiles `test-internals` into
+# the binary it measures with. Its tests run here rather than in the
+# workspace's suites, since it is a tool-side member.
+
+# Lint, document, and test the link-measurement tool (rumors-netperf).
+netperf-check:
+    cargo clippy -p rumors-netperf --all-targets --locked --target-dir {{ netperf_target }} -- -D warnings
+    RUSTDOCFLAGS="-D warnings" cargo doc -p rumors-netperf --no-deps --locked --target-dir {{ netperf_target }}/doc-public
+    RUSTDOCFLAGS="-D warnings" cargo doc -p rumors-netperf --no-deps --document-private-items --locked --target-dir {{ netperf_target }}/doc-internal
+    cargo nextest run --ignore-default-filter -p rumors-netperf --cargo-profile release --locked --target-dir {{ netperf_target }}
+
+# Emulation needs Linux; pair mode runs anywhere. Options pass through, e.g.
+# `just netperf doctor` or `just netperf run --grid crates/rumors-netperf/grids/quick.toml`.
+
+# Build the link-measurement tool in release and run it with the given arguments.
+netperf *args:
+    cargo run --release --locked -p rumors-netperf --target-dir {{ netperf_target }} -- {{ args }}
+
+# The curves come from deterministic sessions of the library's own session
+# code over the test kit's link model, so every point reproduces exactly on
+# the same platform; across platforms (Linux and illumos, say), heap figures,
+# admission counts and occasionally durations differ slightly. The default
+# grid runs 10^5 and 10^6 messages per replica,
+# three overlaps, and three links, about a thousand sessions; at 10^6 a
+# session takes minutes and gigabytes, so choose `--jobs` for the machine's
+# memory. Options pass through to `simulate`, e.g.
+# `just budget-curves --sizes 100000 --jobs 64`. A rerun keeps the sessions
+# target/budget-curves/sessions.jsonl already holds and runs only the rest.
+
+# Run the budget curves' sessions and render their plots and tables into target/budget-curves.
+budget-curves *args:
+    mkdir -p {{ curves_out }}
+    cargo run --release --locked -p rumors-budget-curves --target-dir {{ curves_target }} -- simulate --out {{ curves_out }}/sessions.jsonl {{ args }}
+    cargo run --release --locked -p rumors-budget-curves --target-dir {{ curves_target }} -- render --data {{ curves_out }}/sessions.jsonl --out {{ curves_out }}
+
+# Render the budget curves' plots and tables from the sessions already run.
+budget-curves-render:
+    cargo run --release --locked -p rumors-budget-curves --target-dir {{ curves_target }} -- render --data {{ curves_out }}/sessions.jsonl --out {{ curves_out }}
+
 # One log-log fuel-by-size heatmap per public operation, with the committed
 # adversarial families overlaid; deterministic per seed and plan. Options
 # pass through, e.g. `just fuelscape --samples 500 --max-bytes 512`.
@@ -562,7 +611,9 @@ fuelscape-claims:
     ./tools/fuelscape-claims
 
 # ── the formal tier (formal/lean; needs elan) ────────────────────────────────
-# Local only: the CI runner has no Lean toolchain.
+# The formal development is archived, so no sweep runs these recipes; each
+# runs standalone, and only locally, since the CI runner has no Lean
+# toolchain.
 
 # Kernel-check the Lean theorem artifact (all proofs, pins, controls).
 [working-directory("formal/lean")]
@@ -590,14 +641,6 @@ muxprobe rand_seeds="25":
 
 # ── conveniences ─────────────────────────────────────────────────────────────
 
-# The temp file keeps a failed build from truncating the table; the window
-# suite fails if the committed table drifts from this rendering.
-
-# Regenerate the sync-budget trade-off table compiled into the rustdoc.
-window-tradeoff:
-    cargo run --example window_tradeoff > src/tree/mirror/streaming/window/tradeoff.md.tmp
-    mv src/tree/mirror/streaming/window/tradeoff.md.tmp src/tree/mirror/streaming/window/tradeoff.md
-
 # Full sampling is required for any quoted number. The filter matches
 # Criterion IDs (`group/function`), and further arguments pass through, e.g.
 # `just bench version version/hole --profile-time 10` to profile.
@@ -613,9 +656,9 @@ bench-quick target *filter:
 # The amplification board judges each cell's peak heap, a deterministic
 # counter, against its declared bounds, so its output is byte-identical
 # under any load and any shard count (AMP_BOARD_SHARDS). It runs in release,
-# the profile of record: debug assertions add work, so never pin a dev
-# reading. A bare `just amp-board [scale]` is a debugging view; the verdict
-# of record is `amp-board-acceptance`.
+# the profile its ceilings are calibrated in: debug assertions add work, so
+# never pin a dev reading. A bare `just amp-board [scale]` is a debugging
+# view; the gate's verdict is `amp-board-acceptance`.
 
 # No root-target leg builds release, so a separate target dir costs no extra
 # compilation and never waits on the workspace stream's build lock.
@@ -640,8 +683,8 @@ amp-board *args:
 # whatever the other's verdict:
 #
 # - Acceptance judges every constant and floor per size and fits each
-#   exponent as one trend. A failing cell is resolved only by a fix or an
-#   owner-declared model at the cell.
+#   exponent as one trend. A failing cell is resolved only by a fix or a
+#   model declared at the cell.
 # - The ranking pin requires the live worst family per operation x currency
 #   to match WORST_RANKINGS, whose docs give the TARGET_DEPENDENT rule. A
 #   flip is news: re-pin a legitimate overtake with a movement annotation,
@@ -650,7 +693,7 @@ amp-board *args:
 # `--capture <file>` also writes the exact readings, stamped with the source
 # tree, for `just amp-board compare` and calibration.
 
-# Run the board's verdict of record: one ladder sweep, acceptance and the ranking pin.
+# Run the board's gate verdict: one ladder sweep, acceptance and the ranking pin.
 [positional-arguments]
 amp-board-acceptance *args:
     #!/usr/bin/env bash
@@ -663,8 +706,8 @@ amp-board-acceptance *args:
 
 # Runs every board cell in a wasm32 guest under Wasmtime fuel, a count of
 # every executed instruction, judged by the board's rules against per-cell
-# calibrated ceilings; the native board stays the measure of record for
-# heap. Each cell gets a fresh guest, so readings ignore load and
+# calibrated ceilings; heap stays judged by the native board alone. Each
+# cell gets a fresh guest, so readings ignore load and
 # AMP_BOARD_FUEL_THREADS. The ceilings record the compiler, Wasmtime, and
 # cost table they were calibrated under, and the run refuses a guest built
 # under any other: after a bump, run `just amp-board-calibrate-fuel`.
@@ -675,7 +718,7 @@ amp-board-fuel-build:
     {{ fuel_guest_env }} cargo build -p board-fuel-guest --profile fuel --target wasm32-unknown-unknown --target-dir {{ board_fuel_target }}
     cargo build -p board-fuel-harness --release --target-dir {{ board_fuel_target }}
 
-# Run the fuel board's verdict of record: every cell judged in Wasmtime fuel.
+# Run the fuel board's gate verdict: every cell judged in Wasmtime fuel.
 [positional-arguments]
 amp-board-fuel *args: amp-board-fuel-build
     #!/usr/bin/env bash
@@ -691,7 +734,7 @@ amp-board-fuel *args: amp-board-fuel-build
 
 # Each cell's ceilings derive from its own readings (the board's
 # `cell_ceilings` module states the rule). The heap table must hold on both
-# architectures of record (`board::HEAP_ARCHS`), so re-deriving it takes two
+# architectures `board::HEAP_ARCHS` names, so re-deriving it takes two
 # hosts at one source tree:
 #
 # 1. On one architecture, `just amp-board-acceptance --capture <file>`.
@@ -768,7 +811,7 @@ worst-cases:
 # gate, not on shared runners.
 
 # Build everything in CI's primary job, without running libFuzzer.
-ci: gate-lints _gate-workspace _gate-doctest _gate-fuzz _gate-internal-docs _gate-docsrs fuelscape-claims features wasm-check bench-build fuelscape-verify viz
+ci: gate-lints _gate-workspace _gate-doctest _gate-fuzz _gate-internal-docs _gate-docsrs _gate-curves fuelscape-claims features wasm-check bench-build fuelscape-verify viz
 
 # Re-run the gate judgments suitable for shared CI runners.
 ci-instruments: _gate-audit _gate-board _gate-surface
@@ -776,8 +819,8 @@ ci-instruments: _gate-audit _gate-board _gate-surface
 # Run the larger release-profile property population.
 ci-properties: test-release
 
-# Run the checks that require local fuzz and Lean toolchains.
-local-only: (fuzz fuzz_smoke_secs) lean eventdag muxprobe
+# Run the checks that require a local fuzz toolchain.
+local-only: (fuzz fuzz_smoke_secs)
 
 # Run every CI group and every local-only sweep check.
 all: ci ci-instruments ci-properties local-only

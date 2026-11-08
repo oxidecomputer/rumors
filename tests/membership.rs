@@ -18,11 +18,11 @@ use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
 use rumors::Rumors;
 
+use crate::common::budget::{BudgetAssignment, arb_budget_assignment};
 use crate::common::oracle::{readout, readout_multiset, version_key};
 use crate::common::schedule::events::Event;
 use crate::common::schedule::{arb_membership_schedule, execute_membership_and_quiesce};
 use crate::common::sim::assert_party_invariants;
-use crate::common::window::{WindowAssignment, arb_window_assignment};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=6;
 const MAX_EVENTS: usize = 40;
@@ -46,9 +46,9 @@ proptest! {
     #[test]
     fn membership_churn_converges_to_oracle(
         schedule in arb_membership_schedule(any::<u64>(), N_PEERS, MAX_EVENTS),
-        windows in arb_window_assignment(),
+        budgets in arb_budget_assignment(),
     ) {
-        let result = execute_membership_and_quiesce(&schedule, &windows);
+        let result = execute_membership_and_quiesce(&schedule, &budgets);
         let expected = result.oracle.expected_live();
         let canonical: BTreeMap<Vec<u8>, u64> = result
             .resolved_versions
@@ -74,23 +74,22 @@ proptest! {
         assert_party_invariants(&survivors, 0);
     }
 
-    /// The floor-everywhere baseline leg of the membership engine:
-    /// every window pinned at the serialization floor on every
-    /// iteration.
+    /// The serial-everywhere baseline leg of the membership engine:
+    /// every peer in the serial configuration on every iteration.
     ///
     /// Mid-schedule bootstraps and retirements keep exercising the
-    /// capacity-one orderings the deadlock-freedom argument certifies
+    /// one-question-at-a-time orderings the liveness argument rests on
     /// regardless of what the swept leg draws.
     #[test]
-    fn membership_churn_converges_to_oracle_at_floor(
+    fn membership_churn_converges_to_oracle_serially(
         schedule in arb_membership_schedule(any::<u64>(), N_PEERS, MAX_EVENTS),
     ) {
-        let result = execute_membership_and_quiesce(&schedule, &WindowAssignment::floor());
+        let result = execute_membership_and_quiesce(&schedule, &BudgetAssignment::serial());
         let expected = result.oracle.expected_live();
         for (i, peer) in result.live() {
             prop_assert_eq!(
                 readout_multiset(&peer.local.snapshot()), expected.clone(),
-                "live peer {} diverged from the oracle multiset at the floor", i,
+                "live peer {} diverged from the oracle multiset serially", i,
             );
         }
     }

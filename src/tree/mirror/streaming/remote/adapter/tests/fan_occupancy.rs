@@ -1,11 +1,17 @@
-//! Checks the supply decoder's bounded channel occupancy.
+//! Checks the supply decoder's bounded channel occupancy, and its reuse
+//! across replies.
 //!
 //! The reader and assembler communicate through a [`FAN`]-slot channel. An
 //! eager source must reach, but never exceed, `FAN + 1` resident records: one
 //! full channel plus the record held by the reader. A paced source confirms
 //! that the probe measures actual occupancy rather than returning a constant.
+//! One edge carries every reply a decode pump decodes, so a sequence of
+//! replies through one edge must decode each reply as a fresh edge would.
 
-use futures::{Stream, StreamExt, TryStreamExt, stream};
+use crate::network::NetworkKeys;
+use crate::tree::mirror::streaming::message::{Listed, listed};
+use futures::{Stream, StreamExt, stream};
+use proptest::{collection::vec, prelude::*};
 
 use before::Version;
 
@@ -14,20 +20,20 @@ use crate::{
     testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
-            Local,
-            remote::codec::{Frame, LeafRun, Reaction as WireReaction},
-            window::{FAN, SUPPLY_RECORDS_PER_STREAM},
+            Backend, ErasedNode, FAN, Local,
+            erased::{Reaction, Reply},
+            remote::codec::{Frame, LeafRun, Reaction as WireReaction, RunBudget},
         },
-        typed::{Path, Prefix},
+        typed::{Path, Prefix, height::Root},
     },
 };
 
 use super::super::{
-    Scope,
-    decode::{decode_reply_one_slot, fan_probe},
-    decode_reply, early_supplies,
+    LeafEdge, ReplyLevel, Scope,
+    decode::{SUPPLY_RECORDS_PER_STREAM, fan_probe},
+    decode_whole_reply,
 };
-use super::{codec, reply_frames, unbounded, uniform_version};
+use super::{codec, fixture_bounds, reply_frames, unbounded, uniform_version};
 
 /// Leaf records per supply frame.
 const PER_FRAME: usize = 16;
@@ -41,7 +47,9 @@ fn leaves(count: u64) -> Vec<(Version, Message)> {
             (version, Message::new(index))
         })
         .collect();
-    leaves.sort_by_key(|(version, _)| Path::for_leaf(version));
+    // A path is a keyed hash of its version, so compute each once: a key
+    // recomputed per comparison hashes each leaf about 2·log₂(count) times.
+    leaves.sort_by_cached_key(|(version, _)| Path::for_fixture_leaf(version));
     leaves
 }
 
@@ -50,7 +58,7 @@ fn frames(leaves: &[(Version, Message)]) -> Vec<Frame> {
     reply_frames(leaves.chunks(PER_FRAME).map(|chunk| {
         let mut run = LeafRun::new();
         for (version, message) in chunk {
-            run.push(version, message)
+            run.push(version, message, RunBudget::default())
                 .expect("a test record fits the run framing");
         }
         WireReaction::Supply(run)
@@ -63,13 +71,16 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        decode_reply::<Local, _>(
+        decode_whole_reply::<Local, _>(
+            &mut LeafEdge::new(),
             Local,
-            u64::MAX,
+            &fixture_bounds(),
             unbounded(),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -81,13 +92,16 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
 fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
     fan_probe::reset();
     run_to_quiescence(async {
-        decode_reply_one_slot::<Local, _>(
+        decode_whole_reply::<Local, _>(
+            &mut LeafEdge::one_slot(),
             Local,
-            u64::MAX,
+            &fixture_bounds(),
             unbounded(),
-            Scope::opening(&[]),
+            ReplyLevel::Branch,
+            &Scope::opening_unbounded(&[]),
             &mut input,
             codec(),
+            Some(&crate::tree::typed::PathKey::fixture()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -118,48 +132,13 @@ fn one_slot_decode_channel_makes_progress() {
 /// reader runs as far ahead as the channel permits. Equality makes the bound
 /// both strict and non-vacuous.
 #[test]
-fn eager_decode_occupancy_pins_the_charged_ceiling() {
+fn eager_decode_occupancy_reaches_the_priced_ceiling() {
     let leaves = leaves(4 * FAN as u64);
     let peak = peak_occupancy(stream::iter(frames(&leaves)));
     assert_eq!(
         peak, SUPPLY_RECORDS_PER_STREAM,
-        "peak resident decoded records must equal the charged ceiling: one full \
-         fan channel plus the record in the reader's hand, the per-stream shape \
-         SUPPLY_DECODE_ENVELOPE_BYTES prices",
-    );
-}
-
-/// Eager opening-supply decoding reaches the same `FAN + 1` ceiling.
-///
-/// This separately checks the jointly driven opening path.
-#[test]
-fn eager_early_supplies_ride_the_same_ceiling() {
-    let leaves = leaves(4 * FAN as u64);
-    let runtime = super::runtime();
-    fan_probe::reset();
-    runtime.block_on(async {
-        let assembled: Vec<_> = early_supplies::<Local, _>(
-            Local,
-            u64::MAX,
-            unbounded(),
-            Prefix::new().erase(),
-            stream::iter(frames(&leaves)),
-            codec(),
-        )
-        .try_collect()
-        .await
-        .expect("ascending in-scope leaves assemble");
-        assert!(
-            !assembled.is_empty(),
-            "the eager reply supplies real groups"
-        );
-    });
-    assert_eq!(
-        fan_probe::peak(),
-        SUPPLY_RECORDS_PER_STREAM,
-        "peak resident decoded records on the early-supply path must equal the \
-         charged ceiling, the same per-stream shape SUPPLY_DECODE_ENVELOPE_BYTES \
-         prices for every reply stream",
+        "peak resident decoded records must equal the ceiling decode_ahead_bytes \
+         prices per stream: one full fan channel plus the record in the reader's hand",
     );
 }
 
@@ -185,4 +164,71 @@ fn paced_decode_stays_under_the_ceiling() {
         "paced peak {peak} stays at per-cycle intake, far under the {} ceiling",
         FAN + 1,
     );
+}
+
+/// The radix and node hash of each supply in a pure-supply reply to the
+/// opening, in order: each supplied node sits at its radix beneath the
+/// root.
+fn supplies(reply: &Reply<<Local as Backend>::Erased>) -> Vec<Listed> {
+    reply
+        .reactions
+        .iter()
+        .map(|reaction| match reaction {
+            Reaction::Supply(radix, node) => listed(
+                *radix,
+                node.hash(
+                    &Prefix::<Root>::new().push(*radix).erase(),
+                    NetworkKeys::fixture().hash(),
+                ),
+            ),
+            _ => panic!("a pure-supply reply decodes to supplies only"),
+        })
+        .collect()
+}
+
+/// Decode consecutive pure-supply replies of the given sizes from one frame
+/// stream, each through `edge` if given, else through a fresh edge.
+fn decode_sequence(counts: &[u64], mut edge: Option<LeafEdge<Local>>) -> Vec<Vec<Listed>> {
+    let mut input = stream::iter(counts.iter().flat_map(|&count| frames(&leaves(count))));
+    run_to_quiescence(async {
+        let mut decoded = Vec::new();
+        for _ in counts {
+            let mut fresh = LeafEdge::new();
+            let reply = decode_whole_reply::<Local, _>(
+                edge.as_mut().unwrap_or(&mut fresh),
+                Local,
+                &fixture_bounds(),
+                unbounded(),
+                ReplyLevel::Branch,
+                &Scope::opening_unbounded(&[]),
+                &mut input,
+                codec(),
+                Some(&crate::tree::typed::PathKey::fixture()),
+            )
+            .await
+            .expect("ascending in-scope leaves assemble");
+            decoded.push(supplies(&reply));
+        }
+        decoded
+    })
+    .expect("the reader and assembler reach quiescence")
+}
+
+proptest! {
+    /// Consecutive replies decoded through one edge each decode exactly as
+    /// through a fresh edge, at the production fan and at one slot.
+    ///
+    /// Reply sizes span empty replies, replies within one fan, and replies
+    /// several fans long, so a reply's closing marker lands both in a
+    /// partly filled edge and behind a full one; an assembler reading past
+    /// the marker, or stopping short of it, shifts a supply between
+    /// replies and fails the comparison.
+    #[test]
+    fn one_edge_decodes_each_reply_of_a_sequence_as_a_fresh_edge_does(
+        counts in vec(0..=3 * FAN as u64, 1..4),
+        one_slot in any::<bool>(),
+    ) {
+        let shared = if one_slot { LeafEdge::one_slot() } else { LeafEdge::new() };
+        prop_assert_eq!(decode_sequence(&counts, Some(shared)), decode_sequence(&counts, None));
+    }
 }

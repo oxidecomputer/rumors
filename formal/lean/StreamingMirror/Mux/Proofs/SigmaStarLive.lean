@@ -5,7 +5,7 @@ every well-formed margin-0 session over the single-pipe transport, at
 every capacity C ≥ 1 ("completes" in the grounded sense: stuck-freedom
 here, termination via `mux_terminating`, Proofs/Termination.lean).
 This is the liveness half of C1's refutation — the charter-grain
-refutation of record is `c1_charter_false` via σ*-causal
+refutation is `c1_charter_false` via σ*-causal
 (Proofs/C1.lean) — with no fixed capacity, no control messages, only
 the right to idle.
 
@@ -413,7 +413,7 @@ theorem closure_coverage (hwf : sk.wellFormed = true)
 -- ============================================================= T4
 
 /-- T4, the campaign's centerpiece (the liveness
-half of C1's refutation — the charter-grain refutation of record is
+half of C1's refutation — the charter-grain refutation is
 `c1_charter_false` via σ*-causal, Proofs/C1.lean): the σ*×σ*
 composition is deadlock-free on the shipping encoder's class at every
 capacity C ≥ 1 per direction.
@@ -424,8 +424,8 @@ with everything τ-below it performed; coverage puts the predecessor's
 consumption in the sender's closure, so the frame is proven-demanded,
 σ* names a push, and the stuck state cannot exist.
 
-Capacity is message-denominated; the W = 1 byte-soundness caveat of
-record is Mux/Basic.lean's module doc (# The byte-denomination
+Capacity is message-denominated; the W = 1 byte-soundness caveat is stated
+in Mux/Basic.lean's module doc (# The byte-denomination
 caveat). -/
 theorem sigmaStar_deadlock_free (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C) :

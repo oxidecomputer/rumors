@@ -66,15 +66,15 @@
 //! readings; a heap cell is still judged against its outer bound beside
 //! that. It is red rather than refused so that the run still
 //! completes and writes its capture, which the recalibration below needs
-//! from the other architecture of record.
+//! from the other required architecture.
 //!
 //! # Recalibrating
 //!
 //! `just amp-board-calibrate <capture>` sweeps the board on this host and
-//! merges a capture taken on the other architecture of record
+//! merges a capture taken on the other required architecture
 //! (`just amp-board-acceptance --capture <file>` there). It refuses a capture
 //! of another source tree, and refuses to write a table whose architectures
-//! would differ from its currency's architectures of record. It rewrites the
+//! would differ from its currency's required architectures. It rewrites the
 //! heap table from the larger reading at every sample, and the fuel table from
 //! a fresh fuel sweep, printing each cell whose ceiling moved. Fuel readings do
 //! not depend on the host, so `just amp-board-calibrate-fuel` rewrites the fuel
@@ -139,7 +139,8 @@ pub struct CellCeilings {
 }
 
 /// The architectures whose readings the heap table must be calibrated from:
-/// the 64-bit architectures the board of record runs on.
+/// the 64-bit architectures the release board runs on. These and
+/// [`FUEL_ARCHS`] are the currencies' *required architectures*.
 pub const HEAP_ARCHS: [&str; 2] = ["aarch64", "x86_64"];
 
 /// The architectures whose readings the fuel table must be calibrated from:
@@ -148,7 +149,7 @@ pub const FUEL_ARCHS: [&str; 1] = ["wasm32"];
 
 /// The architectures `currency`'s table must be calibrated from; empty for a
 /// currency with no table.
-fn archs_of_record(currency: Currency) -> &'static [&'static str] {
+fn required_archs(currency: Currency) -> &'static [&'static str] {
     match currency {
         Currency::Heap => &HEAP_ARCHS,
         Currency::Fuel => &FUEL_ARCHS,
@@ -203,7 +204,7 @@ impl Calibration {
     /// the currency has a table and it does not hold for the run's
     /// architecture.
     pub(super) fn missing(&self, currency: Currency) -> Option<&'static [&'static str]> {
-        let archs = archs_of_record(currency);
+        let archs = required_archs(currency);
         (self.table(currency).is_none() && !archs.is_empty()).then_some(archs)
     }
 }
@@ -287,22 +288,22 @@ pub fn write_recalibrations(
 /// capture is `(name, text)`, as [`capture`](super::capture) wrote it, and
 /// must come from a release build of the same tree; `name` labels it in
 /// errors. Together the ladder and the captures must cover exactly the
-/// currency's architectures of record ([`HEAP_ARCHS`], [`FUEL_ARCHS`]), so a
+/// currency's required architectures ([`HEAP_ARCHS`], [`FUEL_ARCHS`]), so a
 /// table never holds for an architecture whose readings it never saw, nor
-/// stops holding for one of record.
+/// stops holding for a required one.
 ///
 /// # Errors
 ///
 /// Returns [`io::ErrorKind::InvalidData`] if a capture is malformed, came
 /// from a debug build or another tree, lacks a cell or currency the ladder
 /// measured, or measured a sample at a different size than the ladder did,
-/// or if the architectures differ from the currency's architectures of
-/// record.
+/// or if the architectures differ from the currency's required
+/// architectures.
 ///
 /// # Panics
 ///
 /// Panics if the ladder was measured with debug assertions compiled in (the
-/// tables judge the release board of record), or if it measured a currency
+/// tables judge the release board), or if it measured a currency
 /// in some samples but not others.
 pub fn recalibrate(
     ladder: &Ladder,
@@ -345,8 +346,8 @@ fn recalibrate_tables(
 /// of an acceptance run instead of sweeping again. The first capture
 /// supplies the cells, which every other capture must hold at the same
 /// sizes. Every capture must come from a release build of `source_tree`,
-/// and together they must cover exactly the currency's architectures of
-/// record.
+/// and together they must cover exactly the currency's required
+/// architectures.
 ///
 /// # Errors
 ///
@@ -435,12 +436,12 @@ fn release_captures<'a>(
 
 /// Regenerates `table` by the module doc's rule from the larger of
 /// `reference`'s and the other captures' readings at every sample, checking
-/// that together they cover exactly its architectures of record.
+/// that together they cover exactly its required architectures.
 ///
 /// # Errors
 ///
 /// Returns [`io::ErrorKind::InvalidData`] if the architectures differ from
-/// the table's architectures of record, or as [`derive_ceilings`] does.
+/// the table's required architectures, or as [`derive_ceilings`] does.
 fn recalibrate_table(
     table: &CellCeilings,
     reference: &Readings,
@@ -454,15 +455,15 @@ fn recalibrate_table(
                 .map(|(_, other)| other.measured_on.arch.as_str()),
         )
         .collect();
-    let of_record: BTreeSet<&str> = archs_of_record(table.currency).iter().copied().collect();
-    if archs != of_record {
+    let required: BTreeSet<&str> = required_archs(table.currency).iter().copied().collect();
+    if archs != required {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
                 "amp-board calibrate: the {} table needs readings from {:?}, but the \
                  readings came from {:?}",
                 table.currency.label(),
-                of_record,
+                required,
                 archs
             ),
         ));

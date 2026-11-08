@@ -14,7 +14,7 @@ use crate::tree::{
         materialized::{Error, Resolution, Resolve},
         tasks::next_or_cancelled,
     },
-    typed::height::Z,
+    typed::height::{Height, Z},
 };
 
 impl<B> Work<B>
@@ -35,7 +35,11 @@ where
         resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> Sender<Option<B::Erased>> {
         let (level, level_rx) = assembly_level_returns::<B>(height);
-        self.return_into(returns, assemble(self.backend(), resolutions, level_rx));
+        self.return_into(
+            height,
+            returns,
+            assemble(self.backend(), resolutions, level_rx),
+        );
         level
     }
 
@@ -46,6 +50,7 @@ where
         resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
         self.return_into(
+            Z::HEIGHT,
             returns,
             assemble(self.backend(), resolutions, stream::empty()),
         );
@@ -57,6 +62,9 @@ where
 /// Pairing is positional: resolutions arrive in query order and `level`
 /// carries one item per `Pending` in that same order. An empty resolution
 /// reaches [`Backend::parent`] with an empty group and resolves to `None`.
+/// Each resolution hands the backend the node this side held at its prefix
+/// before the walk explored it, so a scope the session left unchanged can
+/// come back as that node.
 pub(super) fn assemble<B>(
     backend: B,
     resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send,
@@ -68,7 +76,13 @@ where
     try_stream! {
         let mut level = pin!(level.fuse());
         for await resolved in resolutions {
-            let Resolution { prefix, resolved } = resolved?;
+            // The resolution's charges return once its parent is built.
+            let Resolution {
+                prefix,
+                resolved,
+                original,
+                charge: _charge,
+            } = resolved?;
             let mut children = Vec::with_capacity(resolved.len());
             for (radix, slot) in resolved {
                 children.push((radix, match slot {
@@ -81,7 +95,7 @@ where
                     }
                 }));
             }
-            yield ops::parent(backend.clone(), prefix, children).await?;
+            yield ops::parent(backend.clone(), prefix, original, children).await?;
         }
     }
 }

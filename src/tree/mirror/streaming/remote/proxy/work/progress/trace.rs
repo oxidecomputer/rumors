@@ -19,16 +19,26 @@ pub enum Stage {
 /// One progress-critical proxy publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
-    /// A complete outgoing reply has flushed its question frames.
-    WireReply {
-        /// Questions published after the flush.
+    /// An outgoing frame carrying questions is in the multiplexer's
+    /// channel.
+    WireFrame {
+        /// Questions published after the frame.
         questions: usize,
     },
-    /// One question is published after its wire reply flushes.
+    /// One question is published after the frame carrying it reaches the
+    /// multiplexer.
     LocalQuestion,
-    /// An incoming answer is being published before its derived scopes.
-    DecodedReply {
-        /// Scopes published after the answer.
+    /// The walk takes an incoming answer's first chunk; its derived scopes
+    /// publish next, before the stage receives it.
+    TakenReply {
+        /// Scopes the proxy publishes for the chunk.
+        scopes: usize,
+    },
+    /// The walk takes a later chunk of the answer it took last at this
+    /// height; its derived scopes publish next, before the stage receives
+    /// it.
+    TakenChunk {
+        /// Scopes the proxy publishes for the chunk.
         scopes: usize,
     },
     /// One derived scope is being published for the next exchange.
@@ -52,7 +62,8 @@ struct Event {
 #[derive(Debug)]
 pub struct Trace(Vec<Event>);
 
-/// Check ordering and the question registrations needed to decode replies.
+/// Check publication ordering, and that the walk takes only answers to
+/// published questions.
 impl Trace {
     /// Assert wire-before-question and reply-before-scope ordering.
     pub fn assert_valid(&self) {
@@ -60,16 +71,16 @@ impl Trace {
         let mut scopes = BTreeMap::<(usize, Stage, usize), usize>::new();
         for (index, event) in self.0.iter().enumerate() {
             match event.kind {
-                Kind::WireReply { questions: count } => {
+                Kind::WireFrame { questions: count } => {
                     assert_drained(&questions, event, index, "questions");
                     questions.insert((event.work, event.stage, event.height), count);
                 }
-                Kind::LocalQuestion => consume(&mut questions, event, index, "wire reply"),
-                Kind::DecodedReply { scopes: count } => {
+                Kind::LocalQuestion => consume(&mut questions, event, index, "wire frame"),
+                Kind::TakenReply { scopes: count } | Kind::TakenChunk { scopes: count } => {
                     assert_drained(&scopes, event, index, "scopes");
                     scopes.insert((event.work, event.stage, event.height), count);
                 }
-                Kind::NextScope => consume(&mut scopes, event, index, "decoded reply"),
+                Kind::NextScope => consume(&mut scopes, event, index, "taken reply"),
             }
         }
         assert!(
@@ -78,18 +89,18 @@ impl Trace {
         );
         assert!(
             scopes.values().all(|remaining| *remaining == 0),
-            "some decoded replies did not publish every scope: {scopes:?}",
+            "some taken replies did not publish every scope: {scopes:?}",
         );
     }
 
     /// Reject vacuous traces: a divergent session records one opening from
-    /// the greeting, one opening question, and at least one outgoing reply.
+    /// the greeting, one opening question, and at least one outgoing frame.
     pub fn assert_covers_divergent_session(&self) {
         let openings = self
             .0
             .iter()
             .filter(|event| {
-                event.height == Root::HEIGHT && matches!(event.kind, Kind::DecodedReply { .. })
+                event.height == Root::HEIGHT && matches!(event.kind, Kind::TakenReply { .. })
             })
             .count();
         assert_eq!(
@@ -110,45 +121,61 @@ impl Trace {
         assert!(
             self.0
                 .iter()
-                .any(|event| matches!(event.kind, Kind::WireReply { .. })),
-            "a divergent session records at least one wire reply, found none",
+                .any(|event| matches!(event.kind, Kind::WireFrame { .. })),
+            "a divergent session records at least one wire frame, found none",
         );
     }
 
-    /// Every decoded answer needs a previously flushed question on the same
-    /// endpoint. Questions and answers pair in FIFO order at each height.
-    /// The root opening is the sole exception: its scope comes from the greeting.
-    pub fn assert_question_causality(&self) {
+    /// Assert that each endpoint takes one answer per question it
+    /// published, under the same stage and height labels, counting each
+    /// answer at its first chunk.
+    ///
+    /// The encoder labels each question it publishes with a runtime height,
+    /// and the proxy labels each answer the walk takes with its stage's
+    /// typed height. This check holds the two labelings to each other:
+    /// under every label, the answers taken never outnumber the questions
+    /// published before them, and by the end of the trace the two counts
+    /// are equal. Once the labels agree, the ordering half holds by
+    /// construction, since the walk takes only replies decoded against the
+    /// dequeued record of a published question; what the check can fail on
+    /// is a label one side computes differently, or a question published
+    /// and never answered and taken. The root opening is the one answer
+    /// taken without a question: it answers the greeting, at most once per
+    /// endpoint.
+    ///
+    /// Only a completed session's trace balances, so call this on those.
+    pub fn assert_takes_answer_published_questions(&self) {
         let mut questions = BTreeMap::<(usize, Stage, usize), usize>::new();
-        let mut decoded = BTreeMap::<(usize, Stage, usize), usize>::new();
+        let mut takes = BTreeMap::<(usize, Stage, usize), usize>::new();
         for (index, event) in self.0.iter().enumerate() {
+            let key = (event.work, event.stage, event.height);
             match event.kind {
-                Kind::LocalQuestion => {
-                    *questions
-                        .entry((event.work, event.stage, event.height))
-                        .or_insert(0) += 1;
-                }
-                Kind::DecodedReply { .. } => {
-                    let count = decoded
-                        .entry((event.work, event.stage, event.height))
-                        .or_insert(0);
-                    *count += 1;
-                    let available = if event.height == Root::HEIGHT {
+                Kind::LocalQuestion => *questions.entry(key).or_insert(0) += 1,
+                Kind::TakenReply { .. } => {
+                    let taken = takes.entry(key).or_insert(0);
+                    *taken += 1;
+                    let published = if event.height == Root::HEIGHT {
                         1
                     } else {
-                        questions
-                            .get(&(event.work, event.stage, event.height))
-                            .copied()
-                            .unwrap_or(0)
+                        questions.get(&key).copied().unwrap_or(0)
                     };
                     assert!(
-                        *count <= available,
-                        "event {event:?} at trace index {index}: decoded reply {count} \
-                         arrived before its question was flushed ({available} available)",
+                        *taken <= published,
+                        "event {event:?} at trace index {index}: taken answer {taken} \
+                         has no published question to answer ({published} published)",
                     );
                 }
-                Kind::WireReply { .. } | Kind::NextScope => {}
+                Kind::WireFrame { .. } | Kind::TakenChunk { .. } | Kind::NextScope => {}
             }
+        }
+        for (key, published) in questions {
+            let taken = takes.get(&key).copied().unwrap_or(0);
+            assert_eq!(
+                taken, published,
+                "endpoint {} ({:?}) published {published} questions at height {} \
+                 but took {taken} answers",
+                key.0, key.1, key.2,
+            );
         }
     }
 }

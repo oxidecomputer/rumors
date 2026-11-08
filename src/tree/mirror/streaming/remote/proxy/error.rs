@@ -1,19 +1,19 @@
 //! Failures surfaced by the remote protocol participant.
 
-use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
+use crate::tree::mirror::streaming::remote::{adapter, codec, pipe};
 
 /// A failure while proxying one remote participant.
 ///
-/// When the incoming stream supply fails, transport errors may be reported
-/// as [`SupplyClosed`](streams::StreamError::SupplyClosed) with the supply's
-/// I/O error as their source. Backend failures and violations of the protocol
-/// or wire format retain their own identity.
+/// Transport failures surface through the pipe ([`Pipe`](Self::Pipe)) or the
+/// greeting exchange. Backend failures and violations of the protocol or
+/// wire format retain their own identity.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error<E> {
-    /// The control stream failed while reconciliation still needed the peer.
-    #[error("peer departed during reconciliation: {0}")]
-    PeerDeparted(#[source] std::io::Error),
+    /// The pipe failed, or the peer broke its framing, during
+    /// reconciliation.
+    #[error(transparent)]
+    Pipe(#[from] pipe::PipeError),
     /// Reading the peer's greeting item failed.
     #[error("failed to read the peer's greeting")]
     GreetingRead(#[source] std::io::Error),
@@ -52,20 +52,11 @@ pub enum Error<E> {
     /// Normal remote wire frames could not be reconstructed as a reply.
     #[error(transparent)]
     Decode(#[from] adapter::DecodeError<E>),
-    /// An outgoing logical stream could not be opened, labeled, or written.
-    #[error(transparent)]
-    Send(#[from] streams::SendError),
-    /// An incoming logical stream failed, or its stream supply closed first.
-    #[error(transparent)]
-    Stream(#[from] streams::StreamError),
-    /// An incoming transport stream violated the session's stream discipline.
-    #[error(transparent)]
-    Accept(#[from] streams::AcceptError),
     /// The local opening stream omitted its opening question.
     #[error("opening stream ended before its opening question")]
     MissingOpening,
     /// The local opening stream contained more than its opening question.
-    #[error("local opening stream contained an additional reply")]
+    #[error("local opening stream contained more than its opening question")]
     ExtraOpening,
     /// A remote logical stream supplied a reply which answered no local query.
     #[error("remote logical stream contained an unasked reply")]
@@ -79,68 +70,8 @@ pub enum Error<E> {
     /// The local protocol asked another question in its terminal reply.
     #[error("local terminal reply contained another query")]
     TerminalQuery,
-}
-
-impl<E> Error<E> {
-    /// Whether loss of the stream supply could explain this failure.
-    ///
-    /// Only transport reads, writes, opens, and truncated streams qualify.
-    /// Decoding a complete but invalid record is a violation, even when its
-    /// decoder uses an I/O error type to describe the invalid content.
-    pub(super) fn is_transport_failure(&self) -> bool {
-        match self {
-            Self::Send(
-                streams::SendError::Connect { .. }
-                | streams::SendError::Label { .. }
-                | streams::SendError::Frame(codec::EncodeError {
-                    kind: codec::EncodeErrorKind::Write { .. } | codec::EncodeErrorKind::Flush(_),
-                    ..
-                }),
-            ) => true,
-            Self::Stream(error) => error.is_transport_failure(),
-            _ => false,
-        }
-    }
-
-    /// Attach a known delivery failure without replacing an independent error.
-    ///
-    /// A queued violation takes precedence over a selected transport error.
-    /// Otherwise, attribute control EOF to departure. For supply failures,
-    /// prefer a report naming the affected stream; use the direction alone
-    /// when no such report was observed.
-    pub(super) fn attribute(
-        self,
-        errors: &mut streams::FirstStreamError,
-        remote: codec::Speaker,
-    ) -> Self {
-        if !self.is_transport_failure() {
-            return self;
-        }
-        let queued = match errors.take_report() {
-            Some(error) if !error.is_transport_failure() => return Self::Stream(error),
-            queued => queued,
-        };
-        let failure = match errors.take_failure() {
-            Some(streams::IncomingFailure::Departed(source)) => return Self::PeerDeparted(source),
-            Some(streams::IncomingFailure::Supply(source)) => Some(source),
-            None => None,
-        };
-        let (origin, source) = match (self, queued) {
-            (Self::Stream(streams::StreamError::SupplyClosed { origin, source }), _)
-            | (_, Some(streams::StreamError::SupplyClosed { origin, source })) => (origin, source),
-            (error, _) => {
-                return match failure {
-                    Some(source) => Self::Stream(streams::StreamError::SupplyClosed {
-                        origin: codec::Origin::direction(remote),
-                        source: Some(source),
-                    }),
-                    None => error,
-                };
-            }
-        };
-        Self::Stream(streams::StreamError::SupplyClosed {
-            origin,
-            source: source.or(failure),
-        })
-    }
+    /// A taken reply's questions could not be derived again, although its
+    /// decoding validated the same positions: a local invariant failure.
+    #[error("a taken reply's questions could not be derived again")]
+    TakeDerivation(#[source] adapter::ScopeError),
 }

@@ -1,4 +1,4 @@
-//! Type-level protocol proxy over a link's per-stream transport session.
+//! Type-level protocol proxy over one session's pipe.
 //!
 //! [`Handshaking`] hides transport startup behind the same protocol boundary
 //! used by an in-process participant. Once the shared driver dispatches the
@@ -11,37 +11,13 @@ use crate::tree::mirror::streaming::{channel::Sender, tasks::cancelled};
 
 /// Send one internal item or await cancellation if its consumer has gone.
 ///
-/// A task may still own a transport stream when its consumer stops. Parking it
-/// keeps that stream alive until the session executor cancels all work, rather
-/// than presenting the peer with a torn stream during error propagation.
+/// A task's consumer stops only when the session is failing. Parking the task
+/// until the session executor cancels all work keeps the error that stopped
+/// the consumer the one the executor reports.
 async fn send_or_cancel<T>(sender: &mut Sender<T>, value: T) {
     if sender.send(value).await.is_err() {
         cancelled().await;
     }
-}
-
-/// Publish a decoded reply before the lower scopes which depend on it.
-///
-/// The `yield` expression belongs inside the invocation so `async_stream` can
-/// lower it before this macro expands. Keeping both phases together prevents a
-/// caller from filling the one-slot scope queue while withholding the reply
-/// which lets its consumer advance and drain that queue. This is the remote
-/// proxy analogue of the materialized implementation's `yield_resolve_query!`.
-/// The trace labels both publications by the answered question's height.
-macro_rules! yield_reply_scopes {
-    (
-        $progress:expr, $question_height:expr, $count:expr;
-        $yielded:expr;
-        $scopes:expr => $next_scopes:expr;
-    ) => {{
-        $progress.decoded_reply($question_height, $count);
-        $yielded;
-        for scope in $next_scopes {
-            $progress.next_scope($question_height);
-            $crate::tree::mirror::streaming::remote::proxy::send_or_cancel(&mut $scopes, scope)
-                .await;
-        }
-    }};
 }
 
 mod error;
@@ -52,7 +28,7 @@ mod work;
 pub use error::Error;
 pub use start::Handshaking;
 pub use state::Connected;
-pub use work::ControlRead;
+pub(crate) use work::{Derived, Outstanding, Parked};
 
 #[cfg(test)]
 mod tests;

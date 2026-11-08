@@ -1,6 +1,6 @@
 /-
-σ*, demand-lockstep with forward derivation (T4's strategy, as
-ratified by the adjudication): push a frame only when the receiver's
+σ*, demand-lockstep with forward derivation (T4's strategy): push a
+frame only when the receiver's
 consumption of its per-stream predecessor is proven — derivable from
 the machine's own observation history by the Certified ∪ Inevitable
 closure — and among the proven-demanded held streams push the τ-least.
@@ -10,7 +10,7 @@ closure — and among the proven-demanded held streams push the τ-least.
 Frame seqs are 0-based here (`Sched.Ev` numbering): the next frame on
 stream `h` is the `pushedCount tr h`-th, and it is *proven-demanded*
 iff it is the stream's first frame or `rcv(c, k−1)` is in the closure —
-the ratified rule `k = 1 ∨ rcv(c, k−1) ∈ Certified ∪ Inevitable`, with
+the rule `k = 1 ∨ rcv(c, k−1) ∈ Certified ∪ Inevitable`, with
 `certified ⊆ inevitable` by construction (`certified_subset_inevitable`)
 collapsing the union to one membership test.
 

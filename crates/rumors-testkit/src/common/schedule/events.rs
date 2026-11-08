@@ -1,5 +1,7 @@
 //! The event model: what a schedule is a sequence of.
 
+use crate::common::seed::NetworkSeed;
+
 /// Index of an event in a `Schedule`'s flat `events` vector. Used as
 /// a stable cross-reference between the oracle, the schedule
 /// executor, and the shadow simulator.
@@ -77,4 +79,6 @@ pub struct Schedule<T> {
     pub fork_parents: Vec<usize>,
     /// Operations to execute in order.
     pub events: Vec<Event<T>>,
+    /// The seed of the network peer 0 founds.
+    pub network: NetworkSeed,
 }

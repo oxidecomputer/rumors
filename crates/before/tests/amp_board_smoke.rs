@@ -1,7 +1,7 @@
 //! Smoke coverage for the amplification board (`before::testing::meter::board`).
 //!
 //! The tests drive every board cell, exercise shard merging, and pin the
-//! operation and family coverage maps. Verdicts of record belong to the
+//! operation and family coverage maps. The binding verdicts belong to the
 //! release-profile board run consumed by the gate.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,8 +82,8 @@ fn retaining_results_does_not_allocate_measured_heap() {
 }
 
 /// The board's per-family cell expectations, derived from the registry:
-/// each board family's declared bundle reach, keyed by its name of
-/// record.
+/// each board family's declared bundle reach, keyed by its registry
+/// name.
 ///
 /// The board's coverage is the product of its two axes (the board module
 /// doc's product section), so the expectation lives on the family axis: a
@@ -198,9 +198,9 @@ fn shard_protocol_round_trips() {
 /// (heap), so a row can neither drop out of the map nor render twice.
 ///
 /// Rankings are deliberately not asserted: they are scale- and
-/// profile-dependent readings, and the map of record is the
-/// release-profile entry-compare against the committed pin inside the
-/// board's verdict of record (`just amp-board-acceptance`).
+/// profile-dependent readings, and the release-profile entry-compare
+/// against the committed pin judges them, inside the board's acceptance
+/// verdict (`just amp-board-acceptance`).
 #[test]
 fn worst_map_covers_every_operation_row() {
     let meters = native_meters();

@@ -1,0 +1,38 @@
+# The budget curves: a tool-side member of the root workspace, outside its
+# default members, so the library's dependency graph and the gate's
+# ordinary legs never compile it or the plotting crate it pulls in. The
+# `just budget-curves` recipe runs it, and `just budget-curves-lint` lints
+# it.
+
+[package]
+name = "rumors-budget-curves"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[dependencies]
+# The sessions run the library's own session code, with the test-internals
+# hooks that report each ledger's admissions.
+rumors = { workspace = true, features = ["test-internals"] }
+# The link model, the deterministic pairs and their runner, and the
+# analytic prediction the plots set beside the measurements.
+rumors-testkit.workspace = true
+# The session's own heap, beside what its ledgers count: the meter's
+# per-thread ledger reads the live bytes of the thread that drives both
+# peers, and naming the crate installs its allocator in this binary only.
+alloc-meter.workspace = true
+# Argument parsing: per-flag help and defaults beside their declarations.
+clap = { workspace = true, features = ["derive"] }
+# The sessions are independent and deterministic, so they run side by side,
+# each in a child process that one thread of a pool waits on.
+rayon.workspace = true
+# One JSON document per session, appended as each finishes, so a long run
+# keeps what it finished and the renderer reads exactly what ran.
+serde = { workspace = true, default-features = true, features = ["derive"] }
+serde_json.workspace = true
+# SVG rendering only: the bitmap backend would pull font rasterization and
+# image codecs, native libraries this tool has no use for.
+plotters = { workspace = true, features = ["svg_backend", "line_series"] }
+
+[lints.rust]
+missing_docs = "warn"

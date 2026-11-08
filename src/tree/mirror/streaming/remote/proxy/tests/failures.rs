@@ -18,7 +18,7 @@ use crate::tree::{
             codec::{
                 DecodeErrorKind as CodecDecodeErrorKind, EncodeErrorKind as CodecEncodeErrorKind,
             },
-            streams::{SendError, StreamError},
+            pipe::PipeError,
         },
     },
 };
@@ -26,22 +26,15 @@ use crate::tree::{
 /// Find the typed injected source retained anywhere below a remote failure.
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
     let source = match error {
-        RemoteError::PeerDeparted(source)
+        RemoteError::Pipe(PipeError::Departed(source))
         | RemoteError::GreetingRead(source)
         | RemoteError::GreetingWrite { source, .. } => source,
-        RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
+        RemoteError::Pipe(PipeError::Decode(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => source,
             _ => return None,
         },
-        RemoteError::Stream(StreamError::SupplyClosed {
-            source: Some(source),
-            ..
-        }) => source,
-        RemoteError::Send(SendError::Connect { source, .. } | SendError::Label { source, .. }) => {
-            source
-        }
-        RemoteError::Send(SendError::Frame(error)) => match &error.kind {
+        RemoteError::Pipe(PipeError::Encode(error)) => match &error.kind {
             CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
                 source
             }
@@ -70,27 +63,13 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
     match operation {
         IoOperation::Read => matches!(
             error,
-            RemoteError::PeerDeparted(_)
-                | RemoteError::GreetingRead(_)
-                | RemoteError::Stream(StreamError::Decode(_) | StreamError::SupplyClosed { .. })
+            RemoteError::GreetingRead(_)
+                | RemoteError::Pipe(PipeError::Departed(_) | PipeError::Decode(_))
         ),
-        IoOperation::Write | IoOperation::Flush => {
-            matches!(
-                error,
-                RemoteError::GreetingWrite { .. } | RemoteError::Send(_)
-            )
-        }
-        IoOperation::Connect => {
-            matches!(error, RemoteError::Send(SendError::Connect { .. }))
-        }
-        // A destroyed incoming stream surfaces as the dead supply itself:
-        // the accept driver deposits the cause and the session terminal
-        // attaches it at selection, outranking any racing consequence (a
-        // write or flush failing on the torn transport), so the surface is
-        // schedule-independent.
-        IoOperation::Accept => {
-            matches!(error, RemoteError::Stream(StreamError::SupplyClosed { .. }))
-        }
+        IoOperation::Write | IoOperation::Flush => matches!(
+            error,
+            RemoteError::GreetingWrite { .. } | RemoteError::Pipe(PipeError::Encode(_))
+        ),
     }
 }
 
@@ -102,8 +81,6 @@ fn completed(report: IoReport, fault: IoFault) -> usize {
         (IoOperation::Write, IoFaultUnit::Operations) => report.writes,
         (IoOperation::Write, IoFaultUnit::Bytes) => report.write_bytes,
         (IoOperation::Flush, _) => report.flushes,
-        (IoOperation::Connect, _) => report.connects,
-        (IoOperation::Accept, _) => report.accepts,
     }
 }
 
@@ -130,8 +107,6 @@ proptest! {
             Just(IoOperation::Read),
             Just(IoOperation::Write),
             Just(IoOperation::Flush),
-            Just(IoOperation::Connect),
-            Just(IoOperation::Accept),
         ],
         after in 0usize..256,
         bytes in any::<bool>(),
@@ -230,14 +205,11 @@ fn every_transport_fault_surface_is_reachable() {
         (IoOperation::Write, IoFaultUnit::Operations),
         (IoOperation::Write, IoFaultUnit::Bytes),
         (IoOperation::Flush, IoFaultUnit::Operations),
-        (IoOperation::Connect, IoFaultUnit::Operations),
-        (IoOperation::Accept, IoFaultUnit::Operations),
     ];
 
     for (operation, unit) in variants {
-        // The faulted (left) side must be the elected responder. A destroyed
-        // incoming stream reaches Accept only when this endpoint awaits the
-        // initiator's opening supplies.
+        // The faulted (left) side is the elected responder, so it both
+        // sends and awaits frames.
         let (a, b) = stacked_pair();
         let (left, right) = if harness::left_initiates(&a, &b) {
             (b, a)

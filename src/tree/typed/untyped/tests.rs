@@ -8,16 +8,18 @@ use crate::tree::arb::{arb_leaf_paths, arb_radixes, arb_version};
 use crate::{Version, message::Message};
 
 use super::{
-    Node, PATH_LEN,
+    Body, HashKey, Node, PATH_LEN, SortedLeaves, View,
     fan::{Fan, heap_slots},
 };
+
+mod reassembly;
 
 /// Upper bound on the depth of trees generated in property tests.
 ///
 /// Each test samples a depth in `0..=MAX_TEST_DEPTH` so that proptest shrinks
 /// tree height as well as structure when a counterexample is found. Kept
 /// modest to keep generated structures small and shrinking fast.
-const MAX_TEST_DEPTH: usize = 4;
+pub(super) const MAX_TEST_DEPTH: usize = 4;
 
 /// Maximum children per branch in generated trees. Capped at the alphabet
 /// size so that every legal branching factor is reachable (subject to the
@@ -34,7 +36,13 @@ const MAX_BRANCHING: usize = 256;
 /// forced to be single-child and path-compress into a chain. The actual
 /// branching factor at any node is capped at `min(MAX_BRANCHING, budget)`,
 /// so to exercise very wide branches the budget must be at least that wide.
-const TREE_LEAF_BUDGET: usize = 16;
+pub(super) const TREE_LEAF_BUDGET: usize = 16;
+
+/// The hash key these tests digest nodes under: the fixture network's, the
+/// one key every node built here caches its digest under.
+pub(super) fn key() -> HashKey {
+    HashKey::fixture()
+}
 
 /// Generate an arbitrary tree of uniform depth `depth` with at most `budget`
 /// leaves, constructed only via the public smart constructors `Node::leaf` and
@@ -46,7 +54,7 @@ const TREE_LEAF_BUDGET: usize = 16;
 /// child gets at least 1 and the shares sum to the parent's budget). This
 /// guarantees all leaves sit at a common depth, and no more than `budget`
 /// leaves are generated. `budget` must be at least 1.
-fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
+pub(super) fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
     if depth == 0 {
         // The leaf payload is not examined at this abstraction layer, so we
         // stuff in a fixed empty value rather than generating one; only the
@@ -172,38 +180,6 @@ fn bulk_build_rejects_a_branch_as_a_leaf() {
 }
 
 proptest! {
-    /// The owned child cursor matches destructive expansion for every node shape.
-    ///
-    /// The cursor must preserve every radix and subtree while handling both a
-    /// materialized fan and each virtual level of a compressed path. This
-    /// comparison uses the existing inverse of `branch` as its oracle.
-    #[test]
-    fn child_cursor_matches_expansion(
-        node in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| {
-            arb_tree(depth, TREE_LEAF_BUDGET)
-        }),
-    ) {
-        match (node.clone().child_iter(), node.into_children()) {
-            (Err(cursor_leaf), Err(expanded_leaf)) => {
-                prop_assert_eq!(cursor_leaf.hash(), expanded_leaf.hash());
-            }
-            (Ok(cursor), Ok(expanded)) => {
-                let actual: Vec<_> = cursor.collect();
-                let expected: Vec<_> = expanded.into_iter().collect();
-                prop_assert_eq!(actual.len(), expected.len());
-                for ((actual_radix, actual), (expected_radix, expected)) in
-                    actual.into_iter().zip(expected)
-                {
-                    prop_assert_eq!(actual_radix, expected_radix);
-                    prop_assert_eq!(actual.hash(), expected.hash());
-                    prop_assert_eq!(actual.span(), expected.span());
-                    prop_assert_eq!(actual.len(), expected.len());
-                }
-            }
-            _ => prop_assert!(false, "both child walks classify the same node shape"),
-        }
-    }
-
     /// Duplicate and descending paths are rejected before recursive grouping,
     /// at any starting depth. A later panic must not mask a missing order check.
     #[cfg(debug_assertions)]
@@ -322,10 +298,10 @@ proptest! {
     fn decompose_and_rebuild_preserves_hash_and_ceiling(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let hash_before = tree.hash();
+        let hash_before = tree.hash(&key());
         let ceiling_before = tree.ceiling().clone();
         let rebuilt = rebuild_with(tree, &|b| b.clone());
-        prop_assert_eq!(rebuilt.hash(), hash_before);
+        prop_assert_eq!(rebuilt.hash(&key()), hash_before);
         prop_assert_eq!(rebuilt.ceiling(), &ceiling_before);
     }
 
@@ -461,7 +437,7 @@ proptest! {
             wrapped.compressed_prefix_len(),
             child_prefix_len + indices.len(),
         );
-        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
+        prop_assert_eq!(wrapped.hash(&key()), reference_hash(wrapped.clone()));
     }
 
     /// Popping the topmost compressed-prefix byte (via `into_children`)
@@ -507,7 +483,7 @@ proptest! {
                 .expect("one-child branch is non-empty");
         }
 
-        prop_assert_eq!(popped.hash(), reference.hash());
+        prop_assert_eq!(popped.hash(&key()), reference.hash(&key()));
     }
 
     /// A one-child branch at index `i` never materializes: `Node::branch`
@@ -523,12 +499,12 @@ proptest! {
         index in any::<u8>(),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let child_hash = child.hash();
+        let child_hash = child.hash(&key());
         let wrapped = Node::branch(Fan::unit(index, child))
             .expect("one-child branch is non-empty");
 
-        prop_assert_ne!(wrapped.hash(), child_hash);
-        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
+        prop_assert_ne!(wrapped.hash(&key()), child_hash);
+        prop_assert_eq!(wrapped.hash(&key()), reference_hash(wrapped.clone()));
     }
 
     /// `beneath` must invalidate the memoized hash.
@@ -544,11 +520,11 @@ proptest! {
         index in any::<u8>(),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let child_hash = child.hash(); // populate the child's lazy memo
+        let child_hash = child.hash(&key()); // populate the child's lazy memo
         let wrapped = child.beneath(index);
 
-        prop_assert_ne!(wrapped.hash(), child_hash);
-        prop_assert_eq!(wrapped.hash(), reference_hash(wrapped.clone()));
+        prop_assert_ne!(wrapped.hash(&key()), child_hash);
+        prop_assert_eq!(wrapped.hash(&key()), reference_hash(wrapped.clone()));
     }
 
     /// `into_children` popping a prefix byte must invalidate the memoized hash.
@@ -561,15 +537,15 @@ proptest! {
         index in any::<u8>(),
         child in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let child_hash = child.hash();
+        let child_hash = child.hash(&key());
         let wrapped = child.beneath(index);
-        let top_hash = wrapped.hash(); // populate the wrapped node's lazy memo
+        let top_hash = wrapped.hash(&key()); // populate the wrapped node's lazy memo
         prop_assert_ne!(top_hash, child_hash);
 
         let popped = wrapped.into_children().expect("non-empty");
         let (_, popped_child) = popped.iter().next().expect("singleton");
 
-        prop_assert_eq!(popped_child.hash(), child_hash);
+        prop_assert_eq!(popped_child.hash(&key()), child_hash);
     }
 
     /// Node hashes match the independent encoding of their kind, prefix,
@@ -578,7 +554,7 @@ proptest! {
     fn hash_matches_independent_reference(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        prop_assert_eq!(tree.hash(), reference_hash(tree.clone()));
+        prop_assert_eq!(tree.hash(&key()), reference_hash(tree.clone()));
     }
 
     /// Node diagnostics display compressed prefixes in path order at every length.
@@ -620,22 +596,23 @@ proptest! {
         let mut node = bare.clone();
         for &radix in path.iter().rev() {
             // Cache before each change: adding a level must invalidate it.
-            node.hash();
+            node.hash(&key());
             node = node.beneath(radix);
         }
-        prop_assert_eq!(node.hash(), super::Hash::leaf(&path));
+        prop_assert_eq!(node.hash(&key()), key().leaf(PATH_LEN, &path));
         prop_assert!(bare.get(&[]).is_some());
 
         for depth in 0..path.len() {
             // Keeping this handle forces prefix removal to copy node state.
             let retained = node.clone();
-            let hash = retained.hash();
+            let hash = retained.hash(&key());
             let children = node.into_children().expect("a prefix has a child");
             prop_assert_eq!(children.len(), 1);
             let (radix, child) = children.into_iter().next().expect("one child");
             prop_assert_eq!(radix, path[depth]);
-            prop_assert_eq!(child.hash(), super::Hash::leaf(&path[depth + 1..]));
-            prop_assert_eq!(retained.hash(), hash);
+            let below = &path[depth + 1..];
+            prop_assert_eq!(child.hash(&key()), key().leaf(below.len(), below));
+            prop_assert_eq!(retained.hash(&key()), hash);
             prop_assert!(retained.get(&path[depth..]).is_some());
             node = child;
         }
@@ -682,26 +659,37 @@ proptest! {
 
 /// Independent reference for the node-hash convention, computed with literal
 /// tag bytes over the public decomposition API.
+fn reference_hash(node: Node) -> super::Hash {
+    reference_hash_and_height(node).0
+}
+
+/// The reference digest of `node` under the fixture key, with the height of
+/// its top, derived from the decomposition alone.
 ///
 /// The node is unwound one virtual level at a time via `into_children`: a
 /// singleton child map is a compressed-prefix byte (a materialized branch
 /// always has >= 2 children, by the path-compression invariant), so its
 /// index accumulates onto the reference prefix in path order until the
-/// underlying leaf or true branch point is reached. The preimage is then
-/// assembled by hand — `LEAF_TAG ‖ len ‖ prefix` for a leaf,
-/// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*` for a
-/// branch — with every child hash computed by the same reference
-/// recursively, never by [`Node::hash`].
-fn reference_hash(mut node: Node) -> super::Hash {
+/// underlying leaf or true branch point is reached. The height is counted
+/// rather than read from the node: a leaf's top lies one level above it per
+/// prefix byte, and a branch's one level above its children's plus one per
+/// prefix byte. The preimage is then assembled by hand —
+/// `LEAF_TAG ‖ height ‖ len ‖ prefix` for a leaf,
+/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`
+/// for a branch — with every child hash computed by the same reference
+/// recursively, never by [`Node::hash`], and keyed by [`HashKey::of`].
+fn reference_hash_and_height(mut node: Node) -> (super::Hash, usize) {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
+    let byte = |n: usize| u8::try_from(n).expect("a height or span fits one byte");
     let mut prefix: Vec<u8> = Vec::new();
     loop {
         node = match node.into_children() {
             Err(_leaf) => {
-                let mut buf = vec![LEAF_TAG, u8::try_from(prefix.len()).expect("short prefix")];
+                let height = prefix.len();
+                let mut buf = vec![LEAF_TAG, byte(height), byte(prefix.len())];
                 buf.extend_from_slice(&prefix);
-                return super::Hash::of(&buf);
+                return (key().of(&buf), height);
             }
             Ok(children) if children.len() == 1 => {
                 let (index, child) = children.into_iter().next().expect("len checked");
@@ -709,18 +697,24 @@ fn reference_hash(mut node: Node) -> super::Hash {
                 child
             }
             Ok(children) => {
-                let mut buf = vec![
-                    BRANCH_TAG,
-                    u8::try_from(prefix.len()).expect("short prefix"),
-                ];
-                buf.extend_from_slice(&prefix);
                 let count = u16::try_from(children.len()).expect("fan-out is at most 256");
-                buf.extend_from_slice(&count.to_be_bytes());
+                let mut records = Vec::new();
+                let mut child_heights = BTreeSet::new();
                 for (radix, child) in children {
-                    buf.push(radix);
-                    buf.extend_from_slice(reference_hash(child).as_bytes());
+                    let (hash, height) = reference_hash_and_height(child);
+                    child_heights.insert(height);
+                    records.push(radix);
+                    records.extend_from_slice(hash.as_bytes());
                 }
-                return super::Hash::of(&buf);
+                let [child_height] = child_heights.into_iter().collect::<Vec<_>>()[..] else {
+                    panic!("every child of a branch sits at one height");
+                };
+                let height = child_height + 1 + prefix.len();
+                let mut buf = vec![BRANCH_TAG, byte(height), byte(prefix.len())];
+                buf.extend_from_slice(&prefix);
+                buf.extend_from_slice(&count.to_be_bytes());
+                buf.extend_from_slice(&records);
+                return (key().of(&buf), height);
             }
         };
     }
@@ -792,7 +786,7 @@ fn branch_releases_the_allocation_a_shortened_fan_kept() {
 /// leaves at `paths`) one virtual level at a time, checking at every
 /// position that its hash matches the canonical from-scratch construction.
 fn check_virtual_levels(node: Node, depth: usize, paths: &[[u8; 32]]) -> Result<(), TestCaseError> {
-    prop_assert_eq!(node.hash(), canonical_at(depth, paths).hash());
+    prop_assert_eq!(node.hash(&key()), canonical_at(depth, paths).hash(&key()));
     match node.into_children() {
         // A bare leaf: the walk consumed the entire 32-byte path.
         Err(_leaf) => prop_assert_eq!(depth, 32),
@@ -822,14 +816,19 @@ fn node_hash_preimage_is_in_path_order() {
     const LEAF_TAG: u8 = 0;
     let leaf = Node::leaf(Version::new(), Message::new(()));
     let wrapped = leaf.beneath(0xAA).beneath(0xBB);
-    assert_eq!(wrapped.hash(), super::Hash::of(&[LEAF_TAG, 2, 0xBB, 0xAA]));
+    // Height 2: the wrapped leaf's top lies two levels above it.
+    assert_eq!(
+        wrapped.hash(&key()),
+        key().of(&[LEAF_TAG, 2, 2, 0xBB, 0xAA])
+    );
 }
 
 /// A hand-built two-leaf tree pins the preimages end to end.
 ///
-/// Each leaf commits its length-tagged 29-byte suffix, and the root branch
-/// commits its 2-byte shared prefix in path order, the big-endian `u16`
-/// child count, and both ascending `radix ‖ hash` records.
+/// Each leaf commits its height and its length-tagged 29-byte suffix, both
+/// 29, and the root branch commits the root's height, 32, its 2-byte shared
+/// prefix in path order, the big-endian `u16` child count, and both
+/// ascending `radix ‖ hash` records.
 #[test]
 fn small_tree_hash_matches_byte_literal_preimage() {
     const LEAF_TAG: u8 = 0;
@@ -842,19 +841,20 @@ fn small_tree_hash_matches_byte_literal_preimage() {
     let tree = canonical_at(0, &[low, high]);
 
     let leaf_hash = |suffix: &[u8]| {
-        let mut buf = vec![LEAF_TAG, u8::try_from(suffix.len()).expect("short suffix")];
+        let len = u8::try_from(suffix.len()).expect("short suffix");
+        let mut buf = vec![LEAF_TAG, len, len];
         buf.extend_from_slice(suffix);
-        super::Hash::of(&buf)
+        key().of(&buf)
     };
-    // Root: prefix [1, 2] (path order), two children at radixes 3 and 7,
-    // each a leaf whose suffix is the rest of its path.
-    let mut preimage = vec![BRANCH_TAG, 2, 1, 2, 0x00, 0x02];
+    // Root: height 32, prefix [1, 2] (path order), two children at radixes
+    // 3 and 7, each a leaf whose suffix is the rest of its path.
+    let mut preimage = vec![BRANCH_TAG, 32, 2, 1, 2, 0x00, 0x02];
     preimage.push(3);
     preimage.extend_from_slice(leaf_hash(&low[3..]).as_bytes());
     preimage.push(7);
     preimage.extend_from_slice(leaf_hash(&high[3..]).as_bytes());
 
-    assert_eq!(tree.hash(), super::Hash::of(&preimage));
+    assert_eq!(tree.hash(&key()), key().of(&preimage));
 }
 
 /// Keep node layout growth explicit: every leaf pays for the largest
@@ -868,4 +868,200 @@ fn node_inner_stays_within_budget() {
     assert!(std::mem::size_of::<Fan>() <= 40);
     assert!(std::mem::size_of::<super::Body>() <= 160);
     assert!(std::mem::size_of::<super::NodeInner>() <= 224);
+}
+
+/// Leaves at `paths`, sorted and deduplicated, observed from `depth`: every
+/// path takes `base`'s first `depth` bytes. Each leaf carries its own
+/// version, so the trees compared below cannot swap two leaves unseen.
+pub(super) fn leaves_below(
+    base: [u8; PATH_LEN],
+    depth: usize,
+    paths: BTreeSet<[u8; PATH_LEN]>,
+) -> Vec<([u8; PATH_LEN], Node)> {
+    let party = crate::tree::arb::nth_party(0);
+    let mut version = Version::new();
+    let paths: BTreeSet<_> = paths
+        .into_iter()
+        .map(|mut path| {
+            path[..depth].copy_from_slice(&base[..depth]);
+            path
+        })
+        .collect();
+    paths
+        .into_iter()
+        .map(|path| {
+            version.tick(&party);
+            (path, Node::leaf(version.clone(), Message::new(())))
+        })
+        .collect()
+}
+
+/// Require `actual` and `expected` to be one tree.
+///
+/// That is equal compressed prefixes, hashes, and leaf counts everywhere,
+/// the same leaf at every leaf position, and the same radices at every
+/// branch. The recursion is bounded by the key depth.
+fn same_tree(actual: &Node, expected: &Node) -> Result<(), TestCaseError> {
+    prop_assert_eq!(
+        actual.inner.prefix.as_slice(),
+        expected.inner.prefix.as_slice()
+    );
+    prop_assert_eq!(actual.hash(&key()), expected.hash(&key()));
+    prop_assert_eq!(actual.len(), expected.len());
+    match (&actual.inner.body, &expected.inner.body) {
+        (
+            Body::Leaf { version: ours, .. },
+            Body::Leaf {
+                version: theirs, ..
+            },
+        ) => {
+            prop_assert_eq!(ours, theirs);
+        }
+        (
+            Body::Branch { children: ours, .. },
+            Body::Branch {
+                children: theirs, ..
+            },
+        ) => {
+            prop_assert_eq!(ours.len(), theirs.len());
+            for ((our_radix, ours), (their_radix, theirs)) in ours.iter().zip(theirs.iter()) {
+                prop_assert_eq!(our_radix, their_radix);
+                same_tree(ours, theirs)?;
+            }
+        }
+        _ => prop_assert!(
+            false,
+            "both trees hold a leaf or a branch at the same position"
+        ),
+    }
+    Ok(())
+}
+
+proptest! {
+    /// Building a subtree one leaf at a time over its open right spine
+    /// yields exactly the tree the bulk constructor builds from the whole
+    /// run, at every starting depth, with every fan fitted.
+    ///
+    /// The paths come from a narrow alphabet, whose long shared prefixes
+    /// exercise compression and deep spines, and from the full byte range,
+    /// whose wide fans exercise branch closing at the top.
+    #[test]
+    fn spine_build_matches_the_bulk_build(
+        base in any::<[u8; PATH_LEN]>(),
+        depth in 0..PATH_LEN,
+        paths in arb_leaf_paths(300),
+    ) {
+        let leaves = leaves_below(base, depth, paths);
+        let mut entries: Vec<_> = leaves
+            .iter()
+            .map(|(path, leaf)| (*path, Some(leaf.clone())))
+            .collect();
+        let expected = Node::from_sorted_leaves(depth, &mut entries);
+        let mut spine = SortedLeaves::new(depth);
+        for (path, leaf) in leaves {
+            spine.push(path, leaf);
+        }
+        let actual = spine.finish().expect("the run holds at least one leaf");
+        same_tree(&actual, &expected)?;
+        fans_fit(&actual)?;
+    }
+}
+
+/// A spine build that receives no leaf finishes with no subtree.
+#[test]
+fn spine_build_of_nothing_is_none() {
+    assert!(SortedLeaves::new(0).finish().is_none());
+}
+
+/// A spine build rejects a leaf that does not ascend from the previous
+/// one: a duplicate path here.
+#[test]
+#[should_panic(expected = "a leaf run is strictly ascending by path")]
+fn spine_build_rejects_a_repeated_path() {
+    let mut spine = SortedLeaves::new(0);
+    spine.push([1; PATH_LEN], Node::leaf(Version::new(), Message::new(())));
+    spine.push([1; PATH_LEN], Node::leaf(Version::new(), Message::new(())));
+}
+
+proptest! {
+    /// Every node of an arbitrary tree, and every peeled view of its
+    /// compressed paths, stores the grandchild count a direct count of its
+    /// children's children finds.
+    #[test]
+    fn grandchildren_match_a_direct_count(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
+    ) {
+        prop_assert!(tree.miscounted_grandchildren().is_none(), "{:?}", tree.miscounted_grandchildren());
+    }
+
+    /// Every node of an arbitrary tree, and every peeled view of its
+    /// compressed paths, reports as its child count the number of children
+    /// its listing yields, none for a leaf.
+    ///
+    /// The traversal keeps an explicit stack, so it never recurses on the
+    /// tree's shape.
+    #[test]
+    fn child_counts_match_a_direct_listing(
+        tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|depth| arb_tree(depth, TREE_LEAF_BUDGET)),
+    ) {
+        let mut stack = vec![View::from(tree)];
+        while let Some(view) = stack.pop() {
+            let count = view.child_count();
+            let listed = match view.clone().children() {
+                Ok(children) => {
+                    let children: Vec<_> = children.map(|(_, child)| child).collect();
+                    let listed = children.len();
+                    stack.extend(children);
+                    listed
+                }
+                Err(_) => 0,
+            };
+            prop_assert_eq!(count, listed, "{:?}", view);
+        }
+    }
+
+    /// Both bulk builders, over the runs a reply decoder assembles, build
+    /// trees whose every node stores the grandchild count a direct count
+    /// finds, at every starting depth.
+    #[test]
+    fn built_runs_count_grandchildren_exactly(
+        base in any::<[u8; PATH_LEN]>(),
+        depth in 0..PATH_LEN,
+        paths in arb_leaf_paths(300),
+    ) {
+        let leaves = leaves_below(base, depth, paths);
+        let mut entries: Vec<_> = leaves
+            .iter()
+            .map(|(path, leaf)| (*path, Some(leaf.clone())))
+            .collect();
+        let bulk = Node::from_sorted_leaves(depth, &mut entries);
+        let mut spine = SortedLeaves::new(depth);
+        for (path, leaf) in leaves {
+            spine.push(path, leaf);
+        }
+        let spine = spine.finish().expect("the run holds at least one leaf");
+        for built in [bulk, spine] {
+            prop_assert!(built.miscounted_grandchildren().is_none(), "{:?}", built.miscounted_grandchildren());
+        }
+    }
+}
+
+/// A full fan of branches, each over a full fan of leaves, stores the
+/// largest grandchild count a branch can have, 65,536, which its `u16`
+/// holds exactly as 65,535.
+#[test]
+fn a_full_fan_of_full_fans_counts_every_grandchild() {
+    let paths: Vec<[u8; PATH_LEN]> = (0..=u8::MAX)
+        .flat_map(|top| {
+            (0..=u8::MAX).map(move |next| {
+                let mut path = [0; PATH_LEN];
+                path[0] = top;
+                path[1] = next;
+                path
+            })
+        })
+        .collect();
+    let root = canonical_at(0, &paths);
+    assert_eq!(super::View::from(root.clone()).grandchild_count(), 65_536);
+    assert!(root.miscounted_grandchildren().is_none());
 }

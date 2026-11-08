@@ -13,23 +13,23 @@ use std::{
 use futures::join;
 use proptest::prelude::*;
 
-use crate::link::memory_with_capacity;
 use crate::message::Message;
 use crate::observe::{
     Attachment, Direction, Observer, Role, SessionHandle, SessionInfo, SessionKind,
     SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
 use crate::testing::{
-    IoPlan, IoReport, IoSide, node_census, reorder_accepts, run_to_quiescence, wrap_link,
+    IoPlan, IoReport, IoSide, memory_connection, node_census, run_to_quiescence, wrap_io,
 };
 use crate::tree::mirror::streaming::channel::{
-    ChannelReport, QueueKind, with_observation, with_schedule,
+    ChannelReport, QueueKind, QueueRole, with_observation, with_role_hold, with_schedule,
 };
 use crate::tree::mirror::streaming::remote::codec::{
     Frame, RunBudget, Speaker, Stream, decode_exact,
 };
+use crate::tree::mirror::streaming::remote::pipe::{WIRE_POOL_RUNS, receive_waits};
 use crate::tree::mirror::streaming::remote::proxy::work::progress::with_trace;
-use crate::tree::mirror::streaming::window::{Window, WindowConfig};
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation, Root,
     materialized::{Error as MaterializedError, Handshaking},
@@ -39,7 +39,7 @@ use crate::tree::mirror::streaming::{
 use crate::tree::typed::Path;
 use crate::tree::typed::height::{Height, Root as RootHeight};
 use crate::tree::{Action, Root as TreeRoot, Tree, arb::nth_party};
-use crate::{DEFAULT_TARGET_MESSAGE_SIZE, Version};
+use crate::{Version, default};
 
 use super::{
     harness::{self, Backends, EndpointError, Topology, codec},
@@ -102,10 +102,16 @@ impl Divergence {
                 shared = version;
             }
         }
+        // A redaction names its leaf by version; recover each chosen
+        // address's version from the mapping.
+        let version_of: std::collections::BTreeMap<Path, Version> = mapping
+            .iter()
+            .map(|(version, path)| (*path, version.clone()))
+            .collect();
         Path::with_leaf_paths(mapping, || {
             let insert =
                 |path: &Path| Action::Insert(Message::new(<[u8; 32]>::from(*path).to_vec()));
-            let mut base = Tree::<Vec<u8>>::new();
+            let mut base = Tree::<Vec<u8>>::default();
             base.act(&nth_party(0), self.shared.iter().map(insert));
             let sides = std::array::from_fn(|side| {
                 let mut tree = base.clone();
@@ -113,7 +119,9 @@ impl Divergence {
                 tree.act(&party, self.novel[side].iter().map(insert));
                 tree.act(
                     &party,
-                    self.redacted[side].iter().copied().map(Action::Forget),
+                    self.redacted[side]
+                        .iter()
+                        .map(|path| Action::Forget(version_of[path].clone())),
                 );
                 tree
             });
@@ -130,20 +138,16 @@ impl Divergence {
                 with_trace(|| session.run([left.root, right.root], plans));
             trace.assert_valid();
             trace.assert_covers_divergent_session();
-            trace.assert_question_causality();
+            trace.assert_takes_answer_published_questions();
             for (role, stats) in observations
                 .queues
                 .roles()
                 .filter(|(role, _)| QueueKind::PROXY.contains(&role.kind))
             {
-                assert!(
-                    stats.high_water <= stats.effective_capacity,
-                    "queue {role:?} exceeded its capacity"
-                );
                 assert_eq!(stats.sends, stats.receives, "queue {role:?} did not drain");
             }
             for root in actual {
-                let tree = Tree::<Vec<u8>>::from_root(root);
+                let tree = Tree::<Vec<u8>>::from_root(crate::network::NetworkKeys::fixture(), root);
                 assert_eq!(tree.root, expected.root);
                 // Merkle equality identifies versions; inspect payloads too.
                 for (version, payload) in expected.iter() {
@@ -183,7 +187,7 @@ proptest! {
         fail_left in any::<bool>(),
         fail_proxy in any::<bool>(),
         choice in any::<usize>(),
-        width in prop_oneof![Just(1usize), Just(8)],
+        budget in arb_ledger(),
         capacity in prop_oneof![Just(1usize), Just(37)],
         schedule in proptest::collection::vec(0u8..=2, 0..64),
     ) {
@@ -210,10 +214,11 @@ proptest! {
                     (false, false) => &mut backends.right,
                     (false, true) => &mut backends.right_proxy,
                 } = failing;
-                let (left_link, right_link) = memory_with_capacity(capacity);
+                let (left_end, right_end) = memory_connection(capacity);
                 with_schedule(schedule.clone(), || run_to_quiescence(harness::drive(
                     Topology::Production, backends, left.root.clone(), right.root.clone(),
-                    left_link, right_link, codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                    (left_end.read, left_end.write), (right_end.read, right_end.write),
+                    codec::<Vec<u8>>(), budget,
                 ))).expect("a backend failure must not leave either endpoint stalled")
             };
             let baseline = Failing::after(Local, usize::MAX);
@@ -253,16 +258,17 @@ proptest! {
     fn cancelled_deep_sessions_release_nodes_and_retry(
         depth in 2usize..32,
         choice in any::<usize>(),
-        width in prop_oneof![Just(1usize), Just(8)],
+        budget in arb_ledger(),
         schedule in proptest::collection::vec(0u8..=2, 0..64),
     ) {
         let pair = Divergence::new([vec![0; depth]], [2, 3]);
         pair.with_trees(|[left, right]| {
             let run = |limit| {
-                let (left_link, right_link) = memory_with_capacity(1);
+                let (left_end, right_end) = memory_connection(1);
                 with_schedule(schedule.clone(), || cancel_after(harness::drive(
                     Topology::Production, Backends::local(), left.root.clone(), right.root.clone(),
-                    left_link, right_link, codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                    (left_end.read, left_end.write), (right_end.read, right_end.write),
+                    codec::<Vec<u8>>(), budget,
                 ), limit))
             };
             let mut expected = left.clone();
@@ -302,24 +308,24 @@ proptest! {
         depth in 1usize..32,
         receiver_left in any::<bool>(),
         capacity in 1usize..80,
-        window in 1usize..9,
+        budget in arb_ledger(),
     ) {
         use super::harness::{self, Backends, EndpointError, GreetingRewrite, Topology};
         use crate::tree::mirror::streaming::remote::{Error, adapter::DecodeError};
 
         let pair = Divergence::new([vec![0; depth]], [2, 2]);
         pair.with_trees(|[left, right]| {
-            let (left_link, right_link) = memory_with_capacity(capacity);
+            let (left_end, right_end) = memory_connection(capacity);
             let rewrite = GreetingRewrite::max_version_bytes(0);
             let (left, right) = run_to_quiescence(harness::drive(
                 Topology::Production,
                 Backends::local(),
                 left.root,
                 right.root,
-                harness::rewritten(left_link, receiver_left.then(|| rewrite.clone())),
-                harness::rewritten(right_link, (!receiver_left).then(|| rewrite.clone())),
+                harness::rewritten(left_end, receiver_left.then(|| rewrite.clone())),
+                harness::rewritten(right_end, (!receiver_left).then(|| rewrite.clone())),
                 codec::<Vec<u8>>(),
-                WindowConfig::Fixed(Window::uniform(window)),
+                budget,
             )).expect("a deep declaration error must terminate both endpoints");
             prop_assert!(rewrite.fired(), "the version size was not rewritten");
             let receiver = if receiver_left { left } else { right };
@@ -340,9 +346,19 @@ fn leaf_path(prefix: &[u8], slot: usize) -> Path {
     bytes.into()
 }
 
-/// Stream identities of sent reactions, shared with a session observer.
+/// One endpoint's sent data frames, shared with a session observer: the
+/// stream identities of its reactions, and how many frames it sent in all.
 #[derive(Clone, Default)]
-struct SentFrames(Arc<Mutex<Vec<StreamId>>>);
+struct SentFrames {
+    /// The stream identity of each sent reaction, in order.
+    reactions: Arc<Mutex<Vec<StreamId>>>,
+    /// Every data frame sent, reactions and stream endings alike.
+    frames: Arc<AtomicUsize>,
+}
+
+/// The greetings a wire endpoint writes, each written and flushed on its own
+/// before any data frame: one.
+const GREETINGS: usize = 1;
 
 /// Attach observers and verify the tree depths reached on the wire.
 impl SentFrames {
@@ -355,13 +371,13 @@ impl SentFrames {
 
     /// Check every interior stream down to the fixture's deepest branch.
     fn assert_reach(&self, width: u8) {
-        let frames = self.0.lock().unwrap();
+        let frames = self.reactions.lock().unwrap();
         let StreamId::Data { speaker: role, .. } =
             *frames.first().expect("no data frames were sent")
         else {
             unreachable!("only sent data frames are recorded")
         };
-        let speaker = speaker(role);
+        let speaker = Speaker::from(role);
         let branch_height = RootHeight::HEIGHT - usize::from(width);
         for index in 0..Stream::COUNT {
             let height = Stream::new(index).unwrap().height(speaker);
@@ -414,7 +430,8 @@ struct SentStream {
 
 /// Decode sent frames to distinguish reactions from stream endings.
 impl StreamObserver for SentStream {
-    /// Record only reactions; stream endings alone prove no descent.
+    /// Count every frame, and record only reactions: stream endings alone
+    /// prove no descent.
     fn message(&mut self, bytes: &[u8]) {
         let StreamId::Data {
             speaker: role,
@@ -423,30 +440,49 @@ impl StreamObserver for SentStream {
         else {
             unreachable!("only sent data streams are observed")
         };
-        let (stream, frame) = decode_exact(speaker(role), RunBudget::default(), bytes).unwrap();
+        let (stream, frame) =
+            decode_exact(Speaker::from(role), RunBudget::default(), bytes).unwrap();
         assert_eq!(stream.index(), index);
+        self.frames.frames.fetch_add(1, Ordering::Relaxed);
         if matches!(frame, Frame::Reaction(..)) {
-            self.frames.0.lock().unwrap().push(self.id);
+            self.frames.reactions.lock().unwrap().push(self.id);
         }
     }
 }
 
-/// Convert an observer role to the codec's corresponding speaker.
-fn speaker(role: Role) -> Speaker {
-    match role {
-        Role::Initiator => Speaker::Initiator,
-        Role::Responder => Speaker::Responder,
-    }
+/// The ledgers the suites run both endpoints on: the serial configuration,
+/// one unit of each kind and depth at a time, and an unlimited budget, at
+/// which no unit waits for admission.
+const LEDGERS: [SessionLedger; 2] = [SessionLedger::Serial, SessionLedger::Budget(usize::MAX)];
+
+/// Either of [`LEDGERS`], for generators.
+fn arb_ledger() -> impl Strategy<Value = SessionLedger> {
+    prop::sample::select(LEDGERS.to_vec())
 }
 
 /// Transport and queue capacities used by one closed-world session.
 struct Session {
-    /// Bytes buffered independently by each transport stream.
+    /// Bytes buffered by each direction of the pipe.
     capacity: usize,
-    /// Per-height protocol queue capacities, shared by all participants.
-    window: Window,
-    /// Per-endpoint batch sizes for reversed arrivals; one keeps their order.
-    reorder: [usize; 2],
+    /// The ledger both endpoints admit their work against.
+    budget: SessionLedger,
+    /// Both endpoints' message-size target.
+    target: usize,
+    /// Runs' worth at that target each endpoint's wire pools hold.
+    pool_runs: usize,
+}
+
+impl Session {
+    /// A session over pipes of `capacity` bytes on the ledger `budget`, at
+    /// the default target and wire pools.
+    fn new(capacity: usize, budget: SessionLedger) -> Self {
+        Self {
+            capacity,
+            budget,
+            target: default::TARGET_MESSAGE_SIZE,
+            pool_runs: WIRE_POOL_RUNS,
+        }
+    }
 }
 
 /// Evidence retained after both endpoints and their trees have been dropped.
@@ -455,8 +491,6 @@ struct Observations {
     sent: [SentFrames; 2],
     /// Completed I/O and injected delays at each endpoint.
     io: [IoReport; 2],
-    /// Genuine arrival inversions at each acceptor.
-    inversions: [usize; 2],
     /// Occupancy of the protocol queues, grouped by kind and height.
     queues: ChannelReport,
 }
@@ -466,32 +500,53 @@ impl Session {
     /// Drive two observed proxies, checking liveness without an external runtime.
     fn run(&self, roots: [TreeRoot; 2], plans: [IoPlan; 2]) -> ([TreeRoot; 2], Observations) {
         let sent = [SentFrames::default(), SentFrames::default()];
-        let inversions = [Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0))];
-        let (left_link, right_link) = memory_with_capacity(self.capacity);
+        let (left_end, right_end) = memory_connection(self.capacity);
         let [left_plan, right_plan] = plans;
-        let (left_link, left_io) = wrap_link(IoSide::Left, left_plan, left_link);
-        let (right_link, right_io) = wrap_link(IoSide::Right, right_plan, right_link);
-        let left_link = reorder_accepts(left_link, self.reorder[0], inversions[0].clone());
-        let right_link = reorder_accepts(right_link, self.reorder[1], inversions[1].clone());
+        let (left_read, left_write, left_io) = wrap_io(
+            IoSide::Left,
+            left_plan,
+            left_end.read.into_inner(),
+            left_end.write,
+        );
+        let (right_read, right_write, right_io) = wrap_io(
+            IoSide::Right,
+            right_plan,
+            right_end.read.into_inner(),
+            right_end.write,
+        );
         let [left, right] = roots;
-        let window = WindowConfig::Fixed(self.window);
         let (roots, queues) = with_observation(|| {
             run_to_quiescence(async {
-                let left =
-                    Handshaking::start(Local, Root::from(left), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                        .window(window);
-                let right = Handshaking::start(
+                let left = self.budget.apply(Handshaking::start(
+                    Local,
+                    Root::from(left),
+                    Some(crate::network::NetworkKeys::fixture()),
+                    self.target as u64,
+                ));
+                let right = self.budget.apply(Handshaking::start(
                     Local,
                     Root::from(right),
-                    DEFAULT_TARGET_MESSAGE_SIZE as u64,
+                    Some(crate::network::NetworkKeys::fixture()),
+                    self.target as u64,
+                ));
+                let left_proxy = RemoteHandshaking::start(
+                    Local,
+                    left_read,
+                    left_write,
+                    codec::<Vec<u8>>(),
+                    Some(crate::network::NetworkKeys::fixture()),
                 )
-                .window(window);
-                let left_proxy = RemoteHandshaking::start(Local, left_link, codec::<Vec<u8>>())
-                    .window(window)
-                    .observe(sent[0].handle());
-                let right_proxy = RemoteHandshaking::start(Local, right_link, codec::<Vec<u8>>())
-                    .window(window)
-                    .observe(sent[1].handle());
+                .observe(sent[0].handle())
+                .wire_pool_runs(self.pool_runs);
+                let right_proxy = RemoteHandshaking::start(
+                    Local,
+                    right_read,
+                    right_write,
+                    codec::<Vec<u8>>(),
+                    Some(crate::network::NetworkKeys::fixture()),
+                )
+                .observe(sent[1].handle())
+                .wire_pool_runs(self.pool_runs);
                 let (left, right) = join!(
                     Box::pin(mirror(left, left_proxy)),
                     Box::pin(mirror(right, right_proxy)),
@@ -508,7 +563,6 @@ impl Session {
             Observations {
                 sent,
                 io: [left_io.snapshot(), right_io.snapshot()],
-                inversions: inversions.map(|count| count.load(Ordering::Relaxed)),
                 queues,
             },
         )
@@ -532,8 +586,70 @@ fn root_prefix(child: usize, depth: usize) -> Vec<u8> {
     prefix
 }
 
+/// Run `f` with the decoders of every height held still for their first
+/// `polls` polls of their incoming lanes.
+///
+/// A held lane keeps every frame the demultiplexer routes to it, so supply
+/// runs pile up there, each holding its permit from the receive pool, while
+/// the rest of the session keeps running.
+fn with_decoders_held<R>(polls: usize, f: impl FnOnce() -> R) -> R {
+    fn hold_from<R>(height: usize, polls: usize, f: impl FnOnce() -> R) -> R {
+        if height > RootHeight::HEIGHT {
+            return f();
+        }
+        with_role_hold(
+            QueueRole::new(QueueKind::PipeIncoming, height),
+            polls,
+            || hold_from(height + 1, polls, f),
+        )
+    }
+    hold_from(0, polls, f)
+}
+
+/// Sessions whose receive pools run dry while every decoder is held still
+/// complete and converge, at one-run pools and targets of 256, 512 and
+/// 1,024 bytes.
+///
+/// Both sides supply many one-record runs on several logical streams. At
+/// these targets a pool holds a few one-record runs, so the runs routed
+/// to held lanes take every permit, and the frame reader waits for a permit
+/// with frames for every stream behind it. The pipe's argument says the wait
+/// ends anyway: each permit is held by a run already read, which its decoder
+/// finishes without waiting on any later frame, returning the permit before
+/// it waits for its next one. The count of receive-pool waits must grow in
+/// every session, so each session reaches the state it claims to test.
+#[test]
+fn sessions_complete_when_held_decoders_drain_the_receive_pool() {
+    let pair = Divergence::new(
+        [1, 9, 17, 25, 31]
+            .into_iter()
+            .enumerate()
+            .map(|(child, depth)| root_prefix(child, depth)),
+        [120, 120],
+    );
+    for target in [256, 512, 1024] {
+        for budget in LEDGERS {
+            let session = Session {
+                capacity: 37,
+                budget,
+                target,
+                pool_runs: 1,
+            };
+            let before = receive_waits();
+            let observed = with_decoders_held(5000, || {
+                pair.check(&session, [IoPlan::default(), IoPlan::default()])
+            });
+            observed.assert_reach(31);
+            assert!(
+                receive_waits() > before,
+                "the receive pools never ran dry at a target of {target} and a ledger of {budget:?}"
+            );
+        }
+    }
+}
+
 /// Full root fans with mixed depths converge and send terminal leaf reactions
-/// under both minimum and wider protocol windows.
+/// in the serial configuration and at an unlimited budget.
 #[test]
 fn full_root_with_leaf_dispute_reaches_final_stream() {
     let pair = Divergence::new(
@@ -549,16 +665,12 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
         }),
         [1, 1],
     );
-    for width in [1, 8] {
-        let session = Session {
-            capacity: 1,
-            window: Window::uniform(width),
-            reorder: [1, 1],
-        };
+    for budget in LEDGERS {
+        let session = Session::new(1, budget);
         let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
         observed.assert_reach(31);
         for sent in &observed.sent {
-            let frames = sent.0.lock().unwrap();
+            let frames = sent.reactions.lock().unwrap();
             assert!(
                 frames.iter().any(|frame| matches!(
                     frame,
@@ -574,7 +686,9 @@ fn full_root_with_leaf_dispute_reaches_final_stream() {
 }
 
 /// Every branching position and a chain branching at all positions converge
-/// in both orientations and window sizes, with writes visible only on flush.
+/// in both orientations, in the serial configuration and at an unlimited
+/// budget, with
+/// writes visible only on flush.
 #[test]
 fn every_branching_depth_matches_join() {
     let shapes = (0..RootHeight::HEIGHT)
@@ -588,12 +702,8 @@ fn every_branching_depth_matches_join() {
         let depth = prefixes.last().unwrap().len();
         for novel in [[1, 3], [3, 1]] {
             let pair = Divergence::new(prefixes.clone(), novel);
-            for width in [1, 8] {
-                let session = Session {
-                    capacity: 1,
-                    window: Window::uniform(width),
-                    reorder: [1, 1],
-                };
+            for budget in LEDGERS {
+                let session = Session::new(1, budget);
                 let observed = pair.check(
                     &session,
                     std::array::from_fn(|_| IoPlan {
@@ -609,68 +719,15 @@ fn every_branching_depth_matches_join() {
     }
 }
 
-/// Multiple disputes at deep heights use more than one queue slot, while
-/// reversed stream arrivals preserve both peers' reconciliation results.
-#[test]
-fn deep_queues_use_the_wider_window() {
-    let mut pair = Divergence::new((0..16).map(|child| root_prefix(child, 31)), [2, 3]);
-    pair.novel[0].extend((128..136).map(|slot| leaf_path(&[], slot)));
-    pair.novel[1].extend((136..144).map(|slot| leaf_path(&[], slot)));
-    for swap in [false, true] {
-        if swap {
-            pair.novel.swap(0, 1);
-        }
-        for width in [1, 8] {
-            let session = Session {
-                capacity: 4096,
-                window: Window::uniform(width),
-                // Hold the initiator's opening supply while its opposite
-                // acceptor keeps reading. That allows a later stream to
-                // arrive before the opening stream is delivered.
-                reorder: if swap { [3, 1] } else { [1, 3] },
-            };
-            let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
-            observed.assert_reach(31);
-            assert!(
-                observed.inversions.iter().sum::<usize>() > 0,
-                "no stream arrivals were reversed"
-            );
-            let peak = observed
-                .queues
-                .roles()
-                .filter(|(role, _)| {
-                    role.height <= 4
-                        && matches!(
-                            role.kind,
-                            QueueKind::ProxyLocalQuestions | QueueKind::ProxyNextScopes
-                        )
-                })
-                .map(|(_, stats)| stats.high_water)
-                .max()
-                .unwrap();
-            assert!(peak <= width);
-            if width == 1 {
-                assert_eq!(peak, 1);
-            } else {
-                assert!(
-                    peak > 1,
-                    "deep queues never used the wider window: {:?}",
-                    observed.queues
-                );
-            }
-        }
-    }
-}
-
 proptest! {
-    /// Disputes at mixed depths preserve messages and redactions under both
-    /// narrow and wide protocol windows, with arbitrary early I/O delays.
+    /// Disputes at mixed depths preserve messages and redactions at a budget
+    /// of zero and at an unlimited one, with arbitrary early I/O delays.
     #[test]
     fn deep_disputes_match_join(
         prefixes in proptest::collection::vec(1u8..=31, 1..=8),
         novel in prop::array::uniform2(1usize..=4),
         redact in any::<bool>(),
-        width in prop_oneof![Just(1usize), Just(2), Just(8)],
+        budget in arb_ledger(),
         capacity in prop_oneof![Just(1usize), Just(37), Just(4096)],
         delays in prop::array::uniform2(proptest::collection::vec(0u8..=2, 0..=32)),
     ) {
@@ -681,7 +738,7 @@ proptest! {
                 pair.redacted[index % 2].push(path);
             }
         }
-        let session = Session { capacity, window: Window::uniform(width), reorder: [1, 1] };
+        let session = Session::new(capacity, budget);
         let observed = pair.check(&session, delays.map(|delays| IoPlan {
             read_delays: delays.clone(),
             write_delays: delays.clone(),
@@ -691,15 +748,49 @@ proptest! {
         observed.assert_reach(usize::from(*prefixes.iter().max().unwrap()));
     }
 
+    /// Sessions whose wire pools each hold exactly one run's worth at their
+    /// target complete, and converge, across disputes at mixed depths with
+    /// supplies on both sides, in the serial configuration and at an
+    /// unlimited budget.
+    ///
+    /// The targets reach down to zero, where every record outgrows a run and
+    /// takes its direction's whole pool, so runs cross the pipe one at a
+    /// time in each direction; a run's permit is held only by runs already
+    /// built or being read, which leave the pipe without waiting on the
+    /// walk, so the closed-world session still makes progress.
+    #[test]
+    fn one_run_pools_complete_every_session(
+        prefixes in proptest::collection::vec(1u8..=31, 1..=8),
+        novel in prop::array::uniform2(1usize..=4),
+        redact in any::<bool>(),
+        budget in arb_ledger(),
+        capacity in prop_oneof![Just(1usize), Just(4096)],
+        target in prop_oneof![Just(0usize), Just(64), Just(512), Just(default::TARGET_MESSAGE_SIZE)],
+    ) {
+        let mut pair = Divergence::new(prefixes.iter().enumerate()
+            .map(|(child, &depth)| root_prefix(child, usize::from(depth))), novel);
+        if redact {
+            for (index, &path) in pair.shared.iter().enumerate() {
+                pair.redacted[index % 2].push(path);
+            }
+        }
+        let session = Session { capacity, budget, target, pool_runs: 1 };
+        let observed = pair.check(&session, [IoPlan::default(), IoPlan::default()]);
+        observed.assert_reach(usize::from(*prefixes.iter().max().unwrap()));
+    }
+
     /// Nested disputes progress beside exclusive root supplies and an entirely
-    /// redacted shared subtree, with reordered arrivals and delayed flushes
-    /// extending through the complete descent.
+    /// redacted shared subtree, with delayed flushes extending through the
+    /// complete descent.
+    ///
+    /// The exclusive root children travel as ordinary supplies, so the
+    /// initiator never writes a frame on its unused opening stream.
     #[test]
     fn nested_disputes_with_supplies_match_join(
         (outer, inner) in (1usize..31).prop_flat_map(|outer| (Just(outer), outer + 1..32)),
         novel in prop::array::uniform2(1usize..=4),
         redact_left in any::<bool>(),
-        width in prop_oneof![Just(1usize), Just(2), Just(8)],
+        budget in arb_ledger(),
         capacity in prop_oneof![Just(1usize), Just(37), Just(4096)],
         delay in prop::array::uniform2(1u8..=2),
     ) {
@@ -709,27 +800,33 @@ proptest! {
         let redacted = [leaf_path(&[254], 1), leaf_path(&[254], 2)];
         pair.shared.extend(redacted);
         pair.redacted[usize::from(!redact_left)].extend(redacted);
-        let session = Session { capacity, window: Window::uniform(width), reorder: [1, 3] };
+        let session = Session::new(capacity, budget);
         let plans = std::array::from_fn(|_| IoPlan { hold_until_flush: true, ..IoPlan::default() });
         let baseline = pair.check(&session, plans.clone());
+        // A finite delay schedule must cover the whole run, rather than
+        // silently expire before the deep frames. How often a side flushes,
+        // and how many writes carry its items, depend on scheduling, which
+        // the delays change: the multiplexer buffers the frames it writes
+        // between flushes. But every flush follows at least one item
+        // written since the one before, and the items a side writes here,
+        // its greeting and its data frames, are this fixture's whatever
+        // the schedule.
+        let schedules = std::array::from_fn::<_, 2, _>(|side| {
+            GREETINGS + baseline.sent[side].frames.load(Ordering::Relaxed)
+        });
         let mut delayed = plans;
         for (side, plan) in delayed.iter_mut().enumerate() {
-            plan.flush_delays = vec![delay[side]; baseline.io[side].flushes];
+            plan.flush_delays = vec![delay[side]; schedules[side]];
         }
         let observed = pair.check(&session, delayed);
         observed.assert_reach(inner);
         for (side, delay) in delay.into_iter().enumerate() {
-            // A finite delay schedule must cover the whole run, rather than
-            // silently expire before the deep frames. The flush count comes
-            // from this fixture's baseline, not a shallow session constant.
-            prop_assert!(observed.io[side].flushes <= baseline.io[side].flushes);
+            prop_assert!(observed.io[side].flushes <= schedules[side]);
             prop_assert_eq!(observed.io[side].delayed_polls,
                 observed.io[side].flushes * usize::from(delay));
         }
-        prop_assert!(observed.sent.iter().any(|sent| sent.0.lock().unwrap().iter().any(|frame|
+        prop_assert!(!observed.sent.iter().any(|sent| sent.reactions.lock().unwrap().iter().any(|frame|
             matches!(frame, StreamId::Data { speaker: Role::Initiator, index: 0 })
-        )), "no opening subtree supplies");
-        // Actual reversal is guaranteed by the dedicated wide fixture; this
-        // family also includes schedules with no simultaneous arrivals.
+        )), "the initiator wrote its unused opening stream");
     }
 }

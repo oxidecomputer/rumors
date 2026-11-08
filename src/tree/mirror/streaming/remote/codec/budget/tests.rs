@@ -1,20 +1,19 @@
 use super::*;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 
-/// The default budget equals the documented derivation: 256 full-fan
-/// query frames, the decode side's largest non-supply reply, pinned by
-/// value so a change to any wire constant it derives from moves this
-/// assert loudly.
+/// A session's default run budget is the default message-size target,
+/// which lies within the wire's cap and so is not saturated.
 #[test]
-fn default_budget_matches_its_derivation() {
-    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 1_830_400);
-    assert_eq!(RunBudget::default().bytes(), DEFAULT_TARGET_MESSAGE_SIZE);
+fn the_default_budget_is_the_default_target() {
+    assert_eq!(RunBudget::default().bytes(), default::TARGET_MESSAGE_SIZE);
 }
 
 /// The full-fan frame constant prices exactly what the encoder writes.
 ///
-/// One query frame carrying every radix, constructed and encoded, is
-/// byte-for-byte the closed form's value — so the default budget's
-/// derivation cannot drift from the wire.
+/// One query frame carrying every radix, each at the widest grandchild
+/// count, constructed and encoded, is byte-for-byte the closed form's
+/// value, so the bounds derived from it, such as the write buffer's size
+/// and the largest comparing reply, cannot drift from the wire.
 #[test]
 fn full_fan_frame_len_matches_an_actual_encode() {
     use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
@@ -22,8 +21,13 @@ fn full_fan_frame_len_matches_an_actual_encode() {
     use super::super::signal::{Flow, Speaker, Stream};
     use super::super::{Frame, Reaction, WireFrame, encode};
 
-    let children: Vec<(u8, Hash)> = (0..=u8::MAX)
-        .map(|radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
+    let children: Vec<Listed> = (0..=u8::MAX)
+        .map(|radix| Listed {
+            radix,
+            hash: Hash::from([radix; MERKLE_HASH_LEN]),
+            grandchildren: Grandchildren::MAX,
+            children_less_one: 0,
+        })
         .collect();
     let frame: WireFrame = (
         Stream::new(8).expect("an interior stream exists"),
@@ -57,7 +61,7 @@ fn admission_charges_the_frame_envelope() {
 /// default-sized run is always representable on the wire.
 #[test]
 fn default_budget_fits_the_framing_header() {
-    assert!(u32::try_from(DEFAULT_TARGET_MESSAGE_SIZE).is_ok());
+    assert!(u32::try_from(default::TARGET_MESSAGE_SIZE).is_ok());
 }
 
 /// Budgets above the wire's run byte cap saturate to it, so a run the

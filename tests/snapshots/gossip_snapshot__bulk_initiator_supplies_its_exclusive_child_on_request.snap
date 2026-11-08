@@ -1,0 +1,69 @@
+---
+source: tests/gossip_snapshot.rs
+expression: capture
+---
+direction A -> B
+role: Initiator
+control item 0 (30 bytes) / preamble /
+55799_1([
+    "rumors",
+    2,
+    h'85075c6362fdf6d4e12c2575ea5bcd04',
+    0,
+])
+control item 1 (142 bytes) / greeting /
+24_0(<<{
+    "listing": {184_0: [h'c47f2cd39c48c6ccc483fb39e53017d7', 1]},
+    "set_len": 2,
+    "version": 53846_1(h'40ff01f9'),
+    "grandchildren": 2,
+    "max_version_bytes": 3,
+    "payload_depth_limit": 256_1,
+    "target_message_size": 262144_2,
+}>>)
+control item 2 (2 bytes) / epilogue /
+"."
+Initiator stream 1 (height 30), 38 wire bytes
+  frame 0 (17 bytes) / Supply(Continue) /
+[1, 6, 63_0(<<63_0(<<53846_1(h'474350'), 12>>)>>)]
+  frame 1 (18 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'43906d'), 26_0>>)>>)]
+  frame 2 (3 bytes) / End(Stream) /
+[1, 9]
+
+direction B -> A
+role: Responder
+control item 0 (30 bytes) / preamble /
+55799_1([
+    "rumors",
+    2,
+    h'85075c6362fdf6d4e12c2575ea5bcd04',
+    0,
+])
+control item 1 (182 bytes) / greeting /
+24_0(<<{
+    "listing": {
+        125_0: [h'b4e25c41792894533601b1374b461284', 0],
+        176_0: [h'454d6e0935d8b831011d383708f4994c', 0],
+        250_0: [h'0c72a75eaf6b3e92221df258f74cca82', 0],
+    },
+    "set_len": 3,
+    "version": 53846_1(h'7077'),
+    "grandchildren": 3,
+    "max_version_bytes": 2,
+    "payload_depth_limit": 256_1,
+    "target_message_size": 262144_2,
+}>>)
+control item 2 (2 bytes) / epilogue /
+"."
+Responder stream 0 (height 31), 59 wire bytes
+  frame 0 (18 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'72c0'), 10001_1>>)>>)]
+  frame 1 (18 bytes) / Supply(Continue) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'73c0'), 10002_1>>)>>)]
+  frame 2 (3 bytes) / QueryEmpty(Continue) /
+[0, 2]
+  frame 3 (17 bytes) / Supply(End) /
+[0, 7, 63_0(<<63_0(<<53846_1(h'77'), 10000_1>>)>>)]
+  frame 4 (3 bytes) / End(Stream) /
+[0, 9]

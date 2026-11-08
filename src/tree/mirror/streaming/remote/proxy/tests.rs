@@ -9,12 +9,17 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use crate::observe::SessionHandle;
-use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_link};
-use crate::tree::mirror::preamble::{self, Intent};
-use crate::tree::mirror::streaming::channel::{
-    ChannelReport, QueueKind, with_observation, with_schedule,
+use crate::testing::{
+    IoPlan, IoReportHandle, IoSide, Quiescence, memory_connection, run_to_quiescence, wrap_io,
 };
-use crate::tree::mirror::streaming::window::WindowConfig;
+use crate::tree::mirror::preamble::{self, Intent};
+use crate::tree::mirror::streaming::FAN;
+use crate::tree::mirror::streaming::channel::{
+    ChannelReport, QueueKind, UNBOUNDED, with_observation, with_schedule,
+};
+use crate::tree::mirror::streaming::materialized::OUTGOING_REPLY_CHUNKS;
+use crate::tree::mirror::streaming::remote::LANE_CAPACITY;
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},
@@ -29,8 +34,7 @@ use crate::tree::{
     },
 };
 use crate::{
-    DEFAULT_TARGET_MESSAGE_SIZE, Network, Version,
-    link::memory_with_capacity,
+    Network, Version, default,
     message::{Message, PayloadCodec, PayloadDepthLimit},
     tree::mirror::Error as MirrorError,
 };
@@ -57,6 +61,7 @@ mod failures;
 mod greeting;
 mod harness;
 mod malformed;
+mod parking;
 mod transport;
 
 /// Capacity large enough to isolate preamble/session byte ownership from
@@ -70,16 +75,16 @@ async fn reconcile_symmetric_accepts(
     b: TreeRoot,
     transport_capacity: usize,
 ) -> (TreeRoot, TreeRoot) {
-    let (a_link, b_link) = memory_with_capacity(transport_capacity);
+    let (a_end, b_end) = memory_connection(transport_capacity);
     let (a, b) = drive(
         Topology::Production,
         Backends::local(),
         a,
         b,
-        a_link,
-        b_link,
+        (a_end.read, a_end.write),
+        (b_end.read, b_end.write),
         codec::<()>(),
-        WindowConfig::FLOOR,
+        SessionLedger::Serial,
     )
     .await;
     (
@@ -94,7 +99,7 @@ async fn reconcile_after_preamble<T>(a: TreeRoot, b: TreeRoot) -> (TreeRoot, Tre
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    let (mut a_link, mut b_link) = memory_with_capacity(PREAMBLE_CAPACITY);
+    let (mut a_end, mut b_end) = memory_connection(PREAMBLE_CAPACITY);
     let network = Network::from_bytes([1; 16]);
     let mut a_staged = preamble::Staged::new();
     let mut b_staged = preamble::Staged::new();
@@ -103,17 +108,19 @@ where
         preamble::preamble(
             network,
             Intent::Remain,
+            &[],
             &mut a_staged,
-            &mut a_link.control_read,
-            &mut a_link.control_write,
+            &mut a_end.read,
+            &mut a_end.write,
             &observe
         ),
         preamble::preamble(
             network,
             Intent::Remain,
+            &[],
             &mut b_staged,
-            &mut b_link.control_read,
-            &mut b_link.control_write,
+            &mut b_end.read,
+            &mut b_end.write,
             &observe
         ),
     );
@@ -125,10 +132,10 @@ where
         Backends::local(),
         a,
         b,
-        a_link,
-        b_link,
+        (a_end.read, a_end.write),
+        (b_end.read, b_end.write),
         codec::<T>(),
-        WindowConfig::FLOOR,
+        SessionLedger::Serial,
     )
     .await;
     (
@@ -142,15 +149,17 @@ async fn reconcile_locally(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
     let a = Handshaking::start(
         Local,
         Root::<Local>::from(a),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        Some(crate::network::NetworkKeys::fixture()),
+        default::TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .serial();
     let b = Handshaking::start(
         Local,
         Root::<Local>::from(b),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        Some(crate::network::NetworkKeys::fixture()),
+        default::TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .serial();
     let (a, b) = Box::pin(mirror(a, b))
         .await
         .expect("two conforming local participants should reconcile");
@@ -186,24 +195,26 @@ async fn reconcile_with_stacked_failures(
     ),
     IoReportHandle,
 ) {
-    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
-    let (a_link, a_io) = wrap_link(
+    let (a_end, b_end) = memory_connection(TRANSPORT_CAPACITY);
+    let (a_read, a_write, a_io) = wrap_io(
         IoSide::Left,
         if fail_left {
             io_plan.clone()
         } else {
             IoPlan::default()
         },
-        a_link,
+        a_end.read.into_inner(),
+        a_end.write,
     );
-    let (b_link, b_io) = wrap_link(
+    let (b_read, b_write, b_io) = wrap_io(
         IoSide::Right,
         if fail_left {
             IoPlan::default()
         } else {
             io_plan
         },
-        b_link,
+        b_end.read.into_inner(),
+        b_end.write,
     );
     let sound = || Failing::after(Local, usize::MAX);
     let backends = Backends {
@@ -217,10 +228,10 @@ async fn reconcile_with_stacked_failures(
         backends,
         a,
         b,
-        a_link,
-        b_link,
+        (a_read, a_write),
+        (b_read, b_write),
         codec::<()>(),
-        WindowConfig::FLOOR,
+        SessionLedger::Serial,
     )
     .await;
     (results, if fail_left { a_io } else { b_io })
@@ -230,7 +241,7 @@ async fn reconcile_with_stacked_failures(
 fn failing_root(root: TreeRoot) -> Root<Failing<Local>> {
     Root {
         ceiling: root.ceiling,
-        root: root.node.map(FailingNode::new),
+        root: root.node.map(|node| FailingNode::new(node.into())),
     }
 }
 
@@ -251,29 +262,33 @@ async fn reconcile_with_failing_walk(
     let a = Handshaking::start(
         left_backend,
         failing_root(a),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        Some(crate::network::NetworkKeys::fixture()),
+        default::TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .serial();
     let b = Handshaking::start(
         right_backend,
         failing_root(b),
-        DEFAULT_TARGET_MESSAGE_SIZE as u64,
+        Some(crate::network::NetworkKeys::fixture()),
+        default::TARGET_MESSAGE_SIZE as u64,
     )
-    .window(WindowConfig::FLOOR);
+    .serial();
 
-    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let (a_end, b_end) = memory_connection(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(
         whole(),
-        a_link,
+        a_end.read,
+        a_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
-    )
-    .window(WindowConfig::FLOOR);
+        Some(crate::network::NetworkKeys::fixture()),
+    );
     let remote_a = RemoteHandshaking::start(
         whole(),
-        b_link,
+        b_end.read,
+        b_end.write,
         PayloadCodec::new::<()>(PayloadDepthLimit::default()),
-    )
-    .window(WindowConfig::FLOOR);
+        Some(crate::network::NetworkKeys::fixture()),
+    );
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (left.map(|_| ()), right.map(|_| ()))
@@ -311,7 +326,7 @@ fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
     }
 }
 
-/// Equal versions return both roots without opening a data stream.
+/// Equal versions return both roots without sending a frame.
 #[test]
 fn equal_versions_return_both_roots() {
     let root = TreeRoot {
@@ -351,15 +366,16 @@ fn symmetric_accept_handshakes_are_live() {
     assert_eq!(a, b);
 }
 
-/// The preamble and proxy session share control halves without consuming each
-/// other's bytes; distinct payloads also exercise supplied-leaf decoding.
+/// The preamble and proxy session share the connection's halves without
+/// consuming each other's bytes; distinct payloads also exercise
+/// supplied-leaf decoding.
 #[test]
-fn preamble_and_proxy_session_share_control_halves() {
+fn preamble_and_proxy_session_share_the_connections_halves() {
     let a_party = nth_party(0);
     let b_party = nth_party(1);
-    let mut a = Tree::<u64>::new();
+    let mut a = Tree::<u64>::default();
     a.act(&a_party, [Action::Insert(Message::new(1))]);
-    let mut b = Tree::<u64>::new();
+    let mut b = Tree::<u64>::default();
     b.act(&b_party, [Action::Insert(Message::new(2))]);
 
     let (a, b) = run_to_quiescence(reconcile_after_preamble::<u64>(a.root, b.root))
@@ -383,8 +399,9 @@ proptest! {
     }
 
     /// For arbitrary valid divergence and scheduling, wire reconciliation
-    /// matches the in-process result, preserves question/reply causality, and
-    /// keeps every proxy queue within its bound.
+    /// matches the in-process result, takes one answer per published
+    /// question under matching labels, and gives every proxy queue its
+    /// documented capacity.
     #[test]
     fn wire_reconciliation_matches_local(
         (a, b) in arb_divergent_pair(),
@@ -399,7 +416,7 @@ proptest! {
                 "wire reconciliation became quiescent: {stopped:?}",
             )))?;
         trace.assert_valid();
-        trace.assert_question_causality();
+        trace.assert_takes_answer_published_questions();
         if divergent {
             trace.assert_covers_divergent_session();
         }
@@ -411,7 +428,7 @@ proptest! {
     ///
     /// Wide budgets reach the streaming deadlock's trigger geometry — wide
     /// roots mixing disputes and provisions — which the small budget rarely
-    /// does; this drives it at the smallest per-stream buffers.
+    /// does; this drives it over a one-byte pipe.
     #[test]
     fn wide_symmetric_accepts_match_local((a, b) in arb_wide_divergent_pair()) {
         let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
@@ -568,11 +585,11 @@ fn opening_failure_before_the_first_yield_returns_over_the_wire() {
 /// reconcile to the materialized oracle's result under closed-world
 /// polling.
 ///
-/// This pins the wait-cycle trigger geometry at the tier that owns stream
-/// scheduling. Liveness for this shape may not depend on transport buffer
-/// capacity (the link contract admits any positive capacity), so the
-/// standard small capacity here is the demanding case and loses no
-/// coverage.
+/// This pins the wait-cycle trigger geometry at the tier that owns the
+/// pipe's scheduling. Liveness for this shape may not depend on transport
+/// buffer capacity (the transport requirements admit any positive
+/// capacity), so the standard small capacity here is the demanding case
+/// and loses no coverage.
 #[test]
 fn early_first_child_dispute_is_live() {
     let (a, b) = early_first_child_dispute_pair();
@@ -583,7 +600,8 @@ fn early_first_child_dispute_is_live() {
     assert_eq!((left, right), expected);
 }
 
-/// Every proxy queue kind is exercised and remains within its one-slot bound.
+/// Every proxy queue kind is exercised and has its documented capacity in
+/// the serial configuration.
 #[test]
 fn instrumented_channels_cover_every_proxy_edge() {
     let (a, b) = disjoint_pair(1, 1);
@@ -620,20 +638,43 @@ fn instrumented_reconcile(
     (result, channels, trace)
 }
 
-/// Every observed proxy queue retains at most its documented single item.
+/// Every observed proxy queue has its documented capacity at a budget of
+/// zero and drains, and no stage taking a chunk from parking waits to
+/// publish a scope.
+///
+/// That a queue never holds more than its capacity is the bounded channel's
+/// own contract, which `channel::bounded`'s tests check directly
+/// (`try_send_is_full_exactly_at_capacity`), so it is not repeated here.
+///
+/// The record queue and parking are [`UNBOUNDED`], the scope queue holds a
+/// fan beside the outgoing replies' chunks ([`OUTGOING_REPLY_CHUNKS`]), and
+/// each logical stream's lane to or from the pipe [`LANE_CAPACITY`]
+/// frames.
 fn assert_proxy_channels_are_bounded(report: &ChannelReport) {
     for (role, stats) in report
         .roles()
         .filter(|(role, _)| QueueKind::PROXY.contains(&role.kind))
     {
+        let expected = match role.kind {
+            QueueKind::ProxyLocalQuestions => UNBOUNDED,
+            QueueKind::PipeOutgoing | QueueKind::PipeIncoming => LANE_CAPACITY,
+            QueueKind::ProxyNextScopes => FAN + OUTGOING_REPLY_CHUNKS,
+            QueueKind::ProxyResponses => UNBOUNDED,
+            _ => unreachable!("only proxy roles are selected"),
+        };
         assert_eq!(
-            stats.effective_capacity, 1,
+            stats.effective_capacity, expected,
             "unexpected capacity for {role:?}"
         );
-        assert!(stats.high_water <= 1, "queue {role:?} exceeded one item");
         assert_eq!(
             stats.sends, stats.receives,
             "queue {role:?} did not drain cleanly",
         );
+        if role.kind == QueueKind::ProxyNextScopes {
+            assert_eq!(
+                stats.blocked_send_polls, 0,
+                "a stage taking a chunk waited to publish a scope"
+            );
+        }
     }
 }

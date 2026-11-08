@@ -59,6 +59,8 @@ not (
     | package(focused-fuel-guest)
     | package(focused-fuel-harness)
     | package(focused-fuel-protocol)
+    | package(rumors-budget-curves)
+    | package(rumors-netperf)
     | package(fuzzfit-guest)
     | package(fuzzfit-harness)
     | package(suanpan-fuel-guest)
@@ -95,12 +97,3 @@ slow-timeout = { period = "60s", terminate-after = 9 }
 # while the job sets none.
 [profile.high-count]
 slow-timeout = { period = "60s" }
-
-# The window measurement suites (window_knee, window_operator,
-# window_corners, gossip_pipelining) need no scheduling isolation: their
-# pins assert on exact virtual wire time (`benches/support/latency.rs`),
-# which machine load cannot move, so they run interleaved with the rest
-# of the suite like any other test. The one wall-clock upper bound among
-# them (window_corners' real-clock promptness cross-check) holds a
-# ~0.5 s measured catch-up under a 5 s budget: that ~8x headroom is what
-# absorbs load there, where the virtual pins need none.

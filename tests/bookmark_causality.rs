@@ -2,7 +2,7 @@
 //!
 //! The simulator generates sends, redactions, sessions, crashes, and retirement,
 //! with wire and storage failures. Wire faults affect ordinary gossip;
-//! bootstrap and retirement use clean links but may fail through storage.
+//! bootstrap and retirement use clean connections but may fail through storage.
 //! Each network descends from its own seed; histories from different networks
 //! are never compared or reconciled.
 //!
@@ -35,17 +35,20 @@ use std::sync::{Arc, Mutex};
 
 use before::Party;
 use proptest::prelude::*;
-use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 use rumors::error::{Mismatch, ProtocolViolation};
-use rumors::{Bookmark, BookmarkIo, Error, Network, Peer, Retire, Rumors, Snapshot, Version};
+use rumors::{
+    Bookmark, BookmarkIo, Connection, Error, Network, Peer, Retire, Rumors, Snapshot, Version,
+};
 
 use crate::common::fault::{self, FaultPlan};
 use crate::common::flaky::{
     DurableStore, FaultFeed, FlakyError, FlakyInMemoryBookmark, persisted_record,
 };
 use crate::common::sim::arb_fault;
-use crate::common::wire::{LINK_BUF, block_on};
+use crate::common::wire::block_on;
+use rumors::testing::MEMORY_CAPACITY;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// The message payload: a simulation-unique id that is also the message's
 /// emission sequence number, so a single per-[`World`] counter assigns both at
@@ -55,13 +58,13 @@ type Msg = u64;
 /// The network seed of the deterministic scenarios: the seed of their
 /// [`World`]'s network RNG.
 ///
-/// Each universe a world creates draws its [`Network`] identifier from that
-/// stream, and the identifiers decide the `(min_ticks, network)` tie-break
-/// between fresh peers. A scenario pins one path through those tie-breaks,
-/// so its seed stays fixed; the properties draw theirs. The stream is
-/// ChaCha, whose output for a seed is fixed across platforms and `rand`
-/// versions.
-const SCENARIO_NETWORK_SEED: u64 = 0;
+/// Each universe a world creates draws its network's secret from that
+/// stream, and with it its [`Network`] identifier; the identifiers decide
+/// the `(min_ticks, network)` tie-break between fresh peers. A scenario
+/// pins one path through those tie-breaks, so its seed stays fixed; the
+/// properties draw theirs. The stream is ChaCha, whose output for a seed is
+/// fixed across platforms and `rand` versions.
+const SCENARIO_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0);
 
 /// A hard ceiling on heal-phase full-mesh rounds, per peer. A correct fleet
 /// reaches a fixed point in a handful; the cap turns a convergence bug into a
@@ -338,13 +341,13 @@ enum PathEvent {
 impl World {
     /// A world with no nodes yet, whose network RNG starts from
     /// `network_seed`.
-    fn empty(network_seed: u64) -> Self {
+    fn empty(network_seed: NetworkSeed) -> Self {
         World {
             nodes: Vec::new(),
             emissions: EmissionLog::default(),
             next_seq: 0,
             protected: BTreeMap::new(),
-            rng: ChaChaRng::seed_from_u64(network_seed),
+            rng: network_seed.rng(),
             networks: BTreeSet::new(),
             path: Vec::new(),
             redacted: BTreeMap::new(),
@@ -360,7 +363,7 @@ impl World {
     ) -> Peer<Msg, FlakyInMemoryBookmark> {
         let peer = block_on(
             Peer::<Msg>::seed_rng(&mut self.rng)
-                .sync_window_floor()
+                .sync_memory_budget(0)
                 .bookmark(bookmark),
         )
         .expect("a pristine seed attaches its bookmark without touching storage");
@@ -378,7 +381,7 @@ impl World {
         n: usize,
         read_faults: Vec<Vec<bool>>,
         write_faults: Vec<Vec<bool>>,
-        network_seed: u64,
+        network_seed: NetworkSeed,
     ) -> Self {
         let mut world = World::empty(network_seed);
         for label in 0..n {
@@ -417,7 +420,7 @@ impl World {
     /// (`fold` of all live and checkpointed regions equals [`Party::seed`])
     /// meaningful: a region a recovery drops shows up as a genuine gap rather
     /// than being re-created by a fresh fork.
-    fn single_network(n: usize, network_seed: u64) -> Self {
+    fn single_network(n: usize, network_seed: NetworkSeed) -> Self {
         assert!(n >= 1, "a fleet needs at least one node");
         let reliable = || Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
 
@@ -747,22 +750,22 @@ impl World {
         let same_network = self.nodes[a].network == self.nodes[b].network;
         let network = self.nodes[a].network;
         let held_before: BTreeSet<u64> = &self.live_ids(a) | &self.live_ids(b);
-        // Each side owns its faulted link inside its own `async move` block,
+        // Each side owns its faulted end inside its own `async move` block,
         // so when a wire fault kills one side its block completes and
-        // `join!` drops the block, link included, surfacing EOF to the
-        // counterparty. Links declared outside the blocks would live until
+        // `join!` drops the block, end included, surfacing EOF to the
+        // counterparty. Ends declared outside the blocks would live until
         // both sides finished, deadlocking the survivor on a read that never
         // completes.
         let (out_a, out_b) = block_on(async {
-            let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+            let (side_a, side_b) = rumors::testing::memory_connection(MEMORY_CAPACITY);
             tokio::join!(
                 async move {
-                    let mut link = fault::faulty(side_a, fault_a);
-                    ra.gossip_once(&mut link).await
+                    let end = fault::faulty(side_a, fault_a);
+                    ra.gossip_once(end.read, end.write).await
                 },
                 async move {
-                    let mut link = fault::faulty(side_b, fault_b);
-                    rb.gossip_once(&mut link).await
+                    let end = fault::faulty(side_b, fault_b);
+                    rb.gossip_once(end.read, end.write).await
                 },
             )
         });
@@ -862,28 +865,36 @@ impl World {
         self.nodes[who].state = NodeState::Dormant;
 
         let (boot_out, serve_out) = block_on(async {
-            let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
-            // Each side owns its link inside its block so a failing one drops
+            let (boot_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+            // Each side owns its end inside its block so a failing one drops
             // it (see `gossip`).
             tokio::join!(
                 async move {
-                    let mut link = boot_side;
-                    let peer = match Peer::<Msg>::bootstrap().join(&mut link).await {
-                        rumors::Joined::Joined { peer } => peer,
+                    let mut end = boot_side;
+                    let peer = match Peer::<Msg>::bootstrap()
+                        .join(&mut end.read, &mut end.write)
+                        .await
+                    {
+                        // A joiner that received its whole party keeps it,
+                        // whether or not its connection survived to confirm
+                        // completion.
+                        rumors::Joined::Joined { peer, .. } => peer,
                         rumors::Joined::Bailed { .. } => return Err(BootFailure::NoPeer),
                         rumors::Joined::Failed { error, .. } => {
                             return Err(BootFailure::Join(error));
                         }
-                        rumors::Joined::Unbookmarked(_) => unreachable!("no bookmark was selected"),
+                        rumors::Joined::Unbookmarked { .. } => {
+                            unreachable!("no bookmark was selected")
+                        }
                     };
-                    peer.sync_window_floor()
+                    peer.sync_memory_budget(0)
                         .bookmark(bookmark)
                         .await
                         .map_err(|unbookmarked| BootFailure::Attach(unbookmarked.error))
                 },
                 async move {
-                    let mut link = serve_side;
-                    server_rumors.gossip_once(&mut link).await
+                    let end = serve_side;
+                    server_rumors.gossip_once(end.read, end.write).await
                 },
             )
         });
@@ -1016,23 +1027,23 @@ impl World {
         };
 
         let (outcome, absorbed) = block_on(async {
-            let (ret_side, abs_side) = rumors::link::memory_with_capacity(LINK_BUF);
-            // Each side owns its link inside its block so a failing one drops
+            let (ret_side, abs_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+            // Each side owns its end inside its block so a failing one drops
             // it (see `gossip`). The retiree becomes a `Peer` inside its
             // block: it holds the sole handle to its set, so `try_into_peer`
             // resolves at once.
             tokio::join!(
                 async move {
-                    let mut link = ret_side;
+                    let end = ret_side;
                     let peer = retiree_rumors
                         .try_into_peer()
                         .await
                         .expect("the node holds the sole handle to its set");
-                    peer.retire(&mut link).await
+                    peer.retire(end.read, end.write).await
                 },
                 async move {
-                    let mut link = abs_side;
-                    absorber_rumors.gossip_once(&mut link).await
+                    let end = abs_side;
+                    absorber_rumors.gossip_once(end.read, end.write).await
                 },
             )
         });
@@ -1051,20 +1062,35 @@ impl World {
                 "{step}: the absorber failed on a clean wire over reliable bookmarks: {error:?}",
             );
         }
-        if let Retire::Recovered { error, .. } | Retire::Uncertain { error } = &outcome {
+        if let Retire::Recovered { error, .. }
+        | Retire::Retired {
+            connection: Connection::Lost { error },
+        } = &outcome
+        {
             assert_not_codec_bug(&format!("{step}, retiree"), error);
         }
         assert!(
-            may_fail || matches!(outcome, Retire::Retired),
+            may_fail
+                || matches!(
+                    outcome,
+                    Retire::Retired {
+                        connection: Connection::Reusable { .. }
+                    }
+                ),
             "{step}: a clean-wire retirement over reliable bookmarks must land as \
              `Retired`, not {outcome:?}",
         );
 
-        let retired = matches!(outcome, Retire::Retired) && absorbed.is_ok();
+        let retired = matches!(
+            outcome,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        ) && absorbed.is_ok();
         match outcome {
             // Donated: the retiree's memory is consumed, so secure what it
             // persisted and lose the rest.
-            Retire::Retired | Retire::Uncertain { .. } => self.secure_and_lose(retiree),
+            Retire::Retired { .. } => self.secure_and_lose(retiree),
             // Unchanged: hand the intact peer back to life; its persisted
             // emissions are durable, its unpersisted ones remain pending.
             Retire::Recovered { peer, .. } => {
@@ -1167,15 +1193,15 @@ impl World {
         let network = self.nodes[a].network;
         let held_before: BTreeSet<u64> = &self.live_ids(a) | &self.live_ids(b);
         let (out_a, out_b) = block_on(async {
-            let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
+            let (side_a, side_b) = rumors::testing::memory_connection(MEMORY_CAPACITY);
             tokio::join!(
                 async move {
-                    let mut link = side_a;
-                    ra.gossip_once(&mut link).await
+                    let end = side_a;
+                    ra.gossip_once(end.read, end.write).await
                 },
                 async move {
-                    let mut link = side_b;
-                    rb.gossip_once(&mut link).await
+                    let end = side_b;
+                    rb.gossip_once(end.read, end.write).await
                 },
             )
         });
@@ -1453,7 +1479,7 @@ struct Plan {
     write_faults: Vec<Vec<bool>>,
     /// The seed of the world's network RNG, whose identifiers decide every
     /// tie-break between fresh peers.
-    network_seed: u64,
+    network_seed: NetworkSeed,
 }
 
 /// Sample sparse failures across a peer's storage calls, or disable failures.
@@ -1502,7 +1528,7 @@ fn arb_plan() -> impl Strategy<Value = Plan> {
             prop::collection::vec(arb_step(n, faults), 0..40),
             prop::collection::vec(arb_fault_bits(faults), n),
             prop::collection::vec(arb_fault_bits(faults), n),
-            any::<u64>(),
+            network_seed(),
         )
             .prop_map(|(n, steps, read_faults, write_faults, network_seed)| Plan {
                 n,
@@ -1565,7 +1591,7 @@ fn arb_reliable_plan() -> impl Strategy<Value = Plan> {
     (2usize..=4).prop_flat_map(|n| {
         (
             prop::collection::vec(arb_reliable_step(n), 0..40),
-            any::<u64>(),
+            network_seed(),
         )
             .prop_map(move |(steps, network_seed)| Plan {
                 n,
@@ -1607,8 +1633,9 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     block_on(async move {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
-        let a = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(SCENARIO_NETWORK_SEED))
-            .sync_window_floor()
+        let a = SCENARIO_NETWORK_SEED
+            .peer::<Msg>()
+            .sync_memory_budget(0)
             .bookmark(bm_a())
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
@@ -1630,22 +1657,27 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
 
         // B retires into A. A's gossip must absorb B's party so that A ends up
         // holding the whole seed identity.
-        let (ret_side, abs_side) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (ret_side, abs_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
         let absorber = a.clone();
         let (retire_out, absorb_out) = tokio::join!(
             async move {
-                let mut link = ret_side;
+                let end = ret_side;
                 let peer = b.try_into_peer().await.expect("sole handle");
-                peer.retire(&mut link).await
+                peer.retire(end.read, end.write).await
             },
             async move {
-                let mut link = abs_side;
-                absorber.gossip_once(&mut link).await
+                let end = abs_side;
+                absorber.gossip_once(end.read, end.write).await
             },
         );
 
         assert!(
-            matches!(retire_out, Retire::Retired),
+            matches!(
+                retire_out,
+                Retire::Retired {
+                    connection: Connection::Reusable { .. }
+                }
+            ),
             "the retiree should have retired",
         );
         absorb_out.expect("the absorber's gossip must not fail while taking a retirement");
@@ -1658,21 +1690,27 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
 }
 
 /// Bootstrap a fresh peer with bookmark `bm` from `server` over a clean
-/// in-memory link, returning the booted peer's [`Rumors`]. Diagnostic helper.
+/// in-memory end, returning the booted peer's [`Rumors`]. Diagnostic helper.
 async fn boot_from_async(
     server: &Rumors<Msg, FlakyInMemoryBookmark>,
     bm: FlakyInMemoryBookmark,
 ) -> Rumors<Msg, FlakyInMemoryBookmark> {
     let server = server.clone();
-    let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (boot_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (boot_out, serve_out) = tokio::join!(
         async move {
-            let mut link = boot_side;
-            let peer = (match Peer::<Msg>::bootstrap().join(&mut link).await {
-                rumors::Joined::Joined { peer } => peer,
+            let mut end = boot_side;
+            let peer = (match Peer::<Msg>::bootstrap()
+                .join(&mut end.read, &mut end.write)
+                .await
+            {
+                rumors::Joined::Joined {
+                    peer,
+                    connection: rumors::Connection::Reusable { .. },
+                } => peer,
                 _ => panic!("got a peer"),
             })
-            .sync_window_floor();
+            .sync_memory_budget(0);
             // Clean wires, reliable store: the eager persist of the reclaimed
             // identity must succeed.
             match peer.bookmark(bm).await {
@@ -1681,8 +1719,8 @@ async fn boot_from_async(
             }
         },
         async move {
-            let mut link = serve_side;
-            server.gossip_once(&mut link).await
+            let end = serve_side;
+            server.gossip_once(end.read, end.write).await
         },
     );
     serve_out.expect("serve bootstrap");
@@ -1729,8 +1767,9 @@ fn run_reliable_plan(plan: Plan) -> World {
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
-    let network = Peer::<Msg>::seed_rng(&mut ChaChaRng::seed_from_u64(SCENARIO_NETWORK_SEED))
-        .sync_window_floor()
+    let network = SCENARIO_NETWORK_SEED
+        .peer::<Msg>()
+        .sync_memory_budget(0)
         .network();
     let mut version = Version::new();
     version.tick(&Party::seed());
@@ -1763,14 +1802,15 @@ fn negative_control_classifier_rejects_codec_bugs() {
         .and_then(|payload| payload.downcast::<String>().ok())
         .is_some_and(|message| message.contains("a protocol, codec, or bookmark-format bug"))
     }
-    let (mut link, remote) = rumors::link::memory();
+    let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(remote);
-    let replica = Peer::<u64>::seed().into_rumors();
-    let failure = rumors::testing::run_to_quiescence(replica.gossip_once(&mut link))
-        .expect("a closed link must not deadlock")
-        .expect_err("a closed link cannot complete a session");
+    let replica = SCENARIO_NETWORK_SEED.peer::<u64>().into_rumors();
+    let failure =
+        rumors::testing::run_to_quiescence(replica.gossip_once(&mut end.read, &mut end.write))
+            .expect("a closed connection must not deadlock")
+            .expect_err("a closed connection cannot complete a session");
     let Error::Transport(transport) = failure else {
-        panic!("a closed link must report a transport failure: {failure:?}");
+        panic!("a closed connection must report a transport failure: {failure:?}");
     };
     let context = transport.context;
     for kind in [
@@ -1785,14 +1825,12 @@ fn negative_control_classifier_rejects_codec_bugs() {
             "a diagnostic I/O source cannot turn a violation into a transport cut"
         );
     }
-    for bug in [
-        Error::Bookmark(BookmarkIo::Format(rumors::FormatError::Truncated {
-            len: 0,
-        })),
-        Error::LinkPoisoned,
-    ] {
-        assert!(fires(bug), "an unconditional crate bug must fail the step");
-    }
+    assert!(
+        fires(Error::Bookmark(BookmarkIo::Format(
+            rumors::FormatError::Truncated { len: 0 }
+        ))),
+        "an unconditional crate bug must fail the step"
+    );
     for disruption in [
         Error::Transport(transport),
         Error::Bookmark(BookmarkIo::Io(FlakyError::injected_write())),
@@ -1935,9 +1973,9 @@ proptest! {
     /// messages through restart and subsequent writes.
     #[test]
     fn late_checkpoint_failure_preserves_durable_messages(
-        who in 0usize..2, successful_checkpoints in 8usize..24, network_seed in any::<u64>(),
+        who in 0usize..2, successful_checkpoints in 8usize..24, network in network_seed(),
     ) {
-        let mut world = World::single_network(2, network_seed);
+        let mut world = World::single_network(2, network);
         let other = 1 - who;
         world.clean_gossip(0, 1);
 
@@ -2050,6 +2088,14 @@ fn reconstructed_crash_pair_then_retire() {
     world.assert_healed();
 }
 
+/// The network seed of [`reconstructed_cut_gossip_then_retire_under_bookmark_faults`].
+///
+/// Nodes 1 and 2 meet with equal event counts, so the greater network
+/// identifier wins their mismatch. The identifiers derive from the seeded
+/// secrets, and this seed gives node 1 the greater one, which the plan's
+/// path requires.
+const RECONSTRUCTED_NETWORK_SEED: NetworkSeed = NetworkSeed::new(2);
+
 /// A cut gossip followed by failed retirement must preserve durable versions.
 ///
 /// Both cut budgets limit traffic from node 1 to node 2: one at the writer,
@@ -2090,7 +2136,7 @@ fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
             vec![false, false, false, true],
             vec![false, false, false, false, true, false],
         ],
-        network_seed: SCENARIO_NETWORK_SEED,
+        network_seed: RECONSTRUCTED_NETWORK_SEED,
     });
     assert_eq!(
         world.path,

@@ -1,0 +1,777 @@
+//! An offline model of the descent, checked reply for reply against real
+//! sessions.
+//!
+//! [`predict`] computes every reply a session's two walks build from the
+//! replicas' leaves alone, without a tree, a backend, or a channel. Each
+//! side contributes its leaves' paths, and for each leaf whether the peer's
+//! greeting version leaves it unknown, which is all the deletion filter
+//! reads. The suite then runs real sessions, in process and over a pipe,
+//! records every reply each walk publishes ([`with_transcript`]), and
+//! requires the two to agree exactly: per endpoint and logical stream, the
+//! same replies in the same order, each with the same reactions. Over a
+//! pipe, it also observes every frame each endpoint sends, and holds each
+//! reply to the frames the model predicts for it.
+//!
+//! The model rests on four facts about the protocol:
+//!
+//! - A node's children, as `children_of` yields them, are the distinct next
+//!   bytes of the keys beneath it, whatever its storage compresses.
+//! - Two subtrees match exactly when their key sets match, since a node's
+//!   hash covers exactly its leaves.
+//! - The reply about a node held by both sides holds one reaction per child
+//!   either side holds, in radix order, but for the matches after its first:
+//!   a match where both sides' subtrees are equal, the first one naming the
+//!   radixes of every later one, which take no reaction of their own; a
+//!   query listing the replier's children of the child where
+//!   both hold it with different contents; a supply where only the replier
+//!   holds it and some leaf beneath it is unknown to the asker, and nothing
+//!   where every such leaf is known; and an empty query where only the asker
+//!   holds it. The asker answers that empty query with one supply per child
+//!   holding a leaf unknown to the replier, or at the last level with the
+//!   leaf itself if it is unknown.
+//! - Within one logical stream, replies leave in prefix order: each stage
+//!   answers the questions of the replies it takes, in the order it asked
+//!   them, and each reply's questions in radix order.
+//!
+//! Because a reply's contents depend only on the two trees, the walk's
+//! schedule cannot change them. The suite therefore varies the budget and
+//! the transport and expects one prediction to hold for all of them; that
+//! independence is the property that later lets the model price, offline,
+//! every reply a session can invite.
+
+use std::cmp::Ordering;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+
+use proptest::prelude::*;
+
+use super::pipe::placed_over_pipe;
+use super::skeleton::Party;
+use super::{LocalSession, left_initiates};
+use crate::observe::{
+    Attachment, Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo,
+    StreamObserver,
+};
+use crate::tree::Root;
+use crate::tree::arb::{
+    arb_deep_divergent_pair, arb_divergent_pair, arb_wide_divergent_pair, nth_party,
+};
+use crate::tree::mirror::contained;
+use crate::tree::mirror::streaming::materialized::transcript::{
+    Label, Transcript, with_transcript,
+};
+use crate::tree::mirror::streaming::protocol::split::with_split_replies;
+use crate::tree::mirror::streaming::remote::codec::{
+    End, Flow, Frame, Reaction as WireReaction, RunBudget, Speaker, Stream, decode_exact,
+};
+use crate::tree::mirror::streaming::testing::session::{
+    AMPLE, SessionLedger, completed, observed_over_pipe, over_pipe,
+};
+use crate::tree::typed::Node as TreeNode;
+use crate::tree::{Action, Tree};
+use crate::{causally, message::Message};
+
+/// Bytes in a leaf path: one per level of the tree.
+const PATH_BYTES: usize = 32;
+
+/// The typed height of a reply's children when the reply is about a node
+/// `depth` bytes below the root: the root's reply has children at height
+/// 31, and a reply about a leaf's parent has children at height 0.
+fn reply_height(depth: usize) -> usize {
+    PATH_BYTES - 1 - depth
+}
+
+/// One of a side's leaves, as the model sees it.
+#[derive(Clone, Copy, Debug)]
+struct ModelLeaf {
+    /// The leaf's path.
+    path: [u8; PATH_BYTES],
+    /// Whether the peer's greeting version leaves the leaf unknown, so
+    /// that the deletion filter lets it travel.
+    unknown: bool,
+}
+
+/// `side`'s leaves in path order, each marked by whether `peer`'s greeting
+/// version leaves it unknown.
+fn model_leaves(side: &Root, peer: &Root) -> Vec<ModelLeaf> {
+    let mut leaves: Vec<ModelLeaf> = TreeNode::range_owned(side.node.as_ref(), causally::all())
+        .map(|(path, leaf)| ModelLeaf {
+            path,
+            unknown: !contained(leaf.version(), &peer.ceiling),
+        })
+        .collect();
+    leaves.sort_unstable_by_key(|leaf| leaf.path);
+    leaves
+}
+
+/// Split `leaves`, which share their first `depth` bytes and are in path
+/// order, into runs by their byte at `depth`: the children `children_of`
+/// yields for the node they sit under.
+fn children(leaves: &[ModelLeaf], depth: usize) -> Vec<(u8, &[ModelLeaf])> {
+    let mut runs = Vec::new();
+    let mut rest = leaves;
+    while let Some(first) = rest.first() {
+        let radix = first.path[depth];
+        let split = rest.partition_point(|leaf| leaf.path[depth] <= radix);
+        let (run, tail) = rest.split_at(split);
+        runs.push((radix, run));
+        rest = tail;
+    }
+    runs
+}
+
+/// Whether a subtree holding `leaves` travels in a supply: some leaf in it
+/// is unknown to the receiver.
+fn travels(leaves: &[ModelLeaf]) -> bool {
+    leaves.iter().any(|leaf| leaf.unknown)
+}
+
+/// Whether two subtrees hold the same keys, and so match.
+fn same_keys(ours: &[ModelLeaf], theirs: &[ModelLeaf]) -> bool {
+    ours.len() == theirs.len() && ours.iter().zip(theirs).all(|(a, b)| a.path == b.path)
+}
+
+/// Every reply a session builds, per role and reply height, in the order
+/// its logical stream carries them.
+type Prediction = BTreeMap<(Party, usize), Vec<Vec<Label>>>;
+
+/// One reply the model predicts, before it is sorted into its stream.
+struct Predicted {
+    /// The side that builds it.
+    by: Party,
+    /// Its children's typed height, which names its logical stream.
+    height: usize,
+    /// The prefix that orders it within its stream: the node it is about,
+    /// or for a leaf request's reply, the leaf's whole path.
+    order: Vec<u8>,
+    /// Its reactions, payload-erased.
+    labels: Vec<Label>,
+}
+
+/// One node whose dispute reply the model still owes.
+struct Dispute<'k> {
+    /// The replier's leaves beneath the node.
+    replier: &'k [ModelLeaf],
+    /// The asker's leaves beneath the node.
+    asker: &'k [ModelLeaf],
+    /// The node's prefix.
+    prefix: Vec<u8>,
+    /// The side that replies.
+    by: Party,
+}
+
+/// Predict every reply of a session between `responder` and `initiator`,
+/// each side's leaves in path order, whose greeting versions differ.
+///
+/// The descent iterates over an explicit stack rather than recursing, so
+/// the model's own depth never depends on its input.
+fn predict(responder: &[ModelLeaf], initiator: &[ModelLeaf]) -> Prediction {
+    let mut replies = vec![Predicted {
+        by: Party::I,
+        height: reply_height(0),
+        order: Vec::new(),
+        labels: vec![Label::Query(
+            children(initiator, 0)
+                .iter()
+                .map(|(radix, _)| *radix)
+                .collect(),
+        )],
+    }];
+    let mut stack = vec![Dispute {
+        replier: responder,
+        asker: initiator,
+        prefix: Vec::new(),
+        by: Party::R,
+    }];
+    while let Some(dispute) = stack.pop() {
+        let reply = dispute_reply(dispute, &mut stack, &mut replies);
+        replies.push(reply);
+    }
+    let mut prediction = Prediction::new();
+    replies.sort_by(|a, b| a.order.cmp(&b.order));
+    for reply in replies {
+        prediction
+            .entry((reply.by, reply.height))
+            .or_default()
+            .push(reply.labels);
+    }
+    prediction
+}
+
+/// The reply about one disputed node, pushing the disputes its questions
+/// open onto `stack` and the request replies its empty questions invite
+/// onto `replies`.
+fn dispute_reply<'k>(
+    Dispute {
+        replier,
+        asker,
+        prefix,
+        by,
+    }: Dispute<'k>,
+    stack: &mut Vec<Dispute<'k>>,
+    replies: &mut Vec<Predicted>,
+) -> Predicted {
+    let depth = prefix.len();
+    let ours = children(replier, depth);
+    let theirs = children(asker, depth);
+    let mut labels = Vec::new();
+    // The reply's first match, by its label's index, and the radixes of
+    // the later matches it covers, which take no label of their own.
+    let (mut first_match, mut later_matches) = (None, Vec::new());
+    let (mut ours, mut theirs) = (ours.into_iter().peekable(), theirs.into_iter().peekable());
+    loop {
+        let child = |radix: u8| {
+            let mut child = prefix.clone();
+            child.push(radix);
+            child
+        };
+        // Which side's next child comes first in radix order; a side with
+        // no children left comes last.
+        let next = match (ours.peek(), theirs.peek()) {
+            (None, None) => break,
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (Some((mine, _)), Some((yours, _))) => mine.cmp(yours),
+        };
+        match next {
+            Ordering::Equal => {
+                let (mine, held) = ours.next().expect("peeked");
+                let (_, asked) = theirs.next().expect("peeked");
+                if same_keys(held, asked) {
+                    if first_match.is_none() {
+                        first_match = Some(labels.len());
+                        labels.push(Label::Match(Vec::new()));
+                    } else {
+                        later_matches.push(mine);
+                    }
+                } else {
+                    // Below a leaf's parent every child is a leaf, and
+                    // equal paths are equal leaves, so `depth + 1` is a
+                    // real level here.
+                    labels.push(Label::Query(
+                        children(held, depth + 1)
+                            .iter()
+                            .map(|(radix, _)| *radix)
+                            .collect(),
+                    ));
+                    stack.push(Dispute {
+                        replier: asked,
+                        asker: held,
+                        prefix: child(mine),
+                        by: by.other(),
+                    });
+                }
+            }
+            Ordering::Less => {
+                let (mine, held) = ours.next().expect("peeked");
+                if travels(held) {
+                    labels.push(Label::Supply(mine));
+                }
+            }
+            Ordering::Greater => {
+                let (yours, asked) = theirs.next().expect("peeked");
+                labels.push(Label::Query(Vec::new()));
+                replies.push(request_reply(asked, child(yours), by.other()));
+            }
+        }
+    }
+    if let Some(first) = first_match {
+        labels[first] = Label::Match(later_matches);
+    }
+    Predicted {
+        by,
+        height: reply_height(depth),
+        order: prefix,
+        labels,
+    }
+}
+
+/// The reply `by` builds to an empty question about the node at `prefix`,
+/// under which it holds `leaves`: one supply per child that travels, or at
+/// the last level the leaf itself if it travels.
+fn request_reply(leaves: &[ModelLeaf], prefix: Vec<u8>, by: Party) -> Predicted {
+    let depth = prefix.len();
+    let (height, labels) = if depth == PATH_BYTES {
+        let radix = prefix[PATH_BYTES - 1];
+        let labels = if travels(leaves) {
+            vec![Label::Supply(radix)]
+        } else {
+            Vec::new()
+        };
+        (reply_height(PATH_BYTES - 1), labels)
+    } else {
+        let labels = children(leaves, depth)
+            .into_iter()
+            .filter(|(_, child)| travels(child))
+            .map(|(radix, _)| Label::Supply(radix))
+            .collect();
+        (reply_height(depth), labels)
+    };
+    Predicted {
+        by,
+        height,
+        order: prefix,
+        labels,
+    }
+}
+
+/// The model's prediction for a session between `left` and `right`, or
+/// `None` when their greeting versions agree and no descent opens.
+fn predict_pair(left: &Root, right: &Root) -> Option<Prediction> {
+    if left.ceiling == right.ceiling {
+        return None;
+    }
+    let (initiator, responder) = if left_initiates(left, right) {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    Some(predict(
+        &model_leaves(responder, initiator),
+        &model_leaves(initiator, responder),
+    ))
+}
+
+/// A transcript's replies per endpoint and logical stream, the endpoint
+/// named by its work identity.
+fn recorded(transcript: &Transcript) -> BTreeMap<usize, BTreeMap<usize, Vec<Vec<Label>>>> {
+    let mut endpoints: BTreeMap<usize, BTreeMap<usize, Vec<Vec<Label>>>> = BTreeMap::new();
+    for sent in transcript.sent() {
+        endpoints
+            .entry(sent.work)
+            .or_default()
+            .entry(sent.height)
+            .or_default()
+            .push(sent.labels.clone());
+    }
+    endpoints
+}
+
+/// The prediction's replies for one role, per logical stream.
+fn role(prediction: &Prediction, party: Party) -> BTreeMap<usize, Vec<Vec<Label>>> {
+    prediction
+        .iter()
+        .filter(|((by, _), _)| *by == party)
+        .map(|((_, height), replies)| (*height, replies.clone()))
+        .collect()
+}
+
+/// Require `transcript` to hold exactly the replies the model predicts for
+/// a session between `left` and `right`.
+///
+/// The transcript names endpoints by work identity, which says nothing
+/// about roles, so the check takes the two endpoints as an unordered pair:
+/// one must have built exactly the initiator's predicted replies and the
+/// other exactly the responder's.
+fn assert_matches(left: &Root, right: &Root, transcript: &Transcript) -> Result<(), TestCaseError> {
+    let endpoints = recorded(transcript);
+    let Some(prediction) = predict_pair(left, right) else {
+        prop_assert!(
+            endpoints.is_empty(),
+            "equal greeting versions open no descent"
+        );
+        return Ok(());
+    };
+    let expected = [role(&prediction, Party::I), role(&prediction, Party::R)];
+    let actual: Vec<_> = endpoints.into_values().collect();
+    prop_assert!(
+        actual.len() == 2
+            && (actual[..] == expected[..]
+                || [&actual[1], &actual[0]] == [&expected[0], &expected[1]]),
+        "the model predicts every reply both walks build:\npredicted {expected:#?}\nrecorded {actual:#?}"
+    );
+    Ok(())
+}
+
+/// The in-process session's transcript between `left` and `right`, both
+/// endpoints at `budget`.
+fn local_transcript(left: Root, right: Root, budget: SessionLedger) -> Transcript {
+    let mut outcome = LocalSession::new(left, right)
+        .budget(budget)
+        .transcript()
+        .run();
+    let transcript = outcome
+        .transcript
+        .take()
+        .expect("the session was asked to record its transcript");
+    outcome.sides();
+    transcript
+}
+
+/// The wire session's transcript between `left` and `right`, both
+/// endpoints at `budget`, with leaf-path derivation following the pair's
+/// placement when `placed`.
+fn wire_transcript(left: Root, right: Root, budget: SessionLedger, placed: bool) -> Transcript {
+    piped_transcript(left, right, budget, placed, AMPLE)
+}
+
+/// The transcript of the session [`wire_transcript`] runs, over a pipe
+/// buffering `pipe` bytes each way.
+fn piped_transcript(
+    left: Root,
+    right: Root,
+    budget: SessionLedger,
+    placed: bool,
+    pipe: usize,
+) -> Transcript {
+    let (outcome, transcript) = with_transcript(|| {
+        if placed {
+            placed_over_pipe((left, right), [budget; 2], pipe)
+        } else {
+            over_pipe::<()>((left, right), [budget; 2], pipe)
+        }
+    });
+    completed(outcome.expect("the session completes under the closed-world poller"));
+    transcript
+}
+
+/// The ledgers the suite runs every pair at: the serial configuration, at
+/// which each walk admits one unit of each kind and depth at a time, and an
+/// unlimited budget, at which no unit waits for admission.
+fn arb_budget() -> impl Strategy<Value = SessionLedger> {
+    prop_oneof![
+        Just(SessionLedger::Serial),
+        Just(SessionLedger::Budget(usize::MAX)),
+    ]
+}
+
+proptest! {
+    /// The model predicts every reply both walks build, reaction for
+    /// reaction, in process and over a pipe, at either budget.
+    ///
+    /// The pairs are version-addressed, with shared history and redaction,
+    /// which the deletion filter prunes.
+    #[test]
+    fn model_predicts_every_reply(
+        (left, right) in prop_oneof![arb_divergent_pair(), arb_wide_divergent_pair()],
+        budget in arb_budget(),
+    ) {
+        let local = local_transcript(left.clone(), right.clone(), budget);
+        assert_matches(&left, &right, &local)?;
+        let wire = wire_transcript(left.clone(), right.clone(), budget, false);
+        assert_matches(&left, &right, &wire)?;
+    }
+
+    /// The model predicts every reply of sessions over pairs placed below a
+    /// shared prefix of drawn length, whose disputes reach every depth of
+    /// the tree, in process and over a pipe.
+    #[test]
+    fn model_predicts_every_deep_reply(
+        (left, right) in arb_deep_divergent_pair(),
+        budget in arb_budget(),
+    ) {
+        let local = local_transcript(left.clone(), right.clone(), budget);
+        assert_matches(&left, &right, &local)?;
+        let wire = wire_transcript(left.clone(), right.clone(), budget, true);
+        assert_matches(&left, &right, &wire)?;
+    }
+}
+
+proptest! {
+    /// With every reply split at every reaction boundary, the model still
+    /// predicts every reply both walks build, in process and over a
+    /// one-byte pipe, and both sessions converge.
+    ///
+    /// Each stage then reads every reply one reaction at a time, and over
+    /// the pipe each encoder releases a reply's frames chunk by chunk while
+    /// each decoder delivers each question as its frame decodes.
+    #[test]
+    fn model_predicts_every_split_reply(
+        (left, right) in arb_divergent_pair(),
+        budget in arb_budget(),
+    ) {
+        with_split_replies(|| {
+            let local = local_transcript(left.clone(), right.clone(), budget);
+            assert_matches(&left, &right, &local)?;
+            let wire = piped_transcript(left.clone(), right.clone(), budget, false, ONE_BYTE);
+            assert_matches(&left, &right, &wire)
+        })?;
+    }
+}
+
+/// Bytes each direction of the split-reply sessions' pipe buffers: one, so
+/// every byte crosses in its own handoff.
+const ONE_BYTE: usize = 1;
+
+/// Messages both forks of [`model_predicts_forked_replicas`] share.
+const FORK_SHARED: usize = 2_000;
+
+/// Messages each fork of [`model_predicts_forked_replicas`] sends that the
+/// other lacks.
+const FORK_OWN: usize = 2_000;
+
+/// Two forks of one network: both hold [`FORK_SHARED`] messages and each
+/// then sends [`FORK_OWN`] the other lacks, one of them redacting every
+/// third shared message.
+fn forked_replicas() -> (Root, Root) {
+    let seed = nth_party(0);
+    let mut base = Tree::<()>::default();
+    base.act(
+        &seed,
+        (0..FORK_SHARED).map(|_| Action::Insert(Message::new(()))),
+    );
+    let shared: Vec<_> = base.iter().map(|(version, _)| version.clone()).collect();
+    let fork = |index: usize, redact: bool| {
+        let party = nth_party(index);
+        let mut tree = base.clone();
+        tree.act(
+            &party,
+            (0..FORK_OWN).map(|_| Action::Insert(Message::new(()))),
+        );
+        if redact {
+            tree.act(
+                &party,
+                shared
+                    .iter()
+                    .step_by(3)
+                    .map(|version| Action::Forget(version.clone())),
+            );
+        }
+        tree.root
+    };
+    (fork(1, true), fork(2, false))
+}
+
+/// The model predicts every reply of sessions between two forks, in
+/// process and over a pipe.
+///
+/// The forks are large enough that every depth-1 node is disputed, and one
+/// fork's redactions reach the deletion filter.
+#[test]
+fn model_predicts_forked_replicas() {
+    let (left, right) = forked_replicas();
+    let budget = SessionLedger::Budget(usize::MAX);
+    let local = local_transcript(left.clone(), right.clone(), budget);
+    assert_matches(&left, &right, &local).expect("the model predicts the local session");
+    let wire = wire_transcript(left.clone(), right.clone(), budget, false);
+    assert_matches(&left, &right, &wire).expect("the model predicts the wire session");
+}
+
+proptest! {
+    /// Both sides of a reconciled pair, in process and over a pipe, hold
+    /// trees whose every node stores the grandchild count a direct count
+    /// finds.
+    ///
+    /// Reconciliation builds nodes on every path a branch can be built on:
+    /// assembly of resolved scopes, the deletion filter's rebuilt branches,
+    /// and, over the pipe, the decoder's assembly of supplied runs.
+    #[test]
+    fn reconciled_trees_count_grandchildren_exactly(
+        (left, right) in prop_oneof![arb_divergent_pair(), arb_wide_divergent_pair()],
+    ) {
+        let local = LocalSession::new(left.clone(), right.clone()).run().sides();
+        let wire = completed(
+            over_pipe::<()>((left, right), [SessionLedger::Serial; 2], AMPLE)
+                .expect("the session completes under the closed-world poller"),
+        );
+        for root in [local.0, local.1, wire.0, wire.1] {
+            if let Some(node) = root.node {
+                let miscounted = node.into_untyped().miscounted_grandchildren();
+                prop_assert!(miscounted.is_none(), "{miscounted:?}");
+            }
+        }
+    }
+}
+
+/// Every data frame both endpoints of an observed session sent, per
+/// logical stream, keyed by the stream's speaking role and wire index, each
+/// stream's frames in order.
+type SentFrames = BTreeMap<(Role, u8), Vec<Vec<u8>>>;
+
+/// An observer that records every data frame its sessions send.
+///
+/// Both endpoints share one recorder: their sent streams have different
+/// speaking roles, so their keys never collide.
+#[derive(Clone, Default)]
+struct FrameRecorder(Arc<Mutex<SentFrames>>);
+
+/// Observe every session this recorder is attached to.
+impl Observer for FrameRecorder {
+    fn session(&self, _: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
+        Some(Box::new(self.clone()))
+    }
+}
+
+/// Record the data streams a session sends, and nothing it receives.
+impl SessionObserver for FrameRecorder {
+    fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
+        match (stream.id, stream.direction) {
+            (StreamId::Data { speaker, index }, Direction::Sent) => {
+                Some(Box::new(StreamRecorder {
+                    key: (speaker, index),
+                    frames: self.0.clone(),
+                }))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// One sent data stream's recorder.
+struct StreamRecorder {
+    /// The stream's speaking role and wire index.
+    key: (Role, u8),
+    /// Where the stream's frames go.
+    frames: Arc<Mutex<SentFrames>>,
+}
+
+/// Append each sent frame to its stream's record.
+impl StreamObserver for StreamRecorder {
+    fn message(&mut self, bytes: &[u8]) {
+        self.frames
+            .lock()
+            .expect("no recorder panics while holding the lock")
+            .entry(self.key)
+            .or_default()
+            .push(bytes.to_vec());
+    }
+}
+
+/// The frames each endpoint of a session between `left` and `right`
+/// sends, over an ample pipe with no budget limit.
+fn sent_frames(left: Root, right: Root) -> SentFrames {
+    let recorder = FrameRecorder::default();
+    let mut observers = Attachment::default();
+    observers.attach(Arc::new(recorder.clone()));
+    completed(
+        observed_over_pipe::<()>(
+            (left, right),
+            [SessionLedger::Budget(usize::MAX); 2],
+            AMPLE,
+            &observers,
+        )
+        .expect("the session completes under the closed-world poller"),
+    );
+    std::mem::take(&mut *recorder.0.lock().expect("the session is over"))
+}
+
+/// What one reply put on the wire: its frames by kind, and the radixes its
+/// match frame covers.
+#[derive(Debug, Default)]
+struct WireReply {
+    /// Its match frames: at most one in a conforming reply.
+    matches: usize,
+    /// Its query frames.
+    queries: usize,
+    /// Its supply frames: one or more runs per supplied node.
+    supplies: usize,
+    /// Its bare reply-end frames: one for an empty reply, none otherwise.
+    ends: usize,
+    /// The radixes its match frames cover, ascending.
+    covered: Vec<u8>,
+}
+
+impl WireReply {
+    /// The frames it sent.
+    fn frames(&self) -> usize {
+        self.matches + self.queries + self.supplies + self.ends
+    }
+}
+
+/// Split one sent stream's frames, spoken by `role`, into its replies:
+/// each ends at a frame marking its end, and the stream's closing frame
+/// belongs to none.
+fn wire_replies(role: Role, frames: &[Vec<u8>]) -> Vec<WireReply> {
+    let speaker = match role {
+        Role::Initiator => Speaker::Initiator,
+        Role::Responder => Speaker::Responder,
+    };
+    let mut replies = Vec::new();
+    let mut reply = WireReply::default();
+    for bytes in frames {
+        let (_, frame) = decode_exact(speaker, RunBudget::default(), bytes)
+            .expect("every frame a session sends decodes");
+        let ends = match frame {
+            Frame::End(End::Stream) => continue,
+            Frame::End(End::Reply) => {
+                reply.ends += 1;
+                true
+            }
+            Frame::Reaction(reaction, flow) => {
+                match reaction {
+                    WireReaction::Match(later) => {
+                        reply.matches += 1;
+                        reply.covered.extend(later.set().iter());
+                    }
+                    WireReaction::Query(_) => reply.queries += 1,
+                    WireReaction::Supply(_) => reply.supplies += 1,
+                }
+                flow == Flow::End
+            }
+        };
+        if ends {
+            replies.push(std::mem::take(&mut reply));
+        }
+    }
+    replies
+}
+
+proptest! {
+    /// Over the wire, every reply sends at most the frames it would send
+    /// with one frame per reaction, and strictly fewer whenever it holds two
+    /// matches or more.
+    ///
+    /// The model predicts each reply from the two trees alone: which listed
+    /// children match, which it queries, and which nodes it supplies. Each
+    /// observed reply must carry at most one match frame, covering exactly
+    /// the matches after its first; one query frame per query; and as many
+    /// supply frames as its runs need, which the format change leaves as
+    /// they were. With one frame per reaction, the same reply would send a
+    /// frame for every match, so the covered ones are exactly the frames
+    /// saved. The initiator's opening question rides the greeting, so no
+    /// stream carries it.
+    #[test]
+    fn frames_per_reply_never_increase(
+        (left, right) in prop_oneof![arb_divergent_pair(), arb_wide_divergent_pair()],
+    ) {
+        let Some(prediction) = predict_pair(&left, &right) else {
+            return Ok(());
+        };
+        let sent = sent_frames(left, right);
+        for ((party, height), predicted) in &prediction {
+            let role = match party {
+                Party::I => Role::Initiator,
+                Party::R => Role::Responder,
+            };
+            if *party == Party::I && *height == reply_height(0) {
+                continue;
+            }
+            let speaker = match role {
+                Role::Initiator => Speaker::Initiator,
+                Role::Responder => Speaker::Responder,
+            };
+            let index = Stream::at_height(speaker, *height)
+                .expect("a reply height maps to its speaker's stream")
+                .index();
+            let observed = sent
+                .get(&(role, index))
+                .map(|frames| wire_replies(role, frames))
+                .unwrap_or_default();
+            prop_assert_eq!(observed.len(), predicted.len(), "{:?} replies at height {}", party, height);
+            for (labels, wire) in predicted.iter().zip(&observed) {
+                let later: &[u8] = labels
+                    .iter()
+                    .find_map(|label| match label {
+                        Label::Match(later) => Some(later.as_slice()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let matches = labels.iter().filter(|label| matches!(label, Label::Match(_))).count()
+                    + later.len();
+                let queries = labels.iter().filter(|label| matches!(label, Label::Query(_))).count();
+                prop_assert!(wire.matches <= 1, "a reply carries one match frame at most: {:?}", wire);
+                prop_assert_eq!(wire.matches, usize::from(matches > 0), "{:?}", wire);
+                prop_assert_eq!(wire.queries, queries, "{:?}", wire);
+                prop_assert_eq!(&wire.covered, later, "the match covers the later matches");
+                // One frame per reaction: every match and query, the same
+                // supply runs, and a bare end for an empty reply.
+                let reactions = matches + queries + wire.supplies;
+                let one_per_reaction = reactions.max(1);
+                prop_assert!(wire.frames() <= one_per_reaction, "{:?} against {}", wire, one_per_reaction);
+                if matches >= 2 {
+                    prop_assert!(wire.frames() < one_per_reaction, "{:?} against {}", wire, one_per_reaction);
+                }
+            }
+        }
+    }
+}

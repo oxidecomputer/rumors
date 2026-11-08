@@ -54,7 +54,10 @@
 //! one. The shared frontier keeps overlap harmless for condition 2. For
 //! condition 1, a checkpoint reclaims only while no fork is reserved, and
 //! reserving needs the same exclusive access to the replica that a checkpoint
-//! runs under, so neither can begin during the other.
+//! runs under, so neither can begin during the other. A reservation held by a
+//! leaked session future is forgotten when the peer is reclaimed from its
+//! handles; its fork was never sent and never can be, so no live peer owns
+//! it, and condition 1 holds for it too.
 //!
 //! The size constraint on a stored bookmark may drop older identities, which
 //! only forfeits recovery; it must keep `written` whole over every identity it

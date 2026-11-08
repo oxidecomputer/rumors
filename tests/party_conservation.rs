@@ -37,21 +37,18 @@
 //! the sharper equalities (2)–(4) hold after *every* step.
 
 use rumors_testkit::common;
+use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::collections::BTreeMap;
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::{Peer, Retire, Rumors};
+use rumors::{Connection, Retire, Rumors};
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
-
-/// Capacity for each in-memory link stream on the retirement path: a
-/// divergent retiree's session moves content through its gossip round, so
-/// keep `retire.rs`'s headroom.
-const LINK_BUF: usize = 64 * 1024;
+use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// The largest fleet [`fleet_scale_retirement_preserves_content_and_party`]
 /// builds and retires.
@@ -61,8 +58,8 @@ const LINK_BUF: usize = 64 * 1024;
 /// second trie level. A case runs two sessions per departing peer, so its cost
 /// grows with the fleet, and this cap keeps the test's time at high case counts
 /// in line with the suite's other end-to-end properties. Larger sets, deeper
-/// parties, and window pressure have suites of their own:
-/// the multi-peer gossip suites, `before`'s deep party laws, and the window
+/// parties, and budget pressure have suites of their own:
+/// the multi-peer gossip suites, `before`'s deep party laws, and the budget
 /// suites.
 const MAX_FLEET: usize = 16;
 
@@ -107,7 +104,7 @@ fn assert_seed_conserved(fleet: &[Rumors<u64>]) {
     );
 }
 
-/// Retire `retiree` into `absorber` over a clean in-memory link, requiring
+/// Retire `retiree` into `absorber` over a clean in-memory connection, requiring
 /// the retirement to complete (a clean wire and a gossiping counterparty
 /// admit no other outcome).
 fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
@@ -116,18 +113,27 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
             .try_into_peer()
             .await
             .expect("the fleet holds each set's sole handle");
-        let (mut r_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (mut r_end, mut a_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (retired, gossiped) = tokio::join!(
-            retiree.retire(&mut r_link),
-            absorber.gossip_once(&mut a_link)
+            retiree.retire(&mut r_end.read, &mut r_end.write),
+            absorber.gossip_once(&mut a_end.read, &mut a_end.write)
         );
         gossiped.expect("absorber gossip");
-        assert_control_drained(r_link, a_link);
-        retired
+        let completed = matches!(
+            retired,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        );
+        let outcome = format!("{retired:?}");
+        drop(retired);
+        assert_connection_drained(r_end, a_end);
+        (completed, outcome)
     });
+    let (completed, outcome) = outcome;
     assert!(
-        matches!(outcome, Retire::Retired),
-        "a clean-wire retirement into a gossiping peer must complete: {outcome:?}"
+        completed,
+        "a clean-wire retirement into a gossiping peer must complete: {outcome}"
     );
 }
 
@@ -195,10 +201,10 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
     }
 }
 
-/// Run `ops` from a freshly seeded universe, invoking `check` on the live
-/// fleet at the baseline and after every step.
-fn run_schedule(ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
-    let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
+/// Run `ops` from the universe `network` founds, invoking `check` on the
+/// live fleet at the baseline and after every step.
+fn run_schedule(network: NetworkSeed, ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
+    let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
     check(&fleet);
     for &op in ops {
         apply(&mut fleet, op);
@@ -216,8 +222,9 @@ proptest! {
     #[test]
     fn parties_stay_pairwise_disjoint_under_lifecycle_schedules(
         ops in prop::collection::vec(arb_op(), 1..=20),
+        network in network_seed(),
     ) {
-        run_schedule(&ops, assert_pairwise_disjoint);
+        run_schedule(network, &ops, assert_pairwise_disjoint);
     }
 
     /// Identity is conserved along arbitrary lifecycle schedules: the join
@@ -230,8 +237,9 @@ proptest! {
     #[test]
     fn identity_is_conserved_under_lifecycle_schedules(
         ops in prop::collection::vec(arb_op(), 1..=20),
+        network in network_seed(),
     ) {
-        run_schedule(&ops, assert_seed_conserved);
+        run_schedule(network, &ops, assert_seed_conserved);
     }
 }
 
@@ -242,8 +250,8 @@ proptest! {
     ///
     /// No other identity moved, none was created, none was lost.
     #[test]
-    fn bootstrap_donates_exactly_once(actions in arb_local_actions()) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    fn bootstrap_donates_exactly_once(actions in arb_local_actions(), network in network_seed()) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         // A provider holding a proper sub-share (not the whole seed), with
         // arbitrary content: the general donation case.
         let provider = build_local(bootstrap_fork(&seed), &actions);
@@ -277,8 +285,9 @@ proptest! {
     fn retire_donates_exactly_once(
         retiree_actions in arb_local_actions(),
         absorber_actions in arb_local_actions(),
+        network in network_seed(),
     ) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let absorber = build_local(bootstrap_fork(&seed), &absorber_actions);
         let retiree = build_local(bootstrap_fork(&seed), &retiree_actions);
 
@@ -311,8 +320,11 @@ proptest! {
     /// is the shape bound: a design whose speculative forks leave
     /// non-contiguous shards grows this measure permanently and fails here.
     #[test]
-    fn party_returns_to_baseline_under_sequential_cycles(k in 1usize..=12) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    fn party_returns_to_baseline_under_sequential_cycles(
+        k in 1usize..=12,
+        network in network_seed(),
+    ) {
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         // The provider under test holds a proper sub-share, the general
         // case; the seed handle stays live holding the complement.
         let p = bootstrap_fork(&seed);
@@ -354,8 +366,9 @@ proptest! {
     fn party_returns_to_baseline_under_interleaved_cycles(
         order in (2usize..=4)
             .prop_flat_map(|m| Just((0..m).collect::<Vec<usize>>()).prop_shuffle()),
+        network in network_seed(),
     ) {
-        let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let p = bootstrap_fork(&seed);
         let baseline = alias(&p);
 
@@ -400,11 +413,12 @@ proptest! {
             proptest::collection::vec(any::<usize>(), n - 1),
             proptest::collection::vec((any::<usize>(), any::<usize>()), n - 1),
         )),
+        network in network_seed(),
     ) {
         // Each newcomer sends a distinct value. Remember its version so the
         // final check catches missing messages, duplicates, or rewritten versions.
         let mut expected = BTreeMap::new();
-        let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
+        let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
         for (i, &provider) in providers.iter().enumerate() {
             apply(&mut fleet, Op::Bootstrap { provider });
             let newest = fleet.len() - 1;

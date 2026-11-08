@@ -5,6 +5,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     Error,
+    counter::widen,
     error::{Phase, TransportOperation as Op},
     observe::{CaptureRead, SessionHandle},
     tags::PARTY_TAG,
@@ -61,10 +62,10 @@ where
 {
     let bytes = party.as_bytes();
     let mut item = Vec::with_capacity(
-        cbor::head_len(PARTY_TAG) + cbor::head_len(bytes.len() as u64) + bytes.len(),
+        cbor::head_len(PARTY_TAG) + cbor::head_len(widen(bytes.len())) + bytes.len(),
     );
     cbor::write_tag(&mut item, PARTY_TAG);
-    cbor::write_head(&mut item, MAJOR_BSTR, bytes.len() as u64);
+    cbor::write_head(&mut item, MAJOR_BSTR, widen(bytes.len()));
     item.extend_from_slice(bytes);
     async move {
         writer

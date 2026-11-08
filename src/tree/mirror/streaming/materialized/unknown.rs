@@ -26,10 +26,13 @@ use before::Dominance;
 
 use crate::{
     Version,
+    counter::widen,
     tree::{
         mirror::{
             contained,
-            streaming::{Backend, ErasedNode, Leaf, erased::ops, stats::Recorder},
+            streaming::{
+                Backend, ErasedNode, Leaf, erased::ops, materialized::Error, stats::Recorder,
+            },
         },
         typed::{ErasedPrefix, height::Z},
     },
@@ -81,7 +84,7 @@ pub(super) fn unknown<'a, B>(
     prefix: ErasedPrefix,
     node: B::Erased,
     stats: &'a Recorder,
-) -> BoxFuture<'a, Result<Option<B::Erased>, B::Error>>
+) -> BoxFuture<'a, Result<Option<B::Erased>, Error<B::Error>>>
 where
     B: Backend<Node<Z>: Leaf>,
 {
@@ -102,7 +105,7 @@ where
             Dominance::Before => return Ok(Some(node)),
             // Wholly known: nothing under the node needs to travel.
             Dominance::After => {
-                stats.shed(node.len() as u64);
+                stats.shed(widen(node.len()));
                 return Ok(None);
             }
             Dominance::Between => {}
@@ -112,14 +115,15 @@ where
         // children, and reassemble the survivors from the pruned radix
         // group — `None` entries are the children that pruned away. A group
         // that prunes away entirely reassembles to `None`, reporting the
-        // whole node known one level up.
-        let children = ops::children_of(backend, prefix, node).await?;
+        // whole node known one level up. The node itself goes to the
+        // reassembly, which can return it when nothing pruned away.
+        let children = ops::children_of(backend, prefix, node.clone()).await?;
         let mut group = Vec::with_capacity(children.len());
         for (radix, child) in children {
             let survivor = unknown(backend, known, prefix.push(radix), child, stats).await?;
             group.push((radix, survivor));
         }
-        ops::parent(backend.clone(), prefix, group).await
+        Ok(ops::parent(backend.clone(), prefix, Some(node), group).await?)
     }
     .boxed()
 }
@@ -130,13 +134,13 @@ where
 /// Reporting the children lets an answerer emit them as `Supply` reactions
 /// without re-querying the prefix it just explored (the one-query-per-prefix
 /// invariant; see [`super`]).
-pub(super) async fn unknown_providing<B>(
+pub(crate) async fn unknown_providing<B>(
     backend: &B,
     known: &Version,
     prefix: ErasedPrefix,
     node: B::Erased,
     stats: &Recorder,
-) -> Result<(Option<B::Erased>, Vec<(u8, B::Erased)>), B::Error>
+) -> Result<(Option<B::Erased>, Vec<(u8, B::Erased)>), Error<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
 {
@@ -148,15 +152,16 @@ where
         }
         // Wholly known: nothing under the node needs to travel.
         Dominance::After => {
-            stats.shed(node.len() as u64);
+            stats.shed(widen(node.len()));
             return Ok((None, Vec::new()));
         }
         Dominance::Between => {}
     }
 
     // Mixed: prune the children one by one; the surviving group is both the
-    // provision list and the material `parent` rebuilds the survivor from.
-    let children = ops::children_of(backend, prefix, node).await?;
+    // provision list and the material `parent` rebuilds the survivor from,
+    // beside the node itself, which it returns when nothing pruned away.
+    let children = ops::children_of(backend, prefix, node.clone()).await?;
     let mut group = Vec::with_capacity(children.len());
     let mut survivors = Vec::new();
     for (radix, child) in children {
@@ -167,7 +172,7 @@ where
         group.push((radix, survivor));
     }
     Ok((
-        ops::parent(backend.clone(), prefix, group).await?,
+        ops::parent(backend.clone(), prefix, Some(node), group).await?,
         survivors,
     ))
 }

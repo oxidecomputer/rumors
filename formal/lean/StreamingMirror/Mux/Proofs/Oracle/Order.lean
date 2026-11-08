@@ -1,12 +1,12 @@
 /-
 The oracle's order layer (T5):
-the send projection of the canonical schedule, the oracle strategy of
-record, and the run invariant that ties a party's push history to the
+the send projection of the canonical schedule, T5's oracle strategy,
+and the run invariant that ties a party's push history to the
 projection's τ-prefix.
 
-# The oracle of record, after the P2/muxprobe reversal
+# T5's oracle, after the P2/muxprobe reversal
 
-The adjudication's primary form — `ofSchedule (demandOrder sk d)`, the
+The primary candidate form — `ofSchedule (demandOrder sk d)`, the
 RECEIVE projection of τ pushed as a precomputed list — was executably
 refuted (the stage-0 P2 gate: 8/100 random margin-0 skeletons wedge
 it), so T5 takes the recorded fallback. The fallback's
@@ -49,7 +49,7 @@ the τ-prefix source the oracle pushes from. -/
 def sendProj (sk : Skel) (p : Party) : List Ev :=
   (scheduleE sk).filter fun e => isWire e.1 && (wireParty e.1 == p) && e.2.1
 
-/-- T5's oracle of record: push own wire sends in `sendProj` order, one
+/-- T5's oracle: push own wire sends in `sendProj` order, one
 entry per flush receipt; idle while the next entry is not yet in hand.
 
 A pure function of the full bidirectional skeleton and the machine's

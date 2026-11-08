@@ -1,26 +1,22 @@
 //! Full-stack rejection of malformed frames from a non-conforming peer.
 
-use std::{
-    convert::Infallible,
-    sync::{Arc, Mutex},
-};
+use std::convert::Infallible;
 
 use super::harness::{self, EndpointFailure, FrameMutation, FrameSelector, Script};
-use crate::link::{Acceptor, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink};
 use crate::testing::{IoSide, run_to_quiescence};
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
 use crate::tree::{
-    Root as TreeRoot, Tree,
-    arb::early_first_child_dispute_pair,
+    Root as TreeRoot,
+    arb::{early_first_child_dispute_pair, leaf_parent_dispute_pair},
     mirror::streaming::remote::{
         Error as RemoteError,
         codec::{
             DecodeErrorKind as CodecDecodeErrorKind, DecodeSignalError, End, Flow, ListingIssue,
-            Signal,
+            Signal, Stream,
         },
-        streams::StreamError,
+        pipe::PipeError,
     },
 };
-use tokio::io::{AsyncReadExt, DuplexStream};
 
 /// A wire-valid pair whose first root child is deeply disputed on both sides.
 ///
@@ -38,7 +34,7 @@ fn deep_pair() -> (TreeRoot, TreeRoot) {
 
 /// Extract the reserved state code from a full incoming error chain.
 fn reserved_state(error: &RemoteError<Infallible>) -> Option<u64> {
-    let RemoteError::Stream(StreamError::Decode(error)) = error else {
+    let RemoteError::Pipe(PipeError::Decode(error)) = error else {
         return None;
     };
     let CodecDecodeErrorKind::InvalidSignal(DecodeSignalError::State { state, .. }) = &error.kind
@@ -88,23 +84,23 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 
 /// A signal placed in a forbidden stream phase is a typed placement failure.
 ///
-/// The injected state is a continuing `Match` aimed at the opening-supply
-/// stream — whose grammar admits only supplies and ends — and the
-/// receiving proxy retains the exact placement rejection through the full
-/// stack. The corrupt side must be the elected *initiator*: its first
-/// data frame is an opening supply, the stream the mutated state must
-/// land in.
+/// The injected state is a continuing `Query` aimed at the initiator's
+/// leaf-parent stream, whose grammar admits no nonempty query (nothing lies
+/// below a leaf to ask about), and the receiving proxy retains the exact
+/// placement rejection through the full stack. The corrupt side must be the
+/// elected *initiator*, the only speaker on that stream, and the pair's
+/// dispute must reach the leaf parents so that the stream carries a frame.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
-    let (left, right) = deep_pair();
+    let (left, right, _) = leaf_parent_dispute_pair();
     let writer = if harness::left_initiates(&left, &right) {
         IoSide::Left
     } else {
         IoSide::Right
     };
     let script = Script::new(
-        FrameSelector::First,
-        FrameMutation::State(Signal::Match(Flow::Continue).state()),
+        FrameSelector::Stream(Stream::MAX),
+        FrameMutation::State(Signal::Query(Flow::Continue).state()),
     );
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,
@@ -117,7 +113,7 @@ fn phase_invalid_signal_propagates_through_the_full_proxy() {
     let error = receiving_error(writer, &left_result, &right_result);
     assert!(matches!(
         error,
-        RemoteError::Stream(StreamError::Decode(error))
+        RemoteError::Pipe(PipeError::Decode(error))
             if matches!(
                 error.kind,
                 CodecDecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(_))
@@ -154,7 +150,7 @@ fn unordered_query_propagates_through_the_full_proxy() {
         assert!(script.fired(), "no nonempty query reached the mutator");
         assert!(matches!(
             receiving_error(writer, &left_result, &right_result),
-            RemoteError::Stream(StreamError::Decode(error))
+            RemoteError::Pipe(PipeError::Decode(error))
                 if matches!(
                     error.kind,
                     CodecDecodeErrorKind::InvalidListing(ListingIssue::Order(_))
@@ -167,9 +163,16 @@ fn unordered_query_propagates_through_the_full_proxy() {
 
 /// A second reply manufactured after a valid reply has consumed the final
 /// scope reaches the proxy's reply-accounting check.
+///
+/// The pair disputes exactly one prefix at every level, and one side owns
+/// each question, so each logical stream carries at most one reply: the
+/// corrupt side's first ending reaction ends the only reply its stream
+/// owes, and the duplicate after it is unasked, wherever the leaves' paths
+/// lie. The dispute continues below that first reply, so the corrupt side
+/// cannot complete once its receiver aborts.
 #[test]
 fn duplicated_reply_is_rejected_as_unasked() {
-    let (left, right) = deep_pair();
+    let (left, right, _) = leaf_parent_dispute_pair();
     let script = Script::new(FrameSelector::EndingReaction, FrameMutation::Duplicate);
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,
@@ -187,57 +190,19 @@ fn duplicated_reply_is_rejected_as_unasked() {
     assert!(right_result.is_err());
 }
 
-/// Receive halves returned at protocol completion, kept alive for inspection.
-type CompletedReads = Arc<Mutex<Vec<DuplexStream>>>;
-
-/// A memory acceptor that keeps completed halves instead of closing them.
-struct RetainReads {
-    inner: MemoryAcceptor,
-    completed: CompletedReads,
-}
-
-/// Leave completed halves open for the next owner, as a pooling link does.
-impl Acceptor for RetainReads {
-    type Rx = DuplexStream;
-
-    /// Save the receive half only when the protocol calls its completion callback.
-    async fn accept(&mut self) -> std::io::Result<(Self::Rx, Done<Self::Rx>)> {
-        let (rx, _) = self.inner.accept().await?;
-        let completed = self.completed.clone();
-        Ok((rx, Done::new(move |rx| completed.lock().unwrap().push(rx))))
-    }
-}
-
-/// Retain received streams without changing their bytes or delivery behavior.
-fn retain_reads(
-    link: MemoryLink,
-    completed: CompletedReads,
-) -> Link<DuplexStream, DuplexStream, MemoryConnector, RetainReads> {
-    link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            control_read,
-            control_write,
-            connector,
-            RetainReads {
-                inner: acceptor,
-                completed,
-            },
-        )
-    })
-}
-
-/// Completing a stream leaves its trailing frame unread under varied
-/// chunk sizes and scheduling. Both replicas still reach the join.
+/// A repeated end-of-stream frame is a frame on a logical stream that has
+/// already ended, and the receiver rejects it as unasked, under varied
+/// chunk sizes and scheduling; neither session parks.
+///
+/// The repeated frame is its side's first stream end, and frames the
+/// receiver still needs follow it on the pipe, so the receiver's
+/// demultiplexer always reaches it before its session can complete.
 #[test]
-fn bytes_past_the_stream_end_are_never_read() {
-    use crate::link::memory_with_capacity;
-    use crate::testing::{IoPlan, IoSide, wrap_link};
-    use crate::tree::mirror::streaming::window::WindowConfig;
+fn a_repeated_stream_end_is_rejected_as_unasked() {
+    use crate::testing::{IoPlan, memory_connection, wrap_io};
     use proptest::prelude::*;
 
     let (left, right) = deep_pair();
-    let mut expected = Tree::<()>::from_root(left.clone());
-    expected.join(Tree::from_root(right.clone()));
     // Finding this deep hash geometry is expensive; vary delivery over
     // clones of one fixture, without repeating that search for each case.
     proptest!(|(
@@ -257,51 +222,33 @@ fn bytes_past_the_stream_end_are_never_read() {
             write_delays: delays,
             ..IoPlan::default()
         };
-        let (left_link, right_link) = memory_with_capacity(harness::TRANSPORT_CAPACITY);
-        let completed = CompletedReads::default();
-        let left_link = retain_reads(left_link, completed.clone());
-        let right_link = retain_reads(right_link, completed.clone());
-        // Count below the mutation wrapper, where the duplicated bytes really
-        // enter the transport. Counting above it would miss those bytes.
-        let (left_link, left_io) = wrap_link(IoSide::Left, plan.clone(), left_link);
-        let (right_link, right_io) = wrap_link(IoSide::Right, plan, right_link);
+        let (left_end, right_end) = memory_connection(harness::TRANSPORT_CAPACITY);
+        // Adversity below the mutation wrapper, where the repeated bytes
+        // really enter the transport.
+        let (left_read, left_write, _) =
+            wrap_io(IoSide::Left, plan.clone(), left_end.read.into_inner(), left_end.write);
+        let (right_read, right_write, _) =
+            wrap_io(IoSide::Right, plan, right_end.read.into_inner(), right_end.write);
+        let left_script = append_left.then(|| script.clone());
+        let right_script = (!append_left).then(|| script.clone());
         let (left_result, right_result) = run_to_quiescence(harness::drive(
             harness::Topology::Production,
             harness::Backends::local(),
             left.clone(),
             right.clone(),
-            harness::scripted(left_link, append_left.then(|| script.clone())),
-            harness::scripted(right_link, (!append_left).then(|| script.clone())),
+            (left_read, harness::ScriptedWrite::new(left_write, left_script)),
+            (right_read, harness::ScriptedWrite::new(right_write, right_script)),
             harness::codec::<()>(),
-            WindowConfig::FLOOR,
-        )).expect("a frame beyond stream end must not affect progress");
+            SessionLedger::Serial,
+        )).expect("a repeated stream end must not park either session");
         prop_assert!(script.fired());
-        prop_assert_eq!(&left_result.unwrap(), &expected.root);
-        prop_assert_eq!(&right_result.unwrap(), &expected.root);
-
-        let (sender, receiver) = if append_left {
-            (left_io.snapshot(), right_io.snapshot())
-        } else {
-            (right_io.snapshot(), left_io.snapshot())
-        };
-        // End(Stream) is [stream, state]: one byte each for its array head,
-        // stream index, and state. Exactly those three extra bytes must remain.
-        prop_assert_eq!(sender.write_bytes, receiver.read_bytes + 3);
-        prop_assert_eq!(receiver.write_bytes, sender.read_bytes);
-
-        // These are the actual halves returned through Done, below the byte
-        // counters. Each writer has finished, so reading their remainder ends.
-        let halves = std::mem::take(&mut *completed.lock().unwrap());
-        let remaining = run_to_quiescence(async {
-            let mut bytes = Vec::new();
-            for mut rx in halves {
-                rx.read_to_end(&mut bytes).await.unwrap();
-            }
-            bytes
-        }).expect("completed streams have no unfinished writers");
-        prop_assert_eq!(remaining.len(), 3);
-        prop_assert_eq!(remaining[0], 0x82);
-        prop_assert!(remaining[1] < crate::link::STREAM_COUNT as u8);
-        prop_assert_eq!(remaining[2], 9);
+        let writer = if append_left { IoSide::Left } else { IoSide::Right };
+        let error = receiving_error(writer, &left_result, &right_result);
+        prop_assert!(
+            matches!(error, RemoteError::Pipe(PipeError::Unasked { .. })),
+            "a frame after its stream's end surfaced as {error:?}"
+        );
+        prop_assert!(left_result.is_err());
+        prop_assert!(right_result.is_err());
     });
 }

@@ -1,14 +1,14 @@
 /-
-The mux campaign's statement of record: what the suite claims, in one
+The mux campaign's claimed statements: what the suite claims, in one
 file, audit-small — the Mux/ companion of the base artifact's
 Statement.lean, on the same contract. Every theorem below RESTATES a
-statement of record inline, fully quantified, and proves it by citing
+claimed statement inline, fully quantified, and proves it by citing
 the landed theorem: the kernel checks that this file's spelling IS the
 claim, so any drift between the audit surface and the proofs fails the
 build. All on the three standard axioms (`propext`, `Classical.choice`,
 `Quot.sound`); no `sorry`, no `native_decide`.
 
-THIS FILE IS THE AUDIT MECHANISM: every statement of record is
+THIS FILE IS THE AUDIT MECHANISM: every claimed statement is
 restated here inline, fully quantified, and proved by citation, so the
 kernel re-certifies on every build that the restatement IS the theorem
 — drift between claim and proof is a build failure, not a review
@@ -37,11 +37,11 @@ send-order schedule of the protocol's existing messages suffice?
   per-direction advertised depth pair, EVERY strategy sending in any
   order the window discipline permits — licensing causal, at parking
   arrears K — is deadlock-free and completes within `2·ρ(init)`.
-  Its English specification of record — fixed before the build, per
+  Its English specification — fixed before the build, per
   the spec-first method — lives with its clause-by-clause audit
   crosswalk in Proofs/SigmaStarKLive.lean's module doc.
 - **C2: TRUE at C₀ = 1** (`oracle_deadlock_free`; the conjunction
-  `necessity`). The full-skeleton oracle of record is the STATIC send
+  `necessity`). The full-skeleton oracle is the STATIC send
   projection of the canonical schedule τ — non-adaptive, consulted
   only through the machine's own flush count; the refuted receive
   projection (`static_oracle_jams`) shows the ORDER, not adaptivity
@@ -51,7 +51,7 @@ send-order schedule of the protocol's existing messages suffice?
 
 Every positive "completes" is two kernel facts: stuck-freedom (the
 statement) and termination (`mux_terminating`). Every capacity is
-denominated in MESSAGES; the byte-soundness caveat of record is
+denominated in MESSAGES; the byte-soundness caveat is stated in
 Mux/Basic.lean's module doc (# The byte-denomination caveat) —
 impossibilities transfer to bytes unweakened, positives do not.
 
@@ -60,8 +60,8 @@ impossibilities transfer to bytes unweakened, positives do not.
 The statements below quantify over these definitions and nothing else:
 
 - **The harness** (Mux/Basic.lean, ~200 lines of definitions): `MObs`
-  and `Strategy` (the observation alphabet — the slot-peek and
-  receipts-out rulings live on `MObs` — and the strategy type),
+  and `Strategy` (the observation alphabet — `MObs` allows slot peeks
+  and excludes consumption receipts — and the strategy type),
   `MState`/`MAction`/`apply` (hand + pipe(C) + demux slot; wire sends
   only through the strategy-gated `push`), `mstuck`, `MReachable`,
   `MuxDeadlockFree` (strategies fixed, endpoint interleaving
@@ -91,7 +91,7 @@ The statements below quantify over these definitions and nothing else:
   12 scopes) and the `wedgeW` family plus `deliverStepK`/`applyK`
   (Proofs/WcImpossibilityK.lean, ~40 lines) for the K statement.
 - The legacy grain (`LocalEq`/`LocalStrategy`, Mux/Strategy.lean) only
-  when reading the internal-artifact statements: the grain of record
+  when reading the internal-artifact statements: the claimed grain
   is `CharterLocal`, and the two are INCOMPARABLE (Proofs/C1.lean's
   module doc, kernel-pinned in Mux/Proofs/Grains.lean).
 
@@ -106,7 +106,7 @@ the witnesses' proofs).
 
 # The chain to the Rust implementation
 
-- **The wedge is real**: `src/tree/mirror/streaming/tests/wedge.rs`
+- **The wedge is real**: `src/tree/mirror/streaming/tests/dispute_before_supplies.rs`
   pins a deterministic tree pair whose trace-decoded skeleton equals
   the `wedge` literal at rootH 6 and matches the generator at the
   protocol's real height 32; the committed proptest seeds realize the
@@ -122,7 +122,7 @@ the witnesses' proofs).
 - **Height gap, honestly**: the executable tier tops at rootH 8 and
   the kernel literals at rootH 6, against the protocol's 32; the
   height-transfer argument (the jam mechanism is height-independent)
-  is [derived], with wedge.rs pinning both ends.
+  is [derived], with dispute_before_supplies.rs pinning both ends.
 
 # Assumed, not proven
 
@@ -131,11 +131,11 @@ the witnesses' proofs).
   model boundary (Mux/Basic.lean, # The byte-denomination caveat).
 - **`KR ≥ 4`** in `wc_impossibility_K` is [derived] (the
   widened-family argument); the kernel anchors are KR ∈ {1, 2, 3}.
-- **The `.full`/schedulable port** is open by ruling: every mux
-  statement of record lives at `.impl` + margin-0.
+- **The `.full`/schedulable port** is deliberately left open: every
+  claimed mux statement lives at `.impl` + margin-0.
 - **Internal artifacts stay conditional forever**: `c1_literal_false`
   (Proofs/C1.lean) carries the omniscient σ*'s legacy-grain locality
-  as named [open] hypotheses — superseded as a claim of record by
+  as named [open] hypotheses — superseded as a claim by
   `c1_charter` below, retained as the stage-3 record.
 - The base model's premises (error-free conforming peers, SPSC
   channels, per-channel in-order delivery): the root Statement.lean.
@@ -180,8 +180,8 @@ namespace StreamingMirror.Mux.Statement
 open Model
 open StreamingMirror.Mux
 
-/-- C1 as chartered is FALSE — the campaign's headline, at the grain
-of record per Finch's locality ruling: it is NOT the case that every
+/-- C1 as chartered is FALSE — the campaign's headline, at the charter
+grain: it is NOT the case that every
 charter-local deterministic
 pair has a killer skeleton. The refutation witness is
 ⟨C = 1, σ*-causal, σ*-causal⟩ with locality
@@ -190,7 +190,7 @@ pair has a killer skeleton. The refutation witness is
 The class hypothesis has bite: `charterView_nondegenerate` pins the
 grain nondegenerate and `oracle_not_charterLocal` pins a strategy
 outside it (Mux/Proofs/Grains.lean). Rests on message-denominated
-liveness; the byte caveat of record is Mux/Basic.lean's module doc
+liveness; the byte caveat is stated in Mux/Basic.lean's module doc
 (# The byte-denomination caveat). -/
 theorem c1_charter :
     ¬ (∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
@@ -202,7 +202,7 @@ theorem c1_charter :
 
 /-- C1 widened to EVERY strategy pair, local or not, is also false —
 the no-locality-hypothesis companion: ⟨1, σ*, σ*⟩ plus T4. Rests on
-message-denominated liveness; the byte caveat of record is
+message-denominated liveness; the byte caveat is stated in
 Mux/Basic.lean's module doc (# The byte-denomination caveat). -/
 theorem c1_omniscient :
     ¬ (∀ (C : Nat), 1 ≤ C → ∀ (σI σR : Strategy),
@@ -245,7 +245,7 @@ theorem wc_impossibility_K :
         ¬ MuxDeadlockFreeK (wedgeW (KR + 5)) .impl KI KR C σI σR :=
   _root_.StreamingMirror.Mux.wc_impossibility_K
 
-/-- The strategy of record is deadlock-free, unconditionally: the
+/-- σ*-causal is deadlock-free, unconditionally: the
 charter-local σ*-causal pair completes every well-formed margin-0
 session at every capacity C ≥ 1 ("completes" = this stuck-freedom plus
 `mux_terminating` below). This is the charter's constructive witness:
@@ -254,7 +254,7 @@ prefix the protocol already carries, FIFO positional arithmetic, and
 the inevitability closure; nothing new on the wire (the "mysterious
 third thing", named). The evidence-only control
 (`wedge_evidence_not_deadlockFree`, Proofs/C1.lean) pins the closure
-load-bearing. Message-denominated; the byte caveat of record is
+load-bearing. Message-denominated; the byte caveat is stated in
 Mux/Basic.lean's module doc (# The byte-denomination caveat). -/
 theorem sigmaStarCausal_deadlock_free :
     ∀ (sk : Skel), sk.wellFormed = true →
@@ -264,7 +264,7 @@ theorem sigmaStarCausal_deadlock_free :
   fun _ hwf hm0 C hC =>
     _root_.StreamingMirror.Mux.sigmaStarCausal_deadlock_free hwf hm0 C hC
 
-/-- The strategy of record is charter-local, for both parties: its one
+/-- σ*-causal is charter-local, for both parties: its one
 skeleton read is the announced view, so invariance across equal
 announced views at `.impl`-realizable observations is a computation.
 The locality half of `c1_charter`'s witness; the grain's
@@ -275,10 +275,10 @@ theorem sigmaStarCausal_charterLocal :
 
 /-- T4, the omniscient proof vehicle: σ* — demand-lockstep over the
 FULL-skeleton closure — is deadlock-free on the same class. The
-liveness half of the legacy-grain record; the claim of record at the
+liveness half of the legacy-grain record; the claim at the
 charter grain is `sigmaStarCausal_deadlock_free` (σ*'s own locality
 stays [open] forever as `c1_literal_false`'s internal-artifact
-hypothesis). Message-denominated; the byte caveat of record is
+hypothesis). Message-denominated; the byte caveat is stated in
 Mux/Basic.lean's module doc (# The byte-denomination caveat). -/
 theorem sigmaStar_deadlock_free :
     ∀ (sk : Skel), sk.wellFormed = true →
@@ -288,7 +288,7 @@ theorem sigmaStar_deadlock_free :
   fun _ hwf hm0 C hC =>
     _root_.StreamingMirror.Mux.sigmaStar_deadlock_free hwf hm0 C hC
 
-/-- C2 is TRUE at C₀ = 1 (T5): the oracle of record — the STATIC send
+/-- C2 is TRUE at C₀ = 1 (T5): the oracle — the STATIC send
 projection of the canonical schedule τ, consulted only through the
 machine's own flush count — completes every well-formed margin-0
 skeleton at every capacity C ≥ 1 ("completes" = this plus
@@ -296,8 +296,8 @@ skeleton at every capacity C ≥ 1 ("completes" = this plus
 The ingredient is the ORDER: the receive-projection pusher with the
 same information jams (`static_oracle_jams`), and the oracle's
 nonlocality is pinned at BOTH grains (`oracle_not_localStrategy`,
-`oracle_not_charterLocal`). Message-denominated; the byte caveat of
-record is Mux/Basic.lean's module doc (# The byte-denomination
+`oracle_not_charterLocal`). Message-denominated; the byte caveat is stated
+in Mux/Basic.lean's module doc (# The byte-denomination
 caveat). -/
 theorem oracle_deadlock_free :
     ∀ (sk : Skel), sk.wellFormed = true →
@@ -328,7 +328,7 @@ parking, EVERY pushes-when-nonempty pair is deadlock-free at every
 capacity — bounded demux state, not scheduling, is what the
 impossibilities indict (the eager-absorption design's formal echo).
 The class is kernel-inhabited (`bottomMostReady_wcE`). Capacity and
-parking are message-denominated; the byte caveat of record is
+parking are message-denominated; the byte caveat is stated in
 Mux/Basic.lean's module doc (# The byte-denomination caveat). -/
 theorem elastic_deadlock_free :
     ∀ (sk : Skel), sk.wellFormed = true →
@@ -361,7 +361,7 @@ theorem mreachable_init :
 
 /-- T8, the window-generalized positive half (the spec's claim, clause
 by clause — Proofs/SigmaStarKLive.lean's module doc is the
-specification of record with its audit crosswalk): every
+specification, with its audit crosswalk): every
 well-formed margin-0 skeleton (clause 1), every capacity C ≥ 1
 (clause 2), every advertised depth pair K_I, K_R ≥ 1, independent and
 possibly unequal (clause 3), and EVERY window-disciplined pair — any
@@ -376,7 +376,7 @@ Clause 6's other conjunct is `sigmaStarK_completes` below; the
 executable pins are the asymmetric (1, 4) smoke and the (2, 2) wedge
 (`smokeChain_sigmaStarK_completes_1_4`,
 `wedge_sigmaStarK_completes_2_2`). Message-denominated; the byte
-caveat of record is Mux/Basic.lean's module doc (# The
+caveat is stated in Mux/Basic.lean's module doc (# The
 byte-denomination caveat). -/
 theorem sigmaStarK_deadlock_free :
     ∀ (sk : Skel), sk.wellFormed = true →
@@ -393,7 +393,7 @@ theorem sigmaStarK_deadlock_free :
 one kernel fact): under any window-disciplined pair the greedy K drain
 reaches `mterminal` within `2·ρ(init)` steps — progress plus the
 K-variant termination bound (`mux_terminatingK`). Message-denominated;
-the byte caveat of record is Mux/Basic.lean's module doc (# The
+the byte caveat is stated in Mux/Basic.lean's module doc (# The
 byte-denomination caveat). -/
 theorem sigmaStarK_completes :
     ∀ (sk : Skel), sk.wellFormed = true →

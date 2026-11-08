@@ -9,6 +9,9 @@
 //! followed by the tagged payload item. Equivalent spellings of the envelope
 //! do not affect integrity. The payload itself is opaque bytes until its hash
 //! has been checked; any change to those bytes changes the checksum input.
+//! The checksum belongs to the stored format, not to the gossip protocol, so
+//! it stays SHA3-256 whichever hash the protocol's paths and digests use:
+//! nothing stored here derives from those.
 //!
 //! The payload stores networks newest-first and identities oldest-first, with
 //! one shared write frontier per network. Serde owns the CBOR encoding at both
@@ -22,14 +25,18 @@ use super::error::FormatError;
 use super::record::{NetworkRecord, Record};
 use super::serde::{Bytes, Complete};
 use crate::Network;
+use crate::counter::widen;
 use crate::tree::mirror::cbor::{self, TAG_EMBEDDED_ITEM, TAG_SELF_DESCRIBED};
 
 /// The on-disk bookmark format version.
 ///
 /// The current format stores one write frontier per network, separate from
-/// identity entries, and preserves network and identity recency. Other version
-/// numbers are rejected with [`FormatError::VersionMismatch`].
-pub const BOOKMARK_FORMAT_VERSION: u64 = 6;
+/// identity entries, and preserves network and identity recency. It keys each
+/// network's record by the network's [`Network`] identifier, so how an
+/// identifier is derived is part of the format: a build that derived
+/// identifiers differently would find no record for its networks.
+/// Other version numbers are rejected with [`FormatError::VersionMismatch`].
+pub const BOOKMARK_FORMAT_VERSION: u64 = 8;
 
 /// Width of the SHA3-256 integrity hash, in bytes.
 const HASH_LEN: usize = 32;
@@ -109,14 +116,14 @@ pub(super) fn encode_network(network: Network, record: &NetworkRecord) -> Vec<u8
 
 /// The complete frame size for an array of already-encoded network records.
 pub(crate) fn record_size(networks: usize, encoded_bytes: usize) -> usize {
-    let payload = cbor::head_len(networks as u64) + encoded_bytes;
+    let payload = cbor::head_len(widen(networks)) + encoded_bytes;
     cbor::head_len(TAG_SELF_DESCRIBED)
         + 1
         + cbor::head_len(BOOKMARK_FORMAT_VERSION)
-        + cbor::head_len(HASH_LEN as u64)
+        + cbor::head_len(widen(HASH_LEN))
         + HASH_LEN
         + cbor::head_len(TAG_EMBEDDED_ITEM)
-        + cbor::head_len(payload as u64)
+        + cbor::head_len(widen(payload))
         + payload
 }
 

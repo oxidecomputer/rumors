@@ -1,11 +1,14 @@
 //! Exact asynchronous input for the self-delimiting frame grammar.
 
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
 use std::io::ErrorKind;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::observe::{CaptureRead, StreamObserver};
+use crate::counter::widen;
+use crate::observe::{CaptureRead, DataObservers};
 
+use super::super::super::pipe::{WirePermit, WirePool};
 use super::super::{
     budget::RunBudget,
     error::{DecodeError, DecodeErrorKind, FramePart},
@@ -13,28 +16,30 @@ use super::super::{
     signal::{FRAME_OPENER_LEN, Signal, Speaker},
 };
 use super::{
-    OpenerItem, check_arity, classify, decode_signal, frame_arity, head_error, listing_issue,
-    opener_item, query_listing, run_head,
+    BODY_FREE_ARITY, OpenerItem, check_arity, classify, decode_signal, frame_arity, head_error,
+    later_matches, listing_issue, match_set_len, opener_item, query_listing, run_head,
 };
+use crate::tree::mirror::streaming::{byte_set::MAX_ENCODED_LEN, message::LaterMatches};
 use crate::tree::{
     mirror::cbor::{self, HeadError, HeadReadError},
-    mirror::framing::{read_payload, resume_payload},
-    typed::{Hash, hash::MERKLE_HASH_LEN},
+    mirror::framing::{reserve_payload, resume_payload},
+    typed::hash::MERKLE_HASH_LEN,
 };
 
-/// Bytes a listed child occupies when its radix takes a one-byte key
-/// head: the fewest any canonical entry can occupy.
-const NARROW_ENTRY_LEN: usize = listing_entry_len(0);
+/// Bytes a listed child occupies when its radix takes a one-byte key head
+/// and its count a one-byte head: the fewest any canonical entry can
+/// occupy.
+const NARROW_ENTRY_LEN: usize = listing_entry_len(0, Grandchildren::ONE);
 
-/// Bytes a listed child occupies when its radix takes a two-byte key
-/// head: every entry after the first such radix, keys being strictly
-/// ascending.
-const WIDE_ENTRY_LEN: usize = listing_entry_len(u8::MAX);
+/// The fewest bytes a listed child occupies when its radix takes a
+/// two-byte key head: every entry after the first such radix, keys being
+/// strictly ascending.
+const WIDE_ENTRY_LEN: usize = listing_entry_len(u8::MAX, Grandchildren::ONE);
 
 /// The smallest radix whose key head takes two bytes.
 const FIRST_WIDE_RADIX: u8 = 24;
 
-/// Async frame reader over one speaker's transport direction.
+/// Async frame reader over one speaker's direction of the pipe.
 ///
 /// A clean close before a frame's array head returns `None`. A close within a
 /// frame, or an explicit `UnexpectedEof` error at any position, reports the
@@ -63,9 +68,10 @@ pub struct FrameRead<R> {
     /// this direction delivers.
     budget: RunBudget,
     read: R,
-    /// The directed stream's observer, if any: handed each accepted
-    /// frame's exact wire bytes, and costing one branch when absent.
-    observe: Option<Box<dyn StreamObserver>>,
+    /// The direction's per-logical-stream observers, if any: each accepted
+    /// frame's exact wire bytes go to its stream's observer, at the cost of
+    /// one branch when absent.
+    observe: Option<DataObservers>,
     /// Scratch for a listing's bulk reads, retained across frames so a
     /// query frame allocates only when it outgrows every earlier one.
     listing: Vec<u8>,
@@ -84,8 +90,9 @@ impl<R> FrameRead<R> {
         }
     }
 
-    /// Deliver every accepted frame to `observe`, when one is attached.
-    pub fn observed(mut self, observe: Option<Box<dyn StreamObserver>>) -> Self {
+    /// Deliver every accepted frame to its logical stream's observer in
+    /// `observe`, when the session is observed.
+    pub fn observed(mut self, observe: Option<DataObservers>) -> Self {
         self.observe = observe;
         self
     }
@@ -93,35 +100,92 @@ impl<R> FrameRead<R> {
     /// Recover the transport half. The reader holds no transport bytes
     /// between frames (every read is exact), so between frames the half
     /// rests exactly at a frame boundary.
+    #[cfg(test)]
     pub fn into_inner(self) -> R {
         self.read
+    }
+
+    /// Borrow the transport half, to inspect what follows the last frame
+    /// without consuming it through the frame grammar.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.read
     }
 }
 
 impl<R: AsyncRead + Unpin> FrameRead<R> {
-    /// Read and decode one frame without consuming any byte of the next.
+    /// Read and decode one frame as [`pooled_frame`](Self::pooled_frame)
+    /// does, but read a supply run's body without waiting for a permit.
+    ///
+    /// A session's demultiplexer always reads through a pool; only the
+    /// tests and the allocation meters read frames without one.
     ///
     /// # Cancel safety
     ///
-    /// Not cancel safe. A dropped `frame` future may already have consumed
-    /// part of a frame — the exact reads do not give bytes back — leaving
-    /// the direction mid-frame, where the next call would parse body bytes
-    /// as a frame head. Either retain the in-flight future across polls
-    /// until it resolves, or read nothing further from this direction after
-    /// a cancellation.
+    /// As [`pooled_frame`](Self::pooled_frame): not cancel safe.
+    #[cfg(any(test, feature = "test-internals"))]
     pub async fn frame(&mut self) -> Result<Option<WireFrame>, DecodeError> {
+        Ok(self.read_frame(None).await?.map(|(frame, _)| frame))
+    }
+
+    /// Read and decode one frame without consuming any byte of the next,
+    /// taking a permit from `pool` for a supply run's body before reading it.
+    ///
+    /// Once a run's heads declare its length, and the length is legal (one
+    /// the run budget admits, or one record's that spans the body), the
+    /// reader waits for a permit covering that length and the run's node in
+    /// its lane, or the whole pool if that is less ([`WirePool::acquire`]),
+    /// and only then reserves a buffer of exactly that length and reads the
+    /// body into it. The permit comes back with the frame; every other frame
+    /// comes with an empty one.
+    ///
+    /// # Cancel safety
+    ///
+    /// Not cancel safe. A dropped `pooled_frame` future may already have
+    /// consumed part of a frame — the exact reads do not give bytes back —
+    /// leaving the direction mid-frame, where the next call would parse
+    /// body bytes as a frame head. Either retain the in-flight future
+    /// across polls until it resolves, or read nothing further from this
+    /// direction after a cancellation.
+    pub async fn pooled_frame(
+        &mut self,
+        pool: &WirePool,
+    ) -> Result<Option<(WireFrame, WirePermit)>, DecodeError> {
+        self.read_frame(Some(pool)).await
+    }
+
+    /// Read and decode one frame, taking a supply run's permit from `pool`
+    /// when one is given.
+    async fn read_frame(
+        &mut self,
+        pool: Option<&WirePool>,
+    ) -> Result<Option<(WireFrame, WirePermit)>, DecodeError> {
         match &mut self.observe {
-            None => read_frame(&mut self.read, self.speaker, self.budget, &mut self.listing).await,
+            None => {
+                read_frame(
+                    &mut self.read,
+                    self.speaker,
+                    self.budget,
+                    pool,
+                    &mut self.listing,
+                )
+                .await
+            }
             Some(observe) => {
                 // Retain the consumed bytes so the observer sees the
                 // frame's true wire spelling, never a re-encoding. Only
                 // an accepted whole frame is delivered: a clean close
                 // consumed nothing, and an error leaves a fragment.
                 let mut capture = CaptureRead::new(&mut self.read);
-                let result =
-                    read_frame(&mut capture, self.speaker, self.budget, &mut self.listing).await;
-                if let Ok(Some(_)) = &result {
-                    observe.message(capture.bytes());
+                let result = read_frame(
+                    &mut capture,
+                    self.speaker,
+                    self.budget,
+                    pool,
+                    &mut self.listing,
+                )
+                .await;
+                if let Ok(Some(((stream, _), _))) = &result {
+                    observe.message(stream.index(), capture.bytes());
                 }
                 result
             }
@@ -129,13 +193,15 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     }
 }
 
-/// Read one frame, retaining any partial-read error until its position is known.
+/// Read one frame, retaining any partial-read error until its position is
+/// known, and taking a supply run's permit from `pool` when one is given.
 async fn read_frame<R: AsyncRead + Unpin>(
     read: &mut R,
     speaker: Speaker,
     budget: RunBudget,
+    pool: Option<&WirePool>,
     listing: &mut Vec<u8>,
-) -> Result<Option<WireFrame>, DecodeError> {
+) -> Result<Option<(WireFrame, WirePermit)>, DecodeError> {
     let direction = |kind| DecodeError::direction(speaker, kind);
     let mut exact = Exact {
         read,
@@ -173,15 +239,16 @@ async fn read_frame<R: AsyncRead + Unpin>(
     let mut decoder = AsyncFrameDecoder {
         exact,
         budget,
+        pool,
         listing,
     };
-    let frame = async {
+    let (frame, permit) = async {
         check_arity(signal, arity)?;
-        decoder.body(signal).await
+        decoder.body(signal, arity).await
     }
     .await
     .map_err(|kind| DecodeError::stream(speaker, stream, kind))?;
-    Ok(Some((stream, frame)))
+    Ok(Some(((stream, frame), permit)))
 }
 
 /// What one transport read attempt delivered: the bytes filled before the
@@ -291,7 +358,7 @@ impl<'a, R: AsyncRead + Unpin> Exact<'a, R> {
 
         scratch.reserve(want);
         let failure = (&mut *self.read)
-            .take(want as u64)
+            .take(widen(want))
             .read_to_end(scratch)
             .await
             .err();
@@ -356,46 +423,62 @@ struct AsyncFrameDecoder<'a, R> {
     exact: Exact<'a, R>,
     /// The session's run budget, gating supply-body buffering.
     budget: RunBudget,
+    /// The receive pool a supply run's body takes its permit from, if the
+    /// reader has one.
+    pool: Option<&'a WirePool>,
     /// Scratch for a listing's bulk reads.
     listing: &'a mut Vec<u8>,
 }
 
 /// How far one listing entry parsed from the bytes in hand.
 enum Entry {
-    /// The entry is complete and valid: its radix, digest, and width.
-    Complete(u8, [u8; MERKLE_HASH_LEN], usize),
+    /// The entry is complete and valid: its radix, digest, count, and
+    /// width.
+    Complete(u8, [u8; MERKLE_HASH_LEN], Grandchildren, usize),
     /// Every component that arrived whole is valid; the rest has not
     /// arrived.
     ///
     /// At least `need` more bytes are owed before it can: the rest of the
-    /// entry once its key head is whole (its width is then known
-    /// exactly), otherwise the rest of that head.
+    /// entry at its narrowest count once its key head is whole, exactly
+    /// the rest once its count head's first byte has arrived, otherwise
+    /// the rest of the key head.
     Incomplete { need: usize },
 }
 
 impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
-    async fn body(&mut self, signal: Signal) -> Result<Frame, DecodeErrorKind> {
+    async fn body(
+        &mut self,
+        signal: Signal,
+        arity: u64,
+    ) -> Result<(Frame, WirePermit), DecodeErrorKind> {
         let frame = match signal {
-            Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
+            Signal::Match(flow) if arity == BODY_FREE_ARITY => {
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), flow)
+            }
+            Signal::Match(flow) => Frame::Reaction(Reaction::Match(self.match_set().await?), flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
             Signal::Query(flow) => Frame::Reaction(Reaction::Query(self.query().await?), flow),
-            Signal::Supply(flow) => Frame::Reaction(Reaction::Supply(self.supply().await?), flow),
+            Signal::Supply(flow) => {
+                // Only a supply run holds a permit.
+                let (run, permit) = self.supply().await?;
+                return Ok((Frame::Reaction(Reaction::Supply(run), flow), permit));
+            }
             Signal::End(end) => Frame::End(end),
         };
-        Ok(frame)
+        Ok((frame, WirePermit::default()))
     }
 
     /// Read a listing map: its head, then its entries in bulk.
     ///
     /// Each bulk read takes the fewest bytes the entries still owed can
-    /// occupy — the narrow entry width per entry until a radix of 24 or
-    /// more has been seen, the wide width thereafter — so a canonical
-    /// listing is consumed exactly, in a bounded number of reads
-    /// independent of its fan. Entries are judged in wire order as their
+    /// occupy — per entry the narrow width, at its narrowest count, until
+    /// a radix of 24 or more has been seen, the wide width thereafter — so
+    /// a canonical listing is consumed exactly, in a bounded number of
+    /// reads independent of its fan. Entries are judged in wire order as their
     /// bytes arrive; a defect is reported before any later entry is
     /// examined, and a delivery that ends mid-entry is a truncation only
     /// once everything whole before it has passed.
-    async fn query(&mut self) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
+    async fn query(&mut self) -> Result<Vec<Listed>, DecodeErrorKind> {
         const PART: FramePart = FramePart::QueryChildren;
         let head = self.exact.fresh_head(PART).await?;
         let mut listing = query_listing(head)?;
@@ -421,8 +504,8 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             let arrived = self.exact.fill_vec(scratch, owed).await;
             loop {
                 match parse_entry(&scratch[parsed..], &listing)? {
-                    Entry::Complete(radix, digest, width) => {
-                        listing.entry(radix, digest);
+                    Entry::Complete(radix, digest, grandchildren, width) => {
+                        listing.entry(radix, digest, grandchildren);
                         parsed += width;
                         entries += 1;
                         wide |= radix >= FIRST_WIDE_RADIX;
@@ -448,15 +531,35 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
         Ok(listing.finish())
     }
 
-    async fn supply(&mut self) -> Result<LeafRun, DecodeErrorKind> {
+    /// Read a match's body: a byte string head, judged before any content
+    /// is read, then the set's encoding, at most a bitmap's bytes.
+    async fn match_set(&mut self) -> Result<LaterMatches, DecodeErrorKind> {
+        let head = self.exact.fresh_head(FramePart::MatchSet).await?;
+        let len = match_set_len(head)?;
+        let mut bytes = [0; MAX_ENCODED_LEN];
+        self.exact
+            .fill_exact(&mut bytes[..len], FramePart::MatchSet)
+            .await?;
+        later_matches(&bytes[..len])
+    }
+
+    /// Read a supply run's body, with the permit it holds from the receive
+    /// pool, if the reader has one.
+    ///
+    /// The permit is taken once the body's length is known to be legal,
+    /// and before the body is read, for exactly that length (at most the
+    /// whole pool). Only then is the body's buffer reserved, at exactly
+    /// that length, and read in place: it is never reallocated, so the
+    /// permit covers it at every moment, and a lone record larger than the
+    /// pool holds only its own excess beside the pool.
+    async fn supply(&mut self) -> Result<(LeafRun, WirePermit), DecodeErrorKind> {
         let tag = self.exact.fresh_head(FramePart::SupplyLength).await?;
         let body = self.exact.fresh_head(FramePart::SupplyLength).await?;
         let len = run_head(tag, body)?;
-        let run = if self.budget.covers(len) {
-            read_payload(&mut *self.exact.read, len)
-                .await
-                .map_err(|source| classify(FramePart::SupplyRun, source))?
-        } else {
+        // The heads of a lone record over budget, already consumed when
+        // the run's legality was judged; none for a run within budget.
+        let mut record = None;
+        if !self.budget.covers(len) {
             // The frame outsizes the budget the peer's encoder flushes
             // within, so the one shape an honest encoder can still have
             // produced is a single record spanning the whole body (the
@@ -472,50 +575,58 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             if len < super::super::frame::MIN_RECORD_HEADS_LEN {
                 return Err(overbatched());
             }
-            let Some((prefix, record)) = self.record_prefix().await? else {
+            let Some(content) = self.record_content().await? else {
                 return Err(overbatched());
             };
-            if !super::super::frame::lone_record_spans(len, record) {
+            if !super::super::frame::lone_record_spans(len, content) {
                 return Err(overbatched());
             }
-            // Legal lone record: resume the body read behind the heads
-            // already consumed, in the same single buffer.
-            resume_payload(&mut *self.exact.read, prefix, len)
-                .await
-                .map_err(|source| classify(FramePart::SupplyRun, source))?
-        };
-        Ok(LeafRun::from_encoded(run)?)
+            record = Some(content);
+        }
+        let mut permit = WirePermit::default();
+        if let Some(pool) = self.pool {
+            permit = pool.acquire(len).await;
+        }
+        let mut run =
+            reserve_payload(len).map_err(|source| classify(FramePart::SupplyRun, source))?;
+        if let Some(content) = record {
+            // Heads are canonical, so rendering them again spells exactly
+            // the bytes consumed.
+            cbor::write_tag(&mut run, cbor::TAG_CBOR_SEQUENCE);
+            cbor::write_head(&mut run, cbor::MAJOR_BSTR, content);
+        }
+        let run = resume_payload(&mut *self.exact.read, run, len)
+            .await
+            .map_err(|source| classify(FramePart::SupplyRun, source))?;
+        Ok((LeafRun::from_encoded(run)?, permit))
     }
 
     /// Read the first record's heads inside an over-budget run, returning
-    /// the exact bytes consumed and the record content length.
+    /// the record content length they declare.
     ///
     /// `None` when they are not a record's heads: over budget, the
     /// distinction from malformed is moot — either way the frame is not
     /// the legal overhang.
-    async fn record_prefix(&mut self) -> Result<Option<(Vec<u8>, u64)>, DecodeErrorKind> {
-        let mut prefix = Vec::new();
+    async fn record_content(&mut self) -> Result<Option<u64>, DecodeErrorKind> {
         let tag = self.exact.fresh_head(FramePart::SupplyRun).await?;
-        cbor::write_head(&mut prefix, tag.major, tag.value);
         if tag.major != cbor::MAJOR_TAG || tag.value != cbor::TAG_CBOR_SEQUENCE {
             return Ok(None);
         }
         let body = self.exact.fresh_head(FramePart::SupplyRun).await?;
-        cbor::write_head(&mut prefix, body.major, body.value);
         if body.major != cbor::MAJOR_BSTR {
             return Ok(None);
         }
-        Ok(Some((prefix, body.value)))
+        Ok(Some(body.value))
     }
 }
 
 /// Parse one listing entry from the front of `bytes`, judging each
 /// component as soon as it is whole.
 ///
-/// The key head is judged against the listing's order, the value head as
-/// a digest's, then the digest bytes. Judging records nothing, so an
-/// entry cut short by one delivery is judged again, identically, when
-/// the next completes it.
+/// The key head is judged against the listing's order, the value's array
+/// head, the digest's head, the digest bytes, then the count's head.
+/// Judging records nothing, so an entry cut short by one delivery is judged
+/// again, identically, when the next completes it.
 fn parse_entry(bytes: &[u8], listing: &ListingBuilder) -> Result<Entry, DecodeErrorKind> {
     let mut rest = bytes;
     let Some(key) = partial_head(&mut rest)? else {
@@ -532,18 +643,37 @@ fn parse_entry(bytes: &[u8], listing: &ListingBuilder) -> Result<Entry, DecodeEr
         return Ok(Entry::Incomplete { need });
     };
     let radix = listing.key(key).map_err(listing_issue)?;
-    let need = listing_entry_len(radix).saturating_sub(bytes.len());
+    let need = listing_entry_len(radix, Grandchildren::ONE).saturating_sub(bytes.len());
+    let Some(entry) = partial_head(&mut rest)? else {
+        return Ok(Entry::Incomplete { need });
+    };
+    ListingBuilder::entry_head(entry).map_err(listing_issue)?;
     let Some(value) = partial_head(&mut rest)? else {
         return Ok(Entry::Incomplete { need });
     };
-    ListingBuilder::value_head(value).map_err(listing_issue)?;
+    ListingBuilder::hash_head(value).map_err(listing_issue)?;
     if rest.len() < MERKLE_HASH_LEN {
         return Ok(Entry::Incomplete { need });
     }
-    let (digest, rest) = rest.split_at(MERKLE_HASH_LEN);
+    let (digest, mut rest) = rest.split_at(MERKLE_HASH_LEN);
+    let Some(count) = partial_head(&mut rest)? else {
+        // The count head's width is known from its initial byte once that
+        // arrives; until then the entry's narrowest width is owed.
+        let need = match rest.first() {
+            Some(&initial) => {
+                1 + cbor::extension_len(initial)
+                    .map_err(|e| head_error(FramePart::QueryChildren, e))?
+                    - rest.len()
+            }
+            None => need,
+        };
+        return Ok(Entry::Incomplete { need });
+    };
+    let grandchildren = ListingBuilder::count(count).map_err(listing_issue)?;
     Ok(Entry::Complete(
         radix,
         digest.try_into().expect("split at the digest width"),
+        grandchildren,
         bytes.len() - rest.len(),
     ))
 }

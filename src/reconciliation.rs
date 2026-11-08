@@ -9,9 +9,10 @@
 //!
 //! # One hash binds identity, causality, and placement
 //!
-//! Every message is stored at one address: the SHA3-256 hash of the
-//! [`Version`](crate::Version) stamped on it at send time. Nothing else
-//! enters the address; it rests on the invariant the protocol already
+//! Every message is stored at one address: a 32-byte hash of the
+//! [`Version`](crate::Version) stamped on it at send time, keyed by its
+//! network's secret (see [Keyed addresses](#keyed-addresses)). Nothing else
+//! about the message enters the address; it rests on the invariant the protocol already
 //! requires everywhere — no two sends ever share a version (a replica's
 //! version advances on every send, and disjoint parties can never produce the
 //! same one). Two consequences are deliberate.
@@ -26,7 +27,7 @@
 //!   encodings without splitting identity — and no author of content can
 //!   steer where anything lands, or what any digest reads, by choosing
 //!   bytes. What that buys is stated under
-//!   [Twenty-four-byte digests](#twenty-four-byte-digests).
+//!   [Sixteen-byte digests](#sixteen-byte-digests).
 //!
 //! Version reuse — the only way two messages could claim one address —
 //! cannot arise: every send creates a fresh version (a tick strictly above
@@ -41,8 +42,9 @@
 //! uniformly, and the trie's shape is a pure function of its membership:
 //! two replicas holding the same set of messages hold the *same tree*,
 //! whatever order they learned it in. Each interior node memoizes two
-//! summaries of its subtree: a 24-byte digest (a truncation of SHA3-256)
-//! and the ceiling and floor of its leaves' versions. The digest answers
+//! summaries of its subtree: a 16-byte digest (a truncation of
+//! HMAC-SHA-256 under a key derived from the network's secret) and the
+//! ceiling and floor of its leaves' versions. The digest answers
 //! "do we hold the same things
 //! here?"; the version bounds answer "could anything here be news to a
 //! peer at that causal position?". The whole protocol is those two
@@ -52,19 +54,21 @@
 //!
 //! After a fixed transport preamble, a session opens with a *greeting*:
 //! each side sends its version, live-message count, version-size bound,
-//! message-size target, payload depth limit, and root's children. The
-//! peers must agree on the payload depth limit before descent. Equal versions
-//! mean identical replicas, and the session ends before a single digest is
-//! compared: one exchange and no descent.
+//! message-size target, payload depth limit, root's children, and the
+//! number of its root's grandchildren. The peers must agree on the payload
+//! depth limit before descent. Equal versions mean identical replicas, and
+//! the session ends before a single digest is compared: one exchange and
+//! no descent.
 //!
 //! Otherwise the two sides walk their trees downward together, level by
 //! level, comparing children by digest. Equal digests prune: that subtree
 //! is settled, however large it is. Where both sides hold something under a
 //! child but the digests differ, the child is *disputed*: the reply lists
-//! the disputed node's own children (a radix byte and a digest each) and
-//! the comparison recurses one level deeper. And where one side holds a
-//! subtree the other holds nothing under, the
-//! descent stops. Its destination is the *disjoint frontier*: the
+//! the disputed node's own children, each with its radix byte, its digest,
+//! and the number of its own grandchildren, which bounds the reply a
+//! question about it can draw, and the comparison recurses one level
+//! deeper. And where one side holds a subtree the other holds nothing
+//! under, the descent stops. Its destination is the *disjoint frontier*: the
 //! horizontal cut across the tree where every node along the cut is the
 //! highest node held exclusively by one side or the other.
 //!
@@ -119,10 +123,13 @@
 //! unrepresentable — there is nothing to arrive.
 //!
 //! To optimize this filtration, the version bounds memoized on every interior
-//! node decide whole subtrees at once: a subtree whose version ceiling the
-//! counterparty's version contains is settled *even though its digest differs*
-//! (nothing under it can be news to the counterparty; whatever it holds and the
-//! counterparty lacks, the counterparty deleted), and a subtree whose version
+//! node decide whole exclusive subtrees at once. The bounds never settle a
+//! disputed child: a subtree both sides hold descends while its digests
+//! differ, whatever its bounds, until the dispute narrows to the frontier.
+//! There, an exclusive subtree whose version ceiling the counterparty's
+//! version contains is settled without descending (nothing under it can be
+//! news to the counterparty; whatever it holds and the counterparty lacks, the
+//! counterparty deleted), and an exclusive subtree whose version
 //! floor is concurrent with or in the causal future of the counterparty's
 //! version ships whole with no further comparison. Only mixed subtrees descend
 //! toward individual leaves. This subtree-wise pruning is semantically
@@ -136,11 +143,14 @@
 //! The outcome of a session: both replicas hold every message either held and
 //! neither had redacted when the session began.
 //!
-//! # Twenty-four-byte digests
+//! # Sixteen-byte digests
 //!
-//! The digests the descent compares are 24-byte truncations of SHA3-256
-//! (truncating an approved hash is itself an approved hash of the shorter
-//! width: NIST SP 800-107 Rev. 1, §5.1).
+//! The digests the descent compares are 16-byte truncations of HMAC-SHA-256
+//! under a key derived from the network's secret (NIST SP 800-107 Rev. 1,
+//! §5.3, approves truncating an HMAC output). Each node's digest covers
+//! its layout and its height in the trie, so leaves and branches, and nodes
+//! at different heights, hash in separate domains. SHA-256 is the hash
+//! because current x86 and Arm processors compute it in hardware.
 //! Digest bytes dominate every dispute listing on the wire — they are the
 //! protocol's main metadata price — so the width is spent deliberately;
 //! leaf addresses in the tree remain full 32-byte hashes.
@@ -155,74 +165,107 @@
 //! holder deletes it. A landed false-equal permanently deletes the
 //! divergent messages fleet-wide.
 //!
-//! The acceptance is priced on the accident bound: a digest at prefix `P`
+//! The acceptance is priced on the accident bound. A digest at prefix `P`
 //! is only ever compared against the counterparty's digest at the same
-//! `P`, so a false-equal is a per-interior-comparison event at 2⁻¹⁹² —
-//! pairwise, never birthday-amplified across the tree's population — and
-//! at that bound it does not occur by accident at any realistic session
-//! volume.
+//! `P`, and HMAC under a secret key is a pseudorandom function, so a
+//! false-equal is a per-comparison event, independent across comparisons:
+//! pairwise, never birthday-amplified across the tree's population. Its
+//! probability is 2⁻¹²⁸. Take a deliberately absurd lifetime: a million
+//! peers, each running ten thousand sessions a day of a thousand
+//! comparisons each, for a century. That is about 2⁵⁸ comparisons, and the
+//! chance that any one of them is a false-equal is about 2⁻⁷⁰.
 //!
 //! Every compared digest is a pure function of the *version set*: a leaf's
-//! digest commits its address and its version, a branch's commits its
-//! children, and message bytes appear nowhere. An author of message
-//! content therefore contributes zero bits to any compared quantity — the
-//! offline content-grinding route to a collision is structurally gone, not
-//! merely priced. What could still contribute bits is influence over which
-//! versions get created (an actor steering gossip schedules steers the
-//! version set); against any such actor, the 24-byte width keeps the
-//! offline birthday floor at 2⁹⁶ evaluations, an unconditional bound that
-//! rests on no premise about capabilities. Hostile *peers* remain
+//! digest commits the part of its address below its place in the trie,
+//! and the address is the keyed hash of its version; a branch's commits
+//! its children; and message bytes appear nowhere. An author of message
+//! content therefore contributes zero bits to any compared quantity, and
+//! only authorized peers' clocks create versions. Hostile *peers* remain
 //! off-model entirely (see [when *shouldn't* you use
 //! it](crate#when-shouldnt-you-use-it)): peers hold write authority
-//! already, so no width buys anything against a member and none is priced
-//! here.
+//! already, so no width buys anything against a member.
+//!
+//! # Keyed addresses
+//!
+//! Versions are predictable. They follow from the causal history, which an
+//! observer outside the network can infer, and whose timing it can steer by
+//! choosing when peers connect. Were addresses plain hashes of versions,
+//! such an observer could search offline for two version sets whose digests
+//! collide under one root child, a birthday search of about 2⁶⁴ hash
+//! evaluations at sixteen bytes, and then steer the peers into producing
+//! them: a chosen, silent, fleet-wide deletion.
+//!
+//! So each address is HMAC-SHA-256 of the version under a key derived from
+//! a 128-bit secret drawn when the network is [seeded](crate::Peer::seed).
+//! Peers hand the secret only to joining peers, sealed for the joiner's
+//! ephemeral key, and publish only the [`Network`](crate::Network)
+//! identifier, which is derived beside the keys and reveals nothing about
+//! the secret or them.
+//!
+//! Keyed addresses alone would not be enough. A subtree's digest commits its
+//! children's digests, so were digests plain hashes, an observer could hash
+//! any subset of the children a listing names into the digest that subset
+//! would form, and run the same search over subsets without the secret. So
+//! every digest is keyed too: HMAC-SHA-256 under a second key derived from
+//! the secret. Without the secret no one can compute an address or a
+//! digest, so the accident bound above is the whole calculation for every
+//! collision an observer could search for offline; searching among the
+//! digests it sees listed would take about 2⁶⁴ distinct states of one
+//! subtree, each made by sends or redactions. The secret
+//! must stay inside the network: whoever learns it can run that search for
+//! the rest of the network's life, and it cannot be rotated, since a new
+//! secret moves every address and no replica under the old one could
+//! compare a single subtree with a replica under the new.
 //!
 //! # The bytes on the wire
 //!
-//! A session's transport is a [`Link`](crate::Link): one persistent
-//! bidirectional *control stream*, plus unidirectional *data streams*
-//! opened lazily as the descent needs them, at most
-//! [`STREAM_COUNT`](crate::link::STREAM_COUNT) per direction.
+//! A session runs over one connection, a reliable, ordered duplex byte
+//! stream, which it takes as two halves (see [Transport](crate#transport)).
+//! Each direction carries, in order, the preamble, the greeting, the
+//! descent's frames, and the closing items: an identity donation when one
+//! changes hands, and the [`Phase::Completion`](crate::error::Phase::Completion)
+//! confirmation. A bootstrap adds one control item to each direction, right
+//! after its preamble: the joiner's ephemeral public key, and the network's
+//! secret its provider seals for that key.
 //!
-//! The asymmetry is demand-shaped. The control stream carries what every
-//! session unconditionally exchanges — the preamble, the greeting, and the
-//! closing [`Phase::Completion`](crate::error::Phase::Completion) confirmation — so it is
-//! the one stream worth holding open across sessions: those fixed phases
-//! dominate a short session's latency, and re-dialing per session would put
-//! transport dial time and its failure modes inside every one of them. The
-//! persistent control stream is also what gives a link its stable identity
-//! between sessions (its session counter and its poison state). Data streams
-//! carry the descent into the tree, whose traffic exists only where divergence
-//! does: a converged session opens none, so they are opened on demand and are
-//! worth recycling back to a transport's connection pool. They are
-//! unidirectional because the protocol needs traffic in only one direction; a
-//! link may split a bidirectional stream into two such roles.
+//! The descent's frames travel on *logical streams*, one per tree level a
+//! side answers at. Each frame names its logical stream, so the one
+//! connection carries them all, their frames interleaved. A logical stream
+//! carries frames only where divergence does: a converged session sends no
+//! frame at all.
 //!
-//! Each direction may open at most [`STREAM_COUNT`](crate::link::STREAM_COUNT)
-//! data streams in addition to the control stream, though a session usually
-//! opens fewer. The bound comes from the fixed tree height and the wire
-//! schedule's assignment of tree levels to streams. The constant's documentation
-//! gives the derivation.
+//! Sharing one connection among levels could let a full queue at one level
+//! stop delivery at another, which would break the walk's deadlock freedom.
+//! A receiver prevents that by reading every frame as it arrives and holding
+//! each reply until its walk takes it. A reply exists only in answer to the
+//! receiver's own question, and the receiver set aside room for each reply
+//! when it asked, so reading never waits on the walk.
+//! Levels still pipeline across the connection, and whenever a sender has a
+//! choice, a frame carrying the descent goes out ahead of supply runs
+//! waiting at other levels.
 //!
-//! Streams are independently flow-controlled: one stream's backpressure is
-//! invisible to every other stream, so the two levels sharing a stream
-//! serialize against each other and levels on different streams do not. This
-//! independence is required for deadlock freedom and lets the session pipeline
-//! disputes across several levels.
+//! # Memory: the budget
 //!
-//! # Memory: the budget and the window
-//!
-//! Each dispute in flight holds decoded tree state until its reply arrives. To
-//! keep that state bounded, a session derives fixed capacities for each tree
-//! level from a caller-set byte budget
-//! ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)) and from
-//! both sides' set sizes and version-size bounds. Backpressure makes wider
-//! divergence drain in waves. A smaller budget can add latency; even a zero
-//! budget permits one dispute per level and remains deadlock-free.
-//! Message bodies are governed separately: supplies stream outside the window
-//! as size-targeted runs, with at most one run in hand per stream per direction
-//! ([`Peer::target_message_size`](crate::Peer::target_message_size)). The
-//! budget's contract is at
+//! Each question in flight holds tree state, and room for its answer, until
+//! its answer arrives and is taken. To keep that state bounded, each side
+//! admits each question and answer it builds against a caller-set byte
+//! budget ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)),
+//! counting what it holds and what it has set aside; work that does not fit
+//! waits for earlier work to finish. Each level always admits its first
+//! question and answer, out of a part of the budget set aside for each
+//! level's work, so a smaller budget adds latency and never stops a
+//! session. Every session's budget is at least the minimum for its
+//! message-size target, which is
+//! [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the default
+//! target or a larger one: that part,
+//! room beside it for the largest single question or answer, and the
+//! fixed state a session holds whatever its budget, and room for the
+//! messages on their way through the connection. Supplies stream as
+//! size-targeted runs, and that room holds about two runs at the target the
+//! peer advertises in each direction, however many levels send them; a
+//! peer lowers a target whose room its budget cannot afford
+//! ([`Peer::target_message_size`](crate::Peer::target_message_size)).
+//! The budget's contract is at
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);
 //! [the sizing guide](crate::sizing) explains how to choose it.
 //!

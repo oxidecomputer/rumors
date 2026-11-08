@@ -8,24 +8,25 @@ control item 0 (30 bytes) / preamble /
 55799_1([
     "rumors",
     2,
-    h'b2f7f581d6de3c06a822fd6e7e8265fb',
+    h'85075c6362fdf6d4e12c2575ea5bcd04',
     0,
 ])
-control item 1 (160 bytes) / greeting /
+control item 1 (161 bytes) / greeting /
 24_0(<<{
     "listing": {
-        82_0: h'b0425f1120b0c131ab72af780c67564c0340de7049ea3580',
-        121_0: h'9602973f461003f36f18b1ccb468d352b1f1a711efc1e963',
+        48_0: [h'196dccac4beec6084382263a104bdb2c', 0],
+        137_0: [h'205290c6baa7b1606dbb385eb85f486f', 0],
     },
     "set_len": 2,
     "version": 53846_1(h'5c90'),
+    "grandchildren": 2,
     "max_version_bytes": 2,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 262144_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."
-Responder stream 0 (height 31), epoch 0, 37 wire bytes
+Responder stream 0 (height 31), 35 wire bytes
   frame 0 (16 bytes) / Supply(Continue) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'5c90'), 2>>)>>)]
   frame 1 (16 bytes) / Supply(End) /
@@ -39,17 +40,18 @@ control item 0 (30 bytes) / preamble /
 55799_1([
     "rumors",
     2,
-    h'b2f7f581d6de3c06a822fd6e7e8265fb',
+    h'85075c6362fdf6d4e12c2575ea5bcd04',
     0,
 ])
-control item 1 (103 bytes) / greeting /
+control item 1 (118 bytes) / greeting /
 24_0(<<{
     "listing": {},
     "set_len": 0,
     "version": 53846_1(h'e0'),
+    "grandchildren": 0,
     "max_version_bytes": 0,
     "payload_depth_limit": 256_1,
-    "target_message_size": 1830400_2,
+    "target_message_size": 262144_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
 "."

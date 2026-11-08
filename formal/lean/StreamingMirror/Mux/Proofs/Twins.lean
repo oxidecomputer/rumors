@@ -3,7 +3,7 @@ Drift guards: the executable tier runs the kernel objects.
 
 Three definitions exist twice, once on the statement path and once in
 the executable tier (Mux/Gen.lean serves `lake exe muxprobe`, and
-nothing a theorem of record quantifies over may live there; the
+nothing a claimed theorem quantifies over may live there; the
 unbounded-slot control predates the elastic semantics). Twins invite
 silent drift — an edit to one side would quietly decouple the
 executable evidence from the kernel objects it vouches for — so each
@@ -38,7 +38,7 @@ theorem wedgeFam_eq_wedgeW (w : Nat) : Gen.wedgeFam w = wedgeW w := rfl
 
 /-- The unbounded-slot control variant IS the elastic semantics: the
 option-C escape control (`Control.applyU`, minted before the elastic
-composition existed as a semantics of record) and `applyE` are one
+composition existed as a semantics in its own right) and `applyE` are one
 definition, so `wedge_unboundedSlot_completes` and
 `wedge_elastic_completes` pin the same system. -/
 theorem applyU_eq_applyE : Control.applyU = applyE := rfl

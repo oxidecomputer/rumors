@@ -126,8 +126,8 @@ send order is deadlock-free at EVERY pointwise-widened capacity vector
 κ ≥ κ₀ under EVERY assignment of the two-point per-loop dequeue-order
 class.
 
-The class (MODEL.md §5's dequeue-order subsection, the claim of
-record): each pairing loop — each walk stage, and the absorber —
+The class (MODEL.md §5's dequeue-order subsection, the claimed
+statement): each pairing loop — each walk stage, and the absorber —
 independently dequeues its per-scope wire reply and queued query in
 one of exactly TWO orders, reply-first (the baseline transcription,
 `OrdMap.rf`, definitionally `Model.apply`) or query-first (the

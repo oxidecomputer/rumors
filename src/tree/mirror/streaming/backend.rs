@@ -1,13 +1,12 @@
-//! Node storage and pricing for streaming reconciliation.
+//! Node storage for streaming reconciliation.
 //!
-//! A [`Backend`] defines the node handles used by a session, the operations
-//! over those handles, and their resident-memory cost. The session window uses
-//! [`Backend::node_bytes`] to price every in-flight node reference. This
-//! boundary is crate-internal; [`Local`] is its production implementation and
-//! stores handles into the crate's in-memory tree.
+//! A [`Backend`] defines the node handles used by a session and the
+//! operations over those handles. This boundary is crate-internal; [`Local`]
+//! is its production implementation and stores handles into the crate's
+//! in-memory tree.
 //!
-//! The backend conformance suite checks the behavioral and pricing contracts
-//! against each implementation used by the crate.
+//! The backend conformance suite checks the behavioral contracts against
+//! each implementation used by the crate.
 
 use std::pin::Pin;
 
@@ -16,11 +15,12 @@ use futures::{Stream, stream};
 
 use crate::{
     Version,
+    counter::widen,
     message::Message,
     tree::{
-        mirror::streaming::convert::Convert,
+        mirror::streaming::{byte_set::ByteSet, convert::Convert},
         typed::{
-            Hash, Prefix,
+            ErasedPrefix, Hash, HashKey, Prefix,
             height::{self, Height, S, Z},
         },
     },
@@ -33,6 +33,32 @@ pub use local::Local;
 pub(super) use local::with_schedule as with_local_schedule;
 
 /// Node storage used by a streaming session; values are cheap cloneable handles.
+///
+/// # Independence from other session work
+///
+/// Every operation completes without waiting on any other work of the
+/// session. The decoders that absorb supplied leaves and the walk share the
+/// backend, and the decoders must never wait on the walk: an operation that
+/// held a lock, transaction, or pooled resource while a walk task was
+/// blocked on a queue could stop a decoder, and with it the delivery the
+/// walk is waiting for.
+///
+/// # Handles that never change
+///
+/// Everything a node handle answers stays the same for as long as the
+/// handle lives: its version bounds, leaf count and digest, its child and
+/// grandchild counts and child radices, its summary, and the children
+/// [`children`](Self::children) lists for it. The session reads one
+/// handle's answers at different times and relies on their agreeing: it
+/// prices a question's listing from the child count before it lists the
+/// children, sends the grandchild count its peer sizes a reply from, and
+/// descends into a child whose digest it compared earlier. A backend whose
+/// storage changes beneath live handles, such as a persistent store that
+/// compacts or rewrites nodes in place, must keep each handle's view as it
+/// was when the handle was made, for instance by copying on write or by
+/// pinning the snapshot the handle reads. [`Local`]'s handles share the
+/// replica's stored nodes, which a write replaces rather than modifies, so
+/// they never change.
 pub trait Backend: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf,
@@ -43,17 +69,21 @@ where
     /// One runtime representation shared by every height's
     /// [`Node<H>`](Self::Node).
     ///
-    /// The height parameter on [`Node`](Self::Node) is a compile-time tag
-    /// over runtime data that already knows its place in the tree, so a
-    /// backend can forget the tag ([`erase`](Self::erase)) and restore it
-    /// ([`assume`](Self::assume)) without changing the value. The
-    /// session's internal plumbing — its channels, pumps, and walk workers
-    /// — carries this one type where a height-typed payload would
-    /// instantiate the whole machinery once per height.
+    /// The session's internal plumbing — its channels, pumps, and walk
+    /// workers — carries this one type where a height-typed payload would
+    /// instantiate the whole machinery once per height. It keeps every
+    /// erased node beside the prefix the node sits at, its *coordinate*, so
+    /// a backend can forget the height tag ([`erase`](Self::erase)) and
+    /// restore it from the coordinate ([`assume`](Self::assume)); reading
+    /// what depends on the height from an erased node takes the coordinate
+    /// too ([`ErasedNode`]).
     ///
-    /// A backend whose nodes share one representation across heights (as
-    /// [`Local`]'s do) uses that representation directly; otherwise it uses a
-    /// sum of its per-height representations.
+    /// A backend whose nodes share one representation across heights uses
+    /// that representation directly; otherwise it uses a sum of its
+    /// per-height representations. [`Local`]'s handle at a height is its
+    /// stored node alone, and the height decides how much of the node's
+    /// compressed path it hides, so its erased form is the stored node, and
+    /// its coordinate decides the same.
     type Erased: ErasedNode + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
@@ -62,45 +92,31 @@ where
     /// Forget a node's height tag.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased;
 
-    /// Re-tag an erased node at height `H`.
+    /// Re-tag an erased node at `at`, the coordinate it sits at.
     ///
-    /// `H` must be the height the node was erased at:
-    /// `assume::<H>(erase::<H>(node)) == node` is the whole contract, and
-    /// a cross-height re-tag is a programmer error whose behavior is
-    /// unspecified. The pairing discipline lives inside the session's
-    /// erased plumbing, witnessed by the prefixes that travel alongside
-    /// every node: an erased prefix's byte length is its height, and
-    /// re-tagging one debug-asserts that length. Peer input cannot reach
-    /// a mispairing — every wire node decodes through height-typed
-    /// readers before it is ever erased.
-    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H>;
-
-    /// Bytes one node value with `children` child entries keeps resident
-    /// beyond the replica's own storage, its version bounds (ceiling and
-    /// floor together) encoding within `version_bound` bytes.
+    /// `at` must be the prefix the node was erased at:
+    /// `assume(&at, erase(node)) == node` is the whole contract. The
+    /// session keeps every erased node beside its coordinate, and derives
+    /// each child's from its parent's and its radix, so it always has the
+    /// coordinate to pass. Peer input cannot reach a mispairing: a node
+    /// supplied over the wire is assembled at the prefix its own leaves'
+    /// paths decide.
     ///
-    /// This prices the session window's in-flight references and the
-    /// decode fan's buffered leaves
-    /// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)).
-    /// [`Local`]'s nodes are handles into a tree that is resident
-    /// regardless, so its price is one pointer at every argument; a
-    /// backend without an always-resident tree must charge everything its
-    /// `Node` values own — at minimum the hash, the child table, and the
-    /// two endpoints of the bounds span [`Node::span`] borrows from the
-    /// node.
+    /// # Panics
     ///
-    /// A leaf is priced at `children = 0`: what its handle keeps resident
-    /// after [`Leaf::leaf`] has had its chance to persist the payload.
-    /// Payload bytes still in flight inside one wire message are priced
-    /// by [`target_message_size`](crate::Peer::target_message_size), not
-    /// here.
-    ///
-    /// The result must be an **upper bound**, monotone in both arguments
-    /// because the window evaluates it at estimated fan and version sizes.
-    /// Other overestimates narrow the window and cost throughput; underpricing
-    /// a node can instead exceed the memory budget. The backend conformance
-    /// suite checks monotonicity and compares prices with measured nodes.
-    fn node_bytes(children: usize, version_bound: usize) -> usize;
+    /// A mispairing is a programmer error, so a backend whose handles
+    /// derive anything from the height may trust the coordinate, or check
+    /// it and panic where it can tell the coordinate is not the node's.
+    /// [`Local`]'s handle hides as many path bytes as the coordinate's
+    /// height decides, so a wrong coordinate would select other prefix
+    /// bytes, and with them other children and hashes. In debug builds it
+    /// checks every re-tag, and panics unless the coordinate's height lies
+    /// between the node's body and its top and the path bytes the handle
+    /// hides are the coordinate's last bytes, a check of at most 32 bytes
+    /// that rejects every coordinate selecting other bytes
+    /// ([`typed::View::placed`](crate::tree::typed::View::placed) gives the
+    /// argument). Release builds trust the session's coordinates.
+    fn assume<H: Height>(at: &Prefix<H>, erased: Self::Erased) -> Self::Node<H>;
 
     /// Assemble one parent node at `prefix` from one radix-keyed child group.
     ///
@@ -116,9 +132,22 @@ where
     /// [`assemble`](Self::assemble), a `None` here becomes a missing assembled
     /// node, which the reply decoder treats as a backend contract violation
     /// and enforces by panic.
+    ///
+    /// `original` is the node that stood at `prefix` before the session
+    /// explored it: the node whose [`children`](Self::children) the session
+    /// listed there, or `None` when nothing was listed, as when this side
+    /// held nothing at `prefix` or the group comes from a leaf stream. The
+    /// group alone decides the result; `original` only lets a backend skip
+    /// work. When the group's surviving children are exactly the children
+    /// `original` lists, at the same radices, the backend may return
+    /// `original` itself, with everything it stores or has computed for it.
+    /// Otherwise it may derive the new node's aggregates from `original`'s
+    /// and those of the children that differ, wherever that derivation is
+    /// exact.
     fn parent<H>(
         self,
         prefix: Prefix<S<H>>,
+        original: Option<Self::Node<S<H>>>,
         children: Vec<(u8, Option<Self::Node<H>>)>,
     ) -> impl Future<Output = Result<Option<Self::Node<S<H>>>, Self::Error>> + Send
     where
@@ -128,7 +157,17 @@ where
     /// Explode one parent node at `prefix` into its children, one height down.
     ///
     /// The children are produced in strictly increasing prefix order, each
-    /// keyed by the parent's prefix extended with the child's radix.
+    /// keyed by the parent's prefix extended with the child's radix, so a
+    /// listing never repeats a child. The session sizes its plans and
+    /// grants at one entry per child on the strength of this order, and
+    /// the backend conformance suite checks it on every listing.
+    ///
+    /// Listing allocates nothing beyond the handles it yields: the session
+    /// charges each listing's handles to the place that holds them, and
+    /// charges nothing for the listing itself. A backend whose node handles
+    /// reach storage it loads keeps that storage within the handles; the
+    /// in-memory backend yields views that share the stored node. The
+    /// backend conformance suite meters every listing against this.
     fn children<H>(
         self,
         prefix: Prefix<S<H>>,
@@ -164,8 +203,12 @@ where
     /// order.
     ///
     /// This is the inverse of [`leaves`](Self::leaves). By default, leaves fold
-    /// through [`parent`](Self::parent) one level at a time; a backend with
-    /// directly constructible nodes may use a bulk builder.
+    /// through [`parent`](Self::parent) one level at a time, each height
+    /// holding one open group of at most a fan of children, so the default
+    /// holds transient memory bounded by the heights and the fan, whatever
+    /// a run's size. A backend with directly constructible nodes may build
+    /// in fewer steps; an override should keep that bound, since a run can
+    /// be a whole supplied subtree.
     ///
     /// An override must preserve what the default guarantees — the reply
     /// decoder enforces each by panic:
@@ -208,6 +251,19 @@ pub trait Node {
     /// root's count supplies the session greeting's set size.
     fn len(&self) -> usize;
 
+    /// The exact number of children this node's children have, as
+    /// [`Backend::children`] lists them: over its children, each one's own
+    /// child count, a child at the leaves counting one. A leaf has none.
+    ///
+    /// It bounds the reply this side gives to a question about the node: a
+    /// session sends this count beside each child it lists, and its peer
+    /// sizes the memory that reply can need from it before asking, so an
+    /// undercount fails the session when the reply arrives. Like
+    /// [`len`](Self::len), maintain it wherever a node is built; it depends
+    /// only on the node's children, and on whether each child is itself a
+    /// leaf or has one child or many.
+    fn grandchild_count(&self) -> usize;
+
     /// The largest encoded version bound in this subtree, in bytes.
     ///
     /// Include leaf versions and every branch's floor and ceiling. A leaf
@@ -217,7 +273,9 @@ pub trait Node {
     ///
     /// Interior bounds matter: joining small concurrent versions can produce
     /// a larger encoding. The root supplies this aggregate to the session's
-    /// memory budget; undercounting can make that budget too small.
+    /// greeting, and the peer fails the session at any supplied version
+    /// that encodes larger, so an undercount fails sessions with conforming
+    /// peers.
     fn version_bytes(&self) -> usize;
 }
 
@@ -226,15 +284,92 @@ pub trait Node {
 /// The session compares hashes and classifies version spans before choosing
 /// whether to descend. Operations that need the height, such as reading
 /// children or a leaf's payload, require [`Backend::assume`] first.
+///
+/// What a node's children are can depend on its height: [`Local`]'s handle
+/// at a height hides as many of its stored node's path bytes as the height
+/// decides. So every query that describes the children or commits to them
+/// takes `at`, the node's coordinate, as [`Backend::assume`] does, and a
+/// backend may check it the same way; the version bounds and the leaf
+/// count describe the leaves alone, and take none.
 pub trait ErasedNode {
     /// The node's version bounds as one causal span ([`Node::span`]).
     fn span(&self) -> Span<'_>;
 
-    /// The subtree digest used to compare nodes at the same trie position.
-    fn hash(&self) -> Hash;
+    /// The subtree digest used to compare nodes at the same trie position,
+    /// the node's coordinate `at`, under `key`, the hash key of the network
+    /// whose tree holds the node.
+    ///
+    /// It commits the height of `at`: a node viewed from inside its
+    /// compressed path has a different digest at each level. A backend
+    /// that caches digests fills each cache under one key, the key of the
+    /// tree the node belongs to, which every session passes.
+    fn hash(&self, at: &ErasedPrefix, key: &HashKey) -> Hash;
 
     /// The number of live leaves under this node, exact ([`Node::len`]).
     fn len(&self) -> usize;
+
+    /// The number of children [`Backend::children`] lists for this node at
+    /// `at`, exact: at most a fan, and none for a leaf.
+    ///
+    /// A session reads this before it lists the children of a node it
+    /// asks about, to price the question's listing at exactly that many
+    /// entries, and allocates the listing at that capacity. A backend that
+    /// maintains [`grandchild_count`](Self::grandchild_count) already computes it
+    /// for every child it sums over. A count above a fan, or one the
+    /// listing does not bear out, fails the session
+    /// ([`CountError`](super::message::CountError)).
+    fn child_count(&self, at: &ErasedPrefix) -> usize;
+
+    /// The number of children this node's children have, exact
+    /// ([`Node::grandchild_count`]), for the node at `at`.
+    fn grandchild_count(&self, at: &ErasedPrefix) -> usize;
+
+    /// What a listing records of this node at `at`, in one read: its digest
+    /// under `key`, its child count and its grandchild count.
+    ///
+    /// Each field equals what its own query answers: [`hash`](Self::hash),
+    /// [`child_count`](Self::child_count) and
+    /// [`grandchild_count`](Self::grandchild_count). A node that overrides this
+    /// keeps that agreement: one that wraps another node's summary applies
+    /// whatever its own queries change about the wrapped node's answers.
+    ///
+    /// A session reads this once per child it lists. The default asks the
+    /// three queries in turn; a backend whose queries each first locate the
+    /// node's view at `at`, as the in-memory backend's do, answers all three
+    /// from one placement instead.
+    fn summary(&self, at: &ErasedPrefix, key: &HashKey) -> Summary {
+        Summary {
+            hash: self.hash(at, key),
+            child_count: self.child_count(at),
+            grandchildren: self.grandchild_count(at),
+        }
+    }
+
+    /// The radices of the children [`Backend::children`] lists for this
+    /// node at `at`, exact: [`child_count`](Self::child_count) of them, and
+    /// none for a leaf.
+    ///
+    /// A session reads this before it explodes a node it answers about,
+    /// and prices the answer at the children either side holds: these
+    /// radices joined with those the peer listed. A backend can answer it
+    /// from what it stores for the node without listing the children; the
+    /// in-memory backend reads its fan's radices, or a compressed node's
+    /// one. A radix missing from the answer leaves the answer's resolution
+    /// and plan costing more than its grant.
+    fn child_radices(&self, at: &ErasedPrefix) -> ByteSet;
+}
+
+/// What a listing records of one node at its coordinate, as the backend
+/// reports it ([`ErasedNode::summary`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Summary {
+    /// The node's digest at its coordinate ([`ErasedNode::hash`]).
+    pub hash: Hash,
+    /// The number of children it lists there ([`ErasedNode::child_count`]).
+    pub child_count: usize,
+    /// The number of children its children have there
+    /// ([`ErasedNode::grandchild_count`]).
+    pub grandchildren: usize,
 }
 
 /// What crosses between backends at the conversion boundary, and the one node
@@ -250,9 +385,8 @@ pub trait Leaf: Node {
     /// before the leaf enters the decode fan: an eagerly persisting
     /// backend writes the payload here and returns a thin handle, and a
     /// backend that batches writes stages it in its own write-behind
-    /// buffer — memory the backend owns and must price through
-    /// [`Backend::node_bytes`] at `children = 0`, the shape the session
-    /// budget charges for every buffered leaf. [`Local`] keeps the payload in
+    /// buffer, memory the backend owns and bounds itself. [`Local`] keeps
+    /// the payload in
     /// its handle and completes immediately because its tree is already
     /// resident.
     ///
@@ -313,7 +447,7 @@ impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     pub(crate) fn len(&self) -> u64 {
         self.root
             .as_ref()
-            .map(|node| node.len() as u64)
+            .map(|node| widen(node.len()))
             .unwrap_or_default()
     }
 
@@ -326,7 +460,7 @@ impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     pub(crate) fn max_version_bytes(&self) -> u64 {
         self.root
             .as_ref()
-            .map(|node| node.version_bytes() as u64)
+            .map(|node| widen(node.version_bytes()))
             .unwrap_or_default()
     }
 }

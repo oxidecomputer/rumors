@@ -1,0 +1,72 @@
+# The link-measurement tool: a tool-side member of the root workspace,
+# outside its default members, so the library's ordinary legs never compile
+# it or the plotting, CLI, and statistics crates it pulls in. The justfile's
+# `netperf-*` recipes build, lint, and test it.
+#
+# It measures production builds of the library: it depends on `rumors`
+# with default features only, and must never enable `test-internals`,
+# whose hooks cost time on the paths it measures; only its tests, as a
+# dev-dependency, enable the feature. Build it on its own
+# (`cargo build -p rumors-netperf`, as its recipes do): cargo unifies
+# features across the packages one invocation builds, so a build that
+# selects it beside a crate enabling `test-internals` would compile that
+# feature into this binary too, and the tool refuses to measure with such a
+# build (it reads `rumors::TEST_INTERNALS`).
+
+[package]
+name = "rumors-netperf"
+version = "0.1.0"
+publish = false
+edition = "2024"
+readme = "README.md"
+description = "Measure how fast Rumors replicas synchronize over emulated links and between hosts"
+
+[dependencies]
+rumors.workspace = true
+# Errors carry the context a user needs to act on them.
+anyhow.workspace = true
+clap = { workspace = true, features = ["derive", "wrap_help"] }
+csv.workspace = true
+# The per-user cache directory, where calibrations are kept per environment.
+dirs.workspace = true
+indicatif.workspace = true
+libm.workspace = true
+# Resource usage and the kernel's identity, through safe wrappers.
+nix = { workspace = true, features = ["resource", "feature", "user"] }
+# The heap meter: process-wide live and peak heap bytes, with a peak that
+# resets before each session.
+peak_alloc.workspace = true
+plotters = { workspace = true, features = ["svg_backend", "line_series", "point_series"] }
+rand.workspace = true
+rand_distr.workspace = true
+# TLS sessions: a certificate generated per run, and the stream over TCP.
+rcgen.workspace = true
+rustls.workspace = true
+serde = { workspace = true, default-features = true, features = ["derive"] }
+serde_bytes.workspace = true
+serde_json.workspace = true
+# The build's identity: a SHA-256 of the running executable.
+sha2.workspace = true
+# Replica fingerprints, compared across the two peer processes.
+sha3.workspace = true
+ciborium.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "io-util", "macros", "time", "sync"] }
+tokio-rustls.workspace = true
+toml.workspace = true
+
+[build-dependencies]
+# The compiler version the results directory records.
+rustc_version.workspace = true
+# The source revision the results directory records.
+vergen-gitcl.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+# The tests' scaled case counts (`rumors::testing::property`). Only builds
+# of the tests carry the feature: cargo leaves dev-dependencies' features
+# out of a build of the tool itself, which measures nothing.
+rumors = { workspace = true, features = ["test-internals"] }
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"

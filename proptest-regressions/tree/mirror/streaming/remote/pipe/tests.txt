@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 242c589116e7af8492ac1ec88b1c3c5bf3cd20eeafc27ff7c99ba6626f2a970a # shrinks to lanes = 1, steps = [Send(0, Match)]

@@ -7,8 +7,8 @@
 //!
 //! These public-API fixtures use ordinary version hashes and reach streams
 //! 0 and 1. The codec's `canonical_frame_atlas_snapshot` pins every stream's
-//! labels and frame forms; the proxy's `tests::deep` fixtures check their
-//! behavior over a link at the remaining tree depths.
+//! frame forms; the proxy's `tests::deep` fixtures check their behavior over
+//! one pipe at the remaining tree depths.
 //!
 //! Most fixtures use small `u64` payloads to keep the captures readable.
 
@@ -88,7 +88,7 @@ fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
         send_pool(&a, 0, COLLIDING_POOL);
         (a, b)
     });
-    let (first, second) = shaped_pair(&pool(&a, 0, COLLIDING_POOL), 2, false);
+    let (first, second) = shaped_pair(&a, &pool(&a, 0, COLLIDING_POOL), 2, false);
     keep_only(&a, 0, COLLIDING_POOL, &[first, second]);
 
     // Self-check the landed shape: if hashing or version assignment
@@ -97,7 +97,7 @@ fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
         .snapshot()
         .versions()
         .map(|v| {
-            let path = leaf_path(v);
+            let path = leaf_path(&a, v);
             [path[0], path[1]]
         })
         .collect();
@@ -204,12 +204,14 @@ fn is_capture_header(line: &str) -> bool {
 }
 
 /// The listing entries on one rendered line, wherever the layout puts
-/// them: each an unsigned-integer key with an optional encoding
-/// indicator, a colon, and a byte-string value, preceded by a line
-/// start, a brace, or a comma.
+/// them.
+///
+/// Each is an unsigned-integer key with an optional encoding indicator, a
+/// colon, and the entry's value, an array opening with its hash, preceded
+/// by a line start, a brace, or a comma.
 fn listing_entries(line: &str) -> usize {
     let bytes = line.as_bytes();
-    line.match_indices(": h'")
+    line.match_indices(": [")
         .filter(|(at, _)| {
             let mut key = *at;
             if let Some(mark) = line[..key].rfind('_')
@@ -233,7 +235,7 @@ fn listing_entries(line: &str) -> usize {
 ///
 /// Returns `None` when the header never appears; the header must be a
 /// prefix of the capture's
-/// `"{Speaker} stream {index} (height {height}), epoch {e}, {n} wire bytes"`
+/// `"{Speaker} stream {index} (height {height}), {n} wire bytes"`
 /// header line. The section ends at the next capture header (the
 /// following stream or direction header, or a control-item label);
 /// within the section each frame contributes exactly one header line,
@@ -267,18 +269,16 @@ const TARGETED_POOL: u64 = 2048;
 /// messages.
 const BALLAST_POOL: (u64, u64) = (10_000, 16);
 
-/// A bulk-holding initiator ships its exclusive root children whole at the
-/// opening, on its own stream 0, without waiting for the responder's empty
-/// queries.
+/// A bulk-holding initiator supplies its exclusive root child when the
+/// responder's opening requests it.
 ///
 /// The initiator (the smaller set) holds one exclusive root child with two
-/// leaves splitting at the second path byte. The pinned shape is the
-/// supply-only opening: the whole child crosses as a single two-record
-/// Supply run on `Initiator stream 0 (height 31)`, and the responder's
-/// root-level empty query is answered by a bare empty reply at height 30
-/// instead of one decomposed Supply frame per second-byte child.
+/// leaves splitting at the second path byte. The responder's opening reply
+/// requests that child with an empty query; the initiator answers at height
+/// 30 with one Supply frame per second-byte child, and never writes its
+/// unused stream 0.
 #[test]
-fn bulk_initiator_ships_opening_supplies() {
+fn bulk_initiator_supplies_its_exclusive_child_on_request() {
     // Stage: the initiator holds exactly two leaves sharing a root radix
     // and splitting one level down (pool-search-and-redact; the shape is a
     // function of the created versions, see `common::shape`); the responder
@@ -290,12 +290,12 @@ fn bulk_initiator_ships_opening_supplies() {
         send_pool(&a, 0, RADIX_POOL);
         (a, b)
     });
-    let (first, second) = shaped_pair(&pool(&a, 0, RADIX_POOL), 1, true);
+    let (first, second) = shaped_pair(&a, &pool(&a, 0, RADIX_POOL), 1, true);
     keep_only(&a, 0, RADIX_POOL, &[first, second]);
-    let radix = path_radix(&version_for(&a, first));
+    let radix = path_radix(&a, &version_for(&a, first));
     let (ballast_from, ballast_pool) = BALLAST_POOL;
     send_pool(&b, ballast_from, ballast_pool);
-    let ballast = ballast_avoiding(&pool(&b, ballast_from, ballast_pool), radix, 3);
+    let ballast = ballast_avoiding(&b, &pool(&b, ballast_from, ballast_pool), radix, 3);
     keep_only(&b, ballast_from, ballast_pool, &ballast);
 
     // Fixture self-checks: the initiator-exclusive subtree and the election.
@@ -303,7 +303,7 @@ fn bulk_initiator_ships_opening_supplies() {
         .snapshot()
         .versions()
         .map(|v| {
-            let path = leaf_path(v);
+            let path = leaf_path(&a, v);
             [path[0], path[1]]
         })
         .collect();
@@ -319,7 +319,9 @@ fn bulk_initiator_ships_opening_supplies() {
     );
     let radix = apaths[0][0];
     assert!(
-        b.snapshot().versions().all(|v| leaf_path(v)[0] != radix),
+        b.snapshot()
+            .versions()
+            .all(|v| leaf_path(&a, v)[0] != radix),
         "the responder must lack the initiator's exclusive radix"
     );
     assert!(
@@ -328,37 +330,34 @@ fn bulk_initiator_ships_opening_supplies() {
     );
 
     let capture = capture_gossip(a, b);
-    let opening = stream_frames(&capture, "Initiator stream 0 (height 31)")
-        .expect("the initiator's opening supplies ride its stream 0");
     assert_eq!(
-        opening,
-        ["Supply(End)", "End(Stream)"],
-        "the exclusive subtree crosses whole: one batched Supply run"
+        stream_frames(&capture, "Initiator stream 0 (height 31)"),
+        None,
+        "the initiator's stream 0 is unused"
     );
     let height_30 = stream_frames(&capture, "Initiator stream 1 (height 30)")
-        .expect("the responder's root-level empty query still gets its reply");
+        .expect("the responder's root-level empty query gets its reply");
     assert_eq!(
         height_30,
-        ["End(Reply)", "End(Stream)"],
-        "the empty query's answer is an empty reply: the content crossed at \
-         the opening"
+        ["Supply(Continue)", "Supply(End)", "End(Stream)"],
+        "the requested child crosses as one supply per child one level down"
     );
     insta::assert_snapshot!(capture);
 }
 
-/// Deletion honoring prunes the opening supplies: a redacted message does
-/// not resurrect through the early path, and the supply carries the
-/// survivor rather than the full subtree.
+/// Deletion honoring prunes a requested root child's supply: a redacted
+/// message does not resurrect, and the supply carries the survivor rather
+/// than the full subtree.
 ///
 /// The initiator holds two messages under one root radix; the responder
 /// once held the first (it forked after it existed), redacted it, and holds
-/// ballast elsewhere. The initiator's early supply for that radix must
-/// carry only the second message — the survivor of pruning against the
-/// responder's version — and both peers converge with the redacted message
-/// gone. Two records in the supply run would resurrect the redaction; the
-/// pinned bytes show one.
+/// ballast elsewhere. The initiator's supply answering the responder's
+/// request for that radix must carry only the second message — the
+/// survivor of pruning against the responder's version — and both peers
+/// converge with the redacted message gone. Two records would resurrect the
+/// redaction; the pinned bytes show one.
 #[test]
-fn early_supplies_honor_redactions() {
+fn requested_supplies_honor_redactions() {
     // Stage: the initiator's first message exists before the fork (so the
     // responder once held it), and a pool search lands a second initiator
     // leaf under the same root radix; the responder redacts its copy of
@@ -371,22 +370,26 @@ fn early_supplies_honor_redactions() {
         b.redact(&first);
         (a, b, first)
     });
-    let radix = path_radix(&first);
+    let radix = path_radix(&a, &first);
     send_pool(&a, 2, TARGETED_POOL);
     let sibling = pool(&a, 2, TARGETED_POOL)
         .into_iter()
-        .find(|(_, v)| path_radix(v) == radix)
+        .find(|(_, v)| path_radix(&a, v) == radix)
         .map(|(value, _)| value)
         .expect("some pool leaf lands under the first message's radix");
     keep_only(&a, 2, TARGETED_POOL, &[1, sibling]);
     let (ballast_from, ballast_pool) = BALLAST_POOL;
     send_pool(&b, ballast_from, ballast_pool);
-    let ballast = ballast_avoiding(&pool(&b, ballast_from, ballast_pool), radix, 3);
+    let ballast = ballast_avoiding(&b, &pool(&b, ballast_from, ballast_pool), radix, 3);
     keep_only(&b, ballast_from, ballast_pool, &ballast);
 
     // Fixture self-checks: shared radix, cover of the redacted message,
     // and the election.
-    let apaths: Vec<u8> = a.snapshot().versions().map(|v| leaf_path(v)[0]).collect();
+    let apaths: Vec<u8> = a
+        .snapshot()
+        .versions()
+        .map(|v| leaf_path(&a, v)[0])
+        .collect();
     assert_eq!(apaths.len(), 2, "the initiator holds the pair");
     assert_eq!(
         apaths.first(),
@@ -395,7 +398,9 @@ fn early_supplies_honor_redactions() {
     );
     let radix = apaths[0];
     assert!(
-        b.snapshot().versions().all(|v| leaf_path(v)[0] != radix),
+        b.snapshot()
+            .versions()
+            .all(|v| leaf_path(&a, v)[0] != radix),
         "the responder must lack the shared radix outright: it redacted \
          its copy"
     );
@@ -405,10 +410,10 @@ fn early_supplies_honor_redactions() {
     );
 
     let (capture, a, b) = capture_gossip_returning(a, b);
-    let opening = stream_frames(&capture, "Initiator stream 0 (height 31)")
-        .expect("the surviving message rides the opening supplies");
+    let height_30 = stream_frames(&capture, "Initiator stream 1 (height 30)")
+        .expect("the surviving message answers the responder's request");
     assert_eq!(
-        opening,
+        height_30,
         ["Supply(End)", "End(Stream)"],
         "one pruned Supply run: the survivor, not the full subtree"
     );
@@ -508,7 +513,7 @@ fn redaction_only() {
 }
 
 /// Messages per side, enough for this fixture to branch below the root.
-const DEEP_TRIE_PER_SIDE: u64 = 16;
+const DEEP_TRIE_PER_SIDE: u64 = 18;
 
 /// Disjoint sets with overlapping hash prefixes exchange frames below stream 0.
 #[test]
@@ -559,17 +564,17 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
     // identically.
     let a: Rumors<u64> = seeded();
     send_pool(&a, 0, RADIX_POOL);
-    let (first, second) = shaped_pair(&pool(&a, 0, RADIX_POOL), 1, true);
+    let (first, second) = shaped_pair(&a, &pool(&a, 0, RADIX_POOL), 1, true);
     keep_only(&a, 0, RADIX_POOL, &[first, second]);
     let b = bootstrap_fork(&a);
 
     // Diverge under the shared radix: a third leaf lands there on the
     // populated side alone.
-    let radix = path_radix(&version_for(&a, first));
+    let radix = path_radix(&a, &version_for(&a, first));
     send_pool(&a, DISPUTE_POOL_BASE, TARGETED_POOL);
     let third = pool(&a, DISPUTE_POOL_BASE, TARGETED_POOL)
         .into_iter()
-        .find(|(_, v)| path_radix(v) == radix)
+        .find(|(_, v)| path_radix(&a, v) == radix)
         .map(|(value, _)| value)
         .expect("some pool leaf lands under the shared radix");
     keep_only(&a, DISPUTE_POOL_BASE, TARGETED_POOL, &[third]);
@@ -581,7 +586,7 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
             .snapshot()
             .versions()
             .map(|v| {
-                let path = leaf_path(v);
+                let path = leaf_path(rumors, v);
                 [path[0], path[1]]
             })
             .collect()

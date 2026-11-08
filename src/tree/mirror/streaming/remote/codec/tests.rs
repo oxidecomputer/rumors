@@ -1,4 +1,8 @@
 use super::signal::{InvalidSignalPlacement, StreamClass};
+use crate::tree::mirror::streaming::byte_set::ByteSet;
+use crate::tree::mirror::streaming::message::LaterMatches;
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::{Grandchildren, listed};
 use std::fmt::Write;
 use std::io::Cursor;
 use std::pin::Pin;
@@ -16,7 +20,7 @@ use crate::{
     message::Message,
     tree::{
         arb::{arb_radixes, arb_version},
-        mirror::{cbor, framing::PAYLOAD_CHUNK_LEN},
+        mirror::cbor,
         typed::{Hash, hash::MERKLE_HASH_LEN},
     },
 };
@@ -28,13 +32,13 @@ mod error_atlas;
 const MAX_EXHAUSTIVE_BRANCHING: usize = 2;
 
 /// Frames produced by the bounded exhaustive enumeration.
-const EXHAUSTIVE_FRAME_CASES: usize = 1_118_600;
+const EXHAUSTIVE_FRAME_CASES: usize = 1_118_668;
 
 /// Bounded exhaustive frames admitted in the initiator direction.
-const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 987_012;
+const INITIATOR_EXHAUSTIVE_FRAME_CASES: usize = 987_072;
 
 /// Bounded exhaustive frames admitted in the responder direction.
-const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_052_803;
+const RESPONDER_EXHAUSTIVE_FRAME_CASES: usize = 1_052_867;
 
 /// Elected speaker directions represented by the codec.
 const SPEAKER_COUNT: usize = 2;
@@ -69,7 +73,7 @@ const MAX_ARBITRARY_RUN_RECORDS: usize = 4;
 fn leaf_run<T: Serialize + Clone + Send + Sync + 'static>(records: &[(Version, T)]) -> LeafRun {
     let mut run = LeafRun::new();
     for (version, value) in records {
-        run.push(version, &Message::new(value.clone()))
+        run.push(version, &Message::new(value.clone()), RunBudget::default())
             .expect("a test record fits the run framing");
     }
     run
@@ -91,13 +95,37 @@ fn arb_hash() -> impl Strategy<Value = Hash> {
 }
 
 /// Generate an ascending query listing at every supported fan width.
-fn arb_query() -> impl Strategy<Value = Vec<(u8, Hash)>> {
+fn arb_query() -> impl Strategy<Value = Vec<Listed>> {
     arb_radixes(0..=MAX_QUERY_CHILDREN)
         .prop_flat_map(|radixes| {
             let count = radixes.len();
             (Just(radixes), vec(arb_hash(), count))
         })
-        .prop_map(|(radixes, hashes)| radixes.into_iter().zip(hashes).collect())
+        .prop_map(|(radixes, hashes)| {
+            radixes
+                .into_iter()
+                .zip(hashes)
+                .map(|(radix, hash)| listed(radix, hash))
+                .collect()
+        })
+}
+
+/// Generate the later matches a match covers: none, or any nonempty set,
+/// every size likely enough to reach both of a set's spellings.
+fn arb_later_matches() -> impl Strategy<Value = LaterMatches> {
+    (0..=256usize).prop_flat_map(|len| {
+        proptest::sample::subsequence((0..=u8::MAX).collect::<Vec<_>>(), len)
+            .prop_map(|radixes| LaterMatches::new(radixes.into_iter().collect()))
+    })
+}
+
+/// The covered sets the read plan, the atlas and the corpus spell for a
+/// match: one in a list's spelling and one in a bitmap's.
+fn spelled_sets() -> [ByteSet; 2] {
+    [
+        [1, 2].into_iter().collect(),
+        (0..=u8::MAX).step_by(2).collect(),
+    ]
 }
 
 /// Generate either continuation state for a reaction.
@@ -108,8 +136,10 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
 /// Generate a frame on an arbitrary stream before speaker validation.
 fn arb_frame() -> impl Strategy<Value = WireFrame> {
     prop_oneof![
-        (arb_stream(), arb_flow())
-            .prop_map(|(stream, flow)| (stream, Frame::Reaction(Reaction::Match, flow))),
+        (arb_stream(), arb_later_matches(), arb_flow()).prop_map(|(stream, later, flow)| (
+            stream,
+            Frame::Reaction(Reaction::Match(later), flow)
+        )),
         (arb_stream(), arb_query(), arb_flow()).prop_map(|(stream, children, flow)| (
             stream,
             Frame::Reaction(Reaction::Query(children), flow)
@@ -173,6 +203,9 @@ proptest! {
 
     /// The async bridge emits the synchronous codec's exact bytes and decodes
     /// them back without retaining state at EOF, for both speaker directions.
+    ///
+    /// The transport takes three bytes per write, and the bridge flushes
+    /// only when asked, and only when a frame is unflushed.
     #[test]
     fn async_frame_round_trips_canonically(
         frame in arb_frame(),
@@ -182,15 +215,162 @@ proptest! {
         let mut canonical = Vec::new();
         encode(speaker, &frame, &mut canonical).unwrap();
         let mut writer = FrameWrite::new(speaker, RecordingWrite::default());
-        pollster::block_on(writer.frame(&frame)).unwrap();
+        pollster::block_on(async {
+            writer.flush().await.unwrap();
+            writer.frame(&frame).await.unwrap();
+            writer.flush().await.unwrap();
+            writer.flush().await.unwrap();
+        });
         let written = writer.into_inner();
-        prop_assert_eq!(written.flushes, 1);
+        prop_assert_eq!(written.flushes, 1, "only a flush after a frame flushes");
         prop_assert_eq!(&written.bytes, &canonical);
 
         let mut reader = FrameRead::new(speaker, RunBudget::default(), written.bytes.as_slice());
         let decoded = pollster::block_on(reader.frame()).unwrap();
         prop_assert_eq!(decoded, Some(frame));
         prop_assert_eq!(pollster::block_on(reader.frame()).unwrap(), None);
+    }
+}
+
+proptest! {
+    /// A transport that takes vectored writes whole receives each frame as
+    /// one write operation, byte for byte the synchronous encoding.
+    #[test]
+    fn a_frame_is_one_vectored_write(
+        frames in vec(arb_frame(), 1..4),
+        speaker in arb_speaker(),
+    ) {
+        let frames: Vec<WireFrame> = frames
+            .into_iter()
+            .map(|frame| place(speaker, frame).1)
+            .collect();
+        let mut writer = FrameWrite::new(speaker, VectoredWrite::new(usize::MAX, usize::MAX));
+        for frame in &frames {
+            pollster::block_on(writer.frame(frame)).unwrap();
+        }
+        let written = writer.into_inner();
+        prop_assert_eq!(written.writes.len(), frames.len());
+        for (frame, write) in frames.iter().zip(&written.writes) {
+            let mut canonical = Vec::new();
+            encode(speaker, frame, &mut canonical).unwrap();
+            prop_assert_eq!(write, &canonical);
+        }
+    }
+
+    /// A transport that fails after taking some of a frame's bytes, in
+    /// vectored writes of any size, fails the frame naming the same part as
+    /// the synchronous encoder does.
+    ///
+    /// That is the part holding the first byte the transport did not take.
+    #[test]
+    fn a_failed_vectored_write_names_the_untaken_part(
+        frame in arb_frame(),
+        speaker in arb_speaker(),
+        chunk in 1usize..16,
+        cut in any::<prop::sample::Index>(),
+    ) {
+        let (speaker, frame) = place(speaker, frame);
+        let mut canonical = Vec::new();
+        encode(speaker, &frame, &mut canonical).unwrap();
+        let budget = cut.index(canonical.len());
+        let expected = encode(speaker, &frame, &mut FailAfter(budget)).unwrap_err();
+        let mut writer = FrameWrite::new(speaker, VectoredWrite::new(chunk, budget));
+        let error = pollster::block_on(writer.frame(&frame)).unwrap_err();
+        prop_assert_eq!(error.origin, expected.origin);
+        match (error.kind, expected.kind) {
+            (
+                EncodeErrorKind::Write { part, .. },
+                EncodeErrorKind::Write { part: expected, .. },
+            ) => prop_assert_eq!(part, expected),
+            other => prop_assert!(false, "both writers fail a write: {other:?}"),
+        }
+    }
+}
+
+/// A synchronous writer that takes the given count of bytes, then fails
+/// every write.
+struct FailAfter(usize);
+
+impl std::io::Write for FailAfter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.0 == 0 {
+            return Err(std::io::ErrorKind::Other.into());
+        }
+        let taken = self.0.min(bytes.len());
+        self.0 -= taken;
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// An async writer that supports vectored writes, taking at most `chunk`
+/// bytes per write across all of its slices until `budget` bytes are
+/// taken, then failing every write. It records each write's bytes.
+struct VectoredWrite {
+    /// The most bytes one write takes.
+    chunk: usize,
+    /// The bytes still to take before writes fail.
+    budget: usize,
+    /// Each write operation's bytes, in order.
+    writes: Vec<Vec<u8>>,
+}
+
+impl VectoredWrite {
+    /// Take at most `chunk` bytes per write, and fail once `budget` bytes
+    /// are taken.
+    fn new(chunk: usize, budget: usize) -> Self {
+        Self {
+            chunk,
+            budget,
+            writes: Vec::new(),
+        }
+    }
+}
+
+impl AsyncWrite for VectoredWrite {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        self.poll_write_vectored(cx, &[std::io::IoSlice::new(bytes)])
+    }
+
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        slices: &[std::io::IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
+        if this.budget == 0 {
+            return Poll::Ready(Err(std::io::ErrorKind::Other.into()));
+        }
+        let mut room = this.chunk.min(this.budget);
+        let mut write = Vec::new();
+        for slice in slices {
+            let taken = room.min(slice.len());
+            write.extend_from_slice(&slice[..taken]);
+            room -= taken;
+        }
+        this.budget -= write.len();
+        let taken = write.len();
+        this.writes.push(write);
+        Poll::Ready(Ok(taken))
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        true
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -232,8 +412,8 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
             stream,
             Frame::Reaction(
                 Reaction::Query(vec![
-                    (1, Hash::from([1; MERKLE_HASH_LEN])),
-                    (2, Hash::from([2; MERKLE_HASH_LEN])),
+                    listed(1, Hash::from([1; MERKLE_HASH_LEN])),
+                    listed(2, Hash::from([2; MERKLE_HASH_LEN])),
                 ]),
                 Flow::Continue,
             ),
@@ -301,6 +481,29 @@ fn canonical_frame_atlas_snapshot() {
                             .unwrap();
                         write_hex(&mut atlas, &encoded);
                         atlas.push('\n');
+                        // A match covering later matches carries them as
+                        // its body, in either of a set's spellings.
+                        if let Signal::Match(flow) = signal {
+                            for set in spelled_sets() {
+                                let frame =
+                                    Frame::Reaction(Reaction::Match(LaterMatches::new(set)), flow);
+                                let mut encoded = Vec::new();
+                                encode(speaker, &(stream, frame.clone()), &mut encoded).unwrap();
+                                assert_eq!(
+                                    decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
+                                    (stream, frame)
+                                );
+                                write!(
+                                    atlas,
+                                    "    {signal:?} covering {}: accepted len {} hex ",
+                                    set.len(),
+                                    encoded.len()
+                                )
+                                .unwrap();
+                                write_hex(&mut atlas, &encoded);
+                                atlas.push('\n');
+                            }
+                        }
                     }
                     Err(invalid) => {
                         let mut rejected = Vec::new();
@@ -350,9 +553,11 @@ fn write_hex(out: &mut impl Write, bytes: &[u8]) {
 
 fn representative_frame(signal: Signal) -> Frame {
     match signal {
-        Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
+        Signal::Match(flow) => Frame::Reaction(Reaction::Match(LaterMatches::NONE), flow),
         Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
-        Signal::Query(flow) => Frame::Reaction(Reaction::Query(vec![(0, Hash::default())]), flow),
+        Signal::Query(flow) => {
+            Frame::Reaction(Reaction::Query(vec![listed(0, Hash::default())]), flow)
+        }
         Signal::Supply(flow) => {
             Frame::Reaction(Reaction::Supply(leaf_run(&[(Version::new(), ())])), flow)
         }
@@ -372,11 +577,25 @@ fn bounded_corpus_manifest_snapshot() {
         let stream = Stream::new(index).unwrap();
         for flow in [Flow::Continue, Flow::End] {
             check_both(
-                (stream, Frame::Reaction(Reaction::Match, flow)),
+                (
+                    stream,
+                    Frame::Reaction(Reaction::Match(LaterMatches::NONE), flow),
+                ),
                 &mut accepted,
                 &mut buckets,
             );
             frames += 1;
+            for set in spelled_sets() {
+                check_both(
+                    (
+                        stream,
+                        Frame::Reaction(Reaction::Match(LaterMatches::new(set)), flow),
+                    ),
+                    &mut accepted,
+                    &mut buckets,
+                );
+                frames += 1;
+            }
 
             check_both(
                 (
@@ -478,17 +697,13 @@ fn corpus_bucket(direction: usize, stream: u8, signal: usize) -> usize {
     (direction * usize::from(Stream::COUNT) + usize::from(stream)) * SIGNAL_COUNT + signal
 }
 
-fn enumerate_queries(
-    next: u16,
-    children: &mut Vec<(u8, Hash)>,
-    visit: &mut impl FnMut(&[(u8, Hash)]),
-) {
+fn enumerate_queries(next: u16, children: &mut Vec<Listed>, visit: &mut impl FnMut(&[Listed])) {
     visit(children);
     if children.len() == MAX_EXHAUSTIVE_BRANCHING {
         return;
     }
     for radix in next..=u16::from(u8::MAX) {
-        children.push((radix as u8, Hash::default()));
+        children.push(listed(radix as u8, Hash::default()));
         enumerate_queries(radix + 1, children, visit);
         children.pop();
     }
@@ -523,7 +738,7 @@ fn check_both(frame: WireFrame, accepted: &mut [usize; 2], buckets: &mut [Corpus
 
 fn frame_signal(frame: &Frame) -> Signal {
     match frame {
-        Frame::Reaction(Reaction::Match, flow) => Signal::Match(*flow),
+        Frame::Reaction(Reaction::Match(_), flow) => Signal::Match(*flow),
         Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {
             Signal::QueryEmpty(*flow)
         }
@@ -594,14 +809,14 @@ fn extension_reads(value: u64) -> usize {
 /// been recorded, the wide width after), or what the entry cut short by
 /// the previous read still needs once its key head has arrived,
 /// whichever is more; each parses every entry it completes.
-fn listing_bulk_reads(children: &[(u8, Hash)]) -> usize {
+fn listing_bulk_reads(children: &[Listed]) -> usize {
     let widths: Vec<usize> = children
         .iter()
-        .map(|(radix, _)| listing_entry_len(*radix))
+        .map(|listed| listing_entry_len(listed.radix, listed.grandchildren))
         .collect();
     let (mut reads, mut buffered, mut next, mut wide, mut need) = (0, 0usize, 0usize, false, 0);
     while next < widths.len() {
-        let entry_min = listing_entry_len(if wide { u8::MAX } else { 0 });
+        let entry_min = listing_entry_len(if wide { u8::MAX } else { 0 }, Grandchildren::ONE);
         let owed = ((widths.len() - next) * entry_min)
             .saturating_sub(buffered)
             .max(need);
@@ -609,11 +824,11 @@ fn listing_bulk_reads(children: &[(u8, Hash)]) -> usize {
         buffered += owed;
         while next < widths.len() && widths[next] <= buffered {
             buffered -= widths[next];
-            wide |= children[next].0 >= 24;
+            wide |= children[next].radix >= 24;
             next += 1;
         }
         if next < widths.len() {
-            let key_head = cbor::head_len(u64::from(children[next].0));
+            let key_head = cbor::head_len(u64::from(children[next].radix));
             need = if buffered < key_head {
                 key_head - buffered
             } else {
@@ -634,9 +849,9 @@ fn listing_bulk_reads(children: &[(u8, Hash)]) -> usize {
 /// one read. A listing costs its map head
 /// (one read, plus one for an extension) and then its bulk reads
 /// ([`listing_bulk_reads`]). A supply costs one read for each of its two
-/// heads' initial bytes, one for each extension present, and one for a
-/// run body within one payload chunk (`async_decode_spends_its_read_plan`
-/// assumes that bound).
+/// heads' initial bytes, one for each extension present, and one for its
+/// run body, which the reader reserves whole once the run's length is
+/// judged, so a transport serving every read in full delivers it at once.
 fn read_plan(frame: &WireFrame) -> usize {
     let (_, frame) = frame;
     let mut reads = 1;
@@ -651,6 +866,13 @@ fn read_plan(frame: &WireFrame) -> usize {
                 + 1
                 + extension_reads(run.encoded_len() as u64)
                 + 1;
+        }
+        // A match covering later matches reads its set's byte-string head,
+        // then the set's encoding in one read.
+        Frame::Reaction(Reaction::Match(later), _) => {
+            if let Some(set) = later.get() {
+                reads += 1 + extension_reads(set.encoded().as_bytes().len() as u64) + 1;
+            }
         }
         _ => {}
     }
@@ -688,12 +910,6 @@ proptest! {
         speaker in arb_speaker(),
     ) {
         let (speaker, frame) = place(speaker, frame);
-        if let Frame::Reaction(Reaction::Supply(run), _) = &frame.1 {
-            // `read_plan` prices one body read because these small generated
-            // runs fit in one chunk. Keep that premise visible if the generator
-            // grows.
-            prop_assert!(run.encoded_len() <= PAYLOAD_CHUNK_LEN);
-        }
         let mut encoded = Vec::new();
         encode(speaker, &frame, &mut encoded).unwrap();
         let (decoded, reads) = decode_counting(speaker, &encoded);
@@ -705,19 +921,40 @@ proptest! {
 /// The read plan at the wire's reference shapes, pinned as numbers so a
 /// change to the reader's batching shows in this diff.
 ///
-/// The match reaction is the frame the reader meets most often; the
-/// full-fan query is the widest listing; the lone-record supply is the
-/// smallest run. Each case checks the decoder's actual reads against the
+/// The body-free match is the frame the reader meets most often; a match
+/// covering later matches carries a set in either spelling; the full-fan
+/// query is the widest listing; the lone-record supply is the smallest
+/// run. Each case checks the decoder's actual reads against the
 /// pinned number and the pinned number against the plan formula, so the
 /// formula and the reader are held to each other.
 #[test]
 fn read_plan_at_reference_shapes() {
     let stream = Stream::new(4).unwrap();
-    let cases: [(&str, WireFrame, usize); 3] = [
+    let [listed_set, bitmap_set] = spelled_sets();
+    let cases: [(&str, WireFrame, usize); 5] = [
         (
             "match ending its reply",
-            (stream, Frame::Reaction(Reaction::Match, Flow::End)),
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::End),
+            ),
             1,
+        ),
+        (
+            "match covering a list's spelling",
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::new(listed_set)), Flow::End),
+            ),
+            3,
+        ),
+        (
+            "match covering a bitmap's spelling",
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::new(bitmap_set)), Flow::End),
+            ),
+            4,
         ),
         (
             "full-fan query",
@@ -726,7 +963,7 @@ fn read_plan_at_reference_shapes() {
                 Frame::Reaction(
                     Reaction::Query(
                         (0..=u8::MAX)
-                            .map(|radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
+                            .map(|radix| listed(radix, Hash::from([radix; MERKLE_HASH_LEN])))
                             .collect(),
                     ),
                     Flow::Continue,

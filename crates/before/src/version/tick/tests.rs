@@ -95,8 +95,8 @@ fn flag_of(v: &Version, p: &Party) -> bool {
     matches!(TickWalk::decide(v, p), Decision::Simplified(_))
 }
 
-/// The two differentials of record on one pair, plus entry agreement and
-/// canonicality.
+/// The two differentials against the recursive oracle on one pair, plus
+/// entry agreement and canonicality.
 ///
 /// The changed flag must read exactly what the recursive oracle's `fill`
 /// decides (`fill(i, e) ≠ e`), the changed branch's stream must be the oracle's
@@ -1410,7 +1410,7 @@ proptest! {
     /// The single-tick byte pin: the `k = 1` splice is exactly the tick.
     ///
     /// `TickWalk::ticks(1)`, the public `tick`, and the recursive oracle's `event` (the
-    /// semantic definition of record, untouched by the `+k` splice
+    /// reference semantic definition, untouched by the `+k` splice
     /// generalization) produce one identical stream on a substantial generated
     /// corpus: the committed guard that generalizing the splice's increment
     /// did not move the protocol.

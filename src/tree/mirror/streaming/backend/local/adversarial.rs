@@ -22,9 +22,14 @@ pub(super) fn future<F: Future>(future: F) -> impl Future<Output = F::Output> {
 }
 
 /// Delay every poll of one Local backend stream according to the schedule.
-pub(super) fn stream<S: Stream>(stream: S) -> impl Stream<Item = S::Item> {
+///
+/// The stream is held in place rather than boxed, so delaying a listing
+/// allocates nothing: the conformance suite holds every listing to
+/// allocating nothing beyond the rows it yields. A caller whose stream is not `Unpin`
+/// boxes it.
+pub(super) fn stream<S: Stream + Unpin>(stream: S) -> impl Stream<Item = S::Item> {
     DelayedStream {
-        inner: Box::pin(stream),
+        inner: stream,
         delay: Countdown::default(),
     }
 }
@@ -54,13 +59,13 @@ impl<F: Future> Future for DelayedFuture<F> {
 /// A backend stream with scheduled pending polls.
 struct DelayedStream<S> {
     /// The wrapped backend stream.
-    inner: Pin<Box<S>>,
+    inner: S,
     /// Pending polls left for the current item.
     delay: Countdown,
 }
 
 /// Poll a backend stream through its scheduled delay.
-impl<S: Stream> Stream for DelayedStream<S> {
+impl<S: Stream + Unpin> Stream for DelayedStream<S> {
     type Item = S::Item;
 
     /// Spend a scheduled delay or poll the wrapped stream.
@@ -69,7 +74,7 @@ impl<S: Stream> Stream for DelayedStream<S> {
             return Poll::Pending;
         }
         self.delay.clear();
-        self.inner.as_mut().poll_next(cx)
+        Pin::new(&mut self.inner).poll_next(cx)
     }
 }
 

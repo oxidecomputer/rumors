@@ -73,7 +73,7 @@ macro_rules! define_peer {
         where
             I: Backend<Node<Z>: Leaf>,
                         X: CompleteEqual<I>
-                + Initiator<I, Next: $($init_chain)*>
+                    + Initiator<I, Next: $($init_chain)*>
                 + Responder<I, Next: $($resp_chain)*>,
         {
         }

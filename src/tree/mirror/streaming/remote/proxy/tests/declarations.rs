@@ -1,7 +1,8 @@
 //! Full-stack checks for the greeting's session-size declarations.
 //!
 //! `set_len`, `max_version_bytes`, and `target_message_size` determine role
-//! election or window sizing. These tests rewrite one received declaration
+//! election, the receiver's ingress checks, and the session's run target.
+//! These tests rewrite one received declaration
 //! and check how the production session responds when the traffic disagrees.
 
 use std::convert::Infallible;
@@ -11,13 +12,13 @@ use crate::tree::{
     Root as TreeRoot,
     arb::early_first_child_dispute_pair,
     mirror::streaming::{
+        FAN,
         remote::{
             Error as RemoteError,
-            adapter::DecodeError as ReplyDecodeError,
+            adapter::{BoundedPart, DecodeError as ReplyDecodeError},
             codec::{DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind},
-            streams::StreamError,
+            pipe::PipeError,
         },
-        window::FAN,
     },
 };
 
@@ -69,8 +70,7 @@ fn batched_uneven_pair() -> (TreeRoot, TreeRoot) {
 /// produce, and ingress rejects it as `OverbatchedRun` before buffering
 /// its body — the greeting-declared budget premise enforced on the remote
 /// decode path, completing the declaration matrix beside `set_len` and
-/// `max_version_bytes`. Both endpoints terminate (link poisoning rides
-/// any session error).
+/// `max_version_bytes`. Both endpoints terminate.
 #[test]
 fn understated_target_message_size_fails_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -90,7 +90,7 @@ fn understated_target_message_size_fails_the_session() {
         assert!(
             matches!(
                 receiver_error,
-                RemoteError::Stream(StreamError::Decode(CodecDecodeError {
+                RemoteError::Pipe(PipeError::Decode(CodecDecodeError {
                     kind: CodecDecodeErrorKind::OverbatchedRun { budget: 0, .. },
                     ..
                 }))
@@ -131,9 +131,8 @@ fn overstated_target_message_size_still_converges() {
 ///
 /// The receiving side reports `OversizedVersion` at the first offending
 /// record — the declared aggregate covers every version the peer's tree
-/// materializes, so an arriving version over it voids the premise the
-/// window solve priced the session with — and both endpoints terminate
-/// (link poisoning rides any session error).
+/// materializes, so an arriving version over it shows the declaration
+/// false — and both endpoints terminate.
 #[test]
 fn understated_version_bytes_fail_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -159,13 +158,13 @@ fn understated_version_bytes_fail_the_session() {
 
 /// A supply stream past the declared `set_len` fails the session.
 ///
-/// The declared set length bounds the occupancy priced by the window. The
+/// The declared set length bounds the records the peer can supply. The
 /// wire decoder therefore reports `OverdrawnSupply` at the first excess
 /// record, before the payload reaches the backend. The sender may already
 /// have completed; this test constrains only the receiver's diagnosis.
 ///
 /// Reducing the smaller side's declaration preserves its initiator role, so
-/// its early supplies reach this check on the opening stream.
+/// its supplies answering the responder's requests reach this check.
 #[test]
 fn understated_set_len_fails_the_session() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -192,34 +191,27 @@ fn understated_set_len_fails_the_session() {
     }
 }
 
-/// A divergent pair of four messages against eight, on distinct parties:
-/// the four-message side wins the initiator election, and its whole
-/// exclusive content rides the opening-supply stream as one reply.
-fn opening_bulk_pair() -> (TreeRoot, TreeRoot) {
-    let (large, small) = harness::disjoint_pair(8, 4);
-    (small, large)
-}
-
 /// A `set_len` mismatch surfacing *within* one still-open reply fails at the
 /// offending record, at ingress.
 ///
-/// The zero-declaration case above trips at a reply's first record; here
-/// the heard declaration admits one leaf while the initiator's
-/// opening-supply reply carries four, so the overrun surfaces
-/// mid-reply. The wire decoder must reject that record before the decoded
-/// subtree reaches the backend. Reducing the smaller side's declaration to a
-/// nonzero value preserves its initiator role.
+/// The zero-declaration case above trips at a reply's first record. Here the
+/// initiator hears the bulk responder's declaration as two, while the
+/// responder's opening reply supplies all of its exclusive root children at
+/// once, so the overrun surfaces at the third record, mid-reply. The wire
+/// decoder must reject that record before the decoded subtree reaches the
+/// backend. A declaration of two still exceeds the initiator's one message,
+/// so the election is unchanged.
 #[test]
 fn set_len_overrun_within_one_reply_fails_at_ingress() {
     for receiver in [IoSide::Left, IoSide::Right] {
-        let (small, large) = opening_bulk_pair();
-        // The receiver holds the large tree and hears the small
-        // (initiating) side's declared length as one.
-        let rewrite = GreetingRewrite::set_len(1);
+        let (small, large) = batched_uneven_pair();
+        // The receiver holds the small tree and hears the bulk
+        // (responding) side's declared length as two.
+        let rewrite = GreetingRewrite::set_len(2);
         let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
             receiver,
-            large,
             small,
+            large,
             rewrite.clone(),
         ))
         .expect("a mid-reply overdrawn supply must terminate both sessions, not stall them");
@@ -228,18 +220,19 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
         assert!(
             matches!(
                 receiver_error,
-                RemoteError::Decode(ReplyDecodeError::OverdrawnSupply { declared: 1 })
+                RemoteError::Decode(ReplyDecodeError::OverdrawnSupply { declared: 2 })
             ),
             "mistyped within-one-reply set_len violation: {receiver_error:?}",
         );
     }
 }
 
-/// An overstated `max_version_bytes` costs window width, not convergence.
+/// A peer that declares `max_version_bytes` as `u64::MAX` still converges on
+/// the union.
 ///
-/// The budget solve saturates toward its floor on huge inputs
-/// (`pathological_pricing_saturates_to_the_floor` pins the solve itself), roles
-/// are unaffected, and the session converges on the union.
+/// The declaration is an upper bound, so overstating it rejects no
+/// conforming version, and the session accepts the extreme value. Roles are
+/// unaffected.
 #[test]
 fn overstated_version_bytes_still_converge() {
     for receiver in [IoSide::Left, IoSide::Right] {
@@ -284,5 +277,127 @@ fn overstated_set_len_from_the_bulk_side_still_converges() {
         let right = right.expect("right endpoint reconciles despite the overstated set size");
         assert_eq!(left, expected);
         assert_eq!(right, expected);
+    }
+}
+
+/// A responder's root reply over the grandchild count its greeting declared
+/// fails the session at the initiator's decoder.
+///
+/// The initiator hears the bulk responder's root count as one, so it
+/// expects a reply of at most its own root children plus one reaction. The
+/// responder's reply holds its four exclusive root children beside the
+/// initiator's one, so the decoder rejects the reply at the reaction that
+/// overruns, before it parks.
+#[test]
+fn understated_root_grandchildren_fail_the_opening_reply() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = uneven_pair();
+        let rewrite = GreetingRewrite::grandchild_count(1);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            small,
+            large,
+            rewrite.clone(),
+        ))
+        .expect("an over-bound reply must terminate both sessions");
+        assert!(rewrite.fired(), "the root count was not rewritten");
+        let receiver_error = receiver_error(receiver, &left, &right, "grandchildren");
+        assert!(
+            matches!(
+                receiver_error,
+                RemoteError::Decode(ReplyDecodeError::ExceedsBound {
+                    part: BoundedPart::Reactions,
+                    bound: 2,
+                })
+            ),
+            "mistyped root count violation: {receiver_error:?}",
+        );
+    }
+}
+
+/// A root count declared above the truth only enlarges the bound, so the
+/// session completes with the honest join.
+#[test]
+fn overstated_root_grandchildren_complete_the_session() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = uneven_pair();
+        let expected = harness::join_oracle(&small, &large);
+        let rewrite = GreetingRewrite::grandchild_count(65_536);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            small,
+            large,
+            rewrite.clone(),
+        ))
+        .expect("an overstated count must not stall the session");
+        assert!(rewrite.fired(), "the root count was not rewritten");
+        assert_eq!(left.expect("the left session completes"), expected);
+        assert_eq!(right.expect("the right session completes"), expected);
+    }
+}
+
+/// Messages each side of [`listing_pair`] holds: enough that every root
+/// child either side holds has several children on each side.
+const LISTED_MESSAGES: usize = 2_000;
+
+/// A divergent pair of [`LISTED_MESSAGES`] messages against one fewer, on
+/// distinct parties: the smaller side initiates, and its greeting's root
+/// listing names every root child with a count well above one.
+fn listing_pair() -> (TreeRoot, TreeRoot) {
+    let (large, small) = harness::disjoint_pair(LISTED_MESSAGES, LISTED_MESSAGES - 1);
+    (small, large)
+}
+
+/// An initiator's reply about a root child over the grandchild count its
+/// greeting listed for that child fails the session at the responder's
+/// decoder.
+///
+/// The responder hears every count in the initiator's root listing as one,
+/// so each question it asks about a disputed root child expects at most
+/// one listing entry. With about eight messages under each root child on
+/// each side, the initiator's replies list its children of every disputed
+/// grandchild, so the first such reply overruns its listing bound.
+#[test]
+fn understated_listing_grandchildren_fail_a_reply() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = listing_pair();
+        let rewrite = GreetingRewrite::listing_grandchildren(1);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            large,
+            small,
+            rewrite.clone(),
+        ))
+        .expect("an over-bound reply must terminate both sessions");
+        assert!(rewrite.fired(), "the listing counts were not rewritten");
+        let receiver_error = receiver_error(receiver, &left, &right, "listing grandchildren");
+        assert!(
+            matches!(
+                receiver_error,
+                RemoteError::Decode(ReplyDecodeError::ExceedsBound { .. })
+            ),
+            "mistyped listing count violation: {receiver_error:?}",
+        );
+    }
+}
+
+/// Listing counts declared above the truth only enlarge the bounds, so the
+/// session completes with the honest join.
+#[test]
+fn overstated_listing_grandchildren_complete_the_session() {
+    for receiver in [IoSide::Left, IoSide::Right] {
+        let (small, large) = listing_pair();
+        let expected = harness::join_oracle(&small, &large);
+        let rewrite = GreetingRewrite::listing_grandchildren(65_536);
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_for(
+            receiver,
+            large,
+            small,
+            rewrite.clone(),
+        ))
+        .expect("overstated counts must not stall the session");
+        assert!(rewrite.fired(), "the listing counts were not rewritten");
+        assert_eq!(left.expect("the left session completes"), expected);
+        assert_eq!(right.expect("the right session completes"), expected);
     }
 }

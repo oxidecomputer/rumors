@@ -9,7 +9,7 @@
 //! # Denomination
 //!
 //! Every measured step is judged against its *denominated size* in bits,
-//! following the parent crate's denomination criterion of record: encoded
+//! following the parent crate's denomination criterion: encoded
 //! operand bits for every operation except the classes
 //! whose mandatory output is asymptotically larger than any constant times
 //! their input —

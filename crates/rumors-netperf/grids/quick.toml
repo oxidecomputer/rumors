@@ -1,0 +1,23 @@
+# A quick grid: a first run of a few minutes on any Linux host, to see the
+# tool work and read a report before measuring anything larger.
+#
+#     rumors-netperf run --grid grids/quick.toml
+#
+# It measures two replica pairs (two peers of 10,000 messages sharing 90%,
+# and a peer joining 20,000 messages from empty) over two links of
+# different character, a 100 Mbit/s link and an uncapped one, at a 1 ms
+# and a 50 ms round trip, at the library's default budget and at 32 MiB.
+# Every session runs over TLS 1.3 on its TCP connection, the tool's
+# default transport, as deployments run it.
+
+repetitions = 3
+
+[[group]]
+name = "quick"
+pairs = [
+    { shared = 9000, insert_a = 1000, insert_b = 1000 },
+    { insert_a = 20000 },
+]
+rate = ["100Mbit", "uncapped"]
+rtt = ["1ms", "50ms"]
+budget = ["default", "32MiB"]

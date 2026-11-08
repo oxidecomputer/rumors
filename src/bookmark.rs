@@ -33,8 +33,9 @@ use std::sync::Arc;
 
 use before::{Party, Version};
 use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::sync::{Mutex, MutexGuard};
 
-use crate::Network;
+use crate::{Network, default};
 
 mod error;
 #[cfg(feature = "fs")]
@@ -44,9 +45,6 @@ mod record;
 mod serde;
 
 use record::Record;
-
-/// Default maximum encoded bookmark size: 16 MiB, allocated only as needed.
-pub const DEFAULT_BOOKMARK_SIZE_LIMIT: usize = 16 * 1024 * 1024;
 
 pub use error::FormatError;
 #[cfg(feature = "fs")]
@@ -164,7 +162,7 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// Retirement removes the departing identity from the local bookmark before
 /// sending it. If the transfer then fails or is cancelled, that bookmark cannot
 /// recover the removed identity. Recovery depends on what reached the recipient
-/// and its bookmark; see [`Retire::Uncertain`](crate::Retire::Uncertain).
+/// and its bookmark; see [`Retire::Retired`](crate::Retire::Retired).
 /// Serving a bootstrap removes the donated identity the same way. If that
 /// session fails before sending, the identity returns to the live peer and is
 /// recorded again at its next checkpoint; a crash before this occurs would drop
@@ -196,7 +194,11 @@ pub trait Bookmark {
     /// Never roll back the durable state of a bookmark to before a successful
     /// store. Work that continues after an error or cancellation must not
     /// overwrite a later successful store: stale records can permit version
-    /// reuse and corrupt the gossip set.
+    /// reuse and corrupt the gossip set. A future leaked instead of dropped
+    /// counts as cancelled: once the application reclaims its peer
+    /// ([`Rumors::try_into_peer`](crate::Rumors::try_into_peer)), later
+    /// stores proceed while any work the leaked store started may still be
+    /// running.
     fn store(&self, bytes: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
@@ -247,6 +249,11 @@ impl Bookmark for NoBookmark {
 /// happens only after the speculative fork rejoins the live party or is
 /// permanently gone from the record. A release that races a checkpoint just
 /// defers reclamation to the next one.
+///
+/// A session future leaked instead of dropped never releases its
+/// reservation, which would pause reclamation for the replica's lifetime.
+/// Reclaiming the peer from its handles forgets such reservations
+/// ([`release_abandoned`](Self::release_abandoned)).
 #[derive(Default)]
 pub(crate) struct Reservations(Arc<()>);
 
@@ -270,9 +277,143 @@ impl Reservations {
         }
     }
 
+    /// Forget every outstanding reservation, so that reclamation resumes.
+    ///
+    /// Call this only where no session future that reserved a fork can run or
+    /// be dropped again, such as on a peer just reclaimed from its handles. A
+    /// reservation still outstanding there belongs to a leaked future, and
+    /// forgetting it cannot hand a party out twice. That future's fork was
+    /// never sent, because a session releases its reservation before it
+    /// writes the first byte of the fork, and the future can never send the
+    /// fork or rejoin it now. So no live peer holds that region or ever will,
+    /// and a checkpoint that reclaims it from an identity still recording it
+    /// gives it to the live party alone.
+    pub(crate) fn release_abandoned(&mut self) {
+        *self = Self::default();
+    }
+
     /// Whether no fork is currently reserved, so that reclamation may proceed.
     fn none_outstanding(&self) -> bool {
         Arc::strong_count(&self.0) == 1
+    }
+}
+
+/// One peer view's hold on its bookmark: the storage and record it shares
+/// with every [`Rumors`](crate::Rumors) clone, behind the session lock, and
+/// the size limit to store under, which is read without that lock.
+///
+/// The limit is a setting of the peer, like its memory budget: only an
+/// exclusively owned [`Peer`](crate::Peer) can change it, and every view
+/// shared from that peer copies it. Keeping it outside the lock means that
+/// configuring the limit, or replacing the storage, never waits on the lock,
+/// so neither depends on whether some session future still holds it.
+pub(crate) struct BookmarkHandle<B> {
+    /// Maximum encoded record size, including its frame: at least the size
+    /// of an empty record.
+    size_limit: usize,
+    /// The storage and its cached record, locked from a session's load
+    /// through its store.
+    state: Arc<Mutex<Bookmarked<B>>>,
+}
+
+/// Construct, share, configure, and lock a peer's bookmark.
+impl<B> BookmarkHandle<B> {
+    /// Hold `persist` at the default size limit, without reading it until the
+    /// first update.
+    pub(crate) fn new(persist: B) -> Self {
+        Self {
+            size_limit: default::BOOKMARK_SIZE_LIMIT,
+            state: Arc::new(Mutex::new(Bookmarked::new(persist))),
+        }
+    }
+
+    /// Share the storage and record with another view of the same peer.
+    pub(crate) fn share(&self) -> Self {
+        Self {
+            size_limit: self.size_limit,
+            state: Arc::clone(&self.state),
+        }
+    }
+
+    /// Hold `persist` instead, with a fresh record and lock, carrying the size
+    /// limit forward.
+    pub(crate) fn replace<N>(&self, persist: N) -> BookmarkHandle<N> {
+        BookmarkHandle {
+            size_limit: self.size_limit,
+            state: Arc::new(Mutex::new(Bookmarked::new(persist))),
+        }
+    }
+
+    /// Select the store limit, raised to the size of an empty record.
+    ///
+    /// The limit takes effect at the next store, so until then the stored
+    /// record may exceed it. A checkpoint stored under another limit is not
+    /// current (see [`Checkpoint::size_limit`]), so the next session stores
+    /// under this one instead of skipping its store.
+    pub(crate) fn set_size_limit(&mut self, bytes: usize) {
+        self.size_limit = bytes.max(format::record_size(0, 0));
+    }
+
+    /// The configured limit, for tests that check where it reached.
+    #[cfg(test)]
+    pub(crate) fn size_limit(&self) -> usize {
+        self.size_limit
+    }
+
+    /// Release the lock if a session future that can never run again still
+    /// holds it.
+    ///
+    /// A session future leaked (with `mem::forget`, say) instead of dropped
+    /// never runs its lock's destructor, so the lock stays held and every
+    /// later [`lock`](Self::lock) waits forever. While other views exist, a
+    /// held lock cannot be told apart from a slow store. So call this only
+    /// where no live future can hold the lock, such as on a peer just
+    /// reclaimed from its handles, where this view is also the only one. A
+    /// rebuild needs that: only the sole owner of the lock can take the
+    /// record out of it. If another view remains, this leaves the lock as it
+    /// is.
+    ///
+    /// A fresh lock around the same record leaves what a cancellation at the
+    /// same await would leave: every change to the record happens between
+    /// awaits, and a store takes the cache out of memory as it begins (see
+    /// [`Loaded::store`]), so after a leaked store the next load rereads
+    /// storage, which [`Bookmark::store`] keeps complete.
+    pub(crate) fn release_abandoned_lock(self) -> Self {
+        if self.state.try_lock().is_ok() {
+            return self;
+        }
+        let Self { size_limit, state } = self;
+        let state = match Arc::try_unwrap(state) {
+            Ok(held) => Arc::new(Mutex::new(held.into_inner())),
+            Err(shared) => shared,
+        };
+        Self { size_limit, state }
+    }
+
+    /// Wait for exclusive use of the storage and record.
+    pub(crate) async fn lock(&self) -> LockedBookmark<'_, B> {
+        LockedBookmark {
+            state: self.state.lock().await,
+            size_limit: self.size_limit,
+        }
+    }
+}
+
+/// Exclusive use of a peer's bookmark, from loading the record through
+/// storing it.
+pub(crate) struct LockedBookmark<'a, B> {
+    /// The storage and record, held until this lock drops.
+    state: MutexGuard<'a, Bookmarked<B>>,
+    /// The limit that every store made through this lock encodes under.
+    size_limit: usize,
+}
+
+/// Load the record through the lock.
+impl<B: Bookmark> LockedBookmark<'_, B> {
+    /// Read storage if the cache is absent, then lend the cache for one update
+    /// stored under this peer's size limit.
+    pub(crate) async fn load(&mut self) -> Result<Loaded<'_, B>, BookmarkIo<B::Error>> {
+        self.state.load(self.size_limit).await
     }
 }
 
@@ -288,8 +429,6 @@ pub(crate) struct Bookmarked<B> {
     /// The record in memory: absent before the first load, and again after
     /// any store that did not confirm success.
     cache: Option<Cache>,
-    /// Maximum encoded record size, including its frame.
-    size_limit: usize,
 }
 
 /// The record in memory, and what the last store checkpointed.
@@ -300,7 +439,8 @@ struct Cache {
     durable: Option<Checkpoint>,
 }
 
-/// A live party and its frontier at a checkpoint.
+/// A live party and its frontier at a checkpoint, and the limit the
+/// checkpoint's record was encoded under.
 struct Checkpoint {
     /// The exact live party.
     party: Party,
@@ -308,6 +448,12 @@ struct Checkpoint {
     ///
     /// Only an individual party's own region is ever compared.
     frontier: Version,
+    /// The size limit the checkpoint's record was encoded under.
+    ///
+    /// Encoding the same record under another limit can keep a different
+    /// set of identities, so a checkpoint is current only under the limit it
+    /// was stored under.
+    size_limit: usize,
 }
 
 /// Construct an unloaded bookmark cache.
@@ -317,32 +463,18 @@ impl<B> Bookmarked<B> {
         Self {
             persist,
             cache: None,
-            size_limit: DEFAULT_BOOKMARK_SIZE_LIMIT,
         }
-    }
-
-    /// Select the store limit.
-    ///
-    /// The limit takes effect at the next store, so until then the stored
-    /// record may exceed it. We forget the last checkpoint so that the next
-    /// session stores under the new limit instead of skipping its store.
-    pub(crate) fn set_size_limit(&mut self, bytes: usize) {
-        self.size_limit = bytes.max(format::record_size(0, 0));
-        if let Some(cache) = &mut self.cache {
-            cache.durable = None;
-        }
-    }
-
-    /// The configured limit, also retained before storage is attached.
-    pub(crate) fn size_limit(&self) -> usize {
-        self.size_limit
     }
 }
 
 /// Load the record on first use.
 impl<B: Bookmark> Bookmarked<B> {
-    /// Read storage if the cache is absent, then lend the cache for one update.
-    pub(crate) async fn load(&mut self) -> Result<Loaded<'_, B>, BookmarkIo<B::Error>> {
+    /// Read storage if the cache is absent, then lend the cache for one update
+    /// stored under `size_limit`.
+    pub(crate) async fn load(
+        &mut self,
+        size_limit: usize,
+    ) -> Result<Loaded<'_, B>, BookmarkIo<B::Error>> {
         if self.cache.is_none() {
             let record = match self.persist.load().await.map_err(BookmarkIo::Io)? {
                 None => Record::default(),
@@ -360,7 +492,10 @@ impl<B: Bookmark> Bookmarked<B> {
                 durable: None,
             });
         }
-        Ok(Loaded { bookmark: self })
+        Ok(Loaded {
+            bookmark: self,
+            size_limit,
+        })
     }
 }
 
@@ -373,6 +508,8 @@ impl<B: Bookmark> Bookmarked<B> {
 pub(crate) struct Loaded<'a, B> {
     /// The bookmark whose cache is present for the lifetime of the loan.
     bookmark: &'a mut Bookmarked<B>,
+    /// The limit the update's store encodes under.
+    size_limit: usize,
 }
 
 /// The three ways to change the record, each returning the future that stores
@@ -402,9 +539,11 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
             record.reclaim(party, frontier);
         }
         record.record(party, frontier);
+        let size_limit = self.size_limit;
         Some(self.store(Some(Checkpoint {
             party: party.dangerously_alias(),
             frontier: frontier.clone(),
+            size_limit,
         })))
     }
 
@@ -442,10 +581,13 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
         self.store(None)
     }
 
-    /// Whether the last store checkpointed exactly this live state.
+    /// Whether the last store checkpointed exactly this live state, under
+    /// this update's size limit.
     fn checkpointed(&self, party: &Party, frontier: &Version) -> bool {
         self.cache().durable.as_ref().is_some_and(|checkpoint| {
-            checkpoint.party == *party && &checkpoint.frontier / party == frontier / party
+            checkpoint.size_limit == self.size_limit
+                && checkpoint.party == *party
+                && &checkpoint.frontier / party == frontier / party
         })
     }
 
@@ -459,12 +601,15 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
         self,
         durable: Option<Checkpoint>,
     ) -> impl Future<Output = Result<(), BookmarkIo<B::Error>>> + use<'a, B> {
-        let bookmark = self.bookmark;
+        let Self {
+            bookmark,
+            size_limit,
+        } = self;
         let mut cache = bookmark
             .cache
             .take()
             .expect("a loan exists only while the cache is present");
-        let bytes = cache.record.encode_bounded(bookmark.size_limit);
+        let bytes = cache.record.encode_bounded(size_limit);
         async move {
             bookmark
                 .persist

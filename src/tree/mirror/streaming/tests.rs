@@ -11,37 +11,93 @@ use std::{
 use proptest::prelude::*;
 
 use super::driver::try_join_mapped;
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
+use crate::default;
 use crate::testing::{
     Quiescence, node_census, node_census_reset, run_to_quiescence, schedule::MAX_SCHEDULED_DELAY,
 };
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
-    uncontained_supply_pair,
 };
 use crate::tree::mirror::streaming::backend::with_local_schedule;
-use crate::tree::mirror::streaming::channel::{QueueKind, with_kind_capacity, with_schedule};
+use crate::tree::mirror::streaming::channel::{
+    QueueKind, with_kind_capacity, with_observation, with_schedule,
+};
 use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
 use crate::tree::mirror::streaming::materialized::transcript::{Transcript, with_transcript};
 use crate::tree::mirror::streaming::materialized::{Error as MaterializedError, Start};
 use crate::tree::mirror::streaming::message::RoleKey;
 use crate::tree::mirror::streaming::stats::{Recorder, SessionStats};
-use crate::tree::mirror::streaming::window::{
-    DEFAULT_SYNC_MEMORY_BUDGET, ReplicaSize, Window, WindowConfig,
-};
+use crate::tree::mirror::streaming::testing::session::SessionLedger;
+use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror as drive_streaming};
+#[cfg(doc)]
 use crate::tree::mirror::streaming::{
-    Backend, Local, materialized::Handshaking, mirror as drive_streaming,
+    channel::HANDOFF_CAPACITY, materialized::OUTGOING_REPLY_CHUNKS, remote::LANE_CAPACITY,
 };
 use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
 mod announced;
 mod capacity;
+mod claims;
+mod descent;
+mod dispute_before_supplies;
 mod faults;
 mod fixtures;
+mod grid;
 mod local_eq;
+mod pipe;
+mod reassembly;
 mod skeleton;
 mod stats;
-mod wedge;
+
+/// Every edge whose progress needs only one slot, each built with more.
+///
+/// Most have [`HANDOFF_CAPACITY`] slots, so that a send into an empty edge
+/// does not park; the reply path's edges ([`LANE_CAPACITY`],
+/// [`OUTGOING_REPLY_CHUNKS`]) hold a fan, so that the outputs of one input
+/// enqueue together.
+const ONE_SLOT_KINDS: [QueueKind; 7] = [
+    QueueKind::OutgoingResponses,
+    QueueKind::InitiatorRootQuery,
+    QueueKind::InitiatorRootReturn,
+    QueueKind::ResponderRootResolution,
+    QueueKind::ResponderRootReturns,
+    QueueKind::PipeOutgoing,
+    QueueKind::PipeIncoming,
+];
+
+/// Run `f` with every edge of [`ONE_SLOT_KINDS`] capped at one slot, the
+/// liveness floor their progress arguments rest on.
+///
+/// Requires that the cap took: every such edge `f` built had one slot, and
+/// `f` built each kind of `built`.
+///
+/// # Panics
+///
+/// Panics if an edge of [`ONE_SLOT_KINDS`] had more than one slot, or if a
+/// kind of `built` was never built: either would let a caller's verdict
+/// pass without judging the floor.
+fn at_one_slot<R>(built: &[QueueKind], f: impl FnOnce() -> R) -> R {
+    /// Run `f` with every edge of `kinds` capped at one slot.
+    fn capped<R>(kinds: &[QueueKind], f: impl FnOnce() -> R) -> R {
+        match kinds {
+            [] => f(),
+            [kind, rest @ ..] => with_kind_capacity(*kind, 1, || capped(rest, f)),
+        }
+    }
+    let (result, report) = with_observation(|| capped(&ONE_SLOT_KINDS, f));
+    for kind in ONE_SLOT_KINDS {
+        let stats = report.kind(kind);
+        assert!(
+            stats.channels == 0 || stats.effective_capacity == 1,
+            "{kind:?} ran with {} slots",
+            stats.effective_capacity
+        );
+    }
+    for &kind in built {
+        assert!(report.kind(kind).channels > 0, "{kind:?} was never built");
+    }
+    result
+}
 
 /// Whether the left tree wins the session's role election.
 fn left_initiates(left: &Root, right: &Root) -> bool {
@@ -86,12 +142,13 @@ type Verdict = Result<Result<(Root, Root), LocalSessionError>, Quiescence>;
 /// One session between two `Local` endpoints under closed-world polling,
 /// with the instruments a test asks for attached.
 ///
-/// The floor window is the default; every schedule, capacity, and
-/// instrument setting is optional and independent of the others.
+/// The serial configuration is the default ledger; every ledger, schedule,
+/// capacity, and instrument setting is optional and independent of the
+/// others.
 struct LocalSession {
     client: Root,
     server: Root,
-    window: WindowConfig,
+    budget: SessionLedger,
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
     kind_capacity: Option<(QueueKind, usize)>,
@@ -101,13 +158,13 @@ struct LocalSession {
 }
 
 impl LocalSession {
-    /// A session in which `client` connects to `server`, at the floor
-    /// window, with no instrument attached.
+    /// A session in which `client` connects to `server`, both in the serial
+    /// configuration, with no instrument attached.
     fn new(client: Root, server: Root) -> Self {
         Self {
             client,
             server,
-            window: WindowConfig::FLOOR,
+            budget: SessionLedger::Serial,
             channel_schedule: Vec::new(),
             backend_schedule: Vec::new(),
             kind_capacity: None,
@@ -117,9 +174,10 @@ impl LocalSession {
         }
     }
 
-    /// Run at `window` instead of the floor.
-    fn window(mut self, window: WindowConfig) -> Self {
-        self.window = window;
+    /// Run both endpoints on the ledger `budget` gives instead of the serial
+    /// configuration.
+    fn budget(mut self, budget: SessionLedger) -> Self {
+        self.budget = budget;
         self
     }
 
@@ -165,7 +223,7 @@ impl LocalSession {
         let Self {
             client,
             server,
-            window,
+            budget,
             channel_schedule,
             backend_schedule,
             kind_capacity,
@@ -174,12 +232,18 @@ impl LocalSession {
             transcript,
         } = self;
         let recorders = stats.then(|| (Recorder::default(), Recorder::default()));
-        let mut client =
-            Handshaking::start(Local, client.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                .window(window);
-        let mut server =
-            Handshaking::start(Local, server.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-                .window(window);
+        let mut client = budget.apply(Handshaking::start(
+            Local,
+            client.into(),
+            Some(crate::network::NetworkKeys::fixture()),
+            default::TARGET_MESSAGE_SIZE as u64,
+        ));
+        let mut server = budget.apply(Handshaking::start(
+            Local,
+            server.into(),
+            Some(crate::network::NetworkKeys::fixture()),
+            default::TARGET_MESSAGE_SIZE as u64,
+        ));
         if let Some((client_recorder, server_recorder)) = &recorders {
             client = client.stats(client_recorder.clone());
             server = server.stats(server_recorder.clone());
@@ -266,12 +330,20 @@ impl Outcome {
     }
 }
 
-/// A `Local` endpoint at the floor window, for the sites that hold the
-/// undriven session: the ones that wrap it in a fault or failure decorator,
-/// and the ones that poll it themselves.
-fn floor_start(root: Root) -> Handshaking<Local, Start> {
-    Handshaking::start(Local, root.into(), DEFAULT_TARGET_MESSAGE_SIZE as u64)
-        .window(WindowConfig::FLOOR)
+/// A `Local` endpoint in the serial configuration, admitting one unit of
+/// each kind and depth at a time.
+///
+/// It serves the sites that hold the undriven session: the ones that wrap
+/// it in a fault or failure decorator, and the ones that poll it
+/// themselves.
+fn serial_start(root: Root) -> Handshaking<Local, Start> {
+    Handshaking::start(
+        Local,
+        root.into(),
+        Some(crate::network::NetworkKeys::fixture()),
+        default::TARGET_MESSAGE_SIZE as u64,
+    )
+    .serial()
 }
 
 /// Reconcile `a` and `b` through the streaming local backend, returning both
@@ -286,7 +358,7 @@ fn streaming_mirror_sides(a: Root, b: Root) -> (Root, Root) {
 /// publication trace, and the walk's payload-erased replies.
 ///
 /// This capture precedes the proxy's byte-budgeted framing of supply runs, so
-/// it describes the walk's protocol decisions rather than link-level frames.
+/// it describes the walk's protocol decisions rather than wire frames.
 fn transcribed_mirror_sides(a: Root, b: Root) -> (Root, Root, Trace, Transcript) {
     let mut outcome = LocalSession::new(a, b).trace().transcript().run();
     let trace = outcome
@@ -361,12 +433,12 @@ fn standard_schedules() -> [(Vec<u8>, Vec<u8>); 4] {
 
 /// Merge `a` and `b` through `Tree::join`: the in-memory oracle.
 ///
-/// Its observational equivalence to wire reconciliation is the design of
-/// record: `join` and the mirror delegate deletion honoring to the same
+/// Its observational equivalence to wire reconciliation is a design
+/// requirement: `join` and the mirror delegate deletion honoring to the same
 /// filter, so a reconciled endpoint must hold exactly the joined tree.
 fn join_oracle(a: Root, b: Root) -> Root {
-    let mut joined = Tree::<()>::from_root(a);
-    joined.join(Tree::from_root(b));
+    let mut joined = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
+    joined.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
     joined.root
 }
 
@@ -381,27 +453,6 @@ fn arb_oracle_pair() -> impl Strategy<Value = (Root, Root)> {
         2 => (arb_tree_root(0, 0..=8), arb_tree_root(1, 0..=8)),
         1 => arb_tree_root(0, 0..=8).prop_map(|root| (root.clone(), root)),
     ]
-}
-
-/// The corpus size the wide window is solved for: far past what the
-/// generators produce, so the top stages get capacities above the floor.
-const WIDE_CORPUS: u64 = 1_000_000;
-
-/// The window the wide oracle arm runs under and its widest capacity: the
-/// budget solve at [`WIDE_CORPUS`], asserted wider than the floor rather
-/// than assumed so.
-fn wide_window() -> (WindowConfig, u64) {
-    let window = Window::from_budget(
-        [ReplicaSize::new(WIDE_CORPUS, 0); 2],
-        DEFAULT_SYNC_MEMORY_BUDGET,
-        <Local as Backend>::node_bytes,
-    );
-    let widest = window.widest();
-    assert!(
-        widest > 1,
-        "the wide arm's window solved to the floor: it exercises nothing the floor arm does not"
-    );
-    (WindowConfig::Fixed(window), widest)
 }
 
 /// Poll `future` at most `polls` times, then drop it: a session cancelled
@@ -423,8 +474,8 @@ fn session_length(a: Root, b: Root) -> usize {
     /// Bound a broken session's test run, including one that keeps waking.
     const MAX_POLLS: usize = 1_000_000;
     let mut session = pin!(tokio::task::coop::unconstrained(drive_streaming(
-        floor_start(a),
-        floor_start(b),
+        serial_start(a),
+        serial_start(b),
     )));
     let mut cx = Context::from_waker(Waker::noop());
     for polls in 1..=MAX_POLLS {
@@ -468,7 +519,7 @@ fn cancelled_session_leaves_no_residue() {
     let cases = runner.run(&arb_cancellation(), |((a, b), length, polls)| {
         let expected = join_oracle(a.clone(), b.clone());
         let baseline = node_census().live;
-        let session = drive_streaming(floor_start(a.clone()), floor_start(b.clone()));
+        let session = drive_streaming(serial_start(a.clone()), serial_start(b.clone()));
         node_census_reset();
         let before_polling = node_census().live;
         let completed = cancel_after(session, polls);
@@ -561,40 +612,9 @@ fn honors_redaction_under_leaf_parent_dispute() {
     }
 }
 
-/// A supplied leaf whose version escapes the sender's declared greeting
-/// version fails the streaming session with a typed violation instead of
-/// being absorbed.
-///
-/// The declared version of an honest replica contains every version it
-/// transmits, so this shape marks a nonconforming implementation. Absorbed,
-/// the escaped leaf would sit above every replica's session ceiling —
-/// unredactable and re-shipped forever (the mechanism is pinned at the
-/// tree tier by `escaped_version_defeats_redaction_in_a_poisoned_store`).
-/// The wire twin (`uncontained_supply_is_rejected_at_the_wire`) drives the
-/// same rejection through the frame codec and supply decoder.
-#[test]
-fn uncontained_supply_is_rejected_by_streaming() {
-    use crate::tree::mirror::streaming::materialized::{Error, Violation};
-
-    let (receiver, poisoned, _, _) = uncontained_supply_pair();
-    let result = LocalSession::new(receiver, poisoned)
-        .run()
-        .verdict
-        .expect("the rejecting session becomes quiescent");
-    assert!(
-        matches!(
-            result,
-            Err(MirrorError::Client(Error::Violation(
-                Violation::UncontainedSupply
-            ))),
-        ),
-        "the receiving side rejects the escaped leaf",
-    );
-}
-
 proptest! {
     /// Streaming and the in-memory join oracle agree in both orientations,
-    /// at the floor window and at a wide one.
+    /// in the serial configuration and at an unlimited budget.
     ///
     /// Across every generated causal relationship, both wire endpoints
     /// converge to exactly `Tree::join` of the two inputs. This ties the
@@ -602,27 +622,23 @@ proptest! {
     /// are stated over: join prunes through `traverse::unknown` and the
     /// session through `materialized::unknown`, two implementations of one
     /// deletion-honoring contract, so a divergence here is a bug in one of
-    /// them. The wide arm runs the pipeline window's real behavior, and
-    /// each session reports the width it was granted so the arm cannot
-    /// silently run at the floor.
+    /// them. In the serial configuration each walk admits one unit of each
+    /// kind and depth at a time; at an unlimited budget no unit waits for
+    /// admission.
     #[test]
-    fn streaming_matches_join_oracle((a, b) in arb_oracle_pair(), wide in any::<bool>()) {
+    fn streaming_matches_join_oracle((a, b) in arb_oracle_pair(), unlimited in any::<bool>()) {
         let expected = join_oracle(a.clone(), b.clone());
-        let (window, width) = if wide { wide_window() } else { (WindowConfig::FLOOR, 1) };
-        // A window is derived only once the greetings disagree; an equal
-        // pair ends at the greeting and grants nothing.
-        let derives_window = a.ceiling != b.ceiling;
+        let budget = if unlimited {
+            SessionLedger::Budget(usize::MAX)
+        } else {
+            SessionLedger::Serial
+        };
         for (left, right) in [(a.clone(), b.clone()), (b, a)] {
-            let outcome = LocalSession::new(left, right).window(window).trace().stats().run();
+            let outcome = LocalSession::new(left, right).budget(budget).trace().run();
             outcome.trace().assert_valid();
-            let (ours_stats, theirs_stats) = *outcome.stats();
             let (ours, theirs) = outcome.sides();
             prop_assert_eq!(&ours, &expected);
             prop_assert_eq!(&theirs, &expected);
-            if derives_window {
-                prop_assert_eq!(ours_stats.window_granted, width);
-                prop_assert_eq!(theirs_stats.window_granted, width);
-            }
         }
     }
 

@@ -2,7 +2,7 @@
 //!
 //! Session methods return [`Error`]. Choose a response from its cause:
 //!
-//! - [`Transport`](Error::Transport): reconnect over a fresh link.
+//! - [`Transport`](Error::Transport): reconnect over a fresh connection.
 //! - [`Mismatch`](Error::Mismatch): use the mismatch kind and its values to
 //!   deploy a compatible build, join the intended network, or align settings.
 //! - [`Bookmark`](Error::Bookmark): repair or replace the bookmark storage.
@@ -14,12 +14,19 @@
 //! Public error enums are non-exhaustive when new checks may add variants.
 //! A closed enum reserves its variant roster as part of the contract.
 //!
-//! A failed or cancelled session leaves its link unusable. Discard it before
-//! retrying; reusing it returns [`Error::LinkPoisoned`].
+//! A failed or cancelled session leaves its connection at an unknown
+//! position. Discard the connection before retrying: a later session on it
+//! gets no typed warning, and can fail in any way or misread the stale
+//! bytes.
 //!
 //! Failure does not guarantee unchanged state. On an existing replica, a
 //! failure in [`Phase::Completion`] leaves local work committed but the peer's
-//! commit unconfirmed; a failed bootstrap instead returns a builder for retry.
+//! commit unconfirmed. A bootstrap served by a provider has received its
+//! whole identity before that phase, so one that fails there keeps its peer,
+//! and reports the error as a [`Connection::Lost`](crate::Connection::Lost)
+//! beside it. A bootstrap that fails earlier, or that met another
+//! bootstrapper and so received no identity, returns its builder for retry
+//! in [`Joined::Failed`](crate::Joined::Failed).
 //! [`Error::Bookmark`] can also leave restart bookkeeping awaiting persistence.
 
 use std::fmt;
@@ -41,7 +48,7 @@ pub use session::{
 ///
 /// Each variant carries the values needed to choose a recovery action.
 /// Retrying unchanged peers cannot resolve a mismatch; after resolving it,
-/// reconnect over a fresh link.
+/// reconnect over a fresh connection.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Mismatch {
@@ -96,7 +103,7 @@ pub enum Mismatch {
 #[derive(thiserror::Error)]
 pub enum Error<B: Bookmark = NoBookmark> {
     /// A transport operation failed or the peer closed before it completed.
-    /// Reconnect using a fresh link.
+    /// Reconnect using a fresh connection.
     #[error(transparent)]
     Transport(TransportError),
 
@@ -106,19 +113,14 @@ pub enum Error<B: Bookmark = NoBookmark> {
     Protocol(ProtocolViolation),
 
     /// The peers have incompatible protocols, networks, or settings.
-    /// Resolve the mismatch before retrying on a fresh link.
+    /// Resolve the mismatch before retrying on a fresh connection.
     #[error(transparent)]
     Mismatch(Mismatch),
 
-    /// An earlier session failed or was cancelled on this link. Discard it and
-    /// reconnect; its stream positions no longer mark a session boundary.
-    #[error("link is poisoned by an interrupted session; discard it and reconnect")]
-    LinkPoisoned,
-
     /// The application's deadline ended an active wire session.
-    /// Discard the link and reconnect. A local commit already made is not
-    /// undone, and the peer's completion may be unconfirmed.
-    #[error("session deadline exceeded; discard the link and reconnect")]
+    /// Discard the connection and reconnect. A local commit already made is
+    /// not undone, and the peer's completion may be unconfirmed.
+    #[error("session deadline exceeded; discard the connection and reconnect")]
     DeadlineExceeded,
 
     /// The application's bookmark failed to load, persist, or decode.
@@ -140,9 +142,6 @@ impl<B: Bookmark> Error<B> {
             Self::Transport(_) => SessionErrorKind::Transport,
             Self::Protocol(_) => SessionErrorKind::Protocol,
             Self::Mismatch(_) => SessionErrorKind::Mismatch,
-            Self::LinkPoisoned => {
-                unreachable!("an observer starts only after the link accepts a new session")
-            }
             Self::DeadlineExceeded => SessionErrorKind::DeadlineExceeded,
             Self::Bookmark(_) => SessionErrorKind::Bookmark,
         }
@@ -158,7 +157,6 @@ impl<B: Bookmark> fmt::Debug for Error<B> {
             Self::Transport(error) => f.debug_tuple("Transport").field(error).finish(),
             Self::Protocol(error) => f.debug_tuple("Protocol").field(error).finish(),
             Self::Mismatch(error) => f.debug_tuple("Mismatch").field(error).finish(),
-            Self::LinkPoisoned => f.write_str("LinkPoisoned"),
             Self::DeadlineExceeded => f.write_str("DeadlineExceeded"),
             Self::Bookmark(error) => f.debug_tuple("Bookmark").field(error).finish(),
         }
@@ -198,7 +196,6 @@ impl Error {
             Self::Transport(error) => Error::Transport(error),
             Self::Protocol(error) => Error::Protocol(error),
             Self::Mismatch(error) => Error::Mismatch(error),
-            Self::LinkPoisoned => Error::LinkPoisoned,
             Self::DeadlineExceeded => Error::DeadlineExceeded,
             Self::Bookmark(error) => match error {
                 BookmarkIo::Io(never) => match never {},

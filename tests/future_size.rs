@@ -3,14 +3,22 @@
 //! Boxed reconciliation boundaries keep the deeply nested protocol futures out
 //! of callers' layouts. These checks allow modest growth in session state but
 //! catch a missing boundary before callers encounter excessive stack use or
-//! compiler recursion limits. The gate checks the development-profile layout.
+//! compiler recursion limits. The gate checks the development profile's
+//! layout, which builds `rumors` at opt-level 1; these futures have the same
+//! sizes when `rumors` is unoptimized, as it is in a caller's development
+//! build.
 
 use std::mem::size_of_val;
 
 use rumors::{Peer, Rumors};
+use rumors_testkit::common::seed::NetworkSeed;
 
 /// Allow small session futures while catching large embedded protocol state.
 const PUBLIC_FUTURE_BUDGET: usize = 4096;
+
+/// The network of every check: a future's size is a property of its type, the
+/// same for every secret, so one fixed seed serves them all.
+const NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// `Rumors::gossip_once` drives the full mirror protocol against a peer; the
 /// public future is type-erased.
@@ -19,11 +27,11 @@ const PUBLIC_FUTURE_BUDGET: usize = 4096;
 /// phase schedule never appears in the caller's layout query.
 #[test]
 fn gossip_future_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
-    let fut = alice.gossip_once(&mut link);
+    let alice: Rumors<()> = NETWORK.peer().sync_memory_budget(0).into_rumors();
+    let fut = alice.gossip_once(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
     assert!(
@@ -39,11 +47,11 @@ fn gossip_future_fits_budget() {
 /// boundary must keep it flat.
 #[test]
 fn retire_future_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Peer<()> = Peer::seed().sync_window_floor();
-    let fut = alice.retire(&mut link);
+    let alice: Peer<()> = NETWORK.peer().sync_memory_budget(0);
+    let fut = alice.retire(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
     assert!(
@@ -58,10 +66,10 @@ fn retire_future_fits_budget() {
 /// as `Reconciliation::reconcile`.
 #[test]
 fn bootstrap_future_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let fut = Peer::<()>::bootstrap().join(&mut link);
+    let fut = Peer::<()>::bootstrap().join(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
     assert!(
@@ -79,11 +87,11 @@ fn bootstrap_future_fits_budget() {
 /// boundary, which the gossip and retire tests beside it hold.
 #[test]
 fn gossip_stream_fits_budget() {
-    let (mut link, peer) = rumors::link::memory();
+    let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
-    let sessions = alice.gossip(&mut link);
+    let alice: Rumors<()> = NETWORK.peer().sync_memory_budget(0).into_rumors();
+    let sessions = alice.gossip(&mut end.read, &mut end.write);
     let size = size_of_val(&sessions);
 
     assert!(

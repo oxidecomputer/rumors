@@ -6,15 +6,18 @@
 //! errors through unchanged. Counterparty-fault classification lives in
 //! [`violations`].
 
-use std::{convert::Infallible, future};
+use crate::network::NetworkKeys;
+use crate::tree::mirror::streaming::message::LaterMatches;
+use std::{collections::BTreeSet, convert::Infallible, future};
 
 use futures::stream::{self, StreamExt, TryStreamExt};
 use proptest::prelude::*;
 
-use super::{Work, assembly::assemble};
+use super::{Work, answer, assembly::assemble, charges, resolver::Resolver};
 
 mod violations;
 
+use crate::tree::mirror::streaming::remote::{Replay, ReplyLevel, Scope, derive_questions};
 use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
@@ -23,13 +26,16 @@ use crate::{
     tree::{
         arb::nth_party,
         mirror::streaming::{
-            Backend, Failing, Failure, Local, Operation,
-            erased::Reply,
-            materialized::{Error, Resolution, Resolve, Violation},
-            window::Window,
+            Backend, ErasedNode, FAN, Failing, Failure, Local, Operation,
+            byte_set::ByteSet,
+            erased::{Reaction, Reply},
+            holding::Holding,
+            ledger::{Charge, Ledger, ReplyBound},
+            materialized::{Error, Resolution, Resolve, SupplyLedger, Violation},
+            message::{Grandchildren, Listed},
         },
         typed::{
-            self, Path, Prefix,
+            self, ErasedPrefix, Path, Prefix,
             height::{S, Z},
         },
     },
@@ -40,14 +46,14 @@ use crate::{
 type Erased = <Local as Backend>::Erased;
 
 /// Erase one typed leaf the way the walk's payloads carry it.
-fn erased(node: typed::Node<Z>) -> Erased {
+fn erased(node: typed::View<Z>) -> Erased {
     <Local as Backend>::erase(node)
 }
 
 /// A distinct leaf per call: the versions differ so hashes do.
-fn leaf(version: &mut Version) -> typed::Node<Z> {
+fn leaf(version: &mut Version) -> typed::View<Z> {
     version.tick(&nth_party(0));
-    typed::Node::leaf(version.clone(), Message::new(()))
+    typed::View::leaf(version.clone(), Message::new(()))
 }
 
 /// The height-`Z` key with `parent` as its first byte and `radix` as its
@@ -67,9 +73,9 @@ fn parent_prefix(parent: u8) -> Prefix<S<Z>> {
 /// Build the expected parent of a radix group directly through the backend.
 fn parent_of(
     prefix: Prefix<S<Z>>,
-    children: Vec<(u8, Option<typed::Node<Z>>)>,
-) -> Option<typed::Node<S<Z>>> {
-    pollster::block_on(<Local as Backend>::parent(Local, prefix, children))
+    children: Vec<(u8, Option<typed::View<Z>>)>,
+) -> Option<typed::View<S<Z>>> {
+    pollster::block_on(<Local as Backend>::parent(Local, prefix, None, children))
         .unwrap_or_else(|e| match e {})
 }
 
@@ -87,13 +93,13 @@ proptest! {
         dropped in any::<bool>(),
         terminal_ready in any::<bool>(),
     ) {
-        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        let mut work = Work::new(Local, Recorder::default(), Default::default(), Some(crate::network::NetworkKeys::fixture()));
         // A closed consumer may stop a pump before later items are read.
         // Put the error first in that case so it is actually detected.
         let buffered = buffered && !dropped;
         let messages = stream::iter(
             buffered.then_some(Ok(Reply {
-                reactions: Vec::new(),
+                reactions: Vec::new(), charge: Default::default(), last: true, carried: Default::default(),
             })).into_iter().chain([Err(Error::Violation(Violation::UnaskedReply))]),
         );
         let responses = work.respond::<Z>(messages);
@@ -116,8 +122,9 @@ proptest! {
 fn work_failure_preempts_parked_tasks() {
     let mut work: Work<Failing<Local>> = Work::new(
         Failing::after(Local, usize::MAX),
-        Window::FLOOR,
         Recorder::default(),
+        Default::default(),
+        Some(crate::network::NetworkKeys::fixture()),
     );
     for _ in 0..31 {
         work.tasks.push(Box::pin(future::pending()));
@@ -164,6 +171,8 @@ fn fills_pendings_in_order() {
             (2, Resolve::Ready(Some(erased(b.clone())))),
             (5, Resolve::Pending),
         ],
+        original: None,
+        charge: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],
@@ -177,9 +186,12 @@ fn fills_pendings_in_order() {
     assert_eq!(
         output
             .into_iter()
-            .map(|item| item.expect("no errors were fed in").map(|node| node.hash()))
+            .map(|item| {
+                item.expect("no errors were fed in")
+                    .map(|node| node.hash(&parent_prefix(3).erase(), NetworkKeys::fixture().hash()))
+            })
             .collect::<Vec<_>>(),
-        vec![expected.map(|node| node.hash())],
+        vec![expected.map(|node| node.hash(NetworkKeys::fixture().hash()))],
     );
 }
 
@@ -196,6 +208,8 @@ fn ready_none_is_deletion() {
             (1, Resolve::Ready(Some(erased(a.clone())))),
             (2, Resolve::Ready(None)),
         ],
+        original: None,
+        charge: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
 
@@ -203,9 +217,12 @@ fn ready_none_is_deletion() {
     assert_eq!(
         output
             .into_iter()
-            .map(|item| item.expect("no errors were fed in").map(|node| node.hash()))
+            .map(|item| {
+                item.expect("no errors were fed in")
+                    .map(|node| node.hash(&parent_prefix(3).erase(), NetworkKeys::fixture().hash()))
+            })
             .collect::<Vec<_>>(),
-        vec![expected.map(|node| node.hash())],
+        vec![expected.map(|node| node.hash(NetworkKeys::fixture().hash()))],
     );
 }
 
@@ -216,6 +233,8 @@ fn empty_resolution_assembles_to_none() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![],
+        original: None,
+        charge: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -228,6 +247,8 @@ fn all_deleted_resolution_assembles_to_none() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Ready(None)), (2, Resolve::Ready(None))],
+        original: None,
+        charge: Default::default(),
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
     assert!(matches!(output.as_slice(), [Ok(None)]));
@@ -246,10 +267,14 @@ fn chains_two_instances() {
             (1, Resolve::Ready(Some(erased(a.clone())))),
             (7, Resolve::Ready(Some(erased(b.clone())))),
         ],
+        original: None,
+        charge: Default::default(),
     })];
     let upper: Vec<Item> = vec![Ok(Resolution {
         prefix: parent_prefix(3).pop().0.erase(),
         resolved: vec![(3, Resolve::Pending)],
+        original: None,
+        charge: Default::default(),
     })];
 
     let chained = assemble::<Local>(
@@ -265,15 +290,19 @@ fn chains_two_instances() {
     let expected = pollster::block_on(<Local as Backend>::parent(
         Local,
         parent_prefix(3).pop().0,
+        None,
         vec![(3, Some(inner))],
     ))
     .unwrap_or_else(|e| match e {});
     assert_eq!(
         output
             .into_iter()
-            .map(|node| node.map(|node| node.hash()))
+            .map(|node| node.map(|node| node.hash(
+                &parent_prefix(3).pop().0.erase(),
+                NetworkKeys::fixture().hash()
+            )))
             .collect::<Vec<_>>(),
-        vec![expected.map(|node| node.hash())],
+        vec![expected.map(|node| node.hash(NetworkKeys::fixture().hash()))],
     );
 }
 
@@ -295,6 +324,8 @@ fn level_error_passes_through() {
     let resolution = Resolution {
         prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Pending)],
+        original: None,
+        charge: Default::default(),
     };
     let output = assembled(
         vec![Ok(resolution)],
@@ -304,4 +335,475 @@ fn level_error_passes_through() {
         output.as_slice(),
         [Err(Error::Violation(Violation::UnansweredQuery))],
     ));
+}
+
+proptest! {
+    /// An answer's resolution has a slot per child either side holds, and
+    /// exactly the capacity its unit's grant prices: the union of this side's
+    /// radices, as the backend reports them, and the peer's listing.
+    ///
+    /// A child both sides hold sits at one radix and takes one slot, so the
+    /// price counts it once, and every price is at most a fan. Each side's
+    /// radices are drawn with repeats and deduplicated here, so the sides
+    /// range from empty to full and from disjoint to identical.
+    #[test]
+    fn answer_resolution_holds_exactly_its_price(
+        ours in prop::collection::vec(any::<u8>(), 0..=2 * FAN),
+        theirs in prop::collection::vec(any::<u8>(), 0..=2 * FAN),
+    ) {
+        let ours: BTreeSet<u8> = ours.into_iter().collect();
+        let theirs: BTreeSet<u8> = theirs.into_iter().collect();
+        let mut version = Version::default();
+        let ours_nodes: Vec<(u8, Erased)> = ours
+            .iter()
+            .map(|&radix| (radix, erased(leaf(&mut version))))
+            .collect();
+        let theirs_listing: Vec<Listed> = theirs
+            .iter()
+            .map(|&radix| Listed {
+                radix,
+                hash: leaf(&mut version).hash(NetworkKeys::fixture().hash()),
+                grandchildren: Grandchildren::ONE,
+                children_less_one: 0,
+            })
+            .collect();
+        let children = ours.union(&theirs).count();
+        let unknown = Version::default();
+        let stats = Recorder::default();
+
+        let (_, resolved) = answer::leaf_parent(
+            &unknown,
+            ours_nodes.clone(),
+            theirs_listing.clone(),
+            &stats,
+            &mut Charge::default(),
+        )
+        .into_parts();
+        prop_assert_eq!(resolved.len(), children);
+        // The price reads this side's radices from a node holding exactly
+        // these children, as the walk reads them before exploding it.
+        let reported: ByteSet = ours.iter().copied().collect();
+        let priced = charges::scope_children(reported, &theirs_listing).either;
+        prop_assert_eq!(priced, children);
+        prop_assert!(priced <= FAN);
+        prop_assert_eq!(resolved.capacity(), priced, "a leaf parent's slots");
+
+        // The scope sits one level above the leaves, where the drawn leaves
+        // sit as its children.
+        let internal = pollster::block_on(answer::internal(
+            &Local,
+            &unknown,
+            parent_prefix(0).erase(),
+            ours_nodes,
+            theirs_listing,
+            Some(&*NetworkKeys::fixture()),
+            &stats,
+            &mut Charge::default(),
+        ))
+        .expect("the in-memory backend lists exactly the children it reports");
+        let (_, resolved) = internal.into_parts();
+        prop_assert_eq!(resolved.len(), children);
+        prop_assert_eq!(resolved.capacity(), priced, "an internal scope's slots");
+    }
+}
+
+/// Which sides of an answer's scope hold the child at one radix, and
+/// whether both sides' copies agree.
+#[derive(Clone, Copy, Debug)]
+enum Holder {
+    /// Neither side.
+    Neither,
+    /// This side alone: a supply.
+    Ours,
+    /// The peer alone: a request.
+    Theirs,
+    /// Both sides, with equal digests: a match.
+    Agreeing,
+    /// Both sides, with different digests: a dispute among internal
+    /// children, and a match among leaves, whose equal paths agree.
+    Differing,
+}
+
+/// A scope's holders, one per radix, with at most four children that ask a
+/// question of an internal answer, so that the reactions leading a question
+/// run long, and a match ahead of them often covers later children.
+fn arb_scope() -> impl Strategy<Value = Vec<Holder>> {
+    let unasked = prop_oneof![
+        1 => Just(Holder::Neither),
+        6 => Just(Holder::Ours),
+        2 => Just(Holder::Agreeing),
+    ];
+    let asking = prop_oneof![Just(Holder::Theirs), Just(Holder::Differing)];
+    (
+        prop::collection::vec(unasked, FAN),
+        prop::collection::vec((any::<u8>(), asking), 0..=4),
+    )
+        .prop_map(|(mut scope, asks)| {
+            for (radix, holder) in asks {
+                scope[usize::from(radix)] = holder;
+            }
+            scope
+        })
+}
+
+/// Check that no question among `chunks` is led by more than
+/// [`answer::Held::LEADING_MAX`]: by at most one covered set, and by at
+/// most a fan of reactions less one, or less two beside a set.
+fn check_leads<E, Q>(mut chunks: answer::Chunks<E, Q>) -> Result<(), TestCaseError> {
+    let most = answer::Held::LEADING_MAX;
+    while let Some(part) = chunks.next_part() {
+        if part.ask.is_some() {
+            let held = charges::held(&part.leading);
+            prop_assert!(held.sets <= most.sets, "{held:?} leads a question");
+            prop_assert!(
+                held.reactions + held.sets <= most.reactions,
+                "{held:?} leads a question"
+            );
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    /// Every question an answer's chunks ask is led by at most
+    /// [`answer::Held::LEADING_MAX`]: a fan of reactions less one, or less
+    /// two beside the answer's one covered set.
+    ///
+    /// The walk's largest grant and its bounds are priced at that lead.
+    /// The reactions are counted as admission counts them
+    /// ([`charges::held`]), over both builders of an answer's plan, a leaf
+    /// parent's and an internal scope's, across scopes where questions are
+    /// sparse and matches may cover later children.
+    #[test]
+    fn no_question_is_led_by_more_than_leading_max(scope in arb_scope()) {
+        let mut version = Version::default();
+        let prefix = parent_prefix(0).erase();
+        let keys = NetworkKeys::fixture();
+        let mut ours = Vec::new();
+        let mut theirs = Vec::new();
+        for (radix, holder) in (0..=u8::MAX).zip(scope) {
+            let at = prefix.push(radix);
+            let node = erased(leaf(&mut version));
+            let hash = match holder {
+                Holder::Agreeing => node.hash(&at, keys.hash()),
+                _ => erased(leaf(&mut version)).hash(&at, keys.hash()),
+            };
+            if matches!(holder, Holder::Ours | Holder::Agreeing | Holder::Differing) {
+                ours.push((radix, node));
+            }
+            if matches!(holder, Holder::Theirs | Holder::Agreeing | Holder::Differing) {
+                theirs.push(Listed {
+                    radix,
+                    hash,
+                    grandchildren: Grandchildren::ONE,
+                    children_less_one: 0,
+                });
+            }
+        }
+        let unknown = Version::default();
+        let stats = Recorder::default();
+
+        let (chunks, _) = answer::leaf_parent(
+            &unknown,
+            ours.clone(),
+            theirs.clone(),
+            &stats,
+            &mut Charge::default(),
+        )
+        .into_parts();
+        check_leads(chunks)?;
+
+        let internal = pollster::block_on(answer::internal(
+            &Local,
+            &unknown,
+            prefix,
+            ours,
+            theirs,
+            Some(&*keys),
+            &stats,
+            &mut Charge::default(),
+        ))
+        .expect("the in-memory backend lists exactly the children it reports");
+        check_leads(internal.into_parts().0)?;
+    }
+}
+
+/// A finished resolver returns its question's own charge, leaving the
+/// resolution its slots' charge alone while it waits for assembly.
+///
+/// The question's queue slot is gone once its stage received it, and the
+/// buffer of this side's children is gone once the resolver has walked it
+/// into the resolution's slots, which the slots' charge covers.
+#[test]
+fn finished_resolution_keeps_no_charge_for_its_question() {
+    let ledger = Ledger::default();
+    let mut version = Version::default();
+    let prefix = parent_prefix(7).erase();
+    let ours: Vec<(u8, Erased)> = (1..=3)
+        .map(|radix| (radix, erased(leaf(&mut version))))
+        .collect();
+    let children = ours.len();
+    let bound = ReplyBound::of(prefix.height(), children, Grandchildren::ONE);
+    let mut grant = ledger.charge(Holding::Questions, 1 << 20);
+    let query = charges::query(&mut grant, prefix, None, ours, bound);
+    drop(grant);
+    assert!(
+        ledger.held_for(Holding::Questions) > 0,
+        "the question charges its queue slot and its children's buffer",
+    );
+
+    let supplies = SupplyLedger::new(u64::MAX);
+    let stats = Recorder::default();
+    let mut resolver = Resolver::<Local>::new(query, &supplies, &stats);
+    // One match at the first child, covering the rest.
+    let dispute = resolver
+        .react(Reaction::Match(LaterMatches::new((2..=3).collect())))
+        .expect("the match pairs with the first child and covers the rest");
+    assert!(dispute.is_none(), "a match resolves its children here");
+    let resolution = resolver.finish().expect("every child was answered");
+
+    assert_eq!(
+        ledger.held_for(Holding::Questions),
+        0,
+        "the question's charge returns when its reply is finished",
+    );
+    assert_eq!(
+        ledger.held(),
+        resolution.charge.bytes(),
+        "the waiting resolution holds its slots' charge and nothing more",
+    );
+    drop(resolution);
+    assert_eq!(ledger.held(), 0, "assembly returns the rest");
+}
+
+/// A prefix at `height`, its bytes all `byte`.
+fn prefix_at(height: usize, byte: u8) -> ErasedPrefix {
+    (height..32).fold(Prefix::new().erase(), |prefix, _| prefix.push(byte))
+}
+
+/// One reply a question about a node at `height` can receive, within the
+/// bound its question reserved for.
+///
+/// That is the listing the question sent, the peer's grandchild count of
+/// the node, and for each listed child, in order, a match or a query
+/// listing that many children.
+///
+/// About a leaf's parent, every query requests its leaf and lists nothing.
+fn arb_reply_to_question() -> impl Strategy<Value = (usize, usize, usize, Vec<Option<usize>>)> {
+    (1..=4_usize, 1..=24_usize).prop_flat_map(|(height, listed)| {
+        let grandchildren = 1..=4 * listed;
+        (Just(height), Just(listed), grandchildren).prop_flat_map(move |(height, listed, count)| {
+            let entries = if height == 1 {
+                0..=0_usize
+            } else {
+                0..=4_usize
+            };
+            let reactions = proptest::collection::vec(proptest::option::of(entries), listed);
+            (Just(height), Just(listed), Just(count), reactions)
+        })
+    })
+}
+
+proptest! {
+    /// The records derived from any reply within its question's bound hold
+    /// no more than the question's records part, at a leaf's parent as at
+    /// every height above.
+    ///
+    /// Each record holds exactly what [`charges::derived_record_bytes`]
+    /// prices it at.
+    ///
+    /// The reply's queries list at most what the peer's count leaves, which
+    /// the reply's bound allows; about a leaf's parent, each query requests
+    /// its leaf, and the record derived for it names that leaf.
+    #[test]
+    fn derived_records_fit_the_records_part(
+        (height, listed, count, reactions) in arb_reply_to_question(),
+    ) {
+        let parent = prefix_at(height, 0);
+        let asked: Vec<Listed> = (0..listed)
+            .map(|radix| Listed {
+                radix: u8::try_from(radix).expect("a few dozen radices fit a byte"),
+                hash: Default::default(),
+                grandchildren: Grandchildren::ONE,
+                children_less_one: 0,
+            })
+            .collect();
+        let peer_count = Grandchildren::new(count).expect("the count is in range");
+        let scope = Scope::new(parent, &asked, peer_count);
+        let bound = scope.reply_bound();
+        // The peer's queries list at most what its count allows.
+        let mut left = bound.listing;
+        // A match at the first matching position covers the later ones,
+        // which take no reaction.
+        let first_match = reactions.iter().position(Option::is_none);
+        let later_matches = reactions
+            .iter()
+            .enumerate()
+            .filter(|&(position, reaction)| reaction.is_none() && Some(position) != first_match)
+            .map(|(position, _)| u8::try_from(position).expect("a few radices fit a byte"))
+            .collect();
+        let mut later_matches = Some(LaterMatches::new(later_matches));
+        let replied: Vec<Reaction<Erased>> = reactions
+            .iter()
+            .enumerate()
+            .filter(|&(position, reaction)| reaction.is_some() || Some(position) == first_match)
+            .map(|(_, reaction)| match reaction {
+                None => Reaction::Match(later_matches.take().expect("one first match")),
+                Some(entries) => {
+                    let entries = (*entries).min(left);
+                    left -= entries;
+                    let listing = (0..entries)
+                        .map(|radix| Listed {
+                            radix: u8::try_from(radix).expect("a few radices fit a byte"),
+                            hash: Default::default(),
+                            grandchildren: Grandchildren::ONE,
+                            children_less_one: 0,
+                        })
+                        .collect();
+                    Reaction::Query(listing)
+                }
+            })
+            .collect();
+        let level = if height == 1 { ReplyLevel::Leaf } else { ReplyLevel::Branch };
+        let derived = derive_questions(level, &scope, &mut Replay::default(), &replied)
+            .expect("a reply at its positions derives");
+        let listings = replied.iter().filter_map(|reaction| match reaction {
+            Reaction::Query(listing) => Some(listing.len()),
+            _ => None,
+        });
+        for (record, listing) in derived.iter().zip(listings) {
+            prop_assert_eq!(record.held_bytes(), charges::derived_record_bytes(height, listing));
+        }
+        let held: usize = derived.iter().map(Scope::held_bytes).sum();
+        let room = charges::records_room(height, bound, listed);
+        prop_assert!(held <= room, "{held} B of records over a records part of {room} B");
+    }
+
+    /// The records derived from the fullest reply within its question's
+    /// bound fill the question's records part exactly, so the part is the
+    /// least that holds every reply's records.
+    ///
+    /// The fullest reply queries every position the asker listed, and its
+    /// queries list as many entries as the peer's grandchild count allows,
+    /// a fan each at most, as the codec decodes every listing; about a
+    /// leaf's parent, each query requests its leaf. The peer's counts range
+    /// up to the type maximum, so the generated bounds include listings
+    /// beyond a fan per question, which the part holds to that many fans.
+    #[test]
+    fn the_fullest_reply_fills_the_records_part(
+        height in 1..=4_usize,
+        listed in prop_oneof![1..=4_usize, 1..=FAN],
+        count in 1..=Grandchildren::MAX.get(),
+    ) {
+        let parent = prefix_at(height, 0);
+        let entry = |index: usize| Listed {
+            radix: u8::try_from(index).expect("a fan of radices fits a byte"),
+            hash: Default::default(),
+            grandchildren: Grandchildren::ONE,
+            children_less_one: 0,
+        };
+        let asked: Vec<Listed> = (0..listed).map(entry).collect();
+        let peer_count = Grandchildren::new(count).expect("the count is in range");
+        let scope = Scope::new(parent, &asked, peer_count);
+        let bound = scope.reply_bound();
+        let mut left = bound.listing;
+        let replied: Vec<Reaction<Erased>> = (0..listed)
+            .map(|_| {
+                let entries = left.min(FAN);
+                left -= entries;
+                Reaction::Query((0..entries).map(entry).collect())
+            })
+            .collect();
+        let level = if height == 1 { ReplyLevel::Leaf } else { ReplyLevel::Branch };
+        let derived = derive_questions(level, &scope, &mut Replay::default(), &replied)
+            .expect("a reply querying every position derives");
+        let held: usize = derived.iter().map(Scope::held_bytes).sum();
+        prop_assert_eq!(held, charges::records_room(height, bound, listed));
+    }
+}
+
+/// One answer processing a reply builds about a child the reply queries:
+/// the entries the query lists and the children this side holds beyond
+/// them.
+type ChildAnswer = (usize, usize);
+
+/// The answers processing a fully disputed reply builds one level down,
+/// one for each query the reply carries, each listing at least one entry.
+fn arb_child_answers() -> impl Strategy<Value = Vec<ChildAnswer>> {
+    proptest::collection::vec((1..=FAN, 0..=FAN), 1..=6)
+}
+
+/// The listing entries the queries behind `answers` carry together: the
+/// listing a reply's bound must allow for processing to build them.
+fn listing(answers: &[ChildAnswer]) -> usize {
+    answers.iter().map(|&(entries, ..)| entries).sum()
+}
+
+/// What processing admits one level down for `answers`: each answer's grant
+/// as the walk prices it.
+///
+/// Each answers the children its query lists and those this side holds
+/// beyond them, at most a fan, sharing none of the listed children, which
+/// prices no covered set: the least such an answer costs.
+fn answers_cost(answers: &[ChildAnswer]) -> usize {
+    answers
+        .iter()
+        .map(|&(entries, extra)| {
+            charges::answer_bound::<Erased, Infallible>((entries + extra).min(FAN), 0)
+        })
+        .sum()
+}
+
+proptest! {
+    /// A question's need is a lower bound on what processing any fully
+    /// disputed reply within its bound admits one level down.
+    ///
+    /// A fully disputed reply lists every entry its bound allows, and
+    /// processing builds an answer one level down for each query it
+    /// carries, answering at least the children the query lists, whatever
+    /// this side holds beyond them; each costs at least what the need prices it at. The questions that
+    /// processing sends two levels down are no part of the need: they claim
+    /// at their own depth.
+    #[test]
+    fn the_need_bounds_a_fully_disputed_replys_answers_below(answers in arb_child_answers()) {
+        let bound = ReplyBound { reactions: FAN, listing: listing(&answers) };
+        let need = charges::processing_need::<Erased, Infallible>(bound);
+        let cost = answers_cost(&answers);
+        prop_assert!(need <= cost, "a need of {need} B over {cost} B admitted one level down");
+    }
+
+    /// A question's need is exactly what processing the cheapest fully
+    /// disputed reply within its bound admits one level down, computed
+    /// answer by answer, and nothing more.
+    ///
+    /// That reply makes as few answers as hold its entries, a fan each,
+    /// answering only those children and exploding nothing. The need prices
+    /// those answers alone: the questions two levels down, which claim at
+    /// their own depth, add nothing to it. A reply that lists nothing is
+    /// predicted to need nothing.
+    #[test]
+    fn the_need_prices_only_the_cheapest_disputed_replys_answers(listing in 0..=65_536usize) {
+        let bound = ReplyBound { reactions: FAN, listing };
+        let need = charges::processing_need::<Erased, Infallible>(bound);
+        let answers: Vec<ChildAnswer> = (0..listing)
+            .step_by(FAN)
+            .map(|first| ((listing - first).min(FAN), 0))
+            .collect();
+        prop_assert_eq!(need, answers_cost(&answers));
+    }
+}
+
+/// The floor allowance of a walk over the in-memory backend is the "about
+/// 26.5 MiB" the memory budget's documentation sets aside out of every
+/// budget, on the 64-bit targets the documentation's figures are measured
+/// on.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn the_floor_allowance_is_the_documented_figure() {
+    const MIB: usize = 1 << 20;
+    let allowance = charges::floor_allowance::<Erased, Infallible>();
+    assert!(
+        (26 * MIB + MIB / 4..26 * MIB + 3 * MIB / 4).contains(&allowance),
+        "the floor allowance is {allowance} B, not about 26.5 MiB",
+    );
 }

@@ -61,13 +61,13 @@ pub const MIN_DECADES: f64 = 1.0;
 /// The measured allowance above the pinned slope for a within-case local
 /// slope.
 ///
-/// Measured over the calibration corpus of record (4096
-/// programs, ~2.62M steps; `bin/calibrate` re-derives the evidence on
-/// every re-pin): the maximum healthy within-case excess across every
-/// evidence-bearing (band key, case) pair was +0.013 (`ff_clock_join`,
-/// a deep `DenseSpine` draw). The allowance sits well above that observed
-/// ceiling and a third of the +1.0 a quadratic mechanism adds over a
-/// linear pin, so the gap it lives in is wide on both sides.
+/// Measured over the calibration corpus (4096 programs, ~2.62M steps;
+/// `bin/calibrate` re-derives the evidence on every re-pin): the maximum
+/// healthy within-case excess across every evidence-bearing (band key, case)
+/// pair was +0.013 (`ff_clock_join`, a deep `DenseSpine` draw). The allowance
+/// sits well above that observed ceiling and a third of the +1.0 a quadratic
+/// mechanism adds over a linear pin, so the gap it lives in is wide on both
+/// sides.
 pub const SLOPE_ALLOWANCE: f64 = 0.3;
 
 /// One kernel's within-case local slope, minus its pinned slope: the

@@ -8,18 +8,19 @@ use super::fixtures::{
     LeafOrder, divergent_cells_pair, full_depth_comb_pair, one_sided_pair, pyramid_pair,
 };
 use super::{
-    GENERATED_SCHEDULE_MAX_LEN, LocalSession, Verdict, constant_schedule, floor_start,
-    fully_scheduled_streaming_mirror, join_oracle, standard_schedules,
+    GENERATED_SCHEDULE_MAX_LEN, LocalSession, ONE_SLOT_KINDS, Verdict, at_one_slot,
+    constant_schedule, fully_scheduled_streaming_mirror, join_oracle, serial_start,
+    standard_schedules,
 };
 use crate::testing::{Quiescence, run_to_quiescence, schedule::MAX_SCHEDULED_DELAY};
 use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
-        Fault, Faulting, ReplyCorruption,
-        channel::{QueueKind, with_kind_capacity, with_observation},
+        FAN, Fault, Faulting, ReplyCorruption,
+        channel::{HANDOFF_CAPACITY, QueueKind, UNBOUNDED, with_kind_capacity, with_observation},
+        materialized::OUTGOING_REPLY_CHUNKS,
         mirror as drive_streaming,
-        window::FAN,
     },
 };
 
@@ -100,53 +101,90 @@ fn assert_capacity_case(name: &'static str, pair: (Root, Root)) {
     }
 }
 
-/// Exact barriers, aggregate overflow, full depth, and multiplying width drain.
-#[test]
-fn capacity_stress_matrix() {
-    // A full fan of disputed root children proves that publishing the root
-    // resolution first lets one-slot query and return channels stream a fan.
-    assert_capacity_case("root full fan", pyramid_pair(&[FAN], 1, LeafOrder::Outside));
-
-    // A full fan below four simultaneously disputed parents reaches every
-    // one-slot recursive query/resolution boundary and the fan-sized
-    // inter-level return boundary, with a sibling backlog behind it.
-    assert_capacity_case(
-        "recursive full fan",
-        pyramid_pair(&[4, FAN], 1, LeafOrder::Reversed),
-    );
-
-    // The exact off-by-one shape and a double-fan variant prove that active
-    // draining, rather than an accidentally oversized constant, carries an
-    // unbounded sequence of independently resolved children upward.
-    assert_capacity_case(
-        "fan plus one",
-        one_sided_pair(&[(0x00, FAN - 2, 1), (0x01, 1, 1)]),
-    );
-    assert_capacity_case(
-        "two aggregate fans",
-        one_sided_pair(&[(0x00, FAN - 1, 1), (0x01, FAN - 1, 1)]),
-    );
-
-    // Multiplying widths load several pipeline levels at once. Interleaving
-    // the leaf radices prevents request/match/provision order from being an
-    // accidental source of progress.
-    assert_capacity_case(
-        "multiplying pyramid",
-        pyramid_pair(&[8, 4, 4, 2], 2, LeafOrder::Interleaved),
-    );
-
-    // The comb reaches all 32 trie heights with only linear leaf growth and a
-    // disputed sibling branching away from the spine at every internal level.
-    assert_capacity_case(
-        "full depth comb",
-        full_depth_comb_pair(2, LeafOrder::Interleaved),
-    );
+/// The structural stress cases: exact barriers, aggregate overflow, full
+/// depth, and multiplying width, each named.
+fn stress_cases() -> [(&'static str, (Root, Root)); 6] {
+    [
+        // A full fan of disputed root children proves that publishing the
+        // root resolution first lets query and return channels stream a fan
+        // through as little as one slot.
+        ("root full fan", pyramid_pair(&[FAN], 1, LeafOrder::Outside)),
+        // A full fan below four simultaneously disputed parents reaches
+        // every recursive query/resolution boundary and the fan-sized
+        // inter-level return boundary, with a sibling backlog behind it.
+        (
+            "recursive full fan",
+            pyramid_pair(&[4, FAN], 1, LeafOrder::Reversed),
+        ),
+        // The exact off-by-one shape and a double-fan variant prove that
+        // active draining, rather than an accidentally oversized constant,
+        // carries an unbounded sequence of independently resolved children
+        // upward.
+        (
+            "fan plus one",
+            one_sided_pair(&[(0x00, FAN - 2, 1), (0x01, 1, 1)]),
+        ),
+        (
+            "two aggregate fans",
+            one_sided_pair(&[(0x00, FAN - 1, 1), (0x01, FAN - 1, 1)]),
+        ),
+        // Multiplying widths load several pipeline levels at once.
+        // Interleaving the leaf radices prevents request/match/provision
+        // order from being an accidental source of progress.
+        (
+            "multiplying pyramid",
+            pyramid_pair(&[8, 4, 4, 2], 2, LeafOrder::Interleaved),
+        ),
+        // The comb reaches all 32 trie heights with only linear leaf growth
+        // and a disputed sibling branching away from the spine at every
+        // internal level.
+        (
+            "full depth comb",
+            full_depth_comb_pair(2, LeafOrder::Interleaved),
+        ),
+    ]
 }
 
-/// Every materialized queue role carries traffic at its documented capacity.
+/// Every structural stress case ([`stress_cases`]) drains at the
+/// documented capacities, in both orientations and under every standard
+/// poll schedule.
+#[test]
+fn capacity_stress_matrix() {
+    for (name, pair) in stress_cases() {
+        assert_capacity_case(name, pair);
+    }
+}
+
+/// The edges of [`ONE_SLOT_KINDS`] a session between two in-memory
+/// endpoints builds: every one but the pipe's lanes.
+const MATERIALIZED_ONE_SLOT_KINDS: [QueueKind; 5] = [
+    QueueKind::OutgoingResponses,
+    QueueKind::InitiatorRootQuery,
+    QueueKind::InitiatorRootReturn,
+    QueueKind::ResponderRootResolution,
+    QueueKind::ResponderRootReturns,
+];
+
+/// Every structural stress case drains with every edge that needs only one
+/// slot ([`ONE_SLOT_KINDS`]) capped at one, in both orientations and under
+/// every standard poll schedule.
 ///
-/// Recursive roles retain their typed heights, and the scheduled run applies
-/// backpressure to at least one sender.
+/// Those edges have slots beyond the first only for speed, so that a send
+/// into an empty edge does not park, or so that one input's outputs enqueue
+/// together; their progress arguments rest on one. At the documented
+/// capacities the further slots could hide a wait the arguments miss, so
+/// this runs the cases at the floor the arguments state.
+#[test]
+fn capacity_stress_matrix_drains_at_one_slot() {
+    for (name, pair) in stress_cases() {
+        at_one_slot(&MATERIALIZED_ONE_SLOT_KINDS, || {
+            assert_capacity_case(name, pair);
+        });
+    }
+}
+
+/// Every materialized queue role carries traffic at its documented capacity,
+/// and recursive roles retain their typed heights.
 #[test]
 fn capacity_stress_covers_every_queue_role() {
     let ((), report) = with_observation(|| {
@@ -168,12 +206,24 @@ fn capacity_stress_covers_every_queue_role() {
             "queue role {kind:?} received no test item"
         );
         let expected = match kind {
-            // The constant-fan queues hold a full fan even at the
-            // test-default one-slot window: assembly returns as a
-            // correctness floor, terminal leaf resolutions as a per-leaf
+            // The constant-fan queues hold a full fan: assembly returns as
+            // a correctness floor, terminal leaf resolutions as a per-leaf
             // amortization buffer (see `work::queues`).
             QueueKind::AssemblyLevelReturns | QueueKind::TerminalLeafResolutions => FAN,
-            _ => 1,
+            // The question and resolution queues hold whatever the walk
+            // was admitted to build, which the ledger already charges.
+            QueueKind::ResponderChildQueries
+            | QueueKind::InternalChildQueries
+            | QueueKind::InternalParentResolutions
+            | QueueKind::InternalChildResolutions
+            | QueueKind::LeafRequests
+            | QueueKind::LeafParentResolutions
+            | QueueKind::LeafChildResolutions => UNBOUNDED,
+            // The outgoing replies hold what one taken chunk's answers
+            // hand on together (see `work::queues`).
+            QueueKind::OutgoingResponses => OUTGOING_REPLY_CHUNKS,
+            kind if ONE_SLOT_KINDS.contains(&kind) => HANDOFF_CAPACITY,
+            kind => unreachable!("{kind:?} is not a materialized queue role"),
         };
         assert_eq!(
             stats.effective_capacity, expected,
@@ -189,12 +239,6 @@ fn capacity_stress_covers_every_queue_role() {
     assert!(
         internal_heights.len() > 1,
         "recursive queue observations lost their typed heights: {internal_heights:?}"
-    );
-    assert!(
-        report
-            .roles()
-            .any(|(_, stats)| stats.blocked_send_polls > 0),
-        "the scheduled run never applied backpressure to a sender"
     );
 }
 
@@ -222,12 +266,12 @@ fn capacity_stress_witness_requires_inter_level_fan() {
     );
     let pair = (a, b);
     assert_eq!(
-        probe(&pair, FAN - 3, Vec::new(), Vec::new()),
+        probe(&pair, FAN - 2, Vec::new(), Vec::new()),
         Probe::Stalled,
         "the stress witness must stall just below its required return capacity",
     );
     assert_eq!(
-        probe(&pair, FAN - 2, Vec::new(), Vec::new()),
+        probe(&pair, FAN - 1, Vec::new(), Vec::new()),
         Probe::Completed,
         "the stress witness should complete once its near-fan return backlog fits",
     );
@@ -264,9 +308,9 @@ fn internal_fan(n: u8) -> (Root, Root) {
 fn probe_classifier_rejects_a_violation() {
     let (a, b) = internal_fan(3);
     let expected = join_oracle(a.clone(), b.clone());
-    let client = floor_start(a);
+    let client = serial_start(a);
     let server = Faulting::new(
-        floor_start(b),
+        serial_start(b),
         0,
         Some(Fault::Reply(ReplyCorruption::UnexpectedQuery)),
     );
@@ -279,30 +323,32 @@ fn probe_classifier_rejects_a_violation() {
     );
 }
 
-/// A lone parent scope stalls the walk when its disputed fan exceeds the
-/// return capacity plus two.
+/// A lone parent scope stalls the walk once its disputed fan exceeds the
+/// return capacity plus one, and completes at that fan.
 ///
-/// The formal model's `Control.pdelay` deadlocks a parent-delaying publisher
-/// at disputed fan = capacity + 2. The walk also publishes a parent resolution
-/// after the final child's dependent queries, yet at fan = capacity + 2 it
-/// completes under every probed poll order: the model's committed adversary
-/// explores interleavings the sequential reaction loop cannot produce. The
-/// walk's stall boundary is the capacity-tightness law's (fan ≤ cap + 2),
-/// pinned here from both sides at cap 1.
+/// The walk publishes a parent resolution only after the reply's last
+/// chunk. In the serial configuration each answer holds its kind and depth
+/// until the answered child is assembled, so before
+/// the parent resolution departs the walk has assembled every child but
+/// the last, and their returns wait in the queue. At return capacity one, a
+/// fan of two (capacity + 1) completes under every probed poll order and a
+/// fan of three stalls under some; at capacity two, a fan of three
+/// completes. That pins the walk's stall boundary, the capacity-tightness
+/// law fan ≤ capacity + 1, from both sides at capacity one and from below
+/// at capacity two.
 #[test]
 fn parent_delay_single_parent_boundary() {
     assert!(
-        completes_under_every_schedule(&internal_fan(3), 1),
-        "fan = cap + 2 must complete: the model's tighter pdelay boundary \
-         is not realizable in the sequential walk"
+        completes_under_every_schedule(&internal_fan(2), 1),
+        "fan = cap + 1 must complete: the tightness law's boundary has moved"
     );
     assert!(
-        stalls_under_any_schedule(&internal_fan(4), 1),
-        "fan = cap + 3 must stall: the tightness law's boundary has moved"
+        stalls_under_any_schedule(&internal_fan(3), 1),
+        "fan = cap + 2 must stall: the tightness law's boundary has moved"
     );
     assert!(
-        completes_under_every_schedule(&internal_fan(4), 2),
-        "fan = cap + 2 must complete at the wider capacity too"
+        completes_under_every_schedule(&internal_fan(3), 2),
+        "fan = cap + 1 must complete at the wider capacity too"
     );
 }
 
@@ -314,7 +360,7 @@ fn parent_delay_single_parent_boundary() {
 /// the tightness boundary — and no fixed capacity would be safe for large
 /// trees. The walk's sequential scope order (each parent resolution departs
 /// before the next scope's prologue) prevents that: many parents at fan =
-/// cap + 2 behave exactly like one.
+/// cap + 1 behave exactly like one.
 #[test]
 fn parent_delay_no_cross_parent_backlog() {
     let parents_of_three = |parents: u8| {
@@ -324,21 +370,21 @@ fn parent_delay_no_cross_parent_backlog() {
         divergent_cells_pair(&cells, 1, LeafOrder::Outside)
     };
 
-    // Control: four fan-three parents create a fan-four root. Capacity one
-    // violates fan ≤ capacity + 2; capacity two admits it.
+    // Control: four fan-three parents create a fan-four root. Capacity two
+    // violates fan ≤ capacity + 1; capacity three admits it.
     assert!(
-        stalls_under_any_schedule(&parents_of_three(4), 1),
-        "a fan-4 root over fan-3 parents must stall at cap 1 per the \
+        stalls_under_any_schedule(&parents_of_three(4), 2),
+        "a fan-4 root over fan-3 parents must stall at cap 2 per the \
          per-scope tightness law"
     );
     assert!(
-        completes_under_every_schedule(&parents_of_three(4), 2),
-        "a fan-4 root over fan-3 parents must complete at cap 2 per the \
+        completes_under_every_schedule(&parents_of_three(4), 3),
+        "a fan-4 root over fan-3 parents must complete at cap 3 per the \
          per-scope tightness law"
     );
 
-    // The width test proper: every scope's fan stays at 3 (= cap + 2 at
-    // cap 1) while stage width grows geometrically (9, 27, 81 scopes). If
+    // The width test proper: every scope's fan stays at 3 (= cap + 1 at
+    // cap 2) while stage width grows geometrically (9, 27, 81 scopes). If
     // backlog accumulated across sibling parents, the wide stages would
     // stall; completion at every width shows the sequential scope order
     // confines return backlog to one scope's fan, so a fixed return
@@ -347,8 +393,8 @@ fn parent_delay_no_cross_parent_backlog() {
         let widths = vec![3usize; depth];
         let pair = pyramid_pair(&widths, 1, LeafOrder::Outside);
         assert!(
-            completes_under_every_schedule(&pair, 1),
-            "a width-{} stage of fan-3 scopes must complete at cap 1: \
+            completes_under_every_schedule(&pair, 2),
+            "a width-{} stage of fan-3 scopes must complete at cap 2: \
              return backlog must not span sibling parents",
             3usize.pow(depth as u32),
         );

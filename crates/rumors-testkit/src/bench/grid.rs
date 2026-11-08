@@ -28,9 +28,9 @@
 
 use std::iter;
 
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors, Version};
+use rumors::{Rumors, Version};
+
+use crate::common::seed::NetworkSeed;
 
 #[path = "grid/wire.rs"]
 pub mod wire;
@@ -141,9 +141,13 @@ pub fn cells() -> impl Iterator<Item = Cell> {
     })
 }
 
+/// The seed of every grid cell's network, fixed so that each cell's tree
+/// shape, and with it the work the grid measures, is the same on every run.
+const GRID_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0x36f7_bde7_e10e_5c65);
+
 /// Build the two peers for one grid cell.
 ///
-/// `left` is a fresh [`Peer::seed`]; `right` is a genuine disjoint peer created
+/// `left` founds the network `GRID_NETWORK_SEED` names; `right` is a genuine disjoint peer created
 /// from it via [`wire::bootstrap_fork`], so their parties are disjoint (the
 /// precondition for `gossip`). The shared prefix is inserted before the
 /// split; the `differing` messages and `redacted` deletions are applied
@@ -155,8 +159,7 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         redacted,
     } = cell;
 
-    let mut rng = ChaChaRng::seed_from_u64(0x36f7_bde7_e10e_5c65);
-    let left: Rumors<()> = Peer::seed_rng(&mut rng).into_rumors();
+    let left: Rumors<()> = GRID_NETWORK_SEED.peer().into_rumors();
     send_units(&left, common);
     let shared = (redacted > 0).then(|| {
         // Capture the shared prefix before either peer adds its own messages.

@@ -1,48 +1,41 @@
 //! Wire-fault injection for the disruption simulation: deterministic,
-//! byte-budgeted severing of either direction of a gossip link.
+//! byte-budgeted severing of either direction of a gossip connection.
 //!
 //! A "dropped connection" in the simulation is one or both directions of a
-//! [`rumors::Link`] tripping at an arbitrary byte offset mid-session:
+//! session's connection tripping at an arbitrary byte offset mid-session:
 //!
 //! - [`Fuse`] forwards writes until its budget is exhausted, then fails
 //!   every write with [`BrokenPipe`] — the connection died under our pen.
 //! - [`Cut`] forwards reads until its budget is exhausted, then fails every
 //!   read with [`ConnectionReset`] — the connection died under our eyes.
 //!
-//! Each budget is shared across every stream of its direction -- the control
-//! half and each data stream draw on one counter -- so the cut lands at a
-//! chosen offset in the endpoint's total traffic, wherever that byte
-//! happens to travel. A severed direction also refuses new streams: once
-//! its budget is exhausted, [`FaultConnector::connect`] fails alongside the
-//! writers and [`FaultAcceptor::accept`] alongside the readers, because a
-//! dead connection cannot open or deliver streams any more than it can
-//! carry bytes. The wrapped side observes the cut as an error; its
-//! counterparty observes it as end-of-stream (and a truncated frame) once
-//! the failing side's link drops, or as its own write error against the
-//! closed transport. Either way the session dies somewhere the protocol did
-//! not choose, which is exactly the disruption the simulation is after.
+//! Each budget counts its direction's bytes from the session's first, so
+//! the cut lands at a chosen offset in the endpoint's traffic, whatever
+//! item that byte belongs to. The wrapped side observes the cut as an
+//! error; its counterparty observes it as end-of-stream (and a truncated
+//! item) once the failing side's connection drops, or as its own write
+//! error against the closed transport. Either way the session dies
+//! somewhere the protocol did not choose, which is exactly the disruption
+//! the simulation is after.
 //!
 //! A *vanish* is the other way a peer dies: not a wire error it can
 //! observe, but the peer itself gone mid-protocol, as a crashed process
 //! is. At its [`Vanish`] point the endpoint's session is dropped where it
-//! stands, its link halves with it and without any shutdown, and every
-//! stream it owes is never opened. Its counterparty sees exactly what a
-//! vanished socket gives: end-of-stream on what was open, a refused open
-//! toward the dead peer, and an accept that waits forever for a stream
-//! nobody will open. [`drive`] runs a session under such a plan.
+//! stands, its connection halves with it and without any shutdown. Its
+//! counterparty sees exactly what a vanished socket gives: end-of-stream.
+//! [`drive`] runs a session under such a plan.
 //!
 //! [`BrokenPipe`]: std::io::ErrorKind::BrokenPipe
 //! [`ConnectionReset`]: std::io::ErrorKind::ConnectionReset
 
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-use rumors::link::{Acceptor, Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink};
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
-use tokio::sync::Notify;
+use rumors::testing::MemoryEnd;
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
+use tokio::sync::SetOnce;
 
 /// One endpoint's fault plan: byte budgets after which its write
 /// (respectively read) direction fails, and the point at which the
@@ -58,30 +51,17 @@ pub struct FaultPlan {
 }
 
 /// The point at which an endpoint vanishes: its session is dropped there
-/// without any shutdown, its link halves with it, and any stream it owes
-/// is never opened.
+/// without any shutdown, its connection halves with it.
+///
+/// The endpoint vanishes at its first write after it has written `offset`
+/// bytes, so a vanish can land anywhere in its outgoing traffic: inside the
+/// preamble or greeting, inside a frame, between frames, or in the closing
+/// items. An endpoint that writes no more than `offset` bytes never reaches
+/// the point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Vanish {
-    /// While writing the `index`-th data stream it opened, `offset` bytes
-    /// into that stream.
-    ///
-    /// The next write there is where the endpoint dies, mid-frame like a
-    /// cut. An endpoint that opens fewer streams, or writes no more than
-    /// `offset` bytes on that one, never reaches the point.
-    OnStream {
-        /// Zero-based index among data streams opened by this endpoint.
-        index: usize,
-        /// Bytes successfully written before the endpoint vanishes.
-        offset: usize,
-    },
-    /// At its first outgoing stream open: after the handshake, which rides
-    /// the control half, and before its first data stream.
-    AtFirstConnect,
-    /// While writing the control stream, after `offset` bytes.
-    OnControl {
-        /// Bytes successfully written before the endpoint vanishes.
-        offset: usize,
-    },
+pub struct Vanish {
+    /// Bytes successfully written before the endpoint vanishes.
+    pub offset: usize,
 }
 
 impl FaultPlan {
@@ -94,15 +74,16 @@ impl FaultPlan {
     };
 }
 
-/// The faulted shape of one in-memory link endpoint.
-pub type FaultyLink = Link<
-    Cut<DuplexStream>,
-    Fuse<DuplexStream>,
-    FaultConnector<MemoryConnector>,
-    FaultAcceptor<MemoryAcceptor>,
->;
+/// One in-memory connection end under a fault plan: the two halves a
+/// session takes, each drawing on its direction's budget.
+pub struct FaultyEnd {
+    /// The read half, failing once the read budget is spent.
+    pub read: Cut<BufReader<DuplexStream>>,
+    /// The write half, failing once the write budget is spent.
+    pub write: Fuse<DuplexStream>,
+}
 
-/// Wrap one in-memory link endpoint in `plan`'s budgets.
+/// Wrap one in-memory connection end in `plan`'s budgets.
 ///
 /// A clean plan still wraps (with effectively-infinite budgets), so every
 /// call site handles one pair of types regardless of whether it faults.
@@ -111,39 +92,33 @@ pub type FaultyLink = Link<
 ///
 /// If the plan vanishes: a vanishing endpoint's session must be driven by
 /// [`drive`], which owns dropping it at the point.
-pub fn faulty(link: MemoryLink, plan: FaultPlan) -> FaultyLink {
+pub fn faulty(end: MemoryEnd, plan: FaultPlan) -> FaultyEnd {
     assert!(
         plan.vanish.is_none(),
         "a vanishing endpoint's session is driven by `drive`"
     );
-    wrap(link, plan).0
+    wrap(end, plan).0
 }
 
 /// Stop I/O at a byte boundary and signal that the session has stalled.
 /// Using the signal as a deadline tests real timeout recovery without injecting
 /// a transport error or dropping the session from outside.
-pub fn stall_at(link: MemoryLink, point: Vanish) -> (FaultyLink, impl Future<Output = ()> + Send) {
-    let (link, stalled, _) = wrap(
-        link,
+pub fn stall_at(end: MemoryEnd, point: Vanish) -> (FaultyEnd, impl Future<Output = ()> + Send) {
+    let (end, stalled) = wrap(
+        end,
         FaultPlan {
             vanish: Some(point),
             ..FaultPlan::NONE
         },
     );
     let stalled = stalled.expect("a stall point was supplied");
-    (link, async move { stalled.vanished().await })
+    (end, async move { stalled.vanished().await })
 }
 
 /// What [`drive`] leaves behind.
-///
-/// Keep it alive until the counterparty's session has ended: after a
-/// vanish it holds the vanished endpoint's stream supply open, so the
-/// counterparty's accepts wait as they would on a dead peer's listener
-/// instead of erroring on a closed supply.
 pub struct Driven<Out> {
     /// The session's outcome, or `None` if the endpoint vanished first.
     pub outcome: Option<Out>,
-    _supply: Option<MemoryConnector>,
 }
 
 impl<Out> Driven<Out> {
@@ -153,37 +128,30 @@ impl<Out> Driven<Out> {
     }
 }
 
-/// Run `session` over `link` under `plan`, vanishing at the plan's point.
+/// Run `session` over `end` under `plan`, vanishing at the plan's point.
 ///
-/// Without a vanish this is `session` over [`faulty`]'s link. With one,
-/// the session is polled until the endpoint reaches its point, where its
-/// session future and its link halves are dropped with no shutdown: the
-/// counterparty then reads end-of-stream on the control half and on every
-/// open stream, its opens toward the vanished peer fail, and its accepts
-/// wait for streams that never come (see [`Driven`]).
+/// The session owns the faulted end's halves. Without a vanish this is
+/// `session` over [`faulty`]'s end. With one, the session is polled until
+/// the endpoint reaches its point, where the session future, and the
+/// connection halves it owns, are dropped with no shutdown: the
+/// counterparty then reads end-of-stream.
 pub async fn drive<Out>(
-    link: MemoryLink,
+    end: MemoryEnd,
     plan: FaultPlan,
-    session: impl AsyncFnOnce(&mut FaultyLink) -> Out,
+    session: impl AsyncFnOnce(FaultyEnd) -> Out,
 ) -> Driven<Out> {
-    let (mut link, vanish, supply) = wrap(link, plan);
+    let (end, vanish) = wrap(end, plan);
     let Some(vanish) = vanish else {
         return Driven {
-            outcome: Some(session(&mut link).await),
-            _supply: None,
+            outcome: Some(session(end).await),
         };
     };
     let outcome = tokio::select! {
         biased;
-        outcome = session(&mut link) => Some(outcome),
+        outcome = session(end) => Some(outcome),
         () = vanish.vanished() => None,
     };
-    let vanished = outcome.is_none();
-    drop(link);
-    Driven {
-        outcome,
-        _supply: vanished.then_some(supply),
-    }
+    Driven { outcome }
 }
 
 /// Observer for the bytes one endpoint has moved through its fault
@@ -197,181 +165,110 @@ pub async fn drive<Out>(
 pub struct ByteMeter {
     write: Budget,
     read: Budget,
-    streams: Streams,
 }
 
 impl ByteMeter {
-    /// Total bytes the endpoint has written, across the control half and
-    /// every data stream.
+    /// Total bytes the endpoint has written: the counter a `write_cut` and
+    /// a [`Vanish`] offset spend.
     pub fn written(&self) -> usize {
         usize::MAX - *self.write.lock().expect("write budget lock")
     }
 
-    /// Total bytes the endpoint has read, across the control half and
-    /// every data stream: the counter a `read_cut` spends.
+    /// Total bytes the endpoint has read: the counter a `read_cut` spends.
     pub fn read(&self) -> usize {
         usize::MAX - *self.read.lock().expect("read budget lock")
     }
-
-    /// Data streams the endpoint has opened: the ordinals a
-    /// [`Vanish::OnStream`] can name.
-    pub fn streams_opened(&self) -> usize {
-        self.streams.lock().expect("stream ledger lock").len()
-    }
-
-    /// Most bytes the endpoint wrote on any one data stream: the offsets
-    /// a [`Vanish::OnStream`] can reach.
-    pub fn widest_stream(&self) -> usize {
-        self.streams
-            .lock()
-            .expect("stream ledger lock")
-            .iter()
-            .copied()
-            .max()
-            .unwrap_or(0)
-    }
 }
 
-/// Wrap one clean in-memory link endpoint with byte metering: no fault
+/// Wrap one clean in-memory connection end with byte metering: no fault
 /// ever fires (the budgets are effectively infinite), and the returned
 /// [`ByteMeter`] reads out the endpoint's cumulative traffic.
-pub fn metered(link: MemoryLink) -> (FaultyLink, ByteMeter) {
-    let (link, (write, read, streams), _) = wrap_with(link, budget(None), budget(None), None);
-    (
-        link,
-        ByteMeter {
-            write,
-            read,
-            streams,
-        },
-    )
+pub fn metered(end: MemoryEnd) -> (FaultyEnd, ByteMeter) {
+    let write = budget(None);
+    let read = budget(None);
+    let end = wrap_with(end, write.clone(), read.clone(), None);
+    (end, ByteMeter { write, read })
 }
 
-/// Wrap `link` under `plan`: the wrapped link, its vanish state if the plan
-/// vanishes, and a clone of the endpoint's stream supply.
-fn wrap(
-    link: MemoryLink,
-    plan: FaultPlan,
-) -> (FaultyLink, Option<Arc<VanishState>>, MemoryConnector) {
+/// Wrap `end` under `plan`: the wrapped end, and its vanish state if the
+/// plan vanishes.
+fn wrap(end: MemoryEnd, plan: FaultPlan) -> (FaultyEnd, Option<Arc<VanishState>>) {
     let vanish = plan.vanish.map(VanishState::new);
-    let (link, _, supply) = wrap_with(
-        link,
+    let end = wrap_with(
+        end,
         budget(plan.write_cut),
         budget(plan.read_cut),
         vanish.clone(),
     );
-    (link, vanish, supply)
+    (end, vanish)
 }
 
+/// Wrap both halves of `end` in budgets and an optional vanish point.
 fn wrap_with(
-    link: MemoryLink,
+    end: MemoryEnd,
     write: Budget,
     read: Budget,
     vanish: Option<Arc<VanishState>>,
-) -> (FaultyLink, (Budget, Budget, Streams), MemoryConnector) {
-    let supply = link.connector.clone();
-    let streams: Streams = Arc::new(Mutex::new(Vec::new()));
-    let link = link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            Cut::new(control_read, read.clone(), vanish.clone()),
-            Fuse::new(control_write, write.clone(), vanish.clone(), None),
-            FaultConnector {
-                inner: connector,
-                budget: write.clone(),
-                vanish: vanish.clone(),
-                streams: streams.clone(),
-            },
-            FaultAcceptor {
-                inner: acceptor,
-                budget: read.clone(),
-                vanish,
-            },
-        )
-    });
-    (link, (write, read, streams), supply)
+) -> FaultyEnd {
+    FaultyEnd {
+        read: Cut::new(end.read, read, vanish.clone()),
+        write: Fuse::new(end.write, write, vanish),
+    }
 }
-
-/// One endpoint's data streams in open order, each with the bytes written
-/// on it: the ledger a [`Vanish::OnStream`] indexes and a [`ByteMeter`]
-/// reads out.
-type Streams = Arc<Mutex<Vec<usize>>>;
 
 /// A direction's shared byte budget.
 type Budget = Arc<Mutex<usize>>;
 
+/// A byte budget that runs out after `cut` bytes, or effectively never.
 fn budget(cut: Option<usize>) -> Budget {
     Arc::new(Mutex::new(cut.unwrap_or(usize::MAX)))
 }
 
-/// One endpoint's progress toward its [`Vanish`] point, shared by every
-/// wrapper of its link.
+/// One endpoint's progress toward its [`Vanish`] point, shared by both
+/// halves of its connection.
 ///
 /// Reaching the point *trips* the state: the tripping operation returns
 /// `Pending` without arranging a wake, every later operation does the
 /// same, and [`vanished`](Self::vanished) resolves so the driver can drop
 /// the session. Nothing this endpoint owns makes progress again.
 struct VanishState {
-    point: Vanish,
-    /// Bytes the named data or control stream can write before vanishing.
+    /// Bytes the endpoint can still write before vanishing.
     remaining: Mutex<usize>,
-    tripped: AtomicBool,
-    notify: Notify,
+    /// Set once the point is reached; every operation after it parks.
+    tripped: SetOnce<()>,
 }
 
 impl VanishState {
     /// Share the departure trigger and its remaining byte budget.
     fn new(point: Vanish) -> Arc<Self> {
         Arc::new(Self {
-            point,
-            remaining: Mutex::new(match point {
-                Vanish::OnStream { offset, .. } | Vanish::OnControl { offset } => offset,
-                Vanish::AtFirstConnect => usize::MAX,
-            }),
-            tripped: AtomicBool::new(false),
-            notify: Notify::new(),
+            remaining: Mutex::new(point.offset),
+            tripped: SetOnce::new(),
         })
     }
 
     /// Whether the session must stop all further I/O.
     fn tripped(&self) -> bool {
-        self.tripped.load(Ordering::Acquire)
+        self.tripped.initialized()
     }
 
     /// Stop the endpoint and wake its session owner.
     fn trip(&self) {
-        self.tripped.store(true, Ordering::Release);
-        self.notify.notify_one();
+        // A second trip, from a write racing the first, finds the point
+        // already reached and changes nothing.
+        let _ = self.tripped.set(());
     }
 
     /// Resolves once the point is reached.
     async fn vanished(&self) {
-        loop {
-            if self.tripped() {
-                return;
-            }
-            self.notify.notified().await;
-        }
+        self.tripped.wait().await;
     }
 
-    /// Whether `stream` (a data stream's ordinal; `None` is the control
-    /// half) is the one the point names.
-    fn at_point(&self, stream: Option<usize>) -> bool {
-        match self.point {
-            Vanish::OnStream { index, .. } => stream == Some(index),
-            Vanish::OnControl { .. } => stream.is_none(),
-            Vanish::AtFirstConnect => false,
-        }
-    }
-
-    /// How many of `len` bytes a write on `stream` may admit, or `None`
-    /// once the endpoint has vanished (tripping it if this write is the
-    /// point).
-    fn admit(&self, stream: Option<usize>, len: usize) -> Option<usize> {
+    /// How many of `len` bytes a write may admit, or `None` once the
+    /// endpoint has vanished (tripping it if this write is the point).
+    fn admit(&self, len: usize) -> Option<usize> {
         if self.tripped() {
             return None;
-        }
-        if !self.at_point(stream) {
-            return Some(len);
         }
         let remaining = *self.remaining.lock().expect("vanish budget lock");
         if remaining == 0 {
@@ -381,24 +278,9 @@ impl VanishState {
         Some(len.min(remaining))
     }
 
-    /// Charge bytes actually written on the selected stream.
-    fn wrote(&self, stream: Option<usize>, bytes: usize) {
-        if self.at_point(stream) {
-            *self.remaining.lock().expect("vanish budget lock") -= bytes;
-        }
-    }
-
-    /// Whether a stream open may proceed (tripping if the open is the
-    /// point).
-    fn may_connect(&self) -> bool {
-        if self.tripped() {
-            return false;
-        }
-        if let Vanish::AtFirstConnect = self.point {
-            self.trip();
-            return false;
-        }
-        true
+    /// Charge bytes actually written.
+    fn wrote(&self, bytes: usize) {
+        *self.remaining.lock().expect("vanish budget lock") -= bytes;
     }
 }
 
@@ -407,8 +289,7 @@ fn vanished(vanish: &Option<Arc<VanishState>>) -> bool {
     vanish.as_ref().is_some_and(|v| v.tripped())
 }
 
-/// The failure every write-direction surface reports once its budget is
-/// exhausted: writers and the connector fail identically.
+/// The failure every write reports once the write budget is exhausted.
 fn write_severed() -> io::Error {
     io::Error::new(
         io::ErrorKind::BrokenPipe,
@@ -416,100 +297,12 @@ fn write_severed() -> io::Error {
     )
 }
 
-/// The failure every read-direction surface reports once its budget is
-/// exhausted: readers and the acceptor fail identically.
+/// The failure every read reports once the read budget is exhausted.
 fn read_severed() -> io::Error {
     io::Error::new(
         io::ErrorKind::ConnectionReset,
         "fault injection: read budget exhausted",
     )
-}
-
-/// A connector whose opened streams draw on the endpoint's write budget,
-/// and which itself fails once that budget is exhausted (or parks once
-/// the endpoint has vanished).
-pub struct FaultConnector<C> {
-    inner: C,
-    budget: Budget,
-    vanish: Option<Arc<VanishState>>,
-    streams: Streams,
-}
-
-impl<C: Clone> Clone for FaultConnector<C> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            budget: self.budget.clone(),
-            vanish: self.vanish.clone(),
-            streams: self.streams.clone(),
-        }
-    }
-}
-
-impl<C: Connector> Connector for FaultConnector<C> {
-    type Tx = Fuse<C::Tx>;
-
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        if let Some(vanish) = &self.vanish
-            && !vanish.may_connect()
-        {
-            std::future::pending::<()>().await;
-            unreachable!("a vanished endpoint never resumes");
-        }
-        // A dead write direction cannot open new streams either; this is
-        // what lets a cut exercise `SendError::Connect` deterministically
-        // instead of only through real-transport races.
-        if *self.budget.lock().expect("write budget lock") == 0 {
-            return Err(write_severed());
-        }
-        let (tx, done) = self.inner.connect().await?;
-        let ordinal = {
-            let mut streams = self.streams.lock().expect("stream ledger lock");
-            streams.push(0);
-            streams.len() - 1
-        };
-        // Completion unwraps the fuse and passes the half through.
-        Ok((
-            Fuse::new(
-                tx,
-                self.budget.clone(),
-                self.vanish.clone(),
-                Some((ordinal, self.streams.clone())),
-            ),
-            Done::new(move |fuse: Fuse<C::Tx>| done.complete(fuse.inner)),
-        ))
-    }
-}
-
-/// An acceptor whose accepted streams draw on the endpoint's read budget,
-/// and which itself fails once that budget is exhausted (or parks once
-/// the endpoint has vanished).
-pub struct FaultAcceptor<A> {
-    inner: A,
-    budget: Budget,
-    vanish: Option<Arc<VanishState>>,
-}
-
-impl<A: Acceptor> Acceptor for FaultAcceptor<A> {
-    type Rx = Cut<A::Rx>;
-
-    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
-        if vanished(&self.vanish) {
-            std::future::pending::<()>().await;
-        }
-        // A dead read direction cannot deliver new streams either; this
-        // reaches the session's deferred supply-failure path (the parked
-        // accept driver) deterministically rather than only via races.
-        if *self.budget.lock().expect("read budget lock") == 0 {
-            return Err(read_severed());
-        }
-        let (rx, done) = self.inner.accept().await?;
-        // Completion unwraps the cut and passes the half through.
-        Ok((
-            Cut::new(rx, self.budget.clone(), self.vanish.clone()),
-            Done::new(move |cut: Cut<A::Rx>| done.complete(cut.inner)),
-        ))
-    }
 }
 
 /// An [`AsyncWrite`] that forwards writes until a shared byte budget is
@@ -521,30 +314,16 @@ pub struct Fuse<W> {
     inner: W,
     remaining: Budget,
     vanish: Option<Arc<VanishState>>,
-    /// Which data stream this writer is and the ledger it reports to;
-    /// `None` is the control half.
-    stream: Option<(usize, Streams)>,
 }
 
 impl<W> Fuse<W> {
     /// Combine the writer with its cut and departure budgets.
-    fn new(
-        inner: W,
-        remaining: Budget,
-        vanish: Option<Arc<VanishState>>,
-        stream: Option<(usize, Streams)>,
-    ) -> Self {
+    fn new(inner: W, remaining: Budget, vanish: Option<Arc<VanishState>>) -> Self {
         Self {
             inner,
             remaining,
             vanish,
-            stream,
         }
-    }
-
-    /// The data stream index, or `None` for control traffic.
-    fn ordinal(&self) -> Option<usize> {
-        self.stream.as_ref().map(|(ordinal, _)| *ordinal)
     }
 }
 
@@ -559,7 +338,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
         // A vanish point inside this write parks it (and every later
         // operation) with no wake; the driver drops the session.
         let before_vanish = match &this.vanish {
-            Some(vanish) => match vanish.admit(this.ordinal(), buf.len()) {
+            Some(vanish) => match vanish.admit(buf.len()) {
                 Some(admitted) => admitted,
                 None => return Poll::Pending,
             },
@@ -576,10 +355,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
             Poll::Ready(Ok(n)) => {
                 *remaining -= n;
                 if let Some(vanish) = &this.vanish {
-                    vanish.wrote(this.ordinal(), n);
-                }
-                if let Some((ordinal, streams)) = &this.stream {
-                    streams.lock().expect("stream ledger lock")[*ordinal] += n;
+                    vanish.wrote(n);
                 }
                 Poll::Ready(Ok(n))
             }
@@ -604,10 +380,15 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
     }
 }
 
-/// An [`AsyncRead`] that forwards reads until a shared byte budget is
-/// exhausted, then fails every read with [`ConnectionReset`]: the read-side
-/// twin of [`Fuse`], for sessions that die while a frame is in flight
-/// toward us.
+/// A buffered read half that forwards reads until a shared byte budget is
+/// exhausted, then fails every read with [`ConnectionReset`].
+///
+/// It is the read-side twin of [`Fuse`], for sessions that die while a
+/// frame is in flight toward us.
+///
+/// The budget counts the bytes the session consumes, whether it reads them
+/// or takes them from the buffer: a look into the buffer shows at most the
+/// bytes the budget has left, and consuming them spends it.
 ///
 /// [`ConnectionReset`]: std::io::ErrorKind::ConnectionReset
 pub struct Cut<R> {
@@ -654,5 +435,40 @@ impl<R: AsyncRead + Unpin> AsyncRead for Cut<R> {
             }
             other => other,
         }
+    }
+}
+
+/// Show and consume buffered bytes within the budget.
+impl<R: AsyncBufRead + Unpin> AsyncBufRead for Cut<R> {
+    /// Fills through, showing at most the bytes the budget has left; fails
+    /// once it is spent.
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+        let this = self.get_mut();
+        if vanished(&this.vanish) {
+            return Poll::Pending;
+        }
+        let remaining = *this.remaining.lock().expect("read budget lock");
+        if remaining == 0 {
+            return Poll::Ready(Err(read_severed()));
+        }
+        Pin::new(&mut this.inner)
+            .poll_fill_buf(cx)
+            .map_ok(|buf| &buf[..buf.len().min(remaining)])
+    }
+
+    /// Spends `amount` of the budget, then consumes through.
+    ///
+    /// # Panics
+    ///
+    /// If `amount` exceeds the budget left, which only a reader consuming
+    /// more than `poll_fill_buf` showed it can do: the trait forbids that.
+    fn consume(self: Pin<&mut Self>, amount: usize) {
+        let this = self.get_mut();
+        let mut remaining = this.remaining.lock().expect("read budget lock");
+        *remaining = remaining.checked_sub(amount).expect(
+            "a reader consumes at most the bytes fill_buf showed it, which the budget bounds",
+        );
+        drop(remaining);
+        Pin::new(&mut this.inner).consume(amount);
     }
 }

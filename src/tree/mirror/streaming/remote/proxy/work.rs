@@ -1,59 +1,51 @@
 //! Background work accumulated by the remote protocol states.
 //!
-//! [`Work`] owns the translation tasks created as the typestate advances.
-//! [`stages`] wires each transition, [`encode`] writes local replies,
-//! [`opening_supplies`] pairs early supplies with their requests, and [`queues`]
-//! owns the internal channel capacities. The terminal operation drives these
-//! tasks with the stream acceptor and incoming error route.
+//! [`Work`] owns the translation tasks created as the typestate advances,
+//! and the session's pipe. [`stages`] wires each transition, [`encode`]
+//! writes local replies, and [`queues`] owns the internal channel
+//! capacities. The terminal operation drives these tasks together with the
+//! pipe's multiplexer and demultiplexer, as members of one task set
+//! ([`drive`]).
 
-use std::io::Cursor;
-use std::pin::{Pin, pin};
-use tokio::io::{AsyncRead, AsyncReadExt, Chain};
+use crate::tree::mirror::streaming::ledger::Charge;
+use crate::tree::mirror::streaming::message::{Grandchildren, Listed};
+use std::sync::Arc;
 
-use futures::{Stream, StreamExt, future::BoxFuture};
+use futures::{TryFutureExt, future::BoxFuture};
+use tokio::io::{AsyncBufRead, AsyncWrite};
 
 use crate::{
-    link::Acceptor,
     message::PayloadCodec,
+    network::NetworkKeys,
+    observe::SessionHandle,
     tree::{
         mirror::streaming::{
             Backend, Leaf,
-            channel::{QueueKind, QueueRole, Sender},
+            channel::{Receiver, Sender},
             erased,
-            materialized::SupplyLedger,
+            holding::Holding,
+            materialized::{SupplyLedger, derived_bytes},
             protocol::BoxResponses,
             remote::{
-                codec::{RunBudget, Speaker},
+                adapter::{Replay, ReplyLevel, Scope, SupplyBounds, derive_questions},
+                codec::{RunBudget, Speaker, Stream as LogicalStream},
+                pipe::{self, Demultiplexer, Inbound, Multiplexer, Outgoing, PipeRead, WirePools},
                 proxy::{Error, send_or_cancel},
-                streams::{AcceptDriver, AcceptError, FirstStreamError},
             },
-            tasks::complete,
-            window::Window,
+            stats::Recorder,
+            tasks::TaskRole,
         },
-        typed::{
-            Hash,
-            height::{Height, Z},
-        },
+        typed::height::{Height, Z},
     },
 };
 
 use self::progress::Progress;
 
+mod drive;
 mod encode;
-mod opening_supplies;
 pub(super) mod progress;
 mod queues;
 mod stages;
-
-/// Remaining control input, with bytes read by the departure watch replayed first.
-///
-/// Tree replies and message payloads travel on separate data streams and never
-/// enter this buffer. A conforming peer can send its completion marker and,
-/// during bootstrap or retirement, an identity donation while our
-/// reconciliation is still running. The buffer has no fixed byte cap: ordinary
-/// gossip needs at most the two-byte marker; an identity donation during
-/// retirement or bootstrap can also append its encoded party.
-pub type ControlRead<R> = Chain<Cursor<Vec<u8>>, R>;
 
 /// Backend and validation state shared by every incoming reply decoder.
 #[derive(Clone)]
@@ -63,119 +55,120 @@ where
 {
     /// The store used to reconstruct supplied nodes.
     backend: B,
-    /// The peer's declared maximum encoded version size.
-    version_bytes: u64,
-    /// The peer's remaining declared supply allowance.
+    /// What every supplied leaf's version must satisfy.
+    bounds: SupplyBounds,
+    /// The leaves the peer can still supply, counted against the set length
+    /// its greeting declared.
     ledger: SupplyLedger,
+    /// The peer's declared grandchild count of its root, which bounds its
+    /// reply to the local opening question when it responds.
+    root_grandchildren: Grandchildren,
     /// The codec used to decode supplied messages.
     codec: PayloadCodec,
+    /// The network's keys, whose path key places supplied leaves; `None`
+    /// admits no supply.
+    ///
+    /// Shared, because the keyed hash states are a few hundred bytes and
+    /// this handle moves through every greeting state into the session's
+    /// future.
+    keys: Option<Arc<NetworkKeys>>,
 }
 
 impl<B> Ingress<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    /// Combine the backend with the peer's greeting-derived decode limits.
-    pub(super) fn new(backend: B, version_bytes: u64, set_len: u64, codec: PayloadCodec) -> Self {
+    /// Combine the backend with the decode limits derived from the two
+    /// greetings.
+    pub(super) fn new(
+        backend: B,
+        bounds: SupplyBounds,
+        set_len: u64,
+        root_grandchildren: Grandchildren,
+        codec: PayloadCodec,
+        keys: Option<Arc<NetworkKeys>>,
+    ) -> Self {
         Self {
             backend,
-            version_bytes,
+            bounds,
             ledger: SupplyLedger::new(set_len),
+            root_grandchildren,
             codec,
-        }
-    }
-}
-
-/// Watch for control EOF while preserving later session items for their
-/// readers.
-///
-/// During reconciliation the peer may send its identity donation or completion
-/// marker before our data-stream work finishes. Keep those bytes in order and
-/// continue to EOF; stopping at the first byte would miss a departure after a
-/// partially delivered donation. The peer must await our completion marker
-/// before starting its next session.
-///
-/// This watch stops when reconciliation returns. The returned [`ControlRead`]
-/// then replays the saved bytes to the identity and completion readers before
-/// they resume reading the transport.
-async fn departure(read: &mut (impl AsyncRead + Unpin), ahead: &mut Vec<u8>) -> std::io::Error {
-    let mut buffer = [0; 64];
-    loop {
-        match read.read(&mut buffer).await {
-            Ok(0) => return std::io::ErrorKind::UnexpectedEof.into(),
-            Ok(len) => ahead.extend_from_slice(&buffer[..len]),
-            Err(error) => return error,
+            keys,
         }
     }
 }
 
 /// Deferred translation tasks and the physical session which drives them.
-pub struct Work<B, R, W, A>
+pub struct Work<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    A: Acceptor,
 {
     /// Backend and validation state for incoming replies.
     ingress: Ingress<B>,
-    /// Per-edge capacity for the proxy's question and scope queues.
-    window: Window,
-    /// Byte budget for each outgoing supply run.
+    /// Byte budget for each outgoing supply run, also enforced on every
+    /// incoming one.
     budget: RunBudget,
-    /// The remote greeting's root-fan listing, consumed by whichever role
-    /// the election assigns.
-    ///
-    /// [`initiator`](Self::initiator) replays it as the remote's opening
-    /// question; [`opening_responder`](Self::opening_responder) merges the
-    /// local opening's listing against it to decide whether the
-    /// early-supply stream opens.
-    remote_listing: Vec<(u8, Hash)>,
-    /// Transport and error reporting shared by the tasks.
-    physical: Physical<R, W, A>,
+    /// The session's wire pools: each run's bytes, in either direction,
+    /// from before they exist until they are gone.
+    pools: WirePools,
+    /// The remote greeting's root-fan listing, which
+    /// [`initiator`](Self::initiator) replays as the remote's opening
+    /// question when the remote initiates.
+    remote_listing: Vec<Listed>,
+    /// The pipe and the tasks that connect logical streams to it.
+    physical: Physical<R, W>,
     /// Tasks driven concurrently when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
+    /// The session's stats recorder: the pipe's frame counts.
+    stats: Recorder,
+    /// The session's observation handle, through which the pipe delivers
+    /// each frame to its logical stream's observer.
+    observe: SessionHandle,
     /// Records reply and scope publication order in tests.
     progress: Progress,
 }
 
-/// Transport ownership and incoming error reporting for one session.
-pub struct Physical<R, W, A>
-where
-    A: Acceptor,
-{
-    /// Control input watched during reconciliation and returned with lookahead.
-    pub control_read: R,
-    /// Control output returned alongside the input.
-    pub control_write: W,
-    /// The remote elected speaker: the direction whose failures the
-    /// terminal attributes when no single stream can be named.
+/// The pipe's two halves and the logical streams bound to them.
+pub struct Physical<R, W> {
+    /// The pipe's read half, read by the demultiplexer during
+    /// reconciliation and returned for the closing exchange.
+    pub read: R,
+    /// The pipe's write half, written by the multiplexer during
+    /// reconciliation and returned for the closing exchange.
+    pub write: W,
+    /// The remote elected speaker, whose logical streams arrive here.
     pub remote: Speaker,
-    /// Routes arriving data streams to the tasks awaiting them.
-    pub accept: AcceptDriver<A>,
-    /// Receives incoming-stream failures and the acceptor's deferred I/O failure.
-    pub errors: FirstStreamError,
+    /// The local logical streams, bound as their encoders are created.
+    pub multiplexer: Multiplexer,
+    /// The remote logical streams, bound as their decoders are created.
+    pub demultiplexer: Demultiplexer,
 }
 
 /// Accumulate protocol tasks and coordinate them with the transport.
-impl<B, R, W, A> Work<B, R, W, A>
+impl<B, R, W> Work<B, R, W>
 where
     B: Backend<Node<Z>: Leaf>,
-    A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
     pub fn new(
         ingress: Ingress<B>,
-        window: Window,
         budget: RunBudget,
-        remote_listing: Vec<(u8, Hash)>,
-        physical: Physical<R, W, A>,
+        pools: WirePools,
+        remote_listing: Vec<Listed>,
+        physical: Physical<R, W>,
+        stats: Recorder,
+        observe: SessionHandle,
     ) -> Self {
         Self {
             ingress,
-            window,
             budget,
+            pools,
             remote_listing,
             physical,
             tasks: Vec::new(),
+            stats,
+            observe,
             progress: Progress::new(),
         }
     }
@@ -195,106 +188,240 @@ where
         self.tasks.push(Box::pin(task));
     }
 
-    /// Drive a decode stream independently and expose its replies at height `H`.
+    /// Bind the remote logical stream carrying replies at height `H`.
+    fn incoming<H: Height>(&mut self) -> Receiver<Inbound> {
+        let remote = self.physical.remote;
+        self.physical
+            .demultiplexer
+            .lane(stream_at::<H>(remote), H::HEIGHT)
+    }
+
+    /// Bind the local logical stream carrying replies at height `H`.
+    fn outgoing<H: Height>(&mut self) -> Outgoing {
+        let local = self.physical.remote.other();
+        self.physical
+            .multiplexer
+            .lane(stream_at::<H>(local), H::HEIGHT)
+    }
+
+    /// Decode the remote replies at height `H`, park them, and expose them
+    /// to the stage that takes them.
+    ///
+    /// Each reply is decoded against the record of the local question it
+    /// answers, taken from `questions` in order, by an independent task
+    /// that parks each chunk of it as its reactions decode
+    /// ([`Ingress::decode_and_park`]), so decoding never waits on the walk.
+    /// When the stage takes a parked chunk, the returned stream derives the
+    /// scopes the chunk's questions create, at the level of height `H`, and
+    /// publishes them through `publish`, then hands the chunk over. The
+    /// responder's terminal replies ask nothing and publish nothing. The
+    /// typed height alone chooses the [`ReplyLevel`], in decoding and as
+    /// the stage takes each chunk, so the two cannot disagree on it.
     fn respond<H>(
         &mut self,
-        messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
+        questions: Receiver<Outstanding>,
+        mut publish: Option<Sender<Derived>>,
+        progress: Progress,
     ) -> BoxResponses<B, H, Error<B::Error>>
     where
         H: Height,
     {
-        // One buffered response is sufficient: whenever the relay blocks,
-        // that response is already available to advance the remote participant
-        // and release the slot. Buffering a fan would retain whole
-        // protocol messages without breaking any additional dependency.
-        let (send, responses) = erased::reply_channel::<B, H, Error<B::Error>>(
-            QueueRole::new(QueueKind::ProxyResponses, H::HEIGHT),
-            1,
+        let level = ReplyLevel::at::<H>();
+        let incoming = self.incoming::<H>();
+        let (parking, mut parked) = queues::parked_replies(H::HEIGHT);
+        // The pump decodes into parking, so for the session-budget meter
+        // its work is the parked replies' unless it marks otherwise;
+        // question records are derived as the stage takes each chunk, not
+        // here.
+        self.spawn(
+            TaskRole::Decoder { height: H::HEIGHT }.paced(
+                Holding::ParkedReplies.creating(
+                    self.ingress()
+                        .decode_and_park(level, questions, incoming, parking),
+                ),
+            ),
         );
-        self.spawn(relay(Box::pin(messages), send));
-        Box::pin(responses)
+        Box::pin(
+            Holding::QuestionRecords.creating_stream(async_stream::stream! {
+                let mut taking = None;
+                while let Some(Parked { chunk, opens }) = parked.recv().await {
+                    let opening = opens.is_some();
+                    if let Some((answered, record)) = opens {
+                        taking = Some(Taking { answered, replay: Replay::default(), record });
+                    }
+                    let Some(open) = &mut taking else {
+                        unreachable!("the pump parks the record with each reply's first chunk");
+                    };
+                    let mut scopes = 0;
+                    if let Some(next_scopes) = &mut publish {
+                        let questions = match derive_questions(
+                            level,
+                            &open.answered,
+                            &mut open.replay,
+                            &chunk.reactions,
+                        ) {
+                            Ok(questions) => questions,
+                            Err(error) => {
+                                yield Err(Error::TakeDerivation(error));
+                                return;
+                            }
+                        };
+                        scopes = questions.len();
+                        progress.taken(H::HEIGHT, opening, scopes);
+                        for scope in questions {
+                            // Each record pays for itself out of the
+                            // records part the question's record carries,
+                            // until the encoder has answered it.
+                            let charge = open
+                                .record
+                                .split(Holding::QuestionRecords, derived_bytes(scope.recorded()));
+                            progress.next_scope(H::HEIGHT);
+                            send_or_cancel(next_scopes, Derived { scope, charge }).await;
+                        }
+                    } else {
+                        progress.taken(H::HEIGHT, opening, scopes);
+                    }
+                    if chunk.last {
+                        taking = None;
+                    }
+                    yield Ok(erased::assume_reply::<B, H>(chunk));
+                }
+            }),
+        )
     }
 
-    /// Drive the protocol, incoming streams, and their error reports together.
+    /// Drive the protocol and the pipe together, as members of one task set
+    /// ([`drive`]), whose module docs give the rules that turn their
+    /// failures into the session's outcome.
     ///
-    /// Reconciliation uses data streams, leaving control input available to
-    /// watch for departure. The accept driver uses that signal to close missing
-    /// stream claims, then waits for the protocol to decide its outcome.
+    /// The demultiplexer reports only failures; it runs until the protocol
+    /// completes and is then dropped between frames, leaving every byte it
+    /// has not consumed in the read half's buffer for the closing exchange.
+    /// Every failure it reports fails the session, the peer's departure
+    /// included. A frame the demultiplexer had begun but not delivered is a
+    /// frame no question invited, so it fails the session too.
     ///
-    /// The protocol is polled first: a completed reconciliation succeeds even
-    /// if the peer has since departed or closed its stream supply. A reported
-    /// violation also stands on its own. For a transport failure, poll the
-    /// accept driver once more to collect any ready cause before attributing
-    /// the error. This final poll never waits and cannot change a successful
-    /// outcome.
-    async fn execute<O>(
+    /// This boxes `finish` and takes the work apart before building the
+    /// future it returns, which therefore holds each part once: an `async
+    /// fn` would keep its arguments, the terminal future among them, for
+    /// its whole run.
+    fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
-    ) -> Result<(O, ControlRead<R>, W), Error<B::Error>>
+    ) -> impl Future<Output = Result<(O, PipeRead<R>, W), Error<B::Error>>>
     where
-        R: AsyncRead + Unpin,
+        R: AsyncBufRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
     {
+        let finish = Box::pin(finish);
         let Self {
-            physical, tasks, ..
+            ingress: _,
+            budget,
+            pools,
+            remote_listing: _,
+            physical,
+            tasks,
+            stats,
+            observe,
+            progress: _,
         } = self;
         let Physical {
-            mut control_read,
-            control_write,
+            read,
+            mut write,
             remote,
-            accept,
-            mut errors,
+            multiplexer,
+            mut demultiplexer,
         } = physical;
-        // Only early control items accumulate here; data-stream traffic keeps
-        // flowing through the tasks under its existing flow control.
-        let mut ahead = Vec::new();
-        let outcome = {
-            let mut protocol = Box::pin(complete(tasks, finish));
-            let mut accept = pin!(accept.run(departure(&mut control_read, &mut ahead)));
-            let mut stream_errors = pin!(errors.first());
-            let (mut outcome, protocol_finished) = tokio::select! {
-                biased;
-                output = &mut protocol => (output, true),
-                error = &mut stream_errors => (Err(Error::Stream(error)), false),
-                error = &mut accept => (Err(Error::Accept(error)), false),
-            };
-            if matches!(&outcome, Err(error) if error.is_transport_failure()) {
-                match futures::poll!(accept.as_mut()) {
-                    // A failed protocol drops its claim receivers. Delivery
-                    // to one of those slots is a consequence of teardown,
-                    // not evidence that the peer sent an unasked stream.
-                    std::task::Poll::Ready(AcceptError::Unexpected { .. }) if protocol_finished => {
-                    }
-                    std::task::Poll::Ready(error) => outcome = Err(Error::Accept(error)),
-                    std::task::Poll::Pending => {}
-                }
-            }
-            // A selected accept error is a violation, so the completed
-            // accept future never reaches the extra poll above.
-            outcome
-        };
-        outcome
-            .map(|output| {
-                (
-                    output,
-                    Cursor::new(ahead).chain(control_read),
-                    control_write,
-                )
-            })
-            .map_err(|error| error.attribute(&mut errors, remote))
+        let mut read = PipeRead::new(read);
+        async move {
+            let send = Holding::Wire
+                .creating(multiplexer.run(&mut write, remote.other(), stats.clone(), &observe))
+                .map_err(|error| Error::Pipe(error.into()));
+            let receive = Holding::Wire.creating(demultiplexer.run(
+                &mut read,
+                remote,
+                budget,
+                &pools.receiving,
+                stats,
+                &observe,
+            ));
+            let output = drive::drive(tasks, finish, Box::pin(send), Box::pin(receive)).await?;
+            pipe::check_drained(&read, remote).map_err(Error::Pipe)?;
+            Ok((output, read, write))
+        }
     }
 }
 
-/// Relay decoded replies to the response queue.
+/// Find the logical stream assigned to one speaker and reply height.
+fn stream_at<H: Height>(speaker: Speaker) -> LogicalStream {
+    LogicalStream::at_height(speaker, H::HEIGHT)
+        .expect("the typestate binds each speaker only at heights on its parity")
+}
+
+/// A question this side asked, from its encoder's publication until the
+/// decoder has decoded its reply.
 ///
-/// Return decode errors to the executor without waiting for the reply consumer.
-async fn relay<E: Send, Err: Send + 'static>(
-    mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
-    mut send: Sender<Result<erased::Reply<E>, Error<Err>>>,
-) -> Result<(), Error<Err>> {
-    while let Some(message) = messages.next().await {
-        send_or_cancel(&mut send, Ok(message?)).await;
-    }
-    Ok(())
+/// The question's chunk carried its record's charge and its reply's room to
+/// the encoder ([`Carried::Question`]), which publishes them here with the
+/// record once the question's frame is in the multiplexer's channel.
+///
+/// [`Carried::Question`]: crate::tree::mirror::streaming::message::Carried::Question
+pub(crate) struct Outstanding {
+    /// The record the question's reply is validated against.
+    pub(crate) scope: Scope,
+    /// The charge for the record, which returns once the stage has taken
+    /// the reply's last chunk, and for the records derived from the reply's
+    /// questions, each of which takes its part.
+    pub(crate) record: Charge,
+    /// The room the reply's chunks take while they park.
+    ///
+    /// The decoder charges each chunk its part out of it, and returns the
+    /// room beyond what the reply can still deliver as each frame narrows
+    /// that, so none of it outlives the reply.
+    pub(crate) room: Charge,
+}
+
+/// A decoded chunk of a reply, parked until its stage takes it.
+pub(crate) struct Parked<E> {
+    /// The chunk.
+    chunk: erased::Reply<E>,
+    /// On a reply's first chunk, the record of the local question the reply
+    /// answers, from which the proxy derives the scopes the reply's own
+    /// questions create as the stage takes the reply, and the record's
+    /// charge.
+    opens: Option<(Arc<Scope>, Charge)>,
+}
+
+/// The reply the stage is part way through taking: the record it answers,
+/// how far its taken chunks replayed against the record, and the record's
+/// charge.
+struct Taking {
+    /// The record of the question the reply answers.
+    answered: Arc<Scope>,
+    /// How far the reply's taken chunks replayed against the record.
+    replay: Replay,
+    /// The charge for the record and for the records the reply's questions
+    /// derive: each derived record takes its part as the proxy derives it,
+    /// and the rest returns once the stage has taken the reply's last
+    /// chunk.
+    record: Charge,
+}
+
+/// A record derived from a question in the peer's reply, on its way to the
+/// encoder that answers it, with its charge.
+///
+/// The charge is the record's part of the records part of the reservation
+/// of the question whose reply asked it
+/// ([`derived_bytes`]).
+/// It returns once the encoder drops the record, having handed the last
+/// frame of its answer to the multiplexer, so a record waiting in the
+/// queue to the encoder is charged whatever the walk that derived it has
+/// finished.
+pub(crate) struct Derived {
+    /// The record of the peer's question.
+    pub(crate) scope: Scope,
+    /// The charge for the record.
+    pub(crate) charge: Charge,
 }
 
 #[cfg(test)]

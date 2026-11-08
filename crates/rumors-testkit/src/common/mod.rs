@@ -1,33 +1,29 @@
 //! Shared infrastructure for integration tests.
 //!
-//! How the pieces compose:
+//! The fixtures stack in layers. At the bottom, every test network starts
+//! from a reproducible seed, and every session runs between real peers over
+//! a real connection, either an in-memory pipe pair or a loopback TCP
+//! socket. The wire helpers that drive a session over such a connection sit
+//! beneath every driver above them.
 //!
-//! - [`crate::common::action`] generates single-peer `Insert`/`Redact` sequences that
-//!   suites apply to one peer at a time, building each side's local
-//!   history by hand.
-//! - [`crate::common::schedule`] generates arbitrary multi-peer interleavings of peer
-//!   events (inserts, redactions, gossip sessions, and — under the
-//!   membership alphabet — mid-schedule bootstraps and retirements) and
-//!   executes them deterministically, one session at a time
-//!   ([`crate::common::schedule::executor`]), against real peers ([`crate::common::peer`]) over
-//!   in-memory links, with [`crate::common::oracle`] computing the expected converged
-//!   set for comparison.
-//! - [`crate::common::observer`] shares message-observer read helpers and two-peer schedules.
-//! - [`crate::common::sim`] runs whole plans concurrently instead: overlapping sessions
-//!   on a multi-thread runtime, genuinely nondeterministic.
-//! - [`crate::common::fault`] injects transport adversity; [`crate::common::flaky`] injects
-//!   bookmark-storage adversity.
-//! - [`crate::common::wire`] and [`crate::common::tcp`] carry the same sessions over in-memory links
-//!   and real sockets; [`crate::common::count`] measures each direction of an in-memory
-//!   session; [`crate::common::routed_tcp`] is the socket instantiation of the routed
-//!   adapter's dial/listen seam.
-//! - [`crate::common::window`] is the window-budget sweep dimension: generated per-peer
-//!   window configurations (floor, tight budget, default) for the suites
-//!   that sweep it.
-//! - [`crate::common::gossip_snapshot`] captures a session's exact bytes for the `insta`
-//!   pins.
+//! The drivers differ in how much of a run's order they fix. A deterministic
+//! driver executes a generated multi-peer schedule one session at a time and
+//! compares every peer with an oracle that computes the expected converged
+//! set from plain maps. A concurrent driver runs a whole plan at once on a
+//! multi-thread runtime, with faults injected into the transport, and probes
+//! the global invariants as it goes. A stepping driver advances a session
+//! round by round, so that a test can change peers between rounds.
+//!
+//! Generators supply the workloads the drivers run. A budget generator
+//! assigns each peer a memory budget, which the drivers that sweep the
+//! budget thread into every peer they create. Fault fixtures make a transport or a
+//! bookmark store fail on a schedule. Measurement fixtures record what
+//! crossed the wire, as per-direction byte counts or as exact captures for
+//! the `insta` snapshots. Each module's documentation states its own
+//! contract.
 
 pub mod action;
+pub mod budget;
 pub mod count;
 pub mod fault;
 pub mod flaky;
@@ -36,10 +32,10 @@ pub mod observer;
 pub mod oracle;
 pub mod overlap;
 pub mod peer;
-pub mod routed_tcp;
+pub mod property;
 pub mod schedule;
+pub mod seed;
 pub mod shape;
 pub mod sim;
 pub mod tcp;
-pub mod window;
 pub mod wire;

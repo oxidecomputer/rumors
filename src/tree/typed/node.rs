@@ -8,7 +8,7 @@ use before::Span;
 
 use crate::{Version, causally, message::Message};
 
-use super::hash::{Hash, PATH_LEN};
+use super::hash::{Hash, HashKey, PATH_LEN};
 use super::height::{self, Height, S, Z};
 use super::prefix::Prefix;
 use super::untyped;
@@ -27,45 +27,52 @@ pub struct Children<H: Height> {
     inner: Fan,
 }
 
-/// Leaves buffered for one bulk-built subtree.
-///
-/// Entries already use the untyped builder's representation, so completing a
-/// run does not allocate and copy a second vector proportional to its size.
-#[derive(Default)]
-pub(crate) struct LeafRun {
-    /// Sorted paths paired with bare leaf nodes that the builder may consume.
-    entries: Vec<([u8; PATH_LEN], Option<untyped::Node>)>,
+/// Builds one bulk subtree at height `H` from its leaves in ascending path
+/// order, holding only its open right spine ([`untyped::SortedLeaves`]).
+pub(crate) struct SortedRun<H: Height> {
+    /// The subtree's prefix, which every leaf's path extends.
+    prefix: Prefix<H>,
+    /// The spine built so far.
+    leaves: untyped::SortedLeaves,
 }
 
-/// Collect and build one sorted run of bare leaves.
-impl LeafRun {
-    /// Start an empty run.
-    pub(crate) fn new() -> Self {
-        Self::default()
+impl<H: Height> SortedRun<H> {
+    /// Begin the subtree at `prefix`.
+    pub(crate) fn new(prefix: Prefix<H>) -> Self {
+        Self {
+            prefix,
+            leaves: untyped::SortedLeaves::new(prefix.as_bytes().len()),
+        }
     }
 
-    /// Append the next path and leaf in ascending path order.
-    pub(crate) fn push(&mut self, path: Prefix<Z>, leaf: Node<Z>) {
-        self.entries.push((path.into(), Some(leaf.into_untyped())));
+    /// The subtree's prefix.
+    pub(crate) fn prefix(&self) -> Prefix<H> {
+        self.prefix
     }
 
-    /// Build the maximally compressed height-`H` subtree for this run.
+    /// Append the next leaf, at `path`.
     ///
     /// # Panics
     ///
-    /// Panics unless the run is nonempty, strictly ascending, and contained
-    /// by `prefix`. Session decoding establishes those conditions.
-    pub(crate) fn build<H: Height>(mut self, prefix: &Prefix<H>) -> Node<H> {
+    /// Panics if `path` does not ascend strictly from the previous leaf's,
+    /// and in debug builds if it falls outside the subtree's prefix. Session
+    /// decoding establishes both.
+    pub(crate) fn push(&mut self, path: Prefix<Z>, leaf: Node<Z>) {
         debug_assert!(
-            self.entries
-                .iter()
-                .all(|(path, _)| path.starts_with(prefix.as_bytes())),
+            path.as_bytes().starts_with(self.prefix.as_bytes()),
             "every leaf in a run falls under the run's prefix",
         );
-        Node::from_untyped(untyped::Node::from_sorted_leaves(
-            prefix.as_bytes().len(),
-            &mut self.entries,
-        ))
+        self.leaves.push(path.into(), leaf.into_untyped());
+    }
+
+    /// Finish the maximally compressed subtree, with its prefix.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no leaf was pushed: a run holds at least one leaf.
+    pub(crate) fn finish(self) -> (Prefix<H>, Node<H>) {
+        let node = self.leaves.finish().expect("a leaf run is non-empty");
+        (self.prefix, Node::from_untyped(node))
     }
 }
 
@@ -189,12 +196,13 @@ impl<H: Height> Node<H> {
         self.inner.ptr_eq(&other.inner)
     }
 
-    /// Tag an untyped node at height `H`: the caller asserts the height.
+    /// Tag an untyped node at height `H`: the caller asserts the height, the
+    /// node's own top ([`untyped::Node::height`]).
     ///
-    /// The streaming mirror's erasure seam
-    /// ([`Backend::assume`](crate::tree::mirror::streaming::Backend::assume))
-    /// re-tags nodes it erased at the same height; internal tree code tags
-    /// nodes whose height its own traversal establishes.
+    /// Internal tree code tags nodes whose height its own traversal
+    /// establishes. The streaming mirror's erasure seam re-tags views
+    /// instead, and checks them in debug builds
+    /// ([`View::placed`](super::View::placed)).
     pub(crate) fn from_untyped(inner: untyped::Node) -> Self {
         Self {
             height: PhantomData,
@@ -240,28 +248,22 @@ impl<H: Height> Node<H> {
     /// The independent oracle [`version_bytes`](Self::version_bytes) is
     /// pinned against; see the
     /// [untyped walk](untyped::Node::max_bound_bytes).
-    #[cfg(any(test, feature = "test-internals"))]
+    #[cfg(test)]
     pub fn max_bound_bytes(&self) -> usize {
         self.inner.max_bound_bytes()
     }
 
-    /// The memoized Merkle hash of this subtree; see [`untyped::Node::hash`].
-    pub fn hash(&self) -> Hash {
-        self.inner.hash()
+    /// The memoized digest of this subtree under `key`, the hash key of
+    /// the network whose tree holds it; see [`untyped::Node::hash`].
+    pub fn hash(&self, key: &HashKey) -> Hash {
+        self.inner.hash(key)
     }
 
-    /// Walk every leaf beneath this node, in ascending path order.
-    ///
-    /// `prefix` supplies the preceding path bytes. The owned walk skips
-    /// compressed spans and yields one stored leaf at a time, then
-    /// [`untyped::Leaf::into_node`] gives it the empty prefix required at
-    /// height zero. Descent state is bounded by the tree's depth.
-    pub(crate) fn leaves(
-        self,
-        prefix: &Prefix<H>,
-    ) -> impl Iterator<Item = (Prefix<Z>, Node<Z>)> + Send + use<H> {
-        untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all())
-            .map(|(key, leaf)| (Prefix::from(key), Node::from_untyped(leaf.into_node())))
+    /// Whether `self` and `other`, at this height in trees of the network
+    /// whose hash key is `key`, hold the same version set; see
+    /// [`untyped::Node::same`].
+    pub fn same(&self, other: &Self, key: &HashKey) -> bool {
+        self.inner.same(&other.inner, key)
     }
 }
 
@@ -290,14 +292,6 @@ where
         };
 
         Children::from_fan(children)
-    }
-
-    /// Walk immediate children without copying a shared branch's fan.
-    pub(crate) fn child_iter(self) -> impl Iterator<Item = (u8, Node<H>)> + Send + use<H> {
-        self.inner
-            .child_iter()
-            .unwrap_or_else(|_| unreachable!("a nonzero-height node has a child"))
-            .map(typed_child::<H> as fn((u8, untyped::Node)) -> (u8, Node<H>))
     }
 
     /// Extend a test node's compressed prefix through slot `index`.
@@ -366,23 +360,12 @@ impl Node<height::Root> {
         untyped::Range::root(node.map(|node| &node.inner), query)
     }
 
-    /// The observable hash of a possibly-absent root.
+    /// The observable digest of a possibly-absent root under `key`.
     #[cfg(any(test, feature = "test-internals"))]
-    pub fn root_hash(node: Option<&Root>) -> Hash {
+    pub fn root_hash(node: Option<&Root>, key: &HashKey) -> Hash {
         // An absent root is the empty tree, which hashes as a prefixless
-        // branch with no children (`sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`), not as
-        // the all-zero default.
-        node.map(Node::hash).unwrap_or_else(Hash::empty_root)
-    }
-}
-
-/// Storage-node equality is total at a fixed height.
-impl<H: Height> Eq for Node<H> {}
-
-/// Compare the storage nodes viewed at this height.
-impl<H: Height> PartialEq for Node<H> {
-    /// Delegate to the storage node's subtree comparison.
-    fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        // branch with no children at the root's height
+        // ([`HashKey::empty_root`]), not as the all-zero default.
+        node.map_or_else(|| key.empty_root(), |node| node.hash(key))
     }
 }

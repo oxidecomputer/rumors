@@ -6,13 +6,16 @@
 //! heads, the exact key roster, and the same canonical-order rule the
 //! frame codec applies to a wire query, applied at the greeting ingress.
 //!
-//! The scripted-fault harness wraps only data streams, so this ingress is
-//! exercised here directly: crafted control-stream bytes must surface the
+//! The scripted-fault harness edits only frames and passes the greeting
+//! through untouched, so this ingress is exercised here directly: crafted
+//! control-stream bytes must surface the
 //! typed greeting errors ([`Error::GreetingRead`] for truncation and
 //! declared-length mismatches, [`Error::GreetingListing`] for canonical-order violations,
 //! [`Error::GreetingDecode`] for malformed items), never a panic, and a
 //! canonical greeting must decode intact.
 
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
 use std::{convert::Infallible, io::ErrorKind};
 
 use proptest::collection::vec;
@@ -42,10 +45,11 @@ fn raw_item(content: &[u8]) -> Vec<u8> {
 /// A greeting whose sizes are zero and whose listing is caller-selected;
 /// the encoder trusts its caller, so a non-canonical listing synthesizes
 /// wire violations directly.
-fn greeting(listing: Vec<(u8, Hash)>) -> Vec<u8> {
+fn greeting(listing: Vec<Listed>) -> Vec<u8> {
     encode_greeting(&Greeting {
         version: Version::new(),
         set_len: 0,
+        grandchildren: 0,
         max_version_bytes: 0,
         payload_depth_limit: 0,
         target_message_size: 0,
@@ -247,7 +251,10 @@ async fn invalid_version_atom_is_a_typed_decode_error() {
 /// with the exact violating pair, before any scope is built from it.
 #[pollster::test]
 async fn unordered_listing_is_rejected() {
-    let item = greeting(vec![(2_u8, Hash::default()), (1_u8, Hash::default())]);
+    let item = greeting(vec![
+        listed(2_u8, Hash::default()),
+        listed(1_u8, Hash::default()),
+    ]);
 
     let result = receive_greeting(&item).await.map(|_| ());
     assert!(
@@ -269,7 +276,10 @@ async fn unordered_listing_is_rejected() {
 /// with both offending radixes reported.
 #[pollster::test]
 async fn duplicate_listing_radix_is_rejected() {
-    let item = greeting(vec![(3_u8, Hash::default()), (3_u8, Hash::default())]);
+    let item = greeting(vec![
+        listed(3_u8, Hash::default()),
+        listed(3_u8, Hash::default()),
+    ]);
 
     let result = receive_greeting(&item).await.map(|_| ());
     assert!(
@@ -291,7 +301,10 @@ async fn duplicate_listing_radix_is_rejected() {
 /// greeting failure, never a panic and never a partially parsed greeting.
 #[pollster::test]
 async fn truncated_map_content_is_rejected() {
-    let item = greeting(vec![(0_u8, Hash::default()), (1_u8, Hash::default())]);
+    let item = greeting(vec![
+        listed(0_u8, Hash::default()),
+        listed(1_u8, Hash::default()),
+    ]);
     let mut content = content_of(&item);
     content.truncate(content.len() - 1);
 
@@ -320,6 +333,7 @@ async fn empty_listing_greeting_decodes() {
     let item = encode_greeting(&Greeting {
         version: version.clone(),
         set_len: 7,
+        grandchildren: 0,
         max_version_bytes: 512,
         payload_depth_limit: 256,
         target_message_size: 1 << 16,

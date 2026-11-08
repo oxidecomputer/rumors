@@ -6,35 +6,53 @@ use proptest::prelude::*;
 
 use super::{
     fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair},
-    floor_start, streaming_mirror_sides,
+    serial_start, streaming_mirror_sides,
 };
-use crate::DEFAULT_TARGET_MESSAGE_SIZE;
+use crate::default;
 use crate::testing::run_to_quiescence;
-use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
-        Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, ReplyCorruption,
-        Root as StreamingRoot,
+        FAN, Failing, Failure, Fault, Faulting, GreetingLie, Local, Miscount, Misreport,
+        ReplyCorruption, Root as StreamingRoot,
         channel::{with_observation, with_schedule},
         materialized::{Error as MaterializedError, Handshaking, Start, Violation},
+        message::CountError,
         mirror as drive_streaming,
     },
 };
 use crate::tree::{
     Root,
     arb::{arb_wide_divergent_pair, leaf_parent_dispute_pair},
+    typed::{
+        Hash, HashKey,
+        height::{self, Height as _},
+    },
 };
 
-/// A `Failing<Local>` endpoint at the floor window over `root`, its nodes
-/// wrapped for the failing backend.
+/// The digest of `root`'s live set under the fixture keys, which the
+/// streaming test sessions run under, or `None` for an empty root.
+fn live_hash(root: &Root) -> Option<Hash> {
+    root.node
+        .as_ref()
+        .map(|node| node.hash(&HashKey::fixture()))
+}
+
+/// A `Failing<Local>` endpoint in the serial configuration over `root`, its nodes
+/// wrapped for the failing backend, which misreports the root's count if
+/// it misreports at the root's height.
 fn failing_start(backend: Failing<Local>, root: Root) -> Handshaking<Failing<Local>, Start> {
     let root = StreamingRoot {
         ceiling: root.ceiling,
-        root: root.node.map(FailingNode::new),
+        root: root.node.map(|node| backend.root(node.into())),
     };
-    Handshaking::start(backend, root, DEFAULT_TARGET_MESSAGE_SIZE as u64)
-        .window(WindowConfig::FLOOR)
+    Handshaking::start(
+        backend,
+        root,
+        Some(crate::network::NetworkKeys::fixture()),
+        default::TARGET_MESSAGE_SIZE as u64,
+    )
+    .serial()
 }
 
 /// The last ordinary walk reply in the full-depth fixture.
@@ -52,18 +70,18 @@ fn connected_violation(
     let (client_root, server_root) = full_depth_comb_pair(2, LeafOrder::Interleaved);
     if fault_client {
         let client = Faulting::new(
-            floor_start(client_root),
+            serial_start(client_root),
             steps,
             Some(Fault::Reply(corruption)),
         );
-        let server = floor_start(server_root);
+        let server = serial_start(server_root);
         run_to_quiescence(drive_streaming(client, server))
             .expect("the reversed connected driver must surface the fault, not stall")
             .map(|_| ())
     } else {
-        let client = floor_start(client_root);
+        let client = serial_start(client_root);
         let server = Faulting::new(
-            floor_start(server_root),
+            serial_start(server_root),
             steps,
             Some(Fault::Reply(corruption)),
         );
@@ -79,8 +97,8 @@ fn connected_violation(
 fn connected_violations_are_classified_exhaustively() {
     for &corruption in ReplyCorruption::ALL {
         for steps in 0..=LAST_WALK_REPLY {
-            let violation = corruption.violation();
             for fault_client in [false, true] {
+                let violation = corruption.violation();
                 let result = connected_violation(corruption, steps, fault_client);
                 let actual = match (fault_client, result) {
                     (false, Err(MirrorError::Client(MaterializedError::Violation(actual))))
@@ -155,6 +173,147 @@ proptest! {
     }
 }
 
+/// The typed height of the root's children, which every greeting lists.
+const ROOT_CHILDREN_HEIGHT: usize = 31;
+
+proptest! {
+    /// A grandchild count above 65,536, which a backend reading corrupted
+    /// storage could report, fails the session with that count on the side
+    /// whose backend reported it, and neither panics nor stalls.
+    ///
+    /// The count is misreported for every node one side's backend lists as
+    /// a child at one height, or for its root at the root's height. The
+    /// session reads a node's count only to list it, or for the root to
+    /// send it in its greeting, and then fails at once, so it fails exactly
+    /// when it read a misreported count and completes otherwise. Every
+    /// greeting carries the root's count and lists the root's children, so
+    /// a misreported count at either height always fails the session when
+    /// that side holds a root; deeper heights fail only where a disputed
+    /// scope's question lists them.
+    #[test]
+    fn out_of_range_grandchild_counts_fail_the_session(
+        (client_root, server_root) in arb_wide_divergent_pair(),
+        height in 1..=height::Root::HEIGHT,
+        grandchildren in prop_oneof![Just(65_537usize), 65_537usize..=1 << 24, Just(usize::MAX)],
+        miscount_client in any::<bool>(),
+        schedule in proptest::collection::vec(0_u8..=2, 0..128),
+    ) {
+        let miscounting = Failing::miscounting(Local, Miscount {
+            height,
+            report: Misreport::Grandchildren(grandchildren),
+        });
+        let sound = Failing::after(Local, usize::MAX);
+        let holds_root = if miscount_client {
+            client_root.node.is_some()
+        } else {
+            server_root.node.is_some()
+        };
+        let (client_backend, server_backend) = if miscount_client {
+            (miscounting.clone(), sound)
+        } else {
+            (sound, miscounting.clone())
+        };
+        let client = failing_start(client_backend, client_root);
+        let server = failing_start(server_backend, server_root);
+        let result = with_schedule(schedule, || {
+            run_to_quiescence(drive_streaming(client, server))
+        })
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "a misreported count left reconciliation quiescent: {stopped:?}",
+            )))?;
+        let read = miscounting.miscounts_read();
+        match result {
+            Err(MirrorError::Client(MaterializedError::Count(error))) if miscount_client => {
+                prop_assert_eq!(error, CountError::Grandchildren(grandchildren));
+                prop_assert!(read > 0, "the session failed on a count it never read");
+            }
+            Err(MirrorError::Server(MaterializedError::Count(error))) if !miscount_client => {
+                prop_assert_eq!(error, CountError::Grandchildren(grandchildren));
+                prop_assert!(read > 0, "the session failed on a count it never read");
+            }
+            Ok(_) => prop_assert_eq!(read, 0, "the session completed past a misreported count"),
+            Err(other) => return Err(TestCaseError::fail(format!(
+                "a misreported count was misattributed: {other:?}",
+            ))),
+        }
+        if height >= ROOT_CHILDREN_HEIGHT && holds_root {
+            prop_assert!(read > 0, "the greeting must carry the root's count and list its children");
+        }
+    }
+}
+
+proptest! {
+    /// A child count above a fan, which a backend reading corrupted storage
+    /// could report, fails the session with that count on the side whose
+    /// backend reported it, and neither panics nor stalls.
+    ///
+    /// The count is misreported for every node one side's backend lists as
+    /// a child at one height, or for its root at the root's height. A
+    /// session reads a node's child count to price an answer about it, to
+    /// list it, and to explode it, and fails at the listing or the
+    /// explosion, before it sizes anything by the count. So it completes or
+    /// fails with exactly that count on that side, and fails only once it
+    /// has read a misreported count. It always fails when that side holds a
+    /// root and the height is the root's or its children's, since every
+    /// greeting explodes the root and lists its children. It cannot require
+    /// failure whenever a misreported count is read: a supply answer prices
+    /// a node by its count and explodes it only if the peer lacks some of
+    /// its leaves.
+    #[test]
+    fn out_of_range_child_counts_fail_the_session(
+        (client_root, server_root) in arb_wide_divergent_pair(),
+        height in 1..=height::Root::HEIGHT,
+        children in prop_oneof![Just(FAN + 1), FAN + 1..=1 << 24, Just(usize::MAX)],
+        miscount_client in any::<bool>(),
+        schedule in proptest::collection::vec(0_u8..=2, 0..128),
+    ) {
+        let miscounting = Failing::miscounting(Local, Miscount {
+            height,
+            report: Misreport::Children(children),
+        });
+        let sound = Failing::after(Local, usize::MAX);
+        let holds_root = if miscount_client {
+            client_root.node.is_some()
+        } else {
+            server_root.node.is_some()
+        };
+        let (client_backend, server_backend) = if miscount_client {
+            (miscounting.clone(), sound)
+        } else {
+            (sound, miscounting.clone())
+        };
+        let client = failing_start(client_backend, client_root);
+        let server = failing_start(server_backend, server_root);
+        let result = with_schedule(schedule, || {
+            run_to_quiescence(drive_streaming(client, server))
+        })
+            .map_err(|stopped| TestCaseError::fail(format!(
+                "a misreported child count left reconciliation quiescent: {stopped:?}",
+            )))?;
+        let read = miscounting.miscounts_read();
+        let failed = match result {
+            Err(MirrorError::Client(MaterializedError::Count(error))) if miscount_client => {
+                prop_assert_eq!(error, CountError::Children(children));
+                true
+            }
+            Err(MirrorError::Server(MaterializedError::Count(error))) if !miscount_client => {
+                prop_assert_eq!(error, CountError::Children(children));
+                true
+            }
+            Ok(_) => false,
+            Err(other) => return Err(TestCaseError::fail(format!(
+                "a misreported child count was misattributed: {other:?}",
+            ))),
+        };
+        if failed {
+            prop_assert!(read > 0, "the session failed on a count it never read");
+        }
+        if height >= ROOT_CHILDREN_HEIGHT && holds_root {
+            prop_assert!(failed, "the greeting must explode the root and list its children");
+        }
+    }
+}
+
 /// Every greeting lie is classified in both orientations.
 ///
 /// Under-declarations fail with their exact violation. Over-declarations
@@ -169,16 +328,15 @@ fn greeting_lies_are_classified_exhaustively() {
                 // The zero declaration trips at the first absorbed supply;
                 // the one-leaf declaration admits supply first and trips on
                 // the ledger's accumulation; both land as the same
-                // violation, from opposite ends of the allowance.
+                // violation, from opposite ends of the declared length.
                 GreetingLie::ShrunkenSetLen | GreetingLie::UnderdeclaredSetLen => {
                     Some(Violation::OverdrawnSupply)
                 }
-                GreetingLie::ShrunkenVersion => Some(Violation::UncontainedSupply),
                 GreetingLie::InflatedSetLen | GreetingLie::InflatedVersion => None,
             };
 
-            let client = floor_start(client_root.clone());
-            let server = floor_start(server_root.clone());
+            let client = serial_start(client_root.clone());
+            let server = serial_start(server_root.clone());
             let result = if fault_client {
                 let faulting = Faulting::new(client, 0, Some(Fault::Greeting(lie)));
                 run_to_quiescence(drive_streaming(faulting, server))
@@ -204,8 +362,8 @@ fn greeting_lies_are_classified_exhaustively() {
                     let (ours, theirs): (Root, Root) = (ours.into(), theirs.into());
                     let (base_client, base_server) =
                         streaming_mirror_sides(client_root, server_root);
-                    assert_eq!(&ours.node, &base_client.node);
-                    assert_eq!(&theirs.node, &base_server.node);
+                    assert_eq!(live_hash(&ours), live_hash(&base_client));
+                    assert_eq!(live_hash(&theirs), live_hash(&base_server));
                     if lie == GreetingLie::InflatedSetLen {
                         assert_eq!(&ours.ceiling, &base_client.ceiling);
                         assert_eq!(&theirs.ceiling, &base_server.ceiling);
@@ -227,9 +385,9 @@ fn terminal_reply_violation_is_detected_on_both_sides() {
     let (client_root, server_root, _) = leaf_parent_dispute_pair();
     let corruption = ReplyCorruption::UnexpectedQuery;
 
-    let client = floor_start(client_root.clone());
+    let client = serial_start(client_root.clone());
     let server = Faulting::new(
-        floor_start(server_root.clone()),
+        serial_start(server_root.clone()),
         16,
         Some(Fault::Reply(corruption)),
     );
@@ -241,8 +399,12 @@ fn terminal_reply_violation_is_detected_on_both_sides() {
         MirrorError::Client(MaterializedError::Violation(Violation::UnexpectedQuery))
     ));
 
-    let client = Faulting::new(floor_start(client_root), 16, Some(Fault::Reply(corruption)));
-    let server = floor_start(server_root);
+    let client = Faulting::new(
+        serial_start(client_root),
+        16,
+        Some(Fault::Reply(corruption)),
+    );
+    let server = serial_start(server_root);
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the reversed terminal violation must not stall")
         .expect_err("the reversed terminal violation must abort the session");

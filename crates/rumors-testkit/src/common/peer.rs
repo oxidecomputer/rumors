@@ -37,8 +37,8 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
     /// is never logged, only what arrives afterwards.
     ///
     /// The caller must create `local` by bootstrapping from the shared
-    /// universe seed (directly, or via another peer), never by an
-    /// independent [`rumors::Peer::seed`]: only then are all peers pairwise
+    /// universe seed (directly, or via another peer), never as the first peer
+    /// of another network: only then are all peers pairwise
     /// disjoint, the precondition for [`gossip_step`] to succeed.
     pub fn new(local: Rumors<T>) -> Self {
         let since = local.snapshot().latest().clone();
@@ -97,7 +97,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
 }
 
 /// Bidirectional wire gossip between two peers: one session over an
-/// in-memory link, after which both sides hold the same live content and
+/// in-memory connection, after which both sides hold the same live content and
 /// version, and both observation logs have caught up.
 pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where

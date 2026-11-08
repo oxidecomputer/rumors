@@ -10,15 +10,31 @@ use rumors_testkit::common;
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
-use rumors::{Peer, Rumors};
+use rumors::Rumors;
 
 use crate::common::oracle::{readout, readout_multiset};
 use crate::common::overlap::{self, arb_overlap_schedule, execute_overlap_and_quiesce};
 use crate::common::wire::{bootstrap_fork, wire_gossip};
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
-/// Build three replicas at the minimum window, then redact `target` only at B.
-fn redacted_trio(n: u64, target: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
-    let a = Peer::seed().sync_window_floor().into_rumors();
+/// The divisor of [`overlapped_install_never_loses_innocent_messages`]'s
+/// case count: one case runs the whole parking sweep, seconds of work in a
+/// debug build, so the default count runs one case.
+const SWEEP_DIVISOR: u32 = 256;
+
+/// Build three replicas of the network `network` names at a ledger budget of
+/// zero ([`ledger_budget`](rumors::testing::ledger_budget)), then redact
+/// `target` only at B.
+///
+/// The seed makes the trio reproducible: two calls with one seed build
+/// trios whose sessions take the same rounds.
+fn redacted_trio(
+    network: NetworkSeed,
+    n: u64,
+    target: u64,
+) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
+    let a = rumors::testing::ledger_budget(network.peer(), 0).into_rumors();
     a.send_all(0..n).unwrap();
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);
@@ -58,51 +74,57 @@ fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Vec<u
     panic!("three peers failed to agree within {ROUNDS} full-mesh rounds");
 }
 
-/// Either ordering of overlapping sessions preserves every message except the redaction.
-///
-/// B redacts a message shared with A and C. Park A's session with either peer
-/// while its session with the other runs to completion. Check A immediately
-/// after both sessions, then check the settled fleet, at every parking round.
-#[test]
-fn overlapped_install_never_loses_innocent_messages() {
-    /// Enough distinct messages to span multiple radix-fan chunks.
-    const MESSAGES: u64 = 25;
+divided_proptest! {
+    #![divisor(SWEEP_DIVISOR)]
 
-    for target in 0..MESSAGES {
-        for redacting_first in [false, true] {
-            // The redacting session does more work than the converged one.
-            // Calibrate each direction and target, including the completing
-            // round, so the sweep covers parking before, during, and after it.
-            let rounds = {
-                let (a, b, c) = redacted_trio(MESSAGES, target);
-                let first = if redacting_first { &b } else { &c };
-                overlap::open(&a, first).finish()
-            };
-            for park in 0..=rounds {
-                let (a, b, c) = redacted_trio(MESSAGES, target);
-                // Derive the result from the untouched replica, independently
-                // of either redaction or reconciliation. Fixture values are unique.
-                let mut expected = readout(&a.snapshot());
-                expected.retain(|_, value| *value != target);
-                let (first, second) = if redacting_first { (&b, &c) } else { (&c, &b) };
-                let mut session = overlap::open(&a, first);
-                session.step(park);
-                wire_gossip(&a, second);
-                session.finish();
+    /// Either ordering of overlapping sessions preserves every message except the redaction.
+    ///
+    /// B redacts a message shared with A and C. Park A's session with either peer
+    /// while its session with the other runs to completion. Check A immediately
+    /// after both sessions, then check the settled fleet, at every parking round.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn overlapped_install_never_loses_innocent_messages(network in network_seed()) {
+        /// Enough distinct messages to span multiple radix-fan chunks.
+        const MESSAGES: u64 = 25;
 
-                // Later gossip could repair a temporary resurrection at A.
-                // A has completed both exchanges, so it already owes the full
-                // result; C may still need to learn the redaction afterward.
-                assert_eq!(
-                    readout(&a.snapshot()),
-                    expected,
-                    "shared replica: target={target}, redacting_first={redacting_first}, park={park}"
-                );
-                assert_eq!(
-                    converge(&a, &b, &c),
-                    expected,
-                    "settled fleet: target={target}, redacting_first={redacting_first}, park={park}"
-                );
+        for target in 0..MESSAGES {
+            for redacting_first in [false, true] {
+                // The redacting session does more work than the converged one.
+                // Calibrate each direction and target, including the completing
+                // round, so the sweep covers parking before, during, and after it.
+                let rounds = {
+                    let (a, b, c) = redacted_trio(network, MESSAGES, target);
+                    let first = if redacting_first { &b } else { &c };
+                    overlap::open(&a, first).finish()
+                };
+                for park in 0..=rounds {
+                    let (a, b, c) = redacted_trio(network, MESSAGES, target);
+                    // Derive the result from the untouched replica, independently
+                    // of either redaction or reconciliation. Fixture values are unique.
+                    let mut expected = readout(&a.snapshot());
+                    expected.retain(|_, value| *value != target);
+                    let (first, second) = if redacting_first { (&b, &c) } else { (&c, &b) };
+                    let mut session = overlap::open(&a, first);
+                    session.step(park);
+                    wire_gossip(&a, second);
+                    session.finish();
+
+                    // Later gossip could repair a temporary resurrection at A.
+                    // A has completed both exchanges, so it already owes the full
+                    // result; C may still need to learn the redaction afterward.
+                    assert_eq!(
+                        readout(&a.snapshot()),
+                        expected,
+                        "shared replica: target={target}, redacting_first={redacting_first}, park={park}"
+                    );
+                    assert_eq!(
+                        converge(&a, &b, &c),
+                        expected,
+                        "settled fleet: target={target}, redacting_first={redacting_first}, park={park}"
+                    );
+                }
             }
         }
     }

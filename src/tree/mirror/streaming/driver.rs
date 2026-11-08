@@ -11,15 +11,29 @@
 //! phase boundary, advance, and later wait forever for the failed participant.
 //! [`divert`] records the source error and parks instead. [`race_session`] then
 //! returns that error and cancels the rest of the schedule.
+//!
+//! # Holding each value once
+//!
+//! Every session boxes the state machine this driver builds, and boxing
+//! copies all of its bytes, so the code here avoids two ways the compiler
+//! would store a value twice. An `async fn` keeps each argument in its state
+//! for its whole run, so awaiting a future argument holds that future twice:
+//! as the argument, and as the value awaited. A local moved out field by
+//! field, rather than whole, still counts as holding its value until its
+//! scope ends, so it is saved across every await in that scope. The helpers
+//! here therefore return combinators instead of awaiting future arguments,
+//! [`race_session`] borrows the session pinned where it is built, and
+//! `mirror!` moves each phase's state whole, inside a block that ends before
+//! the session's await.
 
 use std::{
     future::Future,
-    pin::pin,
+    pin::{Pin, pin},
     sync::{Arc, Mutex},
 };
 
 use async_stream::stream;
-use futures::{StreamExt, channel::oneshot, future};
+use futures::{StreamExt, TryFutureExt, channel::oneshot, future};
 use seq_macro::seq;
 
 use crate::tree::mirror::streaming::protocol::*;
@@ -73,11 +87,14 @@ impl<E, S> ErrorRoute<E, S> {
     }
 
     /// Map one terminal future into the session's common error type.
-    pub(super) async fn resolve<O>(
+    ///
+    /// A combinator, not an `async fn`, so that the result holds `future`
+    /// once (see the module docs).
+    pub(super) fn resolve<O>(
         self,
         future: impl Future<Output = Result<O, E>>,
-    ) -> Result<O, S> {
-        future.await.map_err(self.wrap)
+    ) -> impl Future<Output = Result<O, S>> {
+        future.map_err(self.wrap)
     }
 }
 
@@ -108,8 +125,11 @@ struct FirstError<E> {
 }
 
 /// Race a session against response errors, preserving their causal priority.
+///
+/// The session is borrowed pinned where its caller built it, so that the
+/// race does not hold a second copy of it (see the module docs).
 async fn race_session<O, E>(
-    session: impl Future<Output = Result<O, E>>,
+    session: Pin<&mut impl Future<Output = Result<O, E>>>,
     mut first_error: FirstError<E>,
 ) -> Result<O, E> {
     let result = tokio::select! {
@@ -135,22 +155,22 @@ async fn race_session<O, E>(
 }
 
 /// Fail-fast join two branches after mapping their distinct error types.
-pub(super) async fn try_join_mapped<L, R, LO, RO, LE, RE, E, LW, RW>(
+///
+/// A combinator, not an `async fn`, so that the join holds each branch
+/// once (see the module docs).
+pub(super) fn try_join_mapped<L, R, LO, RO, LE, RE, E, LW, RW>(
     left: L,
     wrap_left: LW,
     right: R,
     wrap_right: RW,
-) -> Result<(LO, RO), E>
+) -> impl Future<Output = Result<(LO, RO), E>>
 where
     L: Future<Output = Result<LO, LE>>,
     R: Future<Output = Result<RO, RE>>,
     LW: FnOnce(LE) -> E,
     RW: FnOnce(RE) -> E,
 {
-    future::try_join(async move { left.await.map_err(wrap_left) }, async move {
-        right.await.map_err(wrap_right)
-    })
-    .await
+    future::try_join(left.map_err(wrap_left), right.map_err(wrap_right))
 }
 
 /// Expand the type-level phase schedule into the connected driver's body.
@@ -158,21 +178,29 @@ where
 /// Each step diverts one response stream, advances its counterparty, and
 /// retains the producer's next state. The terminal joins both sides after
 /// mapping their distinct errors into the session error type.
+///
+/// Each step moves both participants' `(state, route)` pairs whole (`{ $x }`)
+/// and binds their parts only inside a block, so that no moved-out local
+/// is still in scope at the session's one await (see the module docs).
 macro_rules! mirror {
     (@one $producer:ident >> $consumer:ident.$method:ident) => {
-        let ((responses, next), route) = $producer;
-        let requests = divert(responses, route.clone());
-        let $producer = (next, route);
-        let $consumer = ($consumer.0.$method(requests), $consumer.1);
+        let ($producer, $consumer) = {
+            let ((responses, next), route) = { $producer };
+            let (state, consumer_route) = { $consumer };
+            let requests = divert(responses, route.clone());
+            ((next, route), (state.$method(requests), consumer_route))
+        };
     };
     (@pending($producer:ident) parties($first:ident, $second:ident) $consumer:ident.$method:ident;) => {{
-        let ((responses, completion), route) = $producer;
-        let requests = divert(responses, route.clone());
-        let ($consumer, consumer_route) = $consumer;
-        let outputs = future::try_join(
-            consumer_route.resolve($consumer.$method(requests)),
-            route.resolve(completion),
-        )
+        let outputs = {
+            let ((responses, completion), route) = { $producer };
+            let (state, consumer_route) = { $consumer };
+            let requests = divert(responses, route.clone());
+            future::try_join(
+                consumer_route.resolve(state.$method(requests)),
+                route.resolve(completion),
+            )
+        }
         .await;
         // Bind each output under its participant's identifier, then restore
         // the order in which the participants entered the driver.
@@ -194,7 +222,10 @@ macro_rules! mirror {
     };
     (@step($producer:ident)) => {};
     (@run parties($first:ident, $second:ident) $producer:ident.$method:ident; $($rest:tt)*) => {{
-        let $producer = ($producer.0.$method(), $producer.1);
+        let $producer = {
+            let (state, route) = { $producer };
+            (state.$method(), route)
+        };
         mirror!(@pending($producer) parties($first, $second) $($rest)*)
     }};
     ($first:ident.$first_method:ident; $second:ident.$second_method:ident; $($rest:tt)*) => {{
@@ -202,13 +233,13 @@ macro_rules! mirror {
             error_routes(Error::Client, Error::Server);
         let $first = ($first, first_route);
         let $second = ($second, second_route);
-        let session = async {
+        let session = pin!(async {
             mirror!(@run parties($first, $second)
                 $first.$first_method;
                 $second.$second_method;
                 $($rest)*
             )
-        };
+        });
         race_session(session, first_error).await
     }};
 }

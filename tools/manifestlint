@@ -3,7 +3,7 @@
 # and its tool-side members to the default members and nextest's default
 # filter.
 #
-# The root Cargo.toml's [workspace.dependencies] is the version of record for
+# The root Cargo.toml's [workspace.dependencies] sets the version of
 # every dependency in the workspace: member manifests inherit an entry with
 # `workspace = true`, adding only what cargo permits or requires at the
 # member — feature selections (`features`, and `default-features = true` to
@@ -100,8 +100,8 @@ class Member(NamedTuple):
 def violations(manifest):
     """Yield `(table, name, reason)` for every dependency entry that is not
     a workspace inheritance plus allowed member-side additions. The
-    manifest's own `[workspace.dependencies]` table is the version of
-    record, not a member declaration, and is never scanned."""
+    manifest's own `[workspace.dependencies]` table sets the versions; it is
+    not a member declaration, and is never scanned."""
     tables = []
     for kind in DEP_TABLES:
         if kind in manifest:
@@ -306,7 +306,7 @@ def self_test():
             "[target.'cfg(unix)'.dependencies]\na = \"1\"",
             ("target.cfg(unix).dependencies", "a"),
         ),
-        # The workspace table itself is the version of record, never a
+        # The workspace table itself sets the versions; it is never a
         # member declaration: entries there carry versions by design.
         ("[workspace.dependencies]\na = \"1\"", []),
     ]

@@ -21,9 +21,13 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Bookmark, Peer, Retire, Rumors, Version};
+use rumors::{Bookmark, Connection, Peer, Retire, Rumors, Version};
 
-use crate::common::wire::{LINK_BUF, block_on};
+use crate::common::wire::block_on;
+use rumors::testing::MEMORY_CAPACITY;
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// One observed bookmark I/O, in call order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,10 +78,10 @@ impl Bookmark for Probe {
 
 /// Reconcile the subject with a helper without transferring identity.
 async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
-    let (mut s_link, mut h_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut h_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, h) = tokio::join!(
-        subject.gossip_once(&mut s_link),
-        helper.gossip_once(&mut h_link),
+        subject.gossip_once(&mut s_end.read, &mut s_end.write),
+        helper.gossip_once(&mut h_end.read, &mut h_end.write),
     );
     s.expect("subject plain gossip");
     h.expect("helper plain gossip");
@@ -85,33 +89,39 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
 
 /// Join a new helper through the subject, donating a fork of its identity.
 async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
-    let (mut s_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, n) = tokio::join!(
-        subject.gossip_once(&mut s_link),
-        Peer::<u64>::bootstrap().join(&mut n_link),
+        subject.gossip_once(&mut s_end.read, &mut s_end.write),
+        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
     );
     s.expect("subject serve bootstrap");
     (match n {
-        rumors::Joined::Joined { peer } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("subject served the bootstrap"),
     })
-    .sync_window_floor()
+    .sync_memory_budget(0)
     .into_rumors()
 }
 
 /// Join through `origin`, returning a peer ready for bookmark attachment.
 async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
-    let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut o_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (o, n) = tokio::join!(
-        origin.gossip_once(&mut o_link),
-        Peer::<u64>::bootstrap().join(&mut n_link),
+        origin.gossip_once(&mut o_end.read, &mut o_end.write),
+        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
     );
     o.expect("origin serves the bootstrap");
     (match n {
-        rumors::Joined::Joined { peer } => peer,
+        rumors::Joined::Joined {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => peer,
         _ => panic!("origin served the bootstrap"),
     })
-    .sync_window_floor()
+    .sync_memory_budget(0)
 }
 
 /// Retire a helper into the subject, transferring its identity.
@@ -120,14 +130,16 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the helper is the sole handle to its set");
-    let (mut s_link, mut r_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut r_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, outcome) = tokio::join!(
-        subject.gossip_once(&mut s_link),
-        retiree.retire(&mut r_link),
+        subject.gossip_once(&mut s_end.read, &mut s_end.write),
+        retiree.retire(&mut r_end.read, &mut r_end.write),
     );
     s.expect("subject absorbs the retiree");
     match outcome {
-        Retire::Retired => {}
+        Retire::Retired {
+            connection: Connection::Reusable { .. },
+        } => {}
         other => panic!("a clean retirement must succeed, got {other:?}"),
     }
 }
@@ -138,14 +150,16 @@ async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
         .try_into_peer()
         .await
         .expect("the subject is the sole handle to its set");
-    let (mut s_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    let (mut s_end, mut a_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (outcome, a) = tokio::join!(
-        subject.retire(&mut s_link),
-        absorber.gossip_once(&mut a_link),
+        subject.retire(&mut s_end.read, &mut s_end.write),
+        absorber.gossip_once(&mut a_end.read, &mut a_end.write),
     );
     a.expect("absorber gossip");
     match outcome {
-        Retire::Retired => {}
+        Retire::Retired {
+            connection: Connection::Reusable { .. },
+        } => {}
         other => panic!("a clean retirement must succeed, got {other:?}"),
     }
 }
@@ -283,14 +297,19 @@ struct World {
 
 /// Construct a lifetime and drive its operations through the public API.
 impl World {
-    /// Attach storage, checking the initial I/O for the chosen origin.
-    async fn new(origin: Origin) -> Self {
+    /// Attach storage, checking the initial I/O for the chosen origin, in the
+    /// network `network` names.
+    async fn new(network: NetworkSeed, origin: Origin) -> Self {
         let probe = Probe::default();
         let log = Arc::clone(&probe.log);
         let (peer, helpers, loaded) = match origin {
-            Origin::Seed => (Peer::<u64>::seed().sync_window_floor(), Vec::new(), false),
+            Origin::Seed => (
+                network.peer::<u64>().sync_memory_budget(0),
+                Vec::new(),
+                false,
+            ),
             Origin::Bootstrap => {
-                let origin = Peer::<u64>::seed().sync_window_floor().into_rumors();
+                let origin = network.peer::<u64>().sync_memory_budget(0).into_rumors();
                 (bootstrap_fork_peer(&origin).await, vec![origin], true)
             }
         };
@@ -415,78 +434,94 @@ impl World {
     }
 }
 
-/// A seed's first session loads before it writes, with no I/O at attachment.
-#[test]
-fn read_is_deferred_to_first_use() {
-    block_on(async {
-        let world = World::new(Origin::Seed).await;
-        let _helper = serve_bootstrap(&world.subject).await;
-        let history = world.history();
-        assert_eq!(
-            history.first(),
-            Some(&Io::Read),
-            "load before the first store"
-        );
-        assert_eq!(Delta::count(&history).reads, 1, "load exactly once");
-    });
-}
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-/// A local send requires one checkpoint; learning a helper's message requires none.
-#[test]
-fn incorporating_remote_content_writes_nothing() {
-    block_on(async {
-        let world = World::new(Origin::Seed).await;
-        let helper = serve_bootstrap(&world.subject).await;
-        // Finish the checkpoint due after donation, so the send is the only
-        // reason for the next store.
-        plain_gossip(&world.subject, &helper).await;
+    /// A seed's first session loads before it writes, with no I/O at attachment.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn read_is_deferred_to_first_use(network in network_seed()) {
+        block_on(async {
+            let world = World::new(network, Origin::Seed).await;
+            let _helper = serve_bootstrap(&world.subject).await;
+            let history = world.history();
+            assert_eq!(
+                history.first(),
+                Some(&Io::Read),
+                "load before the first store"
+            );
+            assert_eq!(Delta::count(&history).reads, 1, "load exactly once");
+        });
+    }
 
-        world.subject.send(1).unwrap();
-        let before = world.cursor();
-        plain_gossip(&world.subject, &helper).await;
-        assert_eq!(&world.history()[before..], &[Io::Write]);
-
-        helper.send(2).unwrap();
-        let before = world.cursor();
-        plain_gossip(&world.subject, &helper).await;
-        assert!(world.history()[before..].is_empty());
-        assert!(world.subject.snapshot().iter().any(|(_, m)| *m == 2));
-    });
-}
-
-/// Many local and remote sends still require only one load during a peer's life.
-#[test]
-fn read_happens_exactly_once_across_a_long_life() {
-    block_on(async {
-        let world = World::new(Origin::Seed).await;
-        let helper = serve_bootstrap(&world.subject).await;
-        for round in 0..16u64 {
-            world.subject.send(round).unwrap();
+    /// A local send requires one checkpoint; learning a helper's message requires none.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn incorporating_remote_content_writes_nothing(network in network_seed()) {
+        block_on(async {
+            let world = World::new(network, Origin::Seed).await;
+            let helper = serve_bootstrap(&world.subject).await;
+            // Finish the checkpoint due after donation, so the send is the only
+            // reason for the next store.
             plain_gossip(&world.subject, &helper).await;
-            helper.send(1_000 + round).unwrap();
-            plain_gossip(&world.subject, &helper).await;
-        }
-        assert_eq!(Delta::count(&world.history()).reads, 1);
-    });
-}
 
-/// Attachment persists a fork; its first session checkpoints once without reloading.
-#[test]
-fn attaching_to_a_fork_eagerly_persists_then_never_re_reads() {
-    block_on(async {
-        let world = World::new(Origin::Bootstrap).await;
-        let before = world.cursor();
-        plain_gossip(&world.subject, &world.helpers[0]).await;
-        assert_eq!(&world.history()[before..], &[Io::Write]);
-    });
+            world.subject.send(1).unwrap();
+            let before = world.cursor();
+            plain_gossip(&world.subject, &helper).await;
+            assert_eq!(&world.history()[before..], &[Io::Write]);
+
+            helper.send(2).unwrap();
+            let before = world.cursor();
+            plain_gossip(&world.subject, &helper).await;
+            assert!(world.history()[before..].is_empty());
+            assert!(world.subject.snapshot().iter().any(|(_, m)| *m == 2));
+        });
+    }
+
+    /// Many local and remote sends still require only one load during a peer's life.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn read_happens_exactly_once_across_a_long_life(network in network_seed()) {
+        block_on(async {
+            let world = World::new(network, Origin::Seed).await;
+            let helper = serve_bootstrap(&world.subject).await;
+            for round in 0..16u64 {
+                world.subject.send(round).unwrap();
+                plain_gossip(&world.subject, &helper).await;
+                helper.send(1_000 + round).unwrap();
+                plain_gossip(&world.subject, &helper).await;
+            }
+            assert_eq!(Delta::count(&world.history()).reads, 1);
+        });
+    }
+
+    /// Attachment persists a fork; its first session checkpoints once without reloading.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn attaching_to_a_fork_eagerly_persists_then_never_re_reads(network in network_seed()) {
+        block_on(async {
+            let world = World::new(network, Origin::Bootstrap).await;
+            let before = world.cursor();
+            plain_gossip(&world.subject, &world.helpers[0]).await;
+            assert_eq!(&world.history()[before..], &[Io::Write]);
+        });
+    }
 }
 
 proptest! {
     /// Donation checkpoints pending sends; later sessions record the retained party only once.
     #[test]
-    fn donation_leaves_one_checkpoint_due(local_sends in 0u64..8, later_sessions in 1usize..8) {
+    fn donation_leaves_one_checkpoint_due(
+        local_sends in 0u64..8,
+        later_sessions in 1usize..8,
+        network in network_seed(),
+    ) {
         block_on(async {
-            let world = World::new(Origin::Bootstrap).await;
+            let world = World::new(network, Origin::Bootstrap).await;
             plain_gossip(&world.subject, &world.helpers[0]).await;
             for message in 0..local_sends {
                 world.subject.send(message).unwrap();
@@ -513,9 +548,13 @@ proptest! {
 
     /// Repeating completed redactions neither advances local progress nor requires a store.
     #[test]
-    fn repeated_redactions_need_no_checkpoint(messages in 1u64..12, repetitions in 1usize..8) {
+    fn repeated_redactions_need_no_checkpoint(
+        messages in 1u64..12,
+        repetitions in 1usize..8,
+        network in network_seed(),
+    ) {
         block_on(async {
-            let world = World::new(Origin::Bootstrap).await;
+            let world = World::new(network, Origin::Bootstrap).await;
             let helper = &world.helpers[0];
             for message in 0..messages {
                 world.subject.send(message).unwrap();
@@ -544,9 +583,10 @@ proptest! {
         retained in 0u64..8,
         removed in 1u64..8,
         share_before_redaction: bool,
+        network in network_seed(),
     ) {
         block_on(async {
-            let world = World::new(Origin::Bootstrap).await;
+            let world = World::new(network, Origin::Bootstrap).await;
             let helper = &world.helpers[0];
             for message in 0..retained {
                 helper.send(message).unwrap();
@@ -593,9 +633,10 @@ proptest! {
         origin in prop_oneof![Just(Origin::Seed), Just(Origin::Bootstrap)],
         script in prop::collection::vec(op_strategy(), 0..40),
         retire_at_end: bool,
+        network in network_seed(),
     ) {
         block_on(async {
-            let mut world = World::new(origin).await;
+            let mut world = World::new(network, origin).await;
             for op in script {
                 world.check(op).await;
             }

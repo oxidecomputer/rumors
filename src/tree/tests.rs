@@ -1,7 +1,7 @@
 mod act;
 mod join;
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use bytes::Bytes;
 use proptest::prelude::*;
@@ -9,6 +9,7 @@ use proptest::prelude::*;
 use super::typed::{Hash, Path, untyped};
 use super::*;
 use crate::message::Message;
+use crate::tree::arb::arb_version;
 
 use serde::Serialize;
 
@@ -23,11 +24,6 @@ impl<T> Tree<T> {
                 .is_none_or(|root| root.clone().into_untyped().memos_are_warm())
         );
     }
-}
-
-/// An arbitrary 32-byte leaf path (almost surely naming no live leaf).
-fn arb_path() -> impl Strategy<Value = Path> {
-    any::<[u8; 32]>().prop_map(Path::from)
 }
 
 /// Wrap test bytes as the tree's erased message type.
@@ -92,11 +88,11 @@ fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
 /// Compute the leaf path that `Tree::act` assigns for an insert at
 /// the version a party reaches after `scalar` events.
 ///
-/// The path is derived from the version's canonical bytes alone (see
-/// [`Path::for_leaf`]), matching what the tree derives internally for the
-/// same post-tick version.
+/// The path is the version's canonical bytes hashed under the fixture secret
+/// (see [`Path::for_leaf`]), matching what a `Tree::default()` tree derives
+/// internally for the same post-tick version.
 fn leaf_path(party: impl AsRef<[u8]>, scalar: u64) -> Path {
-    Path::for_leaf(&version_for(party, scalar))
+    Path::for_fixture_leaf(&version_for(party, scalar))
 }
 
 /// Build a versioned insert triple of the shape `Tree::react` expects:
@@ -123,26 +119,26 @@ fn insert_at(
 /// ground truth.
 ///
 /// The canonical shape is derived directly from the sorted leaf-path set: a
-/// lone path below `depth` is a leaf committing its remaining suffix and its
-/// version's canonical bytes, and otherwise the run's shared span up to its
-/// first divergence byte is the branch's compressed prefix, with one child
-/// recursing per divergence radix — so every branch has >= 2 children and
-/// maximal prefixes by construction. Preimages are assembled with literal
-/// tag bytes, `LEAF_TAG ‖ len ‖ suffix` and
-/// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`, each hash
-/// truncated to its leading
-/// [`MERKLE_HASH_LEN`](crate::tree::typed::hash::MERKLE_HASH_LEN) bytes. The
-/// empty tree is the prefixless branch with no children. The tree's root
-/// hash must match this however its content arrived.
+/// lone path below `depth` is a leaf committing its remaining suffix, and
+/// otherwise the run's shared span up to its first divergence byte is the
+/// branch's compressed prefix, with one child recursing per divergence radix
+/// — so every branch has >= 2 children and maximal prefixes by construction.
+/// The node observed from `depth` sits at height `32 - depth`. Preimages are
+/// assembled with literal tag bytes, `LEAF_TAG ‖ height ‖ len ‖ suffix` and
+/// `BRANCH_TAG ‖ height ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`,
+/// each digested by the fixture network's keyed hash ([`keyed`]). The empty
+/// tree is the prefixless branch with no children at the root's height. The
+/// tree's root hash must match this however its content arrived.
 fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
 
     fn hash_at(depth: usize, leaves: &[([u8; 32], &Version)]) -> Hash {
+        let height = (32 - depth) as u8;
         if let [(path, _version)] = leaves {
-            let mut preimage = vec![LEAF_TAG, (32 - depth) as u8];
+            let mut preimage = vec![LEAF_TAG, height, height];
             preimage.extend_from_slice(&path[depth..]);
-            return Hash::of(&preimage);
+            return keyed(&preimage);
         }
 
         // Two or more distinct sorted paths diverge at the first byte where
@@ -166,7 +162,7 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
             rest = tail;
         }
 
-        let mut preimage = vec![BRANCH_TAG, (branch_at - depth) as u8];
+        let mut preimage = vec![BRANCH_TAG, height, (branch_at - depth) as u8];
         preimage.extend_from_slice(&first[depth..branch_at]);
         let count = u16::try_from(records.len()).expect("fan-out is at most 256");
         preimage.extend_from_slice(&count.to_be_bytes());
@@ -174,31 +170,39 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
             preimage.push(radix);
             preimage.extend_from_slice(hash.as_bytes());
         }
-        Hash::of(&preimage)
+        keyed(&preimage)
     }
 
     // Level 32 (the value level): every distinct path maps to a leaf; the
     // path is a pure function of the version.
     let mut leaves: Vec<([u8; 32], &Version)> = values
         .iter()
-        .map(|(version, _)| (<[u8; 32]>::from(Path::for_leaf(version)), version))
+        .map(|(version, _)| (<[u8; 32]>::from(Path::for_fixture_leaf(version)), version))
         .collect();
     leaves.sort_by_key(|(path, _)| *path);
     leaves.dedup_by_key(|(path, _)| *path);
 
     if leaves.is_empty() {
-        // The empty tree: a prefixless branch with no children.
-        return Hash::of(&[BRANCH_TAG, 0, 0, 0]);
+        // The empty tree: a prefixless branch with no children, at the
+        // root's height.
+        return keyed(&[BRANCH_TAG, 32, 0, 0, 0]);
     }
 
     hash_at(0, &leaves)
 }
 
+/// The fixture network's keyed hash of `preimage`, the hash every
+/// `Tree::default()` digests its nodes with.
+fn keyed(preimage: &[u8]) -> Hash {
+    NetworkKeys::fixture().hash().of(preimage)
+}
+
 /// An empty tree's root hash must match the reference: the prefixless branch
-/// with no children, `sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`.
+/// with no children at the root's height, `BRANCH_TAG ‖ 32 ‖ 0 ‖ 0u16`,
+/// under the fixture network's keyed hash.
 #[test]
 fn empty_tree_hash_matches_reference() {
-    let tree: Tree<Bytes> = Tree::new();
+    let tree: Tree<Bytes> = Tree::default();
     let tree_hash = tree.hash();
     let reference = reference_hash(&[]);
     assert_eq!(&tree_hash, reference.as_bytes());
@@ -210,7 +214,7 @@ fn empty_tree_hash_matches_reference() {
 #[test]
 fn single_value_hash_matches_reference() {
     let value = Bytes::from(&b"hello"[..]);
-    let mut tree: Tree<Bytes> = Tree::new();
+    let mut tree: Tree<Bytes> = Tree::default();
     tree.act(&party_of("P"), [insert_action(value.clone())]);
     let tree_hash = tree.hash();
     let reference = reference_hash(&[(version_for("P", 1), value)]);
@@ -232,7 +236,7 @@ proptest! {
         values in proptest::collection::vec(any::<Vec<u8>>(), 0..16)
             .prop_map(|v| v.into_iter().map(Bytes::from).collect::<Vec<_>>()),
     ) {
-        let mut tree = Tree::<Bytes>::new();
+        let mut tree = Tree::<Bytes>::default();
         tree.act(&party_of("P"), values.iter().cloned().map(insert_action));
         let reference_input: Vec<_> = values
             .into_iter()
@@ -273,7 +277,7 @@ proptest! {
             let mut version = Version::new();
             version.tick(&crate::tree::arb::nth_party(index));
             let message = msg(b.clone());
-            let key = Path::for_leaf(&version);
+            let key = Path::for_fixture_leaf(&version);
             (key, version, traverse::Action::Insert(message))
         };
         let index_of: HashMap<Bytes, usize> = kept
@@ -286,7 +290,7 @@ proptest! {
         let cut = split.index(kept.len() + 1);
 
         // Route A: one react batch, base order.
-        let mut direct = Tree::new();
+        let mut direct = Tree::default();
         direct.react(kept.iter().map(versioned));
 
         // Route B: shuffled order, split into two batches, with the extra
@@ -296,19 +300,19 @@ proptest! {
             .enumerate()
             .map(|(i, b)| event(kept.len() + i, b))
             .collect();
-        let mut detoured = Tree::new();
+        let mut detoured = Tree::default();
         detoured.react(shuffled[..cut].iter().map(versioned));
         detoured.react(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
         detoured.react(shuffled[cut..].iter().map(versioned));
         detoured.act(
             &party_of("P"),
-            extra_events.iter().rev().map(|(k, _, _)| Action::Forget(*k)),
+            extra_events.iter().rev().map(|(_, v, _)| Action::Forget(v.clone())),
         );
 
         // Route C: two disjoint halves, merged in memory.
-        let mut joined = Tree::new();
+        let mut joined = Tree::default();
         joined.react(kept[..cut].iter().map(versioned));
-        let mut right = Tree::new();
+        let mut right = Tree::default();
         right.react(kept[cut..].iter().map(versioned));
         joined.join(right);
 
@@ -333,7 +337,7 @@ proptest! {
             .iter()
             .map(|(version, value)| {
                 (
-                    <[u8; 32]>::from(Path::for_leaf(version)),
+                    <[u8; 32]>::from(Path::for_fixture_leaf(version)),
                     Some(untyped::Node::leaf(
                         version.clone(),
                         Message::new((*value).clone()),
@@ -353,7 +357,7 @@ proptest! {
             .unwrap_or_default();
         prop_assert_eq!(&canonical_view, &expected_view);
         if let Some(node) = canonical {
-            prop_assert_eq!(*node.hash().as_bytes(), direct.hash());
+            prop_assert_eq!(*node.hash(direct.hash_key()).as_bytes(), direct.hash());
         }
     }
 
@@ -378,11 +382,11 @@ proptest! {
             insert_at(version_for(&party, scalar), &party, scalar, b)
         };
 
-        let mut all_in_one = Tree::<Bytes>::new();
+        let mut all_in_one = Tree::<Bytes>::default();
         all_in_one
             .react(bytes.iter().cloned().enumerate().map(event));
 
-        let mut partitioned = Tree::<Bytes>::new();
+        let mut partitioned = Tree::<Bytes>::default();
         let mut chunk: Vec<(usize, Bytes)> = Vec::new();
         for (i, b) in bytes.iter().cloned().enumerate() {
             chunk.push((i, b));
@@ -411,7 +415,7 @@ proptest! {
     fn act_sequence_equals_react_with_explicit_versions(
         bytes in distinct_bytes(16),
     ) {
-        let mut t_act = Tree::<Bytes>::new();
+        let mut t_act = Tree::<Bytes>::default();
         for b in &bytes {
             t_act.act(&party_of("P"), [insert_action(b.clone())]);
         }
@@ -421,7 +425,7 @@ proptest! {
             .map(|i| version_for(&party, i as u64))
             .collect();
 
-        let mut t_react = Tree::<Bytes>::new();
+        let mut t_react = Tree::<Bytes>::default();
         t_react.react(
             versions
                 .into_iter()
@@ -444,7 +448,7 @@ proptest! {
     /// causal order), and `earliest` is absent exactly when the tree is empty.
     #[test]
     fn size_and_version_accessors_are_consistent(bytes in distinct_bytes(16)) {
-        let mut tree: Tree<Bytes> = Tree::new();
+        let mut tree: Tree<Bytes> = Tree::default();
         if !bytes.is_empty() {
             tree.act(
                 &party_of("P"),
@@ -489,7 +493,7 @@ proptest! {
     /// no gap, so `front ++ reverse(back)` reconstructs the forward order.
     #[test]
     fn iter_is_double_ended(bytes in distinct_bytes(16)) {
-        let mut tree: Tree<Bytes> = Tree::new();
+        let mut tree: Tree<Bytes> = Tree::default();
         if !bytes.is_empty() {
             tree.act(
                 &party_of("P"),
@@ -498,12 +502,12 @@ proptest! {
 
         // Forward order is strictly ascending by path.
         let fwd: Vec<[u8; 32]> =
-            tree.iter().map(|(v, _)| <[u8; 32]>::from(Path::for_leaf(v))).collect();
+            tree.iter().map(|(v, _)| <[u8; 32]>::from(Path::for_fixture_leaf(v))).collect();
         prop_assert!(fwd.windows(2).all(|w| w[0] < w[1]));
 
         // Reverse iteration is the forward sequence, reversed.
         let bwd: Vec<[u8; 32]> =
-            tree.iter().rev().map(|(v, _)| <[u8; 32]>::from(Path::for_leaf(v))).collect();
+            tree.iter().rev().map(|(v, _)| <[u8; 32]>::from(Path::for_fixture_leaf(v))).collect();
         let mut fwd_rev = fwd.clone();
         fwd_rev.reverse();
         prop_assert_eq!(bwd, fwd_rev);
@@ -514,7 +518,7 @@ proptest! {
         let (mut front, mut back) = (Vec::new(), Vec::new());
         let mut take_front = true;
         while let Some((v, _)) = if take_front { it.next() } else { it.next_back() } {
-            let path = <[u8; 32]>::from(Path::for_leaf(v));
+            let path = <[u8; 32]>::from(Path::for_fixture_leaf(v));
             if take_front { front.push(path) } else { back.push(path) }
             take_front = !take_front;
         }
@@ -534,11 +538,9 @@ proptest! {
     fn insert_then_delete_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let path = leaf_path(&party, 1);
-
-        let mut tree = Tree::<Bytes>::new();
+        let mut tree = Tree::<Bytes>::default();
         tree.act(&party_of("P"), [insert_action(value)]);
-        tree.act(&party_of("P"), [Action::Forget(path)]);
+        tree.act(&party_of("P"), [Action::Forget(version_for(&party, 1))]);
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.latest(), version_for(&party, 2));
@@ -552,38 +554,38 @@ proptest! {
     fn insert_and_delete_same_batch_is_empty(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let path = leaf_path(&party, 1);
-
-        let mut tree = Tree::<Bytes>::new();
-        tree.act(&party_of("P"), [insert_action(value), Action::Forget(path)]);
+        let mut tree = Tree::<Bytes>::default();
+        tree.act(
+            &party_of("P"),
+            [insert_action(value), Action::Forget(version_for(&party, 1))],
+        );
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.latest(), Version::new());
     }
 
-    /// Deleting a path that is not present in the tree changes neither the
-    /// root hash nor the version: the leaf multiset is identical, and the
-    /// tree's version absorbs a tick only from actions that have an effect.
+    /// Deleting a version that is not present in the tree changes neither
+    /// the root hash nor the version: the leaf multiset is identical, and
+    /// the tree's version absorbs a tick only from actions that have an
+    /// effect.
     #[test]
-    fn delete_absent_path_preserves_hash(
+    fn delete_absent_version_preserves_hash(
         bytes in distinct_bytes(8),
-        nuke in arb_path(),
+        nuke in arb_version(),
     ) {
         let party = "P".to_string();
-        let present: BTreeSet<Path> = (1..=bytes.len() as u64)
-            .map(|scalar| leaf_path(&party, scalar))
-            .collect();
-        let nuke = if present.contains(&nuke) {
-            // Move the vanishingly rare collision to the next version-derived
-            // path, which is absent because the fixture inserted only
-            // `bytes.len()` messages.
-            leaf_path(&party, bytes.len() as u64 + 1)
+        let mut t_before = Tree::<Bytes>::default();
+        let inserted = bytes.len() as u64;
+        t_before.act(&party_of("P"), bytes.into_iter().map(insert_action));
+        let nuke = if t_before.contains(&nuke) {
+            // Move a drawn version the tree holds to the party's next
+            // version, which is absent because the fixture inserted only
+            // `inserted` messages.
+            version_for(&party, inserted + 1)
         } else {
             nuke
         };
 
-        let mut t_before = Tree::<Bytes>::new();
-        t_before.act(&party_of("P"), bytes.into_iter().map(insert_action));
         let mut t_after = t_before.clone();
         t_after.act(&party_of("P"), [Action::Forget(nuke)]);
 
@@ -599,14 +601,14 @@ proptest! {
     /// so that content-identical messages produce distinct keys. (Effectual
     /// forgets advance the version too, pinned by
     /// `insert_then_delete_is_empty`; ineffectual ones do not, pinned by
-    /// `delete_absent_path_preserves_hash`.)
+    /// `delete_absent_version_preserves_hash`.)
     #[test]
     fn act_bumps_self_party_by_number_of_inserts(
         prior_inserts in 0usize..4,
         batch_size in 1usize..8,
     ) {
         let party = "P".to_string();
-        let mut tree = Tree::<Bytes>::new();
+        let mut tree = Tree::<Bytes>::default();
         for i in 0..prior_inserts {
             tree.act(&party_of(&party), [insert_action(Bytes::from(
                 format!("prior-{i}").into_bytes(),
@@ -631,7 +633,7 @@ proptest! {
     /// An empty `act` batch leaves the version vector completely unchanged.
     #[test]
     fn empty_act_is_a_version_noop(prior_batches in 0usize..4) {
-        let mut tree = Tree::<Bytes>::new();
+        let mut tree = Tree::<Bytes>::default();
         for i in 0..prior_batches {
             tree.act(&party_of("P"), [insert_action(Bytes::from(
                 format!("prior-{i}").into_bytes(),
@@ -673,11 +675,11 @@ proptest! {
             })
             .collect();
 
-        let mut t_ab = Tree::<Bytes>::new();
+        let mut t_ab = Tree::<Bytes>::default();
         t_ab.react(batch_a.clone());
         t_ab.react(batch_b.clone());
 
-        let mut t_ba = Tree::new();
+        let mut t_ba = Tree::default();
         t_ba.react(batch_b);
         t_ba.react(batch_a);
 
@@ -699,10 +701,10 @@ proptest! {
             })
             .collect();
 
-        let mut t_once = Tree::<Bytes>::new();
+        let mut t_once = Tree::<Bytes>::default();
         t_once.react(batch.clone());
 
-        let mut t_twice = Tree::new();
+        let mut t_twice = Tree::default();
         t_twice.react(batch.clone());
         t_twice.react(batch);
 
@@ -733,13 +735,13 @@ proptest! {
             .zip(versions.iter().cloned().enumerate().map(|(i, v)| (v, (i + 1) as u64)))
             .collect();
 
-        let mut t_base = Tree::<Bytes>::new();
+        let mut t_base = Tree::<Bytes>::default();
         t_base.react(base.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
         }));
 
-        let mut t_shuf = Tree::new();
+        let mut t_shuf = Tree::default();
         t_shuf.react(shuffled.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
@@ -765,7 +767,7 @@ proptest! {
         // `(version, key, message)` triple another party would need to
         // replay the event. This is the information a real synchronization
         // protocol would put on the wire.
-        let mut tree_a: Tree<Bytes> = Tree::new();
+        let mut tree_a: Tree<Bytes> = Tree::default();
         let mut a_events: Vec<(Path, Version, traverse::Action)> = Vec::new();
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
@@ -775,7 +777,7 @@ proptest! {
             a_events.push(insert_at(recorded, &a_id, scalar, value.clone()));
         }
 
-        let mut tree_b: Tree<Bytes> = Tree::new();
+        let mut tree_b: Tree<Bytes> = Tree::default();
         let mut b_events: Vec<(Path, Version, traverse::Action)> = Vec::new();
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
@@ -797,7 +799,7 @@ proptest! {
     /// semantic operation.
     #[test]
     fn clone_preserves_all_observables(acts in distinct_bytes(8)) {
-        let mut tree = Tree::<Bytes>::new();
+        let mut tree = Tree::<Bytes>::default();
         tree.act(&party_of("P"), acts.into_iter().map(insert_action));
         let cloned = tree.clone();
 
@@ -815,9 +817,9 @@ proptest! {
     /// equal, so the implication is exercised on its non-vacuous branch.
     #[test]
     fn eq_implies_same_hash(acts in distinct_bytes(8)) {
-        let mut t1 = Tree::<Bytes>::new();
+        let mut t1 = Tree::<Bytes>::default();
         t1.act(&party_of("P"), acts.iter().cloned().map(insert_action));
-        let mut t2 = Tree::new();
+        let mut t2 = Tree::default();
         t2.act(&party_of("P"), acts.into_iter().map(insert_action));
 
         prop_assert_eq!(&t1, &t2);
@@ -834,8 +836,8 @@ proptest! {
     #[test]
     fn same_value_different_parties_differ(value in any::<Vec<u8>>()) {
         let value = Bytes::from(value);
-        let mut t_a = Tree::<Bytes>::new();
-        let mut t_b = Tree::<Bytes>::new();
+        let mut t_a = Tree::<Bytes>::default();
+        let mut t_b = Tree::<Bytes>::default();
         t_a.act(&party_of("A"), [insert_action(value.clone())]);
         t_b.act(&party_of("B"), [insert_action(value)]);
 
@@ -852,7 +854,7 @@ proptest! {
     fn same_value_different_versions_produce_two_leaves(value in any::<Vec<u8>>()) {
         let party = "P".to_string();
         let value = Bytes::from(value);
-        let mut tree = Tree::new();
+        let mut tree = Tree::default();
         tree.act(&party_of("P"), [insert_action(value.clone())]);
         tree.act(&party_of("P"), [insert_action(value.clone())]);
 
@@ -868,14 +870,14 @@ proptest! {
     }
 }
 
-/// Forgetting a path the tree never held is a complete no-op: no leaf, and
-/// — because the action was zero-effect — no version bump either, so the
-/// tree stays equal to a fresh one.
+/// Forgetting a version the tree never held is a complete no-op: no leaf,
+/// and — because the action was zero-effect — no version bump either, so
+/// the tree stays equal to a fresh one.
 #[test]
 fn delete_nonexistent_key() {
-    let mut tree: Tree<()> = Tree::new();
-    tree.act(&party_of("P"), [Action::Forget(Path::from([0; 32]))]);
-    assert_eq!(tree, Tree::new());
+    let mut tree: Tree<()> = Tree::default();
+    tree.act(&party_of("P"), [Action::Forget(version_for("P", 1))]);
+    assert_eq!(tree, Tree::default());
 }
 
 /// Project a borrowed leaf pair to an owned one, for collecting and
@@ -898,8 +900,8 @@ proptest! {
         end_sel in any::<prop::sample::Index>(),
         form in 0usize..12,
     ) {
-        let tree = Tree::from_root(a);
-        let other = Tree::<()>::from_root(b);
+        let tree = Tree::from_root(crate::network::NetworkKeys::fixture(), a);
+        let other = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), b);
 
         // Bound candidates spanning the partial order's relationships to the
         // walked tree: its own leaf versions and ceiling (dominated/equal),
@@ -932,7 +934,7 @@ proptest! {
             prop_assert!(
                 ranged
                     .windows(2)
-                    .all(|pair| Path::for_leaf(&pair[0].0) < Path::for_leaf(&pair[1].0)),
+                    .all(|pair| Path::for_fixture_leaf(&pair[0].0) < Path::for_fixture_leaf(&pair[1].0)),
                 "range yields ascending version-derived paths",
             );
 
@@ -977,7 +979,7 @@ proptest! {
         root in crate::tree::arb::arb_tree_root(0, 0..24),
         flip in any::<prop::sample::Index>(),
     ) {
-        let tree = Tree::<()>::from_root(root);
+        let tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), root);
 
         let forward: Vec<_> = tree.iter().map(owned).collect();
         prop_assert_eq!(tree.iter().len(), forward.len());
@@ -1035,7 +1037,7 @@ proptest! {
         values in distinct_bytes(12),
         forgets in proptest::collection::vec(any::<prop::sample::Index>(), 0..18),
     ) {
-        let mut tree: Tree<Bytes> = Tree::new();
+        let mut tree: Tree<Bytes> = Tree::default();
         prop_assert_eq!(tree.max_version_bytes(), 0, "the empty tree bounds nothing");
 
         for (i, value) in values.iter().enumerate() {
@@ -1064,7 +1066,7 @@ proptest! {
                     }
                 })
                 .unwrap_or(version);
-            tree.act(&party_of("P"), [Action::Forget(Path::for_leaf(&version))]);
+            tree.act(&party_of("P"), [Action::Forget(version.clone())]);
             prop_assert_eq!(tree.max_version_bytes(), naive_max_version_bytes(&tree));
         }
     }
@@ -1086,11 +1088,11 @@ proptest! {
         right_values in distinct_bytes(8),
         forgets in proptest::collection::vec(any::<prop::sample::Index>(), 0..6),
     ) {
-        let mut left: Tree<Bytes> = Tree::new();
+        let mut left: Tree<Bytes> = Tree::default();
         for value in &left_values {
             left.act(&party_of("A"), [insert_action(value.clone())]);
         }
-        let mut right: Tree<Bytes> = Tree::new();
+        let mut right: Tree<Bytes> = Tree::default();
         for value in &right_values {
             right.act(&party_of("B"), [insert_action(value.clone())]);
         }
@@ -1118,7 +1120,7 @@ proptest! {
             else {
                 break;
             };
-            left.act(&party_of("A"), [Action::Forget(Path::for_leaf(&version))]);
+            left.act(&party_of("A"), [Action::Forget(version.clone())]);
         }
 
         left.join(right);
@@ -1147,29 +1149,29 @@ proptest! {
         base_values in distinct_bytes(6),
         batch_values in distinct_bytes(4),
         forget_live in proptest::collection::vec(any::<prop::sample::Index>(), 0..4),
-        forget_missing in proptest::collection::vec(arb_path(), 0..3),
+        forget_missing in proptest::collection::vec(arb_version(), 0..3),
     ) {
-        let mut tree: Tree<Bytes> = Tree::new();
+        let mut tree: Tree<Bytes> = Tree::default();
         tree.act(
             &party_of("A"),
             base_values.iter().cloned().map(insert_action),
         );
-        let live: Vec<Path> = tree.iter().map(|(v, _)| Path::for_leaf(v)).collect();
+        let live: Vec<Version> = tree.iter().map(|(v, _)| v.clone()).collect();
 
         let mut actions: Vec<Action> =
             batch_values.iter().cloned().map(insert_action).collect();
         for index in forget_live {
             if !live.is_empty() {
-                actions.push(Action::Forget(live[index.index(live.len())]));
+                actions.push(Action::Forget(live[index.index(live.len())].clone()));
             }
         }
-        // A drawn path matching a live one is astronomically unlikely but
-        // harmless: the forget would then be effectual and both sides of
-        // the equality move together.
+        // A drawn version matching a live one is unlikely but harmless: the
+        // forget would then be effectual and both sides of the equality move
+        // together.
         actions.extend(forget_missing.into_iter().map(Action::Forget));
 
         let before = tree.hash();
-        let changed = tree.act(&party_of("A"), actions);
+        let changed = tree.act(&party_of("A"), actions).changed;
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1189,9 +1191,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
     ) {
-        let mut tree = Tree::<()>::from_root(a);
+        let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
         let before = tree.hash();
-        let changed = tree.join(Tree::from_root(b));
+        let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1202,9 +1204,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash_at_depth(
         (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
     ) {
-        let mut tree = Tree::<()>::from_root(a);
+        let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
         let before = tree.hash();
-        let changed = tree.join(Tree::from_root(b));
+        let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
         prop_assert_eq!(changed, tree.hash() != before);
     }
 }
@@ -1221,18 +1223,21 @@ fn deep_divergent_join_changed_flag_is_exact() {
     // Gain in both directions.
     let (a, b, expected) = crate::tree::arb::leaf_parent_dispute_pair();
     for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
-        let mut tree = Tree::<()>::from_root(receiver);
+        let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), receiver);
         let before = tree.hash();
-        let changed = tree.join(Tree::from_root(counter));
+        let changed = tree.join(Tree::from_root(
+            crate::network::NetworkKeys::fixture(),
+            counter,
+        ));
         assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
         assert!(changed, "a deep gain must report changed");
     }
 
     // The deep no-op: the receiver already holds everything the
     // counterparty has, so the full-depth divergent descent nets nothing.
-    let mut tree = Tree::<()>::from_root(expected);
+    let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), expected);
     let before = tree.hash();
-    let changed = tree.join(Tree::from_root(a));
+    let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), a));
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1242,9 +1247,9 @@ fn deep_divergent_join_changed_flag_is_exact() {
 
     // Deletion honoring at depth.
     let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
-    let mut tree = Tree::<()>::from_root(a);
+    let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a);
     let before = tree.hash();
-    let changed = tree.join(Tree::from_root(b));
+    let changed = tree.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b));
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1261,20 +1266,20 @@ fn deep_divergent_join_changed_flag_is_exact() {
 /// of the *set* are not woken for a merge that taught the set nothing.
 #[test]
 fn ceiling_only_join_reports_unchanged() {
-    let mut tree: Tree<Bytes> = Tree::new();
+    let mut tree: Tree<Bytes> = Tree::default();
     tree.act(&party_of("A"), [insert_action(Bytes::from_static(b"kept"))]);
 
     // The counterparty: a tree that sent one message on its own disjoint
     // party and then redacted it, leaving no content but an advanced
     // ceiling. Its frontier is news to us; its (empty) content is not.
-    let mut other: Tree<Bytes> = Tree::new();
+    let mut other: Tree<Bytes> = Tree::default();
     other.act(&party_of("B"), [insert_action(Bytes::from_static(b"gone"))]);
     let version = other
         .iter()
         .map(|(v, _)| v.clone())
         .next()
         .expect("one live message");
-    other.act(&party_of("B"), [Action::Forget(Path::for_leaf(&version))]);
+    other.act(&party_of("B"), [Action::Forget(version.clone())]);
     assert!(
         other.is_empty(),
         "the counterparty redacted its only message"
@@ -1310,18 +1315,23 @@ fn ceiling_only_join_reports_unchanged() {
 /// (pinned by `act_changed_flag_tracks_the_root_hash`).
 #[test]
 fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
-    let (receiver, poisoned, key, escaped) = super::arb::uncontained_supply_pair();
+    let (receiver, poisoned, _, escaped) = super::arb::uncontained_supply_pair();
     let receiver_party = super::arb::nth_party(0);
 
-    let mut tree = Tree::<()>::from_root(receiver);
+    let mut tree = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), receiver);
     assert!(
-        tree.join(Tree::from_root(poisoned)),
+        tree.join(Tree::from_root(
+            crate::network::NetworkKeys::fixture(),
+            poisoned
+        )),
         "planting the escaped leaf is a real change",
     );
 
     let before = tree.hash();
     let ceiling_before = tree.latest().clone();
-    let changed = tree.act(&receiver_party, [Action::Forget(key)]);
+    let changed = tree
+        .act(&receiver_party, [Action::Forget(escaped.clone())])
+        .changed;
     assert!(
         changed,
         "the skipped forget reports changed: the conservative direction",
@@ -1355,13 +1365,16 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
 /// must happen at ingestion: once resident, the record is immortal.
 #[test]
 fn escaped_version_defeats_redaction_in_a_poisoned_store() {
-    let (receiver, poisoned, key, escaped) = super::arb::uncontained_supply_pair();
+    let (receiver, poisoned, _, escaped) = super::arb::uncontained_supply_pair();
     let receiver_party = super::arb::nth_party(0);
 
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
-    let mut tree = Tree::from_root(receiver);
-    tree.join(Tree::from_root(poisoned));
+    let mut tree = Tree::from_root(crate::network::NetworkKeys::fixture(), receiver);
+    tree.join(Tree::from_root(
+        crate::network::NetworkKeys::fixture(),
+        poisoned,
+    ));
     assert!(
         tree.get(&escaped).is_some(),
         "the join plants the escaped leaf"
@@ -1373,7 +1386,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 
     // Redaction is silently skipped: the forget's version ticks from the
     // ceiling, which the escaped version strictly dominates.
-    tree.act(&receiver_party, [Action::Forget(key)]);
+    tree.act(&receiver_party, [Action::Forget(escaped.clone())]);
     assert!(
         tree.get(&escaped).is_some(),
         "redacting the escaped leaf is silently skipped",
@@ -1382,7 +1395,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     // And the leaf re-propagates: a fresh replica that never held it
     // receives it on merge, because no ceiling ever classifies it as
     // already-seen-and-deleted.
-    let mut fresh: Tree<()> = Tree::new();
+    let mut fresh: Tree<()> = Tree::default();
     fresh.join(tree);
     assert!(
         fresh.get(&escaped).is_some(),
@@ -1404,7 +1417,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 /// would honor by deleting every peer's holdings.
 #[test]
 fn act_unwind_leaves_tree_byte_identical() {
-    let mut tree: Tree<Bytes> = Tree::new();
+    let mut tree: Tree<Bytes> = Tree::default();
     tree.act(
         &party_of("P"),
         [insert_action(Bytes::from_static(b"survivor"))],
@@ -1456,12 +1469,12 @@ fn join_unwind_leaves_tree_byte_identical() {
     // Several divergent leaves per side spread the root fan across
     // multiple radixes (paths are version hashes), so the root frame
     // performs several merge steps for the fuse to count.
-    let mut ours: Tree<Bytes> = Tree::new();
+    let mut ours: Tree<Bytes> = Tree::default();
     ours.act(
         &party_of("A"),
         [b"ours-1" as &[u8], b"ours-2", b"ours-3"].map(|b| insert_action(Bytes::from_static(b))),
     );
-    let mut theirs: Tree<Bytes> = Tree::new();
+    let mut theirs: Tree<Bytes> = Tree::default();
     theirs.act(
         &party_of("B"),
         [b"theirs-1" as &[u8], b"theirs-2", b"theirs-3"]
@@ -1544,7 +1557,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> Option<&str> {
 /// the walk. Both paths must publish nothing.
 #[test]
 fn act_mid_walk_unwind_leaves_tree_byte_identical() {
-    let mut tree: Tree<Bytes> = Tree::new();
+    let mut tree: Tree<Bytes> = Tree::default();
     tree.act(
         &party_of("A"),
         [b"held-1" as &[u8], b"held-2", b"held-3"].map(|b| insert_action(Bytes::from_static(b))),
@@ -1585,9 +1598,9 @@ fn act_mid_walk_unwind_leaves_tree_byte_identical() {
 /// before publishing either the candidate root or its ceiling.
 #[test]
 fn act_destructor_unwind_leaves_tree_byte_identical() {
-    let mut tree: Tree<DropBomb> = Tree::new();
+    let mut tree: Tree<DropBomb> = Tree::default();
     let existing = Message::new(DropBomb { armed: false });
-    let key = Path::for_leaf(&version_for("A", 2));
+    let key = Path::for_fixture_leaf(&version_for("A", 2));
     tree.react([(key, version_for("A", 2), traverse::Action::Insert(existing))]);
 
     let hash_before = tree.hash();
@@ -1637,7 +1650,7 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
     // Our history: a keeper leaf, then the bomb, then a redaction of the
     // bomb — the ceiling advances past the bomb's version while the
     // content no longer holds it.
-    let mut ours: Tree<DropBomb> = Tree::new();
+    let mut ours: Tree<DropBomb> = Tree::default();
     ours.act(
         &party_of("A"),
         [Action::Insert(Message::new(DropBomb { armed: false }))],
@@ -1646,14 +1659,14 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
     // The key `act` derives for the bomb's insert (the second action on
     // this tree ticks party A to 2), computed up front so the redaction
     // below can name it.
-    let bomb_key = Path::for_leaf(&version_for("A", 2));
+    let bomb_version = version_for("A", 2);
     ours.act(&party_of("A"), [Action::Insert(bomb)]);
 
     // The counterparty forks while the bomb is live: the clone shares our
     // nodes (no `T` code runs), and after our forget below releases our
     // handles, the counterparty holds the bomb's only ones.
     let theirs = ours.clone();
-    ours.act(&party_of("A"), [Action::Forget(bomb_key)]);
+    ours.act(&party_of("A"), [Action::Forget(bomb_version)]);
 
     let hash_before = ours.hash();
     let ceiling_before = ours.latest().clone();
@@ -1696,14 +1709,14 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
 fn join_prunes_same_position_leaves_whatever_their_contents() {
     let shared = Path::from([0x42; 32]);
 
-    let mut ours: Tree<Bytes> = Tree::new();
+    let mut ours: Tree<Bytes> = Tree::default();
     ours.react([(
         shared,
         version_for("A", 1),
         traverse::Action::Insert(msg(Bytes::from_static(b"a"))),
     )]);
 
-    let mut theirs: Tree<Bytes> = Tree::new();
+    let mut theirs: Tree<Bytes> = Tree::default();
     theirs.react([(
         shared,
         version_for("B", 1),
@@ -1730,15 +1743,15 @@ fn join_prunes_same_position_leaves_whatever_their_contents() {
 #[test]
 fn join_prunes_same_version_payload_divergence_as_equal() {
     let version = version_for("A", 1);
-    let path = Path::for_leaf(&version);
+    let path = Path::for_fixture_leaf(&version);
 
-    let mut ours: Tree<Bytes> = Tree::new();
+    let mut ours: Tree<Bytes> = Tree::default();
     ours.react([(
         path,
         version.clone(),
         traverse::Action::Insert(msg(Bytes::from_static(b"ours"))),
     )]);
-    let mut theirs: Tree<Bytes> = Tree::new();
+    let mut theirs: Tree<Bytes> = Tree::default();
     theirs.react([(
         path,
         version,
@@ -1763,10 +1776,10 @@ fn join_prunes_same_version_payload_divergence_as_equal() {
 #[test]
 fn reinserting_an_identical_leaf_is_idempotent() {
     let version = version_for("A", 1);
-    let path = Path::for_leaf(&version);
+    let path = Path::for_fixture_leaf(&version);
     let message = msg(Bytes::from_static(b"same"));
 
-    let mut tree: Tree<Bytes> = Tree::new();
+    let mut tree: Tree<Bytes> = Tree::default();
     tree.react([(
         path,
         version.clone(),
@@ -1785,9 +1798,9 @@ fn reinserting_an_identical_leaf_is_idempotent() {
 #[should_panic(expected = "version reuse")]
 fn react_asserts_on_version_reuse_at_an_occupied_path() {
     let version = version_for("A", 1);
-    let path = Path::for_leaf(&version);
+    let path = Path::for_fixture_leaf(&version);
 
-    let mut tree: Tree<Bytes> = Tree::new();
+    let mut tree: Tree<Bytes> = Tree::default();
     tree.react([(
         path,
         version.clone(),
@@ -1808,7 +1821,7 @@ fn react_asserts_on_version_reuse_at_an_occupied_path() {
 fn react_asserts_on_a_path_collision_between_distinct_versions() {
     let shared = Path::from([0x24; 32]);
 
-    let mut tree: Tree<Bytes> = Tree::new();
+    let mut tree: Tree<Bytes> = Tree::default();
     tree.react([(
         shared,
         version_for("A", 1),
@@ -1819,4 +1832,25 @@ fn react_asserts_on_a_path_collision_between_distinct_versions() {
         version_for("B", 1),
         traverse::Action::Insert(msg(Bytes::from_static(b"a"))),
     )]);
+}
+
+proptest! {
+    /// Every node of replicas built by inserts and redactions, and of their
+    /// join, stores the grandchild count a direct count finds.
+    ///
+    /// The branch constructors keep the count exact through every edit that
+    /// rebuilds a branch.
+    #[test]
+    fn edited_and_joined_trees_count_grandchildren_exactly(
+        (a, b) in crate::tree::arb::arb_divergent_pair(),
+    ) {
+        let mut joined = Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), a.clone());
+        joined.join(Tree::from_root(crate::network::NetworkKeys::fixture(), b.clone()));
+        for root in [a, b, joined.root] {
+            if let Some(node) = root.node {
+                let miscounted = node.into_untyped().miscounted_grandchildren();
+                prop_assert!(miscounted.is_none(), "{miscounted:?}");
+            }
+        }
+    }
 }

@@ -15,6 +15,8 @@ members = [
     "crates/before/wasm32-pins/guest",
     "crates/before/wasm32-pins/harness",
     "crates/before/wasm32-pins/protocol",
+    "crates/rumors-budget-curves",
+    "crates/rumors-netperf",
     "crates/rumors-tracing",
     "crates/rumors-testkit",
     "crates/suanpan",
@@ -49,10 +51,17 @@ default-members = [
 
 [workspace.dependencies]
 alloc-meter = { path = "crates/alloc-meter" }
+aes-gcm = { version = "0.11", default-features = false }
+anyhow = "1"
 async-stream = "0.3"
-base64 = "0.22"
+# The visualizer encodes through the scalar URL-safe engine alone, so the
+# SIMD engines behind the default `simd-unsafe` feature stay uncompiled.
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 before = { path = "crates/before" }
+# A fixed-size bit array backs `ByteSet`, the protocol's set of radixes.
+bitvec = { version = "1.1", default-features = false }
 board-fuel-harness = { path = "crates/before/board-fuel/harness" }
+sha2 = "0.11"
 sha3 = "0.12"
 borsh = "1"
 bytes = "1"
@@ -66,31 +75,52 @@ cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", rev = "a6a7
 ciborium = "=0.2.2"
 clap = "4"
 console_error_panic_hook = "0.1"
-criterion = "0.5"
+criterion = "0.8"
+csv = "1"
+dirs = "7"
 dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
 flate2 = "1"
 focused-fuel-protocol = { path = "crates/before/focused-fuel/protocol" }
+# 0.11.0 does not build on illumos: it combines `libc`'s `POSIX_SPAWN_*`
+# flags, `i16` there, into a `c_int`.
+fork = "0.10"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 fuzzfit-harness = { path = "crates/before/fuzzfit/harness" }
 hex = "0.4"
+hkdf = "0.13"
+hmac = "0.13"
+# HPKE (RFC 9180), rozbb/rust-hpke on RustCrypto's `p256`, `hkdf` and
+# `aes-gcm`: the bootstrap's sealed exchange.
+hpke = { version = "0.15", default-features = false }
 indicatif = "0.18"
-insta = "1.47"
-itertools = "0.14"
+insta = "1.49"
+itertools = "0.15"
 libm = "0.2"
 mimalloc = "0.1"
-num-bigint = "0.4"
+nix = { version = "0.31", default-features = false }
+num-bigint = "0.5"
 num-traits = "0.2"
 peak_alloc = "0.3"
 plotters = { version = "0.3", default-features = false }
+# 1.0's `block_on` keeps a wakeup only in its thread's park token, so a
+# future that parks its own thread while polled (`std::thread::scope` does,
+# to wait for its threads) can consume the wakeup and leave `block_on`
+# parked for good; the peer suite's redaction race does this. 0.4 keeps the
+# wakeup in its own state.
 pollster = { version = "0.4", features = ["macro"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
-proptest = "1"
-rand = "0.9"
+proptest = "1.12"
+rand = "0.10"
 rand08 = { package = "rand", version = "0.8" }
-rand_chacha = "0.9"
+rand_chacha = "0.10"
 rand_chacha03 = { package = "rand_chacha", version = "0.3" }
+rand_distr = "0.6"
 rayon = "1"
+# A self-signed certificate for the TLS sessions of the TLS record suite
+# and the link-measurement tool, generated per run, so no key is ever
+# committed.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 rumors = { path = "." }
 rumors-testkit = { path = "crates/rumors-testkit" }
 rustc_version = "0.4"
@@ -99,26 +129,36 @@ rustc_version = "0.4"
 # and surfacecheck refuses any document whose format_version differs from
 # `rustdoc_types::FORMAT_VERSION`.
 rustdoc-types = "=0.59.0"
+# TLS for the TLS record suite and the link-measurement tool, on the
+# `ring` provider, which builds with a C compiler alone on every host they
+# run on.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 schnellru = { version = "0.2.4", default-features = false }
 seq-macro = "0.3"
 serde = { version = "1", default-features = false }
 serde_bytes = "0.11"
 serde_json = "1"
 serde_test = "1"
-smallvec = { version = "1.15", features = ["union"] }
+smallvec = { version = "1.16", features = ["union"] }
 spin = { version = "0.12", default-features = false, features = ["spin_mutex"] }
 static_assertions = "1.1"
 strum_macros = "0.28.0"
 suanpan = { path = "crates/suanpan" }
 suanpan-fuel-protocol = { path = "crates/suanpan/fuel/protocol" }
-tempfile = "=3.23.0"
+tempfile = "3.27"
 thiserror = "2"
-tinyvec = { version = "1.11", features = ["alloc"] }
+tinyvec = { version = "1.13", features = ["alloc"] }
 tokio = { version = "1", default-features = false }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+toml = "1"
 tracing = "0.1"
+# The link-measurement tool's readable source revision, from the git
+# command line, which every host that builds from a checkout already has.
+vergen-gitcl = "10"
 wasm-bindgen = "0.2"
 wasm32-pins-protocol = { path = "crates/before/wasm32-pins/protocol" }
-wasmtime = { version = "48.0.8", default-features = false }
+wasmtime = { version = "50.0.1", default-features = false }
+zeroize = "1.9"
 
 [package]
 name = "rumors"
@@ -147,17 +187,33 @@ bench = false
 # Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
-test-internals = ["tokio/rt", "dep:cbor-diag"]
-# Conformance suites for caller-built links and bookmark storage.
-# Enable from a dev-dependency to validate an application's adapters.
+test-internals = ["tokio/rt", "dep:cbor-diag", "dep:proptest", "dep:rand_chacha"]
+# A conformance suite for caller-built bookmark storage. Enable from a
+# dev-dependency to validate an application's storage adapter.
 conformance = []
 # Atomic file storage for bookmarks, driven by caller-supplied blocking execution.
 fs = ["dep:tempfile"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }
+bitvec.workspace = true
 bytes.workspace = true
+# The `zeroize` features clear the network secret's HMAC key state, and
+# the SHA-256 cores inside it, when a path key drops.
+sha2 = { workspace = true, features = ["zeroize"] }
+hmac = { workspace = true, features = ["zeroize"] }
 sha3.workspace = true
+zeroize.workspace = true
+# The bootstrap's sealed secret: HPKE base mode with DHKEM(P-256,
+# HKDF-SHA256), HKDF-SHA256 and AES-256-GCM, drawing its keys from the
+# operating system.
+hpke = { workspace = true, features = ["nistp", "aes", "getrandom"] }
+# Not used directly: `hpke` builds `aes-gcm` without its `zeroize` feature,
+# and enabling it here makes the AES key schedule inside each HPKE
+# context clear when the context drops.
+aes-gcm = { workspace = true, features = ["zeroize"] }
+# The network secret's key schedule (`NetworkKeys`).
+hkdf.workspace = true
 itertools.workspace = true
 serde = { workspace = true, default-features = true, features = ["derive"] }
 ciborium.workspace = true
@@ -175,6 +231,12 @@ tempfile = { workspace = true, optional = true }
 # The wire-capture renderer behind `test-internals` renders every captured
 # item in diagnostic notation through this crate.
 cbor-diag = { workspace = true, optional = true }
+# The property-test support behind `test-internals` (`testing::property`)
+# draws each test network's seed as a proptest input and derives the
+# network's secret from a ChaCha stream, whose output for a seed is fixed
+# across platforms and Rand versions.
+proptest = { workspace = true, optional = true }
+rand_chacha = { workspace = true, optional = true }
 
 [dev-dependencies]
 rumors = { workspace = true, features = ["test-internals", "conformance"] }
@@ -206,6 +268,17 @@ rand_chacha.workspace = true
 pollster.workspace = true
 # The allocation-pricing suites read per-thread allocator traffic from it.
 alloc-meter.workspace = true
+# The seed-after-fork regression test forks its process, through a crate
+# rather than `unsafe` calls of its own.
+fork.workspace = true
+# The sealed exchange's tests seal and open through `hpke` directly, as an
+# oracle for the documented bindings, with its allocating API.
+hpke = { workspace = true, features = ["alloc"] }
+# The TLS record suite runs sessions over TLS 1.3 to check that the
+# default write batch fits each record in one TCP segment.
+rcgen.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
 
 [profile.dev]
 debug = "line-tables-only"
@@ -220,6 +293,39 @@ opt-level = 2
 
 [profile.dev.package.suanpan]
 opt-level = 2
+
+# The session-budget suite's 100,000-message sessions spend about half their
+# time in this crate's own code, which runs several times slower
+# unoptimized: optimizing it takes each of those tests from about 120 s to
+# about 41 s, against the gate's 300 s per-test limit. The cost is compile
+# time: the crate's unit-test binary compiles in about 300 s from cold
+# rather than 117 s. `debug-assertions` and overflow checks stay on, as for
+# `before` and `suanpan`. The session futures' sizes, which
+# `tests/future_size.rs` and the gossip session-size test check, are the
+# same at opt-level 0 and 1.
+[profile.dev.package.rumors]
+opt-level = 1
+
+# The session-budget suite classifies tens of millions of traced allocator
+# events in the meter's lifetime analysis, which dominates its execution
+# unoptimized.
+[profile.dev.package.alloc-meter]
+opt-level = 2
+
+# Leaf paths and node hashes are SHA-256, which every test that builds a
+# tree computes many times; bookmark checksums and the test fixtures'
+# fingerprints are SHA3-256. On x86_64, keccak computes SHA3 in software,
+# and unoptimized that costs about 54 µs a hash. Optimizing the hash crates
+# keeps hashing at release speed in the test suite without touching
+# release.
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.keccak]
+opt-level = 3
+
+[profile.dev.package.sha3]
+opt-level = 3
 
 # The fuel guests' profile (the fuzz-fit guest's and the fuel board's), part
 # of what fuel measures: fuel counts the instructions of this codegen. One
@@ -242,6 +348,16 @@ panic = "abort"
 inherits = "release"
 overflow-checks = false
 
+# The release-profile test run's profile: `release` codegen, so properties
+# run at CI's case count in reasonable time, with the runtime checks the dev
+# profile grants. Overflow traps and `debug_assert!`s then run in every
+# release-profile test run, not only in the gate's dev-profile `test-all`,
+# so arithmetic that wraps silently in release fails a test instead.
+[profile.release-checked]
+inherits = "release"
+overflow-checks = true
+debug-assertions = true
+
 # Profiling the benches needs symbolicated stacks; line tables are enough
 # for samply/Instruments without the compile-time cost of full debug info.
 [profile.bench]
@@ -261,8 +377,4 @@ harness = false
 
 [[bench]]
 name = "gossip_fixed"
-harness = false
-
-[[bench]]
-name = "window_wallclock"
 harness = false

@@ -1,34 +1,52 @@
 //! Exact-read payload buffering: the memory policy beneath every
 //! variable-length body read.
 //!
-//! [`read_payload`] and [`resume_payload`] grow a buffer only as bytes
-//! arrive — never by a peer-declared length up front — and never consume
-//! a byte beyond the exact count requested; they are the policy the
-//! allocator meters price, and every declared-length body read (the
-//! codec's framed bodies, the party hand-off's byte string) funnels
-//! through them.
+//! [`read_payload`] grows a buffer only as bytes arrive — never by a
+//! peer-declared length up front — and never consumes a byte beyond the
+//! exact count requested. Every body whose declared length nothing has
+//! bounded yet reads through it: the greeting, which precedes the run
+//! budget, and the party hand-off's byte string.
+//!
+//! A caller that has bounded a declared length and set its bytes aside
+//! before the read reserves the whole length at once instead
+//! ([`reserve_payload`]) and reads into it ([`resume_payload`]), so the
+//! buffer is one block from the start and is never reallocated. The
+//! streaming codec reads its supply runs this way: the run budget judges a
+//! run's length before any of its body is read, and the receive pool
+//! grants a permit for it, so reserving the length costs nothing the
+//! memory budget has not already set aside, while growing toward it would
+//! hold two blocks at once at every reallocation. (A lone record larger
+//! than the pool, which its heads must show before anything else is read,
+//! takes the whole pool, and the memory budget documents its excess as
+//! outside the budget.)
 //!
 //! The exactness guarantee makes a session boundary a stream position. A
-//! buffering reader can slurp leading bytes of traffic belonging after
-//! the current session and discard them when its codec is dropped,
-//! wedging later sessions on the same connection. With exact reads, a
-//! clean session leaves the next session's bytes untouched in the
-//! transport.
+//! reader that consumed leading bytes of the traffic after the current
+//! session would lose them when its codec is dropped, wedging later
+//! sessions on the same connection. With exact reads, a clean session
+//! consumes nothing past its own bytes: the next session's bytes stay in
+//! the caller's read half, in its buffer or in the transport beneath it.
 //!
-//! The price is read batching: capacity-bounded payload reads instead of
-//! one large buffered read. A caller wanting fewer reads on a raw socket
-//! can wrap it in [`tokio::io::BufReader`] sized above
-//! [`PAYLOAD_CHUNK_LEN`] — at the default 8 KiB capacity nearly every
-//! payload read outsizes the buffer and bypasses it. Caller-owned
-//! buffering is safe because it outlives a session and rides into the
-//! next one.
+//! Sessions take a buffered read half (`AsyncBufRead`), so these reads
+//! copy out of the caller's buffer, and the buffer decides how many reads
+//! reach the transport. Tokio's [`tokio::io::BufReader`] refills, up to
+//! its capacity, when a read finds it empty; it passes a read of at least
+//! its capacity straight to the transport when it is empty; and a read
+//! that finds fewer bytes buffered than it asks for takes only those. So at
+//! the default 8 KiB capacity a payload read of 8 KiB or more that finds
+//! the buffer empty reaches the transport directly, while a smaller
+//! payload is copied out of one refill, or two when it straddles the end
+//! of the bytes already buffered. The buffer is the caller's and outlives
+//! a session, so whatever it holds past a session's end stays there for
+//! the next one.
 
 use bytes::BufMut;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-/// The initial reservation granule for framed payload buffers.
+/// The initial reservation granule of the payload buffers
+/// [`read_payload`] grows.
 ///
-/// Payload buffers grow only as bytes arrive, so a frame's memory cost
+/// Those buffers grow only as bytes arrive, so a body's memory cost
 /// tracks what the peer actually delivered: a corrupt or garbage length
 /// header costs at most this many reserved bytes ahead of receipt, never
 /// the declared length up front. One socket-buffer-scale granule balances
@@ -70,20 +88,38 @@ pub(crate) async fn read_payload<R: AsyncRead + Unpin>(
     resume_payload(read, Vec::new(), len).await
 }
 
+/// An empty buffer that holds `len` payload bytes without growing, for a
+/// declared length the caller has already bounded and set aside.
+///
+/// Reading into it with [`resume_payload`] never reallocates, so the
+/// buffer's one block of `len` bytes is the most the read holds at once.
+///
+/// # Errors
+///
+/// A reservation the allocator refuses surfaces as
+/// [`OutOfMemory`](std::io::ErrorKind::OutOfMemory), so that a length the
+/// process cannot hold fails the read instead of aborting the process.
+pub(crate) fn reserve_payload(len: usize) -> std::io::Result<Vec<u8>> {
+    let mut payload = Vec::new();
+    payload
+        .try_reserve_exact(len)
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::OutOfMemory))?;
+    Ok(payload)
+}
+
 /// Continue an exact `len`-byte payload read into `payload`, whose
 /// existing bytes -- a prefix the caller already consumed from the same
 /// source -- count toward `len`.
 ///
-/// The single-buffer continuation for a caller that had to inspect a
-/// payload's leading bytes before deciding to accept the rest (the
-/// streaming codec's run-budget ingress check): resuming into the same
-/// buffer keeps the whole read at one allocation of the payload's bytes,
-/// where a read-then-splice would briefly hold the payload twice. Growth,
-/// exactness, and error behavior are [`read_payload`]'s (it is this
-/// function from an empty buffer): every read is bounded by the bytes
-/// still owed, whatever spare capacity `payload` carries. A prefix
-/// longer than `len` is a caller error, reported as
-/// [`InvalidData`](std::io::ErrorKind::InvalidData) before any read.
+/// Every read is bounded by the bytes still owed, whatever spare capacity
+/// `payload` carries, and the buffer grows only when it is full, as
+/// [`read_payload`]'s does (it is this function from an empty buffer). So
+/// a buffer [reserved](reserve_payload) for `len` bytes is filled in place,
+/// and its length can lead with bytes the caller consumed before it knew
+/// whether to accept the rest. Exactness and error behavior are
+/// [`read_payload`]'s. A prefix longer than `len` is a caller error,
+/// reported as [`InvalidData`](std::io::ErrorKind::InvalidData) before any
+/// read.
 pub(crate) async fn resume_payload<R: AsyncRead + Unpin>(
     read: &mut R,
     mut payload: Vec<u8>,

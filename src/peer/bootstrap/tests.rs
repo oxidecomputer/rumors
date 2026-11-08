@@ -6,20 +6,15 @@ use std::sync::{Arc, Mutex};
 use proptest::prelude::*;
 
 use super::{Bootstrap, Joined};
+use crate::Connection;
 use crate::Peer;
 use crate::bookmark::Bookmark;
+use crate::default;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
+use crate::peer::MemoryBudget;
+use crate::testing::property::{NetworkSeed, SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::RunBudget;
-use crate::tree::mirror::streaming::window::{DEFAULT_SYNC_MEMORY_BUDGET, WindowConfig};
-
-/// Read the byte budget chosen through the public builder.
-fn budget_bytes(window: WindowConfig) -> usize {
-    match window {
-        WindowConfig::Budget(bytes) => bytes,
-        WindowConfig::Fixed(_) => panic!("the builder selects byte budgets"),
-    }
-}
 
 /// Record session starts without collecting individual protocol events.
 #[derive(Default)]
@@ -75,42 +70,47 @@ impl Bookmark for Storage {
     }
 }
 
-/// Retry failed and mutually bootstrapping sessions, then join and gossip.
+/// Retry failed and mutually bootstrapping sessions, then join the network
+/// `network` founds and gossip.
 fn retry_then_join<B: Bookmark>(
+    network: NetworkSeed,
     mut bootstrap: Bootstrap<u64, B>,
     fail: &[bool],
     sessions: &Sessions,
     stored: Option<&Stored>,
-    expected: (usize, RunBudget, crate::message::PayloadDepthLimit),
+    expected: (MemoryBudget, RunBudget, crate::message::PayloadDepthLimit),
 ) {
     let (budget, target, depth) = expected;
-    assert_eq!(budget_bytes(bootstrap.window), budget);
-    assert_eq!(bootstrap.run_budget, target);
+    assert_eq!(bootstrap.settings.sizing.sync_memory_budget, budget);
+    assert_eq!(bootstrap.settings.sizing.run_budget, target);
     assert_eq!(bootstrap.payload_depth_limit, depth);
     run_to_quiescence(async {
         for (attempt, &fail) in fail.iter().enumerate() {
-            let (mut near, mut far) = crate::link::memory();
+            let (mut near, mut far) =
+                crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
             bootstrap = if fail {
                 drop(far);
-                let Joined::Failed { bootstrap, .. } = bootstrap.join(&mut near).await else {
+                let Joined::Failed { bootstrap, .. } =
+                    bootstrap.join(&mut near.read, &mut near.write).await
+                else {
                     panic!("a closed provider must fail the attempt");
                 };
                 bootstrap
             } else {
                 let (ours, theirs) = tokio::join!(
-                    bootstrap.join(&mut near),
+                    bootstrap.join(&mut near.read, &mut near.write),
                     Peer::<u64>::bootstrap()
                         .payload_depth_limit(depth.get())
-                        .join(&mut far),
+                        .join(&mut far.read, &mut far.write),
                 );
                 assert!(matches!(theirs, Joined::Bailed { .. }));
-                let Joined::Bailed { bootstrap } = ours else {
+                let Joined::Bailed { bootstrap, .. } = ours else {
                     panic!("two bootstrappers must both return their builders");
                 };
                 bootstrap
             };
-            assert_eq!(budget_bytes(bootstrap.window), budget);
-            assert_eq!(bootstrap.run_budget, target);
+            assert_eq!(bootstrap.settings.sizing.sync_memory_budget, budget);
+            assert_eq!(bootstrap.settings.sizing.run_budget, target);
             assert_eq!(bootstrap.payload_depth_limit, depth);
             assert_eq!(sessions.0.load(Ordering::Relaxed), attempt + 1);
             if let Some(stored) = stored {
@@ -119,19 +119,27 @@ fn retry_then_join<B: Bookmark>(
             }
         }
 
-        let provider = Peer::<u64>::seed()
+        let provider = network
+            .peer::<u64>()
             .payload_depth_limit(depth.get())
             .into_rumors();
         provider.send(42).unwrap();
-        let (mut near, mut far) = crate::link::memory();
-        let (joined, served) =
-            tokio::join!(bootstrap.join(&mut near), provider.gossip_once(&mut far));
+        let (mut near, mut far) =
+            crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
+        let (joined, served) = tokio::join!(
+            bootstrap.join(&mut near.read, &mut near.write),
+            provider.gossip_once(&mut far.read, &mut far.write)
+        );
         served.unwrap();
-        let Joined::Joined { peer } = joined else {
+        let Joined::Joined {
+            peer,
+            connection: Connection::Reusable { .. },
+        } = joined
+        else {
             panic!("the returned builder must remain usable with an established provider");
         };
-        assert_eq!(budget_bytes(peer.window), budget);
-        assert_eq!(peer.run_budget, target);
+        assert_eq!(peer.settings.sizing.sync_memory_budget, budget);
+        assert_eq!(peer.settings.sizing.run_budget, target);
         assert_eq!(peer.codec.limit(), depth);
         assert_eq!(sessions.0.load(Ordering::Relaxed), fail.len() + 1);
         if let Some(stored) = stored {
@@ -148,8 +156,8 @@ fn retry_then_join<B: Bookmark>(
         assert_eq!(joined.snapshot(), provider.snapshot());
         joined.send(7).unwrap();
         let (ours, theirs) = tokio::join!(
-            joined.gossip_once(&mut near),
-            provider.gossip_once(&mut far)
+            joined.gossip_once(&mut near.read, &mut near.write),
+            provider.gossip_once(&mut far.read, &mut far.write)
         );
         assert!(ours.is_ok(), "the joined peer must complete gossip");
         theirs.unwrap();
@@ -162,16 +170,22 @@ fn retry_then_join<B: Bookmark>(
 
 proptest! {
     /// Both forms retain every setting, observer and storage across mixed retry sequences.
+    ///
+    /// Budgets are drawn on both sides of
+    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), and the
+    /// retained budget is the requested one as given, below the minimum
+    /// included.
     #[test]
     fn retries_preserve_configuration_and_storage(
-        budget in 0usize..1024 * 1024,
+        budget in 0usize..2 * crate::MIN_SYNC_MEMORY_BUDGET,
         target in 0usize..512,
         depth in 1u64..32,
         attempts in prop::collection::vec(any::<bool>(), 0..6),
         configure_after_bookmark in any::<bool>(),
+        network in network_seed(),
     ) {
         let expected = (
-            budget,
+            MemoryBudget::Requested(budget),
             RunBudget::from_bytes(target),
             crate::message::PayloadDepthLimit::new(depth),
         );
@@ -181,6 +195,7 @@ proptest! {
             .payload_depth_limit(depth);
         let plain_sessions = Arc::new(Sessions::default());
         retry_then_join(
+            network,
             config.clone().observe(plain_sessions.clone()).clone(),
             &attempts, &plain_sessions, None, expected,
         );
@@ -197,35 +212,46 @@ proptest! {
             config.observe(bookmarked_sessions.clone()).bookmark(Storage(stored.clone()))
         };
         retry_then_join(
+            network,
             config,
             &attempts, &bookmarked_sessions, Some(&stored), expected,
         );
     }
 }
 
-/// Default joins inherit the seed's defaults, and oversized targets saturate.
-#[test]
-fn configuration_defaults_and_saturation() {
-    let config = Peer::<u64>::bootstrap();
-    assert_eq!(budget_bytes(config.window), DEFAULT_SYNC_MEMORY_BUDGET);
-    assert_eq!(config.run_budget, RunBudget::default());
-    assert_eq!(
-        config.payload_depth_limit,
-        crate::message::PayloadDepthLimit::default()
-    );
-    let sessions = Arc::new(Sessions::default());
-    retry_then_join(
-        config.observe(sessions.clone()),
-        &[],
-        &sessions,
-        None,
-        (
-            DEFAULT_SYNC_MEMORY_BUDGET,
-            RunBudget::default(),
-            crate::message::PayloadDepthLimit::default(),
-        ),
-    );
-    let saturated = Peer::<u64>::bootstrap().target_message_size(usize::MAX);
-    assert_eq!(saturated.run_budget, RunBudget::from_bytes(usize::MAX));
-    assert_ne!(saturated.run_budget.bytes(), usize::MAX);
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// Default joins inherit the seed's defaults, and oversized targets saturate.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn configuration_defaults_and_saturation(network in network_seed()) {
+        let config = Peer::<u64>::bootstrap();
+        assert_eq!(
+            config.settings.sizing.sync_memory_budget,
+            MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET)
+        );
+        assert_eq!(config.settings.sizing.run_budget, RunBudget::default());
+        assert_eq!(
+            config.payload_depth_limit,
+            crate::message::PayloadDepthLimit::default()
+        );
+        let sessions = Arc::new(Sessions::default());
+        retry_then_join(
+            network,
+            config.observe(sessions.clone()),
+            &[],
+            &sessions,
+            None,
+            (
+                MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET),
+                RunBudget::default(),
+                crate::message::PayloadDepthLimit::default(),
+            ),
+        );
+        let saturated = Peer::<u64>::bootstrap().target_message_size(usize::MAX);
+        assert_eq!(saturated.settings.sizing.run_budget, RunBudget::from_bytes(usize::MAX));
+        assert_ne!(saturated.settings.sizing.run_budget.bytes(), usize::MAX);
+    }
 }

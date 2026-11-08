@@ -35,7 +35,7 @@ Verification separates target correctness from input discovery:
    framing, assertions, and transport comparisons.
 2. `just all` runs a short coverage-guided smoke over every target.
 3. Longer exploratory sessions use the root justfile's `fuzz` recipe with a
-   larger duration. `just --show fuzz` displays the command of record.
+   larger duration. `just --show fuzz` displays the exact command.
 
 Fuzzing requires the pinned nightly toolchain and
 [cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz). A crash is written under

@@ -5,7 +5,9 @@ use rumors_testkit::common;
 use std::collections::BTreeSet;
 
 use alloc_meter::measure;
-use rumors::Peer;
+use rumors_testkit::common::property::FLEET_DIVISOR;
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
 /// A broad root fan, with enough leaves for internal branches below it.
 const SHARED: usize = 4096;
@@ -16,42 +18,57 @@ const CHANGES: usize = 16;
 /// The wide shared base should stay shared; copying it would exceed this bound.
 const JOIN_ALLOCATION_BUDGET: usize = 128 * 1024;
 
-/// A mostly shared, wide tree must not be copied wholesale to merge a small
-/// divergence. Measure the join and its reader metadata, after fixture setup.
-#[test]
-fn wide_join_allocation_is_bounded() {
-    let ours = Peer::<usize>::seed().into_rumors();
-    ours.send_all(0..SHARED).unwrap();
-    let theirs = common::wire::bootstrap_fork(&ours);
-    let redactions: Vec<_> = ours
-        .snapshot()
-        .iter()
-        .take(2 * CHANGES)
-        .map(|(version, value)| (version.clone(), *value))
-        .collect();
-    for (side, peer) in [&ours, &theirs].into_iter().enumerate() {
-        peer.send_all(SHARED + side * CHANGES..SHARED + (side + 1) * CHANGES)
-            .unwrap();
-        peer.redact_all(
-            redactions[side * CHANGES..(side + 1) * CHANGES]
-                .iter()
-                .map(|(v, _)| v),
-        );
-    }
-    let ours = ours.snapshot();
-    let theirs = theirs.snapshot();
-    let (stats, joined) = measure(|| rumors::testing::join_snapshots(&ours, &theirs));
-    assert!(
-        stats.bytes_allocated <= JOIN_ALLOCATION_BUDGET,
-        "join allocated {} bytes, exceeding its {}-byte budget",
-        stats.bytes_allocated,
-        JOIN_ALLOCATION_BUDGET,
-    );
+divided_proptest! {
+    #![divisor(FLEET_DIVISOR)]
 
-    let removed: BTreeSet<_> = redactions.into_iter().map(|(_, value)| value).collect();
-    let expected: BTreeSet<_> = (0..SHARED + 2 * CHANGES)
-        .filter(|value| !removed.contains(value))
-        .collect();
-    let actual: BTreeSet<_> = joined.iter().map(|(_, value)| *value).collect();
-    assert_eq!(actual, expected);
+    /// A mostly shared, wide tree must not be copied wholesale to merge a small
+    /// divergence. Measure the join and its reader metadata, after fixture setup.
+    ///
+    /// The ceiling has a floor: each side holds messages the other lacks, so
+    /// the joined tree's root is neither side's, and the join builds at least
+    /// that one node. A reading of no allocations means the meter stopped
+    /// seeing the join, not that the join was free.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn wide_join_allocation_is_bounded(network in network_seed()) {
+        let ours = network.peer::<usize>().into_rumors();
+        ours.send_all(0..SHARED).unwrap();
+        let theirs = common::wire::bootstrap_fork(&ours);
+        let redactions: Vec<_> = ours
+            .snapshot()
+            .iter()
+            .take(2 * CHANGES)
+            .map(|(version, value)| (version.clone(), *value))
+            .collect();
+        for (side, peer) in [&ours, &theirs].into_iter().enumerate() {
+            peer.send_all(SHARED + side * CHANGES..SHARED + (side + 1) * CHANGES)
+                .unwrap();
+            peer.redact_all(
+                redactions[side * CHANGES..(side + 1) * CHANGES]
+                    .iter()
+                    .map(|(v, _)| v),
+            );
+        }
+        let ours = ours.snapshot();
+        let theirs = theirs.snapshot();
+        let (stats, joined) = measure(|| rumors::testing::join_snapshots(&ours, &theirs));
+        assert!(
+            stats.allocations > 0,
+            "the join allocated nothing, yet it must build a root neither side holds",
+        );
+        assert!(
+            stats.bytes_allocated <= JOIN_ALLOCATION_BUDGET,
+            "join allocated {} bytes, exceeding its {}-byte budget",
+            stats.bytes_allocated,
+            JOIN_ALLOCATION_BUDGET,
+        );
+
+        let removed: BTreeSet<_> = redactions.into_iter().map(|(_, value)| value).collect();
+        let expected: BTreeSet<_> = (0..SHARED + 2 * CHANGES)
+            .filter(|value| !removed.contains(value))
+            .collect();
+        let actual: BTreeSet<_> = joined.iter().map(|(_, value)| *value).collect();
+        assert_eq!(actual, expected);
+    }
 }

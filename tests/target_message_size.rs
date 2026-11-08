@@ -1,25 +1,38 @@
 //! End-to-end coverage of [`rumors::Peer::target_message_size`] and its
 //! bootstrap-time twin [`rumors::Bootstrap::target_message_size`].
 //!
-//! The knob
-//! threads from the public builders into the greeting, the session runs at
-//! the exchanged minimum of the two sides' settings, any minimum (including
-//! the degenerate zero) leaves reconciliation convergent, and the minimum
-//! binds both encoders regardless of which side advertised it.
+//! The target
+//! threads from the public builders into the greeting, lowered to what the
+//! memory budget affords, the session runs at the exchanged minimum of the
+//! two sides' settings, any minimum (including the degenerate zero) leaves
+//! reconciliation convergent, and the minimum binds both encoders
+//! regardless of which side advertised it.
 
 use rumors_testkit::common;
 
 use proptest::prelude::*;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
+use rumors::{Bootstrap, Peer, Rumors, default};
 
 use crate::common::gossip_snapshot::{capture_gossip, capture_session, observed};
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// Messages each side originates after the fork: enough for multi-leaf
 /// supplied subtrees, so run batching is genuinely exercised on the wire.
 const DIVERGENT_PER_SIDE: usize = 96;
+
+/// The network of every frame-counting test: the supply-frame counts the
+/// cells compare are exact, which hold for one tree shape and so for one
+/// secret.
+///
+/// The seed is one under whose tree shape both of
+/// [`nonzero_minimum_binds_both_encoders`]'s margin self-checks hold; the
+/// B -> A margin is a few frames on most seeds and none on some (see
+/// [`BINDING_MESSAGES_PER_SIDE`]), so a change to how paths are derived can
+/// call for another seed.
+const COUNTED_NETWORK: NetworkSeed = NetworkSeed::new(2);
 
 /// Draws the payloads each side originates after the fork:
 /// [`DIVERGENT_PER_SIDE`] of them per side.
@@ -34,13 +47,15 @@ fn arb_divergent_payloads() -> impl Strategy<Value = (Vec<u64>, Vec<u64>)> {
 /// Each greeting advertises its side's setting, and every session between
 /// them runs at the exchanged minimum.
 fn diverged_pair(
+    network: NetworkSeed,
     left_target: usize,
     right_target: usize,
     (left_payloads, right_payloads): (Vec<u64>, Vec<u64>),
 ) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
-        let left = Peer::seed()
-            .sync_window_floor()
+        let left = network
+            .peer()
+            .sync_memory_budget(0)
             .target_message_size(left_target)
             .into_rumors();
         let right = bootstrap_fork_async(&left).await;
@@ -73,16 +88,21 @@ proptest! {
     /// A zero target degrades run batching to one leaf per message; the
     /// session still reconciles a divergent pair completely.
     #[test]
-    fn zero_target_still_converges(payloads in arb_divergent_payloads()) {
-        assert_converges(diverged_pair(0, 0, payloads));
+    fn zero_target_still_converges(payloads in arb_divergent_payloads(), network in network_seed()) {
+        assert_converges(diverged_pair(network, 0, 0, payloads));
     }
 
     /// Peers with different targets interoperate: the session runs at the
     /// exchanged minimum of the two greeting-carried settings — here zero, so
     /// both encoders unbatch.
     #[test]
-    fn mixed_targets_interoperate(payloads in arb_divergent_payloads()) {
-        assert_converges(diverged_pair(0, DEFAULT_TARGET_MESSAGE_SIZE, payloads));
+    fn mixed_targets_interoperate(payloads in arb_divergent_payloads(), network in network_seed()) {
+        assert_converges(diverged_pair(
+            network,
+            0,
+            default::TARGET_MESSAGE_SIZE,
+            payloads,
+        ));
     }
 }
 
@@ -95,8 +115,9 @@ fn seeded_diverged_pair(
     (left_messages, right_messages): (usize, usize),
 ) -> (Rumors<u64>, Rumors<u64>) {
     block_on(async {
-        let left = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
-            .sync_window_floor()
+        let left = COUNTED_NETWORK
+            .peer()
+            .sync_memory_budget(0)
             .target_message_size(left_target)
             .into_rumors();
         let right = bootstrap_fork_async(&left).await;
@@ -169,7 +190,7 @@ fn directional_supply_frames(capture: &str) -> (usize, usize) {
 /// The knob genuinely reaches the wire, which convergence alone cannot show.
 ///
 /// The same seeded divergence is reconciled twice, its wire traffic captured
-/// through the recording link: a zero target forbids batching (every leaf
+/// through the recording end: a zero target forbids batching (every leaf
 /// rides its own supply frame), while the default target batches each
 /// supplied subtree's leaves into runs — so the zero-target session must
 /// emit strictly more supply frames. If the budget silently regressed to a
@@ -182,8 +203,8 @@ fn zero_target_emits_more_supply_frames_than_default() {
     };
     let batched = {
         let (left, right) = seeded_diverged_pair(
-            DEFAULT_TARGET_MESSAGE_SIZE,
-            DEFAULT_TARGET_MESSAGE_SIZE,
+            default::TARGET_MESSAGE_SIZE,
+            default::TARGET_MESSAGE_SIZE,
             (DIVERGENT_PER_SIDE, DIVERGENT_PER_SIDE),
         );
         capture_gossip(left, right)
@@ -200,8 +221,11 @@ fn zero_target_emits_more_supply_frames_than_default() {
 }
 
 /// A small nonzero target that fits one supply record of this corpus but
-/// not two: every multi-record run splits under it, in both supply
-/// directions, so both directions' margin self-checks below have teeth.
+/// not two.
+///
+/// Every multi-record run splits under it, in both supply directions, so
+/// each direction's margin self-check below sees more frames at the small
+/// target than at the default.
 ///
 /// (A nonzero target still batching runs that fit is
 /// [`zero_target_emits_more_supply_frames_than_default`]'s claim, over a
@@ -212,11 +236,12 @@ const SMALL_TARGET: usize = 32;
 /// Messages each side originates for the binding-minimum capture: two per
 /// root-fan child on average.
 ///
-/// At this shape both supply directions ship
-/// their exclusive root-fan subtrees as whole multi-record runs — the
-/// responder in its opening reply, the initiator in its opening supplies —
-/// so the margin self-checks hold per direction and the tuple equalities
-/// discriminate in both directions.
+/// At this shape the A -> B direction ships many of its exclusive subtrees
+/// as multi-record runs, while B -> A ships only a few, or on some
+/// networks' tree shapes none. Where each direction ships at least one,
+/// the margin self-checks hold per direction and the tuple equalities
+/// discriminate in both directions; [`COUNTED_NETWORK`] is chosen so that
+/// they do.
 const BINDING_MESSAGES_PER_SIDE: usize = 512;
 
 /// The exchanged minimum binds both encoders when nonzero, which the
@@ -245,10 +270,10 @@ fn nonzero_minimum_binds_both_encoders() {
         );
         directional_supply_frames(&capture_gossip(l, r))
     };
-    let small_default = frames(SMALL_TARGET, DEFAULT_TARGET_MESSAGE_SIZE);
-    let default_small = frames(DEFAULT_TARGET_MESSAGE_SIZE, SMALL_TARGET);
+    let small_default = frames(SMALL_TARGET, default::TARGET_MESSAGE_SIZE);
+    let default_small = frames(default::TARGET_MESSAGE_SIZE, SMALL_TARGET);
     let small_small = frames(SMALL_TARGET, SMALL_TARGET);
-    let default_default = frames(DEFAULT_TARGET_MESSAGE_SIZE, DEFAULT_TARGET_MESSAGE_SIZE);
+    let default_default = frames(default::TARGET_MESSAGE_SIZE, default::TARGET_MESSAGE_SIZE);
 
     // Margin self-checks: the small target splits runs in each direction
     // independently, so the tuple equalities below cannot hold vacuously.
@@ -284,9 +309,7 @@ fn nonzero_minimum_binds_both_encoders() {
 /// A deterministically seeded, populated provider: the same corpus for
 /// every bootstrap capture, so their supply-frame counts are comparable.
 fn seeded_provider() -> Rumors<u64> {
-    let provider = Peer::seed_rng(&mut ChaChaRng::seed_from_u64(0))
-        .sync_window_floor()
-        .into_rumors();
+    let provider = COUNTED_NETWORK.peer().sync_memory_budget(0).into_rumors();
     let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
     for _ in 0..DIVERGENT_PER_SIDE {
         provider.send(rng.next_u64()).unwrap();
@@ -298,46 +321,48 @@ fn seeded_provider() -> Rumors<u64> {
 /// `gossip` while a newcomer joins under `config`.
 fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
     capture_session(
-        move |mut link, hook| async move {
+        move |mut end, hook| async move {
             let provider = observed(provider, hook).await;
             provider
-                .gossip_once(&mut link)
+                .gossip_once(&mut end.read, &mut end.write)
                 .await
                 .expect("the provider serves the bootstrap");
         },
-        move |mut link, hook| async move {
-            let outcome = config.observe(hook).join(&mut link).await;
+        move |mut end, hook| async move {
+            let outcome = config
+                .observe(hook)
+                .join(&mut end.read, &mut end.write)
+                .await;
             assert!(
-                matches!(outcome, rumors::Joined::Joined { .. }),
+                matches!(
+                    outcome,
+                    rumors::Joined::Joined {
+                        connection: rumors::Connection::Reusable { .. },
+                        ..
+                    }
+                ),
                 "the provider serves the bootstrap"
             );
         },
     )
 }
 
-/// A budget far from [`rumors::DEFAULT_SYNC_MEMORY_BUDGET`]'s 512 MiB, so
-/// the wire-equality pin below cannot pass by the two configurations
-/// coinciding.
+/// A budget far from [`rumors::default::SYNC_MEMORY_BUDGET`], so
+/// the comparison below cannot pass by the two configurations coinciding.
 const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;
 
-/// A configured sync memory budget leaves the bootstrap wire byte-identical
-/// to the default's: the budget is deliberately not wire-visible, so peers
-/// with different budgets interoperate.
+/// A configured sync memory budget never reaches the wire.
 ///
-/// The same seeded provider serves the same corpus to a default-budget
-/// newcomer and to one advertising [`OFF_DEFAULT_BUDGET`]; the full wire
-/// capture (both directions) must be equal byte for byte. This pins the
-/// structural guarantee that the greeting does not carry the budget —
-/// each session derives its window locally from the exchanged sizes — so
-/// a regression that leaks the budget onto the wire fails here rather
-/// than surfacing as an interoperability break between fleets rolled out
-/// with different budgets. The negative control proves the comparator has
-/// teeth: under the identical harness, a knob that *is* wire-visible
-/// (the greeting carries the message-size target) must change the
-/// capture, so a comparator bug that always reports equality fails the
-/// control.
+/// A budget bounds only what its own side holds, so no peer is told it. A
+/// bootstrap newcomer is empty and asks one question, which its budget
+/// admits whatever its value. The same seeded provider serves the same
+/// corpus to a default-budget newcomer and to one on
+/// [`OFF_DEFAULT_BUDGET`]: the two captures must be equal byte for byte.
+/// The negative control shows the comparator detects a changed session: an
+/// option that changes the session itself (the message-size target) must
+/// change the capture.
 #[test]
-fn sync_memory_budget_is_not_wire_visible() {
+fn sync_memory_budget_never_reaches_the_wire() {
     let default_budget = capture_bootstrap(seeded_provider(), Peer::<u64>::bootstrap());
     let custom_budget = capture_bootstrap(
         seeded_provider(),
@@ -345,7 +370,7 @@ fn sync_memory_budget_is_not_wire_visible() {
     );
     assert_eq!(
         default_budget, custom_budget,
-        "a configured sync memory budget must not change one wire byte of the session",
+        "a configured sync memory budget must not change the wire",
     );
 
     // Negative control: the same harness must be able to see a difference.
@@ -355,7 +380,7 @@ fn sync_memory_budget_is_not_wire_visible() {
     );
     assert_ne!(
         default_budget, custom_target,
-        "the wire-visible target knob must change the capture: an equality here \
+        "the message-size target must change the capture: an equality here \
          means the comparator cannot distinguish sessions at all",
     );
 }
@@ -389,5 +414,53 @@ fn bootstrap_advertisement_binds_the_provider() {
         unbatched_frames > batched_frames,
         "a zero bootstrap advertisement must forbid the provider's batching: \
          {unbatched_frames} supply frames vs {batched_frames} batched"
+    );
+}
+
+/// A budget above [`rumors::MIN_SYNC_MEMORY_BUDGET`] that affords a target
+/// above the default but far from the wire's cap, so a session on it lowers
+/// the largest target.
+const AFFORDING_BUDGET: usize = 64 * 1024 * 1024;
+
+/// A newcomer's greeting advertises its target lowered to what its memory
+/// budget affords, never the target as set.
+///
+/// A newcomer on [`AFFORDING_BUDGET`] asks for the largest target; its
+/// settings report a lowered one, between the default and the wire's cap.
+/// Its bootstrap capture must equal, byte for byte, the capture of a
+/// newcomer that sets the lowered target directly. The negative control is
+/// a newcomer whose unlimited budget affords the largest target: its
+/// capture must differ, so the equality cannot hold merely because the
+/// capture leaves the greeting's target out.
+#[test]
+fn a_lowered_target_reaches_the_greeting() {
+    let lowered = COUNTED_NETWORK
+        .peer::<u64>()
+        .sync_memory_budget(AFFORDING_BUDGET)
+        .target_message_size(usize::MAX)
+        .synchronization_settings()
+        .target_message_size;
+    assert!(
+        default::TARGET_MESSAGE_SIZE < lowered && lowered < rumors::MAX_RUN_BUDGET_BYTES,
+        "the budget must lower the largest target, but not to the default: {lowered} B",
+    );
+    let newcomer = |budget: usize, target: usize| {
+        let config = Peer::<u64>::bootstrap()
+            .sync_memory_budget(budget)
+            .target_message_size(target);
+        capture_bootstrap(seeded_provider(), config)
+    };
+
+    let asked = newcomer(AFFORDING_BUDGET, usize::MAX);
+    assert_eq!(
+        asked,
+        newcomer(AFFORDING_BUDGET, lowered),
+        "a session must advertise the target its budget affords",
+    );
+    assert_ne!(
+        asked,
+        newcomer(usize::MAX, usize::MAX),
+        "a budget that affords the largest target must advertise it: an \
+         equality here means the capture cannot tell the targets apart",
     );
 }

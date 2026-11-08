@@ -24,6 +24,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use super::events::{Event, EventIdx, Schedule};
+use crate::common::seed::{NetworkSeed, network_seed};
 
 /// Strategy: every emitted schedule has only causally-valid events.
 ///
@@ -127,7 +128,9 @@ where
 /// topology: one value per non-seed peer, folded into a valid parent
 /// index by [`fork_tree`]. Drawing it here (rather than fixing a star)
 /// exercises imbalanced fork lattices, which stress the ITC party
-/// arithmetic.
+/// arithmetic. It draws the network seed last, so the topology and choices
+/// a persisted regression seed replays are those drawn before the network
+/// seed joined the schedule.
 fn arb_schedule_with_shadow_using<T, C, F>(
     n_peers_range: RangeInclusive<usize>,
     max_events: usize,
@@ -142,10 +145,11 @@ where
         (
             vec(any::<usize>(), n_peers.saturating_sub(1)),
             vec(choice_strategy(n_peers), 0..=max_events),
+            network_seed(),
         )
-            .prop_map(move |(raw_parents, choices)| {
+            .prop_map(move |(raw_parents, choices, network)| {
                 let fork_parents = fork_tree(n_peers, &raw_parents);
-                build_schedule(n_peers, fork_parents, choices)
+                build_schedule(n_peers, fork_parents, choices, network)
             })
     })
 }
@@ -376,6 +380,7 @@ fn build_schedule<T>(
     n_peers: usize,
     fork_parents: Vec<usize>,
     choices: Vec<Choice<T>>,
+    network: NetworkSeed,
 ) -> (Schedule<T>, ShadowFinal) {
     let mut sim = SimState::new(n_peers);
     let mut events: Vec<Event<T>> = Vec::new();
@@ -447,6 +452,7 @@ fn build_schedule<T>(
             n_peers,
             fork_parents,
             events,
+            network,
         },
         ShadowFinal {
             observed_log,

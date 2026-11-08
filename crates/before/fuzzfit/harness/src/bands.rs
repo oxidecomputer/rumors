@@ -89,7 +89,7 @@ pub const REFIT_PREFIX_PROGRAMS: usize = 256;
 ///
 /// The deterministic prefix is smaller than the calibration corpus, so sparse
 /// outcomes fit less precisely. This tolerance makes the comparison a stale-pin
-/// detector; the committed bands remain the criterion of record.
+/// detector; the committed bands remain the criterion.
 pub const REFIT_TOLERANCE: f64 = 0.7;
 
 /// Look up the pinned band for one band key (kernel × outcome).

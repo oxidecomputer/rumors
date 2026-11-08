@@ -15,16 +15,19 @@ pub mod height;
 pub mod node;
 pub mod path;
 pub mod prefix;
+pub mod view;
 
 // `pub(crate)` so rustdoc elsewhere can link to `typed::untyped::Range`: a
 // private `mod` is unnameable from outside `typed`, so the links would not
 // resolve. The items below are still re-exported as the canonical paths.
 pub(crate) mod untyped;
 
-pub use hash::Hash;
-pub(crate) use node::LeafRun;
+pub(crate) use hash::HMAC_KEY_LEN;
+pub use hash::{Hash, HashKey, PathKey};
+pub(crate) use node::SortedRun;
 pub use node::{Children, Node};
 pub use path::Path;
 pub(crate) use prefix::ErasedPrefix;
 pub use prefix::Prefix;
 pub use untyped::{Iter, Leaf, RangeOwned};
+pub use view::{ErasedView, View};

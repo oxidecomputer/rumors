@@ -1,16 +1,24 @@
 //! The fixed preamble opening every mirror session.
 //!
 //! Every wire session first exchanges one fixed-size [`Preamble`] carrying
-//! the wire dialect's version, the network, and the session intent. Only
-//! after it succeeds does the mirror exchange its greeting, which
+//! the wire dialect's version, the network's public identifier (never its
+//! secret), and the session intent. Only after it succeeds does the mirror
+//! exchange its greeting, which
 //! front-loads the session parameters the protocol negotiates,
 //! inventoried where they are defined — the [`streaming`](super::streaming)
 //! module's `Greeting` message.
 //! Keeping these phases separate permits a provider to learn that its peer is
-//! bootstrapping before it atomically snapshots the tree and forks its party.
+//! bootstrapping before it atomically snapshots the tree and forks its party,
+//! and to send that peer the network's secret (the [`secret`](super::secret)
+//! item) before the greeting.
 //!
-//! The preamble is one self-described CBOR item, so a control stream is a
-//! CBOR sequence from its very first byte —
+//! A bootstrapping peer sends its key item right after its preamble, in the
+//! same write, and the exchange reads the key item of any counterparty
+//! whose preamble declares bootstrapping, returning it with who the
+//! counterparty is ([`Counterparty`]).
+//!
+//! The preamble is one self-described CBOR item, so each direction of a
+//! session's byte stream is a CBOR sequence from its very first byte —
 //! `55799(["rumors", version: uint, network: bstr, intent: uint])`.
 //! Every field's head is one byte at the values the dialect admits, so the
 //! item has the fixed [`V2_PREAMBLE_LEN`] width. That width is part of the
@@ -24,6 +32,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     Network, Protocol,
+    counter::widen,
     error::TransportOperation,
     network::NETWORK_BYTES,
     observe::SessionHandle,
@@ -87,7 +96,7 @@ impl Intent {
 /// The validated network and intent carried ahead of the greeting exchange.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Preamble {
-    /// The peer's causal universe, or the bootstrap placeholder.
+    /// The peer's network's public identifier, or the bootstrap placeholder.
     pub(crate) network: Network,
     /// Whether the peer remains or retires after reconciliation.
     pub(crate) intent: Intent,
@@ -99,7 +108,7 @@ impl Preamble {
         let mut bytes = Vec::with_capacity(V2_PREAMBLE_LEN);
         bytes.extend_from_slice(&V2_PREFIX);
         cbor::write_head(&mut bytes, MAJOR_UINT, Protocol::V2.wire_version());
-        cbor::write_head(&mut bytes, MAJOR_BSTR, NETWORK_BYTES as u64);
+        cbor::write_head(&mut bytes, MAJOR_BSTR, widen(NETWORK_BYTES));
         bytes.extend_from_slice(&self.network.to_bytes());
         cbor::write_head(&mut bytes, MAJOR_UINT, u64::from(self.intent.to_byte()));
         debug_assert_eq!(bytes.len(), V2_PREAMBLE_LEN, "the dialect width is fixed");
@@ -129,7 +138,7 @@ impl Preamble {
         }
         cbor::read_head(&mut input)
             .ok()
-            .filter(|head| head.major == MAJOR_BSTR && head.value == NETWORK_BYTES as u64)
+            .filter(|head| head.major == MAJOR_BSTR && head.value == widen(NETWORK_BYTES))
             .ok_or(malformed(PreambleDefect::Network))?;
         // The canonical one-byte version and network heads leave exactly the
         // network bytes and one-byte intent in this fixed-width input.
@@ -313,23 +322,85 @@ impl Staged {
     }
 }
 
+/// A bootstrapping peer's key item, which follows its preamble.
+pub(crate) type KeyItem = [u8; crate::tree::mirror::secret::KEY_ITEM_LEN];
+
+/// Who the counterparty is, read from its validated preamble: what every
+/// session decides by before its greeting.
+///
+/// A peer is either joining, and then has no network, no intent but to
+/// remain, and a key item following its preamble, or a member of a network
+/// remaining or retiring after reconciliation. One value carries each case
+/// whole, so a session never checks the bootstrap placeholder and the key
+/// item's presence separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Counterparty {
+    /// A peer joining a network, with the key item that followed its
+    /// preamble: a provider seals the network's secret for that key.
+    Bootstrapping(KeyItem),
+    /// A member of a network.
+    Established {
+        /// The member's network's public identifier.
+        network: Network,
+        /// Whether the member remains or retires after reconciliation.
+        intent: Intent,
+    },
+}
+
+impl Counterparty {
+    /// Whether the counterparty is joining a network.
+    pub(crate) fn bootstrapping(&self) -> bool {
+        matches!(self, Counterparty::Bootstrapping(_))
+    }
+
+    /// Whether the counterparty retires into this side after reconciliation.
+    pub(crate) fn retiring(&self) -> bool {
+        matches!(
+            self,
+            Counterparty::Established {
+                intent: Intent::Retire,
+                ..
+            }
+        )
+    }
+}
+
 /// Exchange the fixed preamble before the protocol trusts framed traffic.
+///
+/// `follow` is one whole item this side sends right after its preamble, in
+/// the same write and flush, before it has read the peer's preamble: a
+/// bootstrapping peer's key item, so that its key costs no round trip.
+/// Empty for every other session.
+///
+/// Returns who the peer is, with the key item that follows a bootstrapping
+/// peer's preamble ([`Counterparty`]). The key item is read while this side's own
+/// write is still in flight: two bootstrapping peers each write a preamble
+/// and a key item before reading anything past the other's preamble, so if
+/// either waited for its write to finish before draining the other's key
+/// item, a transport that buffers less than both could leave them waiting
+/// on each other forever.
+// The arguments are the exchange's inputs, one per concern.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn preamble<R, W>(
     network: Network,
     intent: Intent,
+    follow: &[u8],
     staged: &mut Staged,
     reader: &mut R,
     writer: &mut W,
     observe: &SessionHandle,
-) -> Result<Preamble, Error>
+) -> Result<Counterparty, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
     W: AsyncWrite + Unpin + ?Sized,
 {
     let local = Preamble { network, intent }.encode();
+    let mut sent = Vec::with_capacity(local.len() + follow.len());
+    sent.extend_from_slice(&local);
+    sent.extend_from_slice(follow);
 
     let write = async {
-        writer.write_all(&local).await.map_err(|source| Error::Io {
+        writer.write_all(&sent).await.map_err(|source| Error::Io {
             operation: TransportOperation::Write,
             source,
         })?;
@@ -338,26 +409,52 @@ where
             source,
         })?;
         observe.control_sent(&local);
+        if !follow.is_empty() {
+            observe.control_sent(follow);
+        }
         Ok(())
     };
     let read = async {
         match staged.fill(reader).await? {
-            Fill::Filled => Ok(()),
+            Fill::Filled => {}
             // The peer hung up without sending a byte: a zero-length
             // truncation, distinct from a transport failure.
-            Fill::Closed => Err(Error::Truncated {
-                received: 0,
-                expected: V2_PREAMBLE_LEN,
-            }),
+            Fill::Closed => {
+                return Err(Error::Truncated {
+                    received: 0,
+                    expected: V2_PREAMBLE_LEN,
+                });
+            }
         }
+        // A validation failure is reported once both directions are done;
+        // only a valid bootstrapping preamble promises a key item to read.
+        let counterparty = match staged.validate() {
+            Ok(preamble) if preamble.network.is_bootstrap() => {
+                let mut item = [0; crate::tree::mirror::secret::KEY_ITEM_LEN];
+                reader
+                    .read_exact(&mut item)
+                    .await
+                    .map_err(|source| Error::Io {
+                        operation: TransportOperation::Read,
+                        source,
+                    })?;
+                Ok(Counterparty::Bootstrapping(item))
+            }
+            Ok(Preamble { network, intent }) => Ok(Counterparty::Established { network, intent }),
+            Err(error) => Err(error),
+        };
+        Ok(counterparty)
     };
-    futures::future::try_join(write, read).await?;
-    let preamble = staged.validate()?;
+    let ((), counterparty) = futures::future::try_join(write, read).await?;
+    let counterparty = counterparty?;
     // Only a validated frame is delivered: the item contract holds for
     // conforming exchanges, and a malformed preamble aborts the session
     // instead of feeding observers a non-item.
     observe.control_received(staged.received());
-    Ok(preamble)
+    if let Counterparty::Bootstrapping(item) = &counterparty {
+        observe.control_received(item);
+    }
+    Ok(counterparty)
 }
 
 /// Progress of a cancel-safe preamble arrival.

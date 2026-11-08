@@ -5,8 +5,9 @@ use std::sync::Arc;
 
 use futures::{FutureExt, Stream, StreamExt};
 use proptest::{collection::vec, prelude::*};
-use rumors::{Peer, Rumors, Version};
+use rumors::{Rumors, Version};
 
+use super::seed::NetworkSeed;
 use super::wire::{bootstrap_fork, wire_gossip};
 
 /// A message, a temporary lack of news, or the end of an observer.
@@ -95,13 +96,14 @@ pub fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 /// Check termination, sent content, duplicate-free delivery, and coverage of
 /// the final live set. Return delivery order for the causal suite's extra check.
 pub fn interleave<S>(
+    network: NetworkSeed,
     ops: &[Op],
     subscribe: impl FnOnce(&Rumors<u64>) -> S,
 ) -> Result<Vec<(Version, u64)>, TestCaseError>
 where
     S: Stream<Item = (Version, Arc<u64>)> + Unpin,
 {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
     let sibling = a.clone();
     let b = bootstrap_fork(&a);
     let mut obs = subscribe(&a);
@@ -180,6 +182,7 @@ where
 /// A pass retains its captured messages across local or gossiped redactions.
 /// Messages redacted before a later pass starts must stay absent.
 pub fn redact_during_pass<S>(
+    network: NetworkSeed,
     values: Vec<u64>,
     taken: prop::sample::Index,
     redactions: Vec<prop::sample::Index>,
@@ -189,7 +192,7 @@ pub fn redact_during_pass<S>(
 where
     S: Stream<Item = (Version, Arc<u64>)> + Unpin,
 {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork(&a);
     b.send_all(values).unwrap();
     wire_gossip(&a, &b);

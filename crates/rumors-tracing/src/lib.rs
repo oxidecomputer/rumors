@@ -21,6 +21,7 @@
 //!
 //! use rumors::Peer;
 //! use rumors_tracing::TracingObserver;
+//! use tokio::io::BufReader;
 //!
 //! #[tokio::main(flavor = "current_thread")]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,12 +33,17 @@
 //!         .into_rumors();
 //!     alice.send("the meeting is at noon".to_string())?;
 //!
-//!     let (mut near, mut far) = rumors::link::memory();
-//!     let (served, joined) = tokio::join!(alice.gossip_once(&mut far), async {
-//!         Peer::<String>::bootstrap().join(&mut near).await
-//!     });
+//!     // A session takes the two halves of one connection.
+//!     let (near, far) = tokio::io::duplex(64 * 1024);
+//!     let ((near_read, near_write), (far_read, far_write)) =
+//!         (tokio::io::split(near), tokio::io::split(far));
+//!     let (near_read, far_read) = (BufReader::new(near_read), BufReader::new(far_read));
+//!     let (served, joined) = tokio::join!(
+//!         alice.gossip_once(far_read, far_write),
+//!         Peer::<String>::bootstrap().join(near_read, near_write),
+//!     );
 //!     served?;
-//!     let rumors::Joined::Joined { peer: _bob } = joined else {
+//!     let rumors::Joined::Joined { peer: _bob, .. } = joined else {
 //!         panic!("Alice must serve the bootstrap");
 //!     };
 //!     Ok(())
@@ -83,8 +89,7 @@
 //!
 //! # Ordering across streams
 //!
-//! A session's streams pump concurrently and the hook deliberately
-//! imposes no cross-stream ordering, so subscriber-side timestamps
+//! The hook deliberately imposes no cross-stream ordering, so subscriber-side timestamps
 //! interleave events only as precisely as your subscriber's clock.
 //! The `ordinal` field is the sharper tool: the adapter stamps every
 //! `message` event from one session-scoped atomic counter, so sorting
@@ -94,7 +99,7 @@
 //!
 //! # Cost and back-pressure
 //!
-//! Handlers run synchronously inside the session's stream tasks (see
+//! Handlers run synchronously inside the session's tasks (see
 //! the hook's back-pressure contract in [`rumors::observe`]): the
 //! adapter therefore does bounded work per item — one parse plus one
 //! capped rendering, carried lazily so it runs only when a subscriber
@@ -102,9 +107,9 @@
 //! event is enabled by your subscriber; a disabled target costs the
 //! enabled check plus one relaxed atomic increment (the ordinal must
 //! advance even unobserved).
-//! A subscriber that blocks inside `event` stalls the emitting stream,
-//! exactly as any slow [`StreamObserver`] would: keep slow sinks
-//! behind a channel.
+//! A subscriber that blocks inside `event` stalls the session's
+//! connection in the emitting direction, exactly as any slow
+//! [`StreamObserver`] would: keep slow sinks behind a channel.
 //!
 //! # When not to use it
 //!

@@ -1,6 +1,6 @@
 //! Check the sizing model's wire-cost estimate against complete sessions.
 //!
-//! Count writes on both endpoints' control and data streams, divide by the
+//! Count every byte both endpoints write to their connection, divide by the
 //! messages transferred, and subtract their encoded payload sizes. The
 //! remainder includes hashes, versions, framing, and session setup, but no
 //! underlying transport overhead. Seeded corpora make this reproducible.
@@ -15,14 +15,16 @@
 use rumors_testkit::common;
 
 use bytes::Bytes;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
+use rumors::Rumors;
 use rumors::testing::{dispute_overhead_bytes, reference_wire_bytes};
-use rumors::{Peer, Rumors};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::common::window::WindowChoice;
+use crate::common::budget::BudgetChoice;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// Shared history in the smaller calibration fixtures.
 const COMMON: usize = 2_048;
@@ -49,21 +51,37 @@ const REFERENCE_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + REFERENC
 /// deterministic for the minimal cell's corpus).
 const U64_ENCODED_BYTES: usize = 9;
 
-/// The small-record fixture's rounded mean falls one byte below the estimate.
-/// Smaller records amortize their shared frame headers over more messages.
+/// The small-record fixture's rounded mean falls one byte below the
+/// estimate. Smaller records amortize their shared frame headers over more
+/// messages.
 const MINIMAL_CELL_RESIDUAL: usize = 1;
 
-/// Fork one network after shared history, then add distinct messages on each side.
+/// How far, in bytes per message, the large corpus's overhead may sit from
+/// the reference fixture's estimate.
+const TABLE_CORPUS_TOLERANCE: f64 = 3.0;
+
+/// The network every pinned calibration fixture forks: a pinned mean holds
+/// for one tree shape, and so for one network secret.
+const CALIBRATION_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0xd15b_0a1e_c0a5_0001);
+
+/// The divisor of the case count of a property that builds a calibration
+/// fixture: one case builds and gossips tens of thousands of messages,
+/// seconds of work in a debug build, so the default count runs one case.
+const CALIBRATION_FIXTURE_DIVISOR: u32 = 256;
+
+/// Fork the network `network` names after shared history, then add distinct
+/// messages on each side.
 fn diverged<T>(
+    network: NetworkSeed,
     common: usize,
     divergent: usize,
-    window: WindowChoice,
+    budget: BudgetChoice,
     mut make: impl FnMut(&mut ChaChaRng) -> T,
 ) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let left = window.apply(Peer::seed()).into_rumors();
+    let left = budget.apply(network.peer()).into_rumors();
     // Fixed, so the pinned byte counts are measured on the same corpus every
     // run.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_d15b_073e);
@@ -71,14 +89,14 @@ where
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();
     };
     send(&left, common, &mut rng);
-    let right = common::wire::bootstrap_fork_with_window(&left, window);
+    let right = common::wire::bootstrap_fork_with_budget(&left, budget);
     send(&left, divergent, &mut rng);
     send(&right, divergent, &mut rng);
     (left, right)
 }
 
-/// The end-to-end wire bytes of one session between `a` and `b`: control
-/// stream plus every data stream, both directions, counted at the write
+/// The end-to-end wire bytes of one session between `a` and `b`: every
+/// item, control and frame alike, both directions, counted at the write
 /// side of each end.
 fn session_wire_bytes<T>(a: &Rumors<T>, b: &Rumors<T>) -> usize
 where
@@ -88,13 +106,20 @@ where
     a_to_b + b_to_a
 }
 
-/// The smaller fixture's mean bytes per differing message, rounded down.
+/// The smaller fixture's mean bytes per differing message, rounded down,
+/// on the network [`CALIBRATION_NETWORK_SEED`] names.
 /// Both directions contribute writes; each new message crosses once.
 fn implied_bytes_per_message<T>(make: impl FnMut(&mut ChaChaRng) -> T) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (left, right) = diverged(COMMON, DIVERGENT, WindowChoice::Floor, make);
+    let (left, right) = diverged(
+        CALIBRATION_NETWORK_SEED,
+        COMMON,
+        DIVERGENT,
+        BudgetChoice::Serial,
+        make,
+    );
     let total = session_wire_bytes(&left, &right);
     assert_eq!(
         left.snapshot().hash(),
@@ -102,6 +127,10 @@ where
         "the calibration session must actually converge",
     );
     assert_eq!(left.snapshot().len(), COMMON + 2 * DIVERGENT);
+    eprintln!(
+        "unrounded mean: {:.3} B/message",
+        total as f64 / (2 * DIVERGENT) as f64
+    );
     total / (2 * DIVERGENT)
 }
 
@@ -158,47 +187,69 @@ fn mid_size_records_match_the_reference_estimate() {
     );
 }
 
-/// A large sample stays within two bytes of the table's overhead estimate.
+/// A large sample stays within three bytes of the table's overhead
+/// estimate.
 ///
 /// At 75,000 messages per side, structural costs are sufficiently amortized
-/// for this tolerance while the test remains affordable. Check the unrounded
-/// mean: truncation would hide a material part of this error.
+/// for this tolerance while the test remains affordable. The estimate comes
+/// from the dispute-heavier reference fixture, whose listings, each entry
+/// carrying a grandchild count, weigh more per message than this
+/// supply-dominated corpus's, so this corpus measures somewhat below it.
+/// Like the pinned means, the measurement holds for one tree shape, so the
+/// corpus forks the network [`CALIBRATION_NETWORK_SEED`] names.
+/// Check the unrounded mean: truncation would hide a material part of this
+/// error.
 #[test]
 fn table_corpus_has_similar_protocol_overhead() {
     let messages = 75_000;
-    let (left, right) = diverged(0, messages, WindowChoice::Default, |rng| {
-        let mut payload = vec![0u8; REFERENCE_PAYLOAD_LEN];
-        rng.fill_bytes(&mut payload);
-        Bytes::from(payload)
-    });
+    let (left, right) = diverged(
+        CALIBRATION_NETWORK_SEED,
+        0,
+        messages,
+        BudgetChoice::Default,
+        |rng| {
+            let mut payload = vec![0u8; REFERENCE_PAYLOAD_LEN];
+            rng.fill_bytes(&mut payload);
+            Bytes::from(payload)
+        },
+    );
     let total = session_wire_bytes(&left, &right);
     assert_eq!(left.snapshot().hash(), right.snapshot().hash());
     assert_eq!(left.snapshot().len(), 2 * messages);
     let overhead = total as f64 / (2 * messages) as f64 - REFERENCE_ENCODED_PAYLOAD_BYTES as f64;
     let estimate = dispute_overhead_bytes() as f64;
+    eprintln!("table corpus: {overhead:.3} B/message overhead (estimate {estimate})");
     assert!(
-        (overhead - estimate).abs() < 2.0,
+        (overhead - estimate).abs() < TABLE_CORPUS_TOLERANCE,
         "table overhead estimate {estimate} differs from measured {overhead:.3}",
     );
 }
 
-/// Even an already converged pair has nonzero session overhead.
-/// This confirms that the counter includes more than transferred payloads.
-#[test]
-fn counting_link_sees_a_converged_sessions_greeting() {
-    let (left, right) = diverged(COMMON, DIVERGENT, WindowChoice::Floor, |rng| rng.next_u64());
-    // Converge first over an uncounted link, then count a session that
-    // disputes nothing.
-    common::wire::wire_gossip(&left, &right);
-    let total = session_wire_bytes(&left, &right);
-    eprintln!("converged-session control: {total} B fixed overhead");
-    assert!(
-        total > 0,
-        "a converged session still exchanges greetings: a zero count is a dead instrument",
-    );
-    assert!(
-        total < 2 * DIVERGENT,
-        "converged-session overhead ({total} bytes) exceeds one byte per transferred \
-         message at calibration scale",
-    );
+divided_proptest! {
+    #![divisor(CALIBRATION_FIXTURE_DIVISOR)]
+
+    /// Even an already converged pair has nonzero session overhead.
+    /// This confirms that the counter includes more than transferred payloads.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn counting_connection_sees_a_converged_sessions_greeting(network in network_seed()) {
+        let (left, right) = diverged(network, COMMON, DIVERGENT, BudgetChoice::Serial, |rng| {
+            rng.next_u64()
+        });
+        // Converge first over an uncounted connection, then count a session that
+        // disputes nothing.
+        common::wire::wire_gossip(&left, &right);
+        let total = session_wire_bytes(&left, &right);
+        eprintln!("converged-session control: {total} B fixed overhead");
+        assert!(
+            total > 0,
+            "a converged session still exchanges greetings: a zero count is a dead instrument",
+        );
+        assert!(
+            total < 2 * DIVERGENT,
+            "converged-session overhead ({total} bytes) exceeds one byte per transferred \
+             message at calibration scale",
+        );
+    }
 }

@@ -10,10 +10,10 @@
 //! dispute shape and role election. The publication sequence on each channel
 //! and reply sequence on each stream must remain unchanged.
 //!
-//! The formal model's payload-independence premise concerns each channel's
-//! operation count and order. Cross-channel interleavings are outside this
-//! comparison: the model allows them to vary. Local scheduling replay is
-//! checked separately by `local_session_schedule_replays`.
+//! Payload independence here concerns each channel's operation count and
+//! order. Cross-channel interleavings are outside this comparison: they remain
+//! scheduler freedom. Local scheduling replay is checked separately by
+//! `local_session_schedule_replays`.
 
 use proptest::prelude::*;
 

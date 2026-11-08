@@ -1,19 +1,19 @@
 /-
 The T5/T9 control suite: kernel `decide` pins bracketing
-the oracle theorem from every side the adjudication names.
+the oracle theorem from every side.
 
 - **the refuted primary form, pinned** — the receive-projection pusher
   `ofSchedule (demandOrder sk d)` (π_d, the form the stage-0 P2 gate
   and muxprobe executably refuted) jams a pinned
-  margin-0 witness at C = 1 (`static_oracle_jams`), which the oracle of
-  record completes at the same capacity (`piWedge_oracle_completes`);
+  margin-0 witness at C = 1 (`static_oracle_jams`), which T5's oracle
+  completes at the same capacity (`piWedge_oracle_completes`);
 - **non-vacuity anchors** — the oracle completes the positive smoke
   skeleton AND `wedge` at C = 1 (`wedge_oracle_completes`: the exact
   skeleton on which T3 kills every work-conserving pair — the
   trichotomy's positive half on the impossibility's own witness);
 - **T9, locality** — `LocalEq` is nondegenerate (two distinct skeletons
   with equal views on BOTH sides); neither the demand order nor the
-  oracle of record is view-invariant at projection strength
+  T5 oracle is view-invariant at projection strength
   (`demandOrder_not_local`, `oracle_not_local`); and the oracle fails
   `LocalStrategy` itself, `Consistent` certificates included
   (`oracle_not_localStrategy`, phase-4 F2): the oracle genuinely
@@ -34,7 +34,7 @@ stays pinned in the muxprobe golden matrix.
 # The T9 witness pair
 
 `viewPair`/`viewPair'` differ ONLY in a height-1 leaf-request count —
-erased from BOTH parties' views (`viewEnc`'s adjudicated erasure), so
+erased from BOTH parties' views (`viewEnc` erases it), so
 `LocalEq p` holds for both parties while the
 responder's supply-run length differs: every projection of τ on the
 responder's side (receive order AND send order) sees the difference.
@@ -69,8 +69,8 @@ RECEIVE projection of the canonical schedule, as stream heights —
 the demand order π_d, the oracle form the stage-0 P2 gate executably
 refuted (`Gen.piOrder` is the executable-tier twin,
 definitionally equal: `piOrder_eq_demandOrder`, Mux/Proofs/Twins.lean;
-the theorem-bearing definition carries the adjudication's
-vocabulary).
+the theorem-bearing definition carries the statement path's
+name).
 
 Retained as a refuted candidate: `static_oracle_jams` pins its failure
 in the kernel, and `sendProj` (Oracle/Order.lean) is the projection
@@ -120,7 +120,7 @@ theorem piWedge_margin0 : ∀ s, piWedge.dCount s ≤ piWedge.capLevel :=
 
 set_option maxRecDepth 400000 in
 set_option maxHeartbeats 16000000 in
-/-- The adjudication's primary T5 form is FALSE: the receive-projection
+/-- T5's primary candidate form is FALSE: the receive-projection
 pusher `ofSchedule (demandOrder …)` — full bidirectional skeleton
 knowledge, τ's own consumption order, precomputed — deadlocks `piWedge`
 at C = 1 (the π-eligibility failure, kernel tier).
@@ -128,7 +128,7 @@ at C = 1 (the π-eligibility failure, kernel tier).
 Read with `oracle_deadlock_free_of_muxInv` and
 `piWedge_oracle_completes`, this sharpens the muxprobe finding ("even
 full skeleton knowledge does not make a non-adaptive schedule live"):
-the oracle of record is EQUALLY non-adaptive and equally informed — a
+T5's oracle is EQUALLY non-adaptive and equally informed — a
 fixed list indexed by own push count — and is live on the whole class.
 Neither adaptivity nor information is the liveness ingredient; the
 ORDER is. Pushing in consumption order jams because commit dependencies
@@ -160,7 +160,7 @@ theorem static_oracle_not_deadlockFree :
 
 set_option maxRecDepth 400000 in
 set_option maxHeartbeats 16000000 in
-/-- The paired positive: the oracle of record completes the very
+/-- The paired positive: T5's oracle completes the very
 skeleton the receive-projection pusher jams, at the same capacity —
 same information, same non-adaptivity, different order.
 Message-denominated (Mux/Basic.lean, # The byte-denomination
@@ -225,7 +225,7 @@ theorem localEq_nondegenerate :
 
 /-- The demand order consumes remote structure: a `LocalEq` pair with
 different receive projections (`oracle_not_local`, stated for the
-adjudicated π_d form). The
+π_d form). The
 responder's supply run is one frame longer on the mutated half — a
 difference its own view erases. -/
 theorem demandOrder_not_local :
@@ -233,7 +233,7 @@ theorem demandOrder_not_local :
       ∧ demandOrder sk .R ≠ demandOrder sk' .R :=
   ⟨viewPair, viewPair', by decide, by decide⟩
 
-/-- The oracle of record consumes remote structure at PROJECTION
+/-- T5's oracle consumes remote structure at PROJECTION
 strength: on the same `LocalEq` pair, the send projections differ.
 
 This pin is about the lists, not the strategy Prop — the strategy-level

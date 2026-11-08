@@ -136,7 +136,7 @@ def applyO (a : Action) (s : State) : Option State :=
       else none
   | a => Model.apply sk ax a s
 
-/-- The reply-first instance IS the model of record, pointwise: the
+/-- The reply-first instance IS the base model, pointwise: the
 baseline theorems are the `ord = .rf` corner of every quantified
 statement. `rfl` per arm — no reasoning, a definitional identity. -/
 theorem applyO_rf (a : Action) (s : State) :

@@ -27,8 +27,8 @@
 //! must still reach those readers, so every island site also states it
 //! as a literal, `#[cfg_attr(not(doc), doc = "...")]`, readable in the
 //! source and rendered by IDE hovers, which expand no `include_str!` in
-//! a doc attribute. `$OUT_DIR/fuelscape-contracts/<op>.md` is the text
-//! of record for each literal, the island's summary as Markdown, and the
+//! a doc attribute. `$OUT_DIR/fuelscape-contracts/<op>.md` is the contract
+//! text for each literal, the island's summary as Markdown, and the
 //! doc-attachment totality test holds every site's literal to it.
 //!
 //! This script is a pure formatter: it re-bins nothing, computes no
@@ -268,7 +268,7 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
 
 /// The island's summary as plain Markdown, word for word what the island shows.
 ///
-/// The text of record for the literal each island site carries under
+/// The contract text for the literal each island site carries under
 /// `cfg(not(doc))`, what a reader sees wherever the island cannot render.
 /// The totality test compares the literals against these files.
 fn contract_paragraph(op: &serde_json::Value) -> String {

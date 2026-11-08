@@ -1,12 +1,14 @@
 //! Measurements from a completed synchronization session.
 //!
-//! [`SessionStats`] reports latency, changes to the rumor set, network traffic,
-//! and memory-budget pressure while joining, gossiping, or leaving a network.
+//! [`SessionStats`] reports latency, changes to the rumor set, and the
+//! traffic of the session's data frames while joining, gossiping, or leaving
+//! a network; the items before and after those frames are not counted.
 //! It is returned on [`Gossiped`](crate::Gossiped) and sent to
 //! [`SessionObserver::finished`](crate::observe::SessionObserver::finished).
 //! Each peer measures its own side, and collection adds no protocol traffic.
 //! [`Recorder`] is the internal counter shared by the reconciliation layers.
 
+use std::io::IoSlice;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,6 +16,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+use crate::counter::widen;
 
 /// Local measurements from one completed session while joining, gossiping, or
 /// leaving a network.
@@ -53,14 +57,17 @@ pub struct SessionStats {
     pub messages_shed: u64,
     /// Encoded bytes sent to compare and transfer messages.
     ///
-    /// This measures the session's outgoing data traffic. It excludes session
-    /// setup and completion, and the labels that identify independent streams.
-    /// On a completed lossless link, one peer's `bytes_sent` equals the other's
+    /// This measures the session's outgoing data frames. It excludes every
+    /// item outside them that shares the connection: the session's setup
+    /// before the frames, and an identity donation and the completion
+    /// confirmation after them. On a
+    /// completed session, one peer's `bytes_sent` equals the other's
     /// [`bytes_received`](Self::bytes_received).
     pub bytes_sent: u64,
     /// Complete protocol frames sent while comparing and transferring messages.
     ///
-    /// This includes one end marker for each independent stream. Compare it
+    /// This includes one end marker for each logical stream that carried a
+    /// reply. Compare it
     /// with [`bytes_sent`](Self::bytes_sent) to inspect batching and average
     /// frame size under [`target_message_size`](crate::Peer::target_message_size).
     pub frames_sent: u64,
@@ -72,33 +79,22 @@ pub struct SessionStats {
     /// Complete protocol frames received while comparing and transferring messages.
     ///
     /// This is the incoming counterpart to [`frames_sent`](Self::frames_sent),
-    /// including independent-stream end markers.
+    /// including the logical streams' end markers.
     pub frames_received: u64,
-    /// Largest comparison window granted during the session.
+    /// Questions and answers this peer held back until its
+    /// [memory budget](crate::Peer::sync_memory_budget) had room for them.
     ///
-    /// Gossip compares the rumor set in several steps. Each step limits how
-    /// many comparisons it may keep in flight while waiting for replies; that
-    /// limit is its *window*. Rumors derives each window from
-    /// [`sync_memory_budget`](crate::Peer::sync_memory_budget), and this field
-    /// reports the largest.
-    ///
-    /// This is available capacity, not observed use. Larger windows can hide
-    /// more network latency but allow more buffering. Compare
-    /// [`window_stalls`](Self::window_stalls) to learn whether gossip reached a
-    /// window limit. One means comparisons were fully serialized; zero means
-    /// no comparison was needed.
-    pub window_granted: u64,
-    /// Times gossip reached its limit on comparisons in flight.
-    ///
-    /// Zero means the synchronization memory budget caused no observed
-    /// backpressure. A nonzero value suggests that a larger budget might
-    /// improve overlap. The count depends on scheduling, so treat it as a
-    /// pressure signal rather than a reproducible workload total.
-    pub window_stalls: u64,
+    /// This shows whether the budget limited the session's pipelining. At
+    /// zero, the session kept in flight everything it was ready to send,
+    /// and ran as it would have with an unlimited budget. Above zero, each
+    /// count is a question or answer that waited for earlier work to free
+    /// memory before the session built it. Each peer counts against its
+    /// own budget, so the two sides of a session report their own numbers.
+    pub budget_waits: u64,
 }
 
 /// The write side of one session's [`SessionStats`]: cheaply cloneable,
-/// shared by the walk, the window solve, and the codec's byte counters.
+/// shared by the walk and the codec's byte counters.
 ///
 /// Counters are atomics only to satisfy `Send + Sync` across the session's
 /// concurrently polled tasks; all ordering is `Relaxed` because each
@@ -107,20 +103,30 @@ pub struct SessionStats {
 /// tasks have completed.
 #[derive(Debug, Clone, Default)]
 pub struct Recorder {
+    /// The counters every clone of this recorder adds to.
     inner: Arc<Counters>,
 }
 
+/// One session's running counts, one per counted field of
+/// [`SessionStats`], which [`Recorder::snapshot`] copies out.
 #[derive(Debug, Default)]
 struct Counters {
+    /// The count behind [`SessionStats::disputed_scopes`].
     disputed_scopes: AtomicU64,
+    /// The count behind [`SessionStats::messages_gained`].
     messages_gained: AtomicU64,
+    /// The count behind [`SessionStats::messages_shed`].
     messages_shed: AtomicU64,
+    /// The count behind [`SessionStats::bytes_sent`].
     bytes_sent: AtomicU64,
+    /// The count behind [`SessionStats::bytes_received`].
     bytes_received: AtomicU64,
+    /// The count behind [`SessionStats::frames_sent`].
     frames_sent: AtomicU64,
+    /// The count behind [`SessionStats::frames_received`].
     frames_received: AtomicU64,
-    window_granted: AtomicU64,
-    window_stalls: AtomicU64,
+    /// The count behind [`SessionStats::budget_waits`].
+    budget_waits: AtomicU64,
 }
 
 impl Recorder {
@@ -144,14 +150,6 @@ impl Recorder {
             .fetch_add(messages, Ordering::Relaxed);
     }
 
-    /// Record the widest per-stage capacity the window solve granted.
-    ///
-    /// A session resolves its window exactly once, so this is a store,
-    /// not an accumulation.
-    pub fn window_granted(&self, scopes: u64) {
-        self.inner.window_granted.store(scopes, Ordering::Relaxed);
-    }
-
     /// Count one complete frame written by the data-stream codec.
     pub fn frame_sent(&self) {
         self.inner.frames_sent.fetch_add(1, Ordering::Relaxed);
@@ -162,9 +160,10 @@ impl Recorder {
         self.inner.frames_received.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Record a send that encountered a full window-controlled queue.
-    pub fn window_stall(&self) {
-        self.inner.window_stalls.fetch_add(1, Ordering::Relaxed);
+    /// Count `units` the walk's ledger held back for budget; see
+    /// [`SessionStats::budget_waits`] for the definition.
+    pub fn held_back(&self, units: u64) {
+        self.inner.budget_waits.fetch_add(units, Ordering::Relaxed);
     }
 
     /// Read the counters into the session's [`SessionStats`].
@@ -178,8 +177,7 @@ impl Recorder {
             bytes_received: self.inner.bytes_received.load(Ordering::Relaxed),
             frames_sent: self.inner.frames_sent.load(Ordering::Relaxed),
             frames_received: self.inner.frames_received.load(Ordering::Relaxed),
-            window_granted: self.inner.window_granted.load(Ordering::Relaxed),
-            window_stalls: self.inner.window_stalls.load(Ordering::Relaxed),
+            budget_waits: self.inner.budget_waits.load(Ordering::Relaxed),
         }
     }
 }
@@ -187,9 +185,11 @@ impl Recorder {
 /// A transport write half that adds every accepted byte to
 /// [`SessionStats::bytes_sent`].
 ///
-/// Wraps a stream's write half between the frame codec and the transport,
-/// after the stream's label has been written on the raw half, so the count
-/// is exactly the codec's frame bytes.
+/// Wraps the pipe's write half between the frame codec and the transport,
+/// and only while the multiplexer writes frames, so the count is exactly
+/// the codec's frame bytes. Vectored writes pass through to the transport,
+/// so a frame too large for the multiplexer's buffer stays one write
+/// operation where the transport supports it.
 pub struct CountedWrite<W> {
     inner: W,
     recorder: Recorder,
@@ -201,9 +201,15 @@ impl<W> CountedWrite<W> {
         Self { inner, recorder }
     }
 
-    /// Recover the transport half; the counter holds no bytes.
-    pub fn into_inner(self) -> W {
-        self.inner
+    /// Credit the bytes a write accepted, passing its outcome through.
+    fn credit(&self, poll: Poll<std::io::Result<usize>>) -> Poll<std::io::Result<usize>> {
+        if let Poll::Ready(Ok(accepted)) = &poll {
+            self.recorder
+                .inner
+                .bytes_sent
+                .fetch_add(widen(*accepted), Ordering::Relaxed);
+        }
+        poll
     }
 }
 
@@ -213,15 +219,21 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        let this = &mut *self;
-        let poll = Pin::new(&mut this.inner).poll_write(cx, buf);
-        if let Poll::Ready(Ok(accepted)) = &poll {
-            this.recorder
-                .inner
-                .bytes_sent
-                .fetch_add(*accepted as u64, Ordering::Relaxed);
-        }
-        poll
+        let poll = Pin::new(&mut self.inner).poll_write(cx, buf);
+        self.credit(poll)
+    }
+
+    fn poll_write_vectored(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[IoSlice<'_>],
+    ) -> Poll<std::io::Result<usize>> {
+        let poll = Pin::new(&mut self.inner).poll_write_vectored(cx, bufs);
+        self.credit(poll)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
@@ -236,9 +248,9 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountedWrite<W> {
 /// A transport read half that adds every delivered byte to
 /// [`SessionStats::bytes_received`].
 ///
-/// Wraps a stream's read half between the transport and the frame decoder,
-/// after the accept driver has consumed the stream's label, so the count is
-/// exactly the codec's frame bytes.
+/// Wraps the pipe's read half between the transport and the frame decoder,
+/// and only while the demultiplexer reads frames, so the count is exactly
+/// the codec's frame bytes.
 pub struct CountedRead<R> {
     inner: R,
     recorder: Recorder,
@@ -250,9 +262,10 @@ impl<R> CountedRead<R> {
         Self { inner, recorder }
     }
 
-    /// Recover the transport half; the counter holds no bytes.
-    pub fn into_inner(self) -> R {
-        self.inner
+    /// Borrow the transport half; bytes read through the borrow are not
+    /// counted.
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.inner
     }
 }
 
@@ -270,7 +283,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for CountedRead<R> {
             this.recorder
                 .inner
                 .bytes_received
-                .fetch_add(delivered as u64, Ordering::Relaxed);
+                .fetch_add(widen(delivered), Ordering::Relaxed);
         }
         poll
     }

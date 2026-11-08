@@ -1,3 +1,7 @@
+use crate::tree::mirror::streaming::message::LaterMatches;
+use crate::tree::mirror::streaming::message::Listed;
+use crate::tree::mirror::streaming::message::listed;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -7,9 +11,17 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use super::*;
 use crate::Version;
+use crate::default;
 use crate::message::Message;
 use crate::tree::arb::{arb_radixes, arb_version};
 use crate::tree::mirror::cbor::{HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, TAG_CBOR_SEQUENCE};
+use crate::tree::mirror::streaming::byte_set::{ByteSet, ByteSetError, MAX_ENCODED_LEN};
+use crate::tree::mirror::streaming::ledger::queued;
+use crate::tree::mirror::streaming::remote::{
+    Inbound,
+    codec::lone_record_run,
+    pipe::{WIRE_POOL_RUNS, WirePool},
+};
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 use super::super::{
@@ -62,7 +74,7 @@ fn supply_declaring(stream: Stream, flow: Flow, declared: usize, body: &[u8]) ->
 /// A whole query frame carrying `children` as its listing map, written
 /// raw (no canonical-order validation) so tests can synthesize
 /// violations.
-fn query(stream: Stream, flow: Flow, children: &[(u8, Hash)]) -> Vec<u8> {
+fn query(stream: Stream, flow: Flow, children: &[Listed]) -> Vec<u8> {
     let mut encoded = frame_head(3, stream, Signal::Query(flow));
     super::super::frame::write_listing(&mut encoded, children);
     encoded
@@ -192,8 +204,9 @@ fn frame_shape_is_enforced() {
             let error = decode_exact(speaker, RunBudget::default(), &[head]).unwrap_err();
             assert!(matches!(error.kind, DecodeErrorKind::FrameLength { .. }));
         }
-        // A body-free signal inside a three-item array.
-        let encoded = frame_head(3, stream, Signal::Match(Flow::Continue));
+        // A body-free signal inside a three-item array: an empty query's
+        // signal takes no body, unlike a match's, which may.
+        let encoded = frame_head(3, stream, Signal::QueryEmpty(Flow::Continue));
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
@@ -213,6 +226,110 @@ fn frame_shape_is_enforced() {
                 found: 2
             }
         ));
+    }
+}
+
+/// A match frame on `stream` whose body is a byte string holding `set`, a
+/// set's spelling whether or not it is canonical.
+fn match_with_set(stream: Stream, flow: Flow, set: &[u8]) -> Vec<u8> {
+    let mut encoded = frame_head(3, stream, Signal::Match(flow));
+    cbor::write_head(&mut encoded, MAJOR_BSTR, set.len() as u64);
+    encoded.extend_from_slice(set);
+    encoded
+}
+
+/// A match covering no later child is body-free, so a match frame whose
+/// body is the empty set is not canonical: both decoders reject it.
+#[test]
+fn an_empty_match_set_is_rejected() {
+    let stream = stream(4);
+    for (speaker, flow) in SPEAKERS
+        .into_iter()
+        .flat_map(|speaker| [Flow::Continue, Flow::End].map(|flow| (speaker, flow)))
+    {
+        let error = decode_both(
+            speaker,
+            RunBudget::default(),
+            &match_with_set(stream, flow, &[]),
+        )
+        .expect_err("an empty set of later matches cannot decode");
+        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert!(
+            matches!(error.kind, DecodeErrorKind::EmptyMatchSet),
+            "{:?}",
+            error.kind
+        );
+    }
+}
+
+/// A match's body must be a byte string no longer than a set's encoding.
+///
+/// Both decoders reject a head of another major type before anything
+/// behind it is read, and a longer byte string at its head, before its
+/// content is read.
+#[test]
+fn a_match_body_is_held_to_a_set_encoding_at_its_head() {
+    let stream = stream(4);
+    for speaker in SPEAKERS {
+        for head in [&[0x00][..], &[0xa1][..], &[0x60][..]] {
+            let mut encoded = frame_head(3, stream, Signal::Match(Flow::End));
+            encoded.extend_from_slice(head);
+            let error = decode_both(speaker, RunBudget::default(), &encoded)
+                .expect_err("a match body that is not a byte string cannot decode");
+            assert!(
+                matches!(error.kind, DecodeErrorKind::MatchSetType { .. }),
+                "{:?}",
+                error.kind
+            );
+        }
+        let mut encoded = frame_head(3, stream, Signal::Match(Flow::End));
+        cbor::write_head(&mut encoded, MAJOR_BSTR, MAX_ENCODED_LEN as u64 + 1);
+        let error = decode_both(speaker, RunBudget::default(), &encoded)
+            .expect_err("a body longer than any set cannot decode");
+        assert!(
+            matches!(
+                error.kind,
+                DecodeErrorKind::InvalidMatchSet(ByteSetError::TooLong { len })
+                    if len == MAX_ENCODED_LEN + 1
+            ),
+            "{:?}",
+            error.kind
+        );
+    }
+}
+
+proptest! {
+    /// A match frame's body decodes exactly when it is a nonempty set's
+    /// canonical encoding, to that set, in both decoders.
+    ///
+    /// Every other spelling up to a few bytes past a bitmap is rejected
+    /// with the error the set's own decoding gives it.
+    #[test]
+    fn match_bodies_decode_exactly_the_canonical_sets(
+        content in proptest::collection::vec(any::<u8>(), 1..=MAX_ENCODED_LEN + 4),
+        speaker in arb_speaker(),
+        flow in arb_flow(),
+    ) {
+        let stream = stream(4);
+        let decoded = decode_both(speaker, RunBudget::default(), &match_with_set(stream, flow, &content));
+        match ByteSet::decode(&content) {
+            Ok(set) => {
+                let (_, frame) = decoded.expect("a canonical nonempty set decodes");
+                prop_assert_eq!(
+                    frame,
+                    Frame::Reaction(Reaction::Match(LaterMatches::new(set)), flow)
+                );
+            }
+            Err(expected) => {
+                let error = decoded.expect_err("a non-canonical set cannot decode");
+                prop_assert!(
+                    matches!(error.kind, DecodeErrorKind::InvalidMatchSet(actual) if actual == expected),
+                    "{:?} for {:?}",
+                    error.kind,
+                    expected
+                );
+            }
+        }
     }
 }
 
@@ -561,7 +678,7 @@ proptest! {
             .prop_map(|(a, b)| (a.max(b), a.min(b))),
     ) {
         let stream = stream(index);
-        let children = vec![(previous, Hash::default()), (radix, Hash::default())];
+        let children = vec![listed(previous, Hash::default()), listed(radix, Hash::default())];
         let encoded = query(stream, Flow::Continue, &children);
         let error = decode_both(speaker, RunBudget::default(), &encoded)
             .expect_err("a non-ascending listing cannot decode");
@@ -609,9 +726,9 @@ proptest! {
         radixes in arb_radixes(1..=32),
     ) {
         let stream = stream(index);
-        let children: Vec<(u8, Hash)> = radixes
+        let children: Vec<Listed> = radixes
             .iter()
-            .map(|&radix| (radix, Hash::from([radix; MERKLE_HASH_LEN])))
+            .map(|&radix| listed(radix, Hash::from([radix; MERKLE_HASH_LEN])))
             .collect();
         let encoded = query(stream, flow, &children);
         let expected = (stream, Frame::Reaction(Reaction::Query(children), flow));
@@ -730,7 +847,10 @@ fn exact_decode_rejects_trailing_frame() {
         let frame = decode(speaker, RunBudget::default(), &mut rest).unwrap();
         assert_eq!(
             frame,
-            (stream, Frame::Reaction(Reaction::Match, Flow::Continue))
+            (
+                stream,
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), Flow::Continue)
+            )
         );
         assert_eq!(rest, second.as_slice());
     }
@@ -790,40 +910,49 @@ fn async_eof_distinguishes_close_from_truncation() {
 
 /// An invalid async signal consumes only its own frame, leaving the
 /// following valid frame at the next exact boundary.
+///
+/// The invalid signal is one the other speaker may place on the same
+/// stream, so only this speaker's phase grammar rejects it.
 #[test]
 fn async_invalid_signal_does_not_consume_a_body() {
     for speaker in SPEAKERS {
-        let (stream, other, invalid_signal, valid_signal, valid_frame) = match speaker {
-            Speaker::Initiator => (
-                stream(0),
-                Speaker::Responder,
-                Signal::Match(Flow::Continue),
-                Signal::End(End::Stream),
-                Frame::End(End::Stream),
-            ),
-            Speaker::Responder => (
-                stream(Stream::MAX),
-                Speaker::Initiator,
-                Signal::Match(Flow::Continue),
-                Signal::End(End::Reply),
-                Frame::End(End::Reply),
-            ),
-        };
-        WireSignal::new(other, stream, invalid_signal).expect("valid for the other speaker");
-        WireSignal::new(speaker, stream, valid_signal).expect("valid for this speaker");
-        let mut bytes = frame_head(2, stream, invalid_signal);
-        bytes.extend_from_slice(&frame_head(2, stream, valid_signal));
+        let (invalid_stream, valid_stream, other, invalid_signal, valid_signal, valid_frame) =
+            match speaker {
+                // The initiator's first stream admits nothing, so the valid
+                // frame follows on the next stream.
+                Speaker::Initiator => (
+                    stream(0),
+                    stream(1),
+                    Speaker::Responder,
+                    Signal::Match(Flow::Continue),
+                    Signal::End(End::Stream),
+                    Frame::End(End::Stream),
+                ),
+                Speaker::Responder => (
+                    stream(Stream::MAX),
+                    stream(Stream::MAX),
+                    Speaker::Initiator,
+                    Signal::Match(Flow::Continue),
+                    Signal::End(End::Reply),
+                    Frame::End(End::Reply),
+                ),
+            };
+        WireSignal::new(other, invalid_stream, invalid_signal)
+            .expect("valid for the other speaker");
+        WireSignal::new(speaker, valid_stream, valid_signal).expect("valid for this speaker");
+        let mut bytes = frame_head(2, invalid_stream, invalid_signal);
+        bytes.extend_from_slice(&frame_head(2, valid_stream, valid_signal));
         let mut reader = FrameRead::new(speaker, RunBudget::default(), bytes.as_slice());
 
         let error = pollster::block_on(reader.frame()).unwrap_err();
-        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert_eq!(error.origin, Origin::stream(speaker, invalid_stream));
         assert!(matches!(
             error.kind,
             DecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(_))
         ));
         assert_eq!(
             pollster::block_on(reader.frame()).unwrap(),
-            Some((stream, valid_frame)),
+            Some((valid_stream, valid_frame)),
         );
     }
 }
@@ -1057,12 +1186,13 @@ fn opener_read_failures_are_reported_in_wire_order() {
 /// Supply-body truncation cuts at every seeded offset all classify as a
 /// truncated `SupplyRun` with an `UnexpectedEof` source.
 ///
-/// The seeded offsets are one byte short of, exactly on, and one byte
-/// past each payload chunk boundary, plus the zero-byte, one-byte, and
-/// one-short-of-total cuts. The chunked body read preserves the typed
-/// truncation contract at every seam, the zero- and one-byte cuts
-/// exercising the earliest possible ones — where a record's leading
-/// heads would sit.
+/// The seeded offsets are the roster the framing suites share: one byte
+/// short of, exactly on, and one byte past each payload chunk boundary,
+/// plus the zero-byte, one-byte, and one-short-of-total cuts. The supply
+/// body is read into a buffer reserved whole, so none of them is a seam
+/// of its own read; the roster spreads the cuts over a body of several
+/// chunks, and the zero- and one-byte cuts exercise the earliest ones,
+/// where a record's leading heads would sit.
 #[test]
 fn supply_truncation_at_chunk_boundaries_is_typed() {
     use crate::tree::mirror::framing::{PAYLOAD_CHUNK_LEN, chunk_boundary_cuts};
@@ -1416,6 +1546,63 @@ fn record_iteration_enforces_payload_depth() {
         .next()
         .unwrap()
         .expect("a payload at exactly the limit decodes");
+}
+
+/// Reading a supply run through the receive pool never holds more than
+/// the run's own bytes at once.
+///
+/// For a run within the budget, its permit covers those bytes and the
+/// run's node in its lane, so no moment of receiving the run holds more
+/// than its permit covers. A record larger than the pool takes the whole
+/// pool, and holds beside it only its own excess over the pool.
+///
+/// The read completes in one poll from an in-memory transport, so the
+/// poll's peak covers the run's buffer at its largest, both blocks of any
+/// reallocation counted. The runs fill the body the default target admits,
+/// and a target four times as large, and outgrow each one's pool by a
+/// lone record of three times its body.
+#[test]
+fn receiving_a_run_holds_at_most_its_permit() {
+    let node = queued::<Inbound>();
+    for target in [
+        default::TARGET_MESSAGE_SIZE,
+        4 * default::TARGET_MESSAGE_SIZE,
+    ] {
+        let budget = RunBudget::from_bytes(target);
+        let pool = WirePool::receiving(target, WIRE_POOL_RUNS);
+        for len in [budget.body(), 3 * budget.body()] {
+            let bytes = supply(stream(1), Flow::End, &lone_record_run(len));
+            let mut reader = FrameRead::new(Speaker::Initiator, budget, bytes.as_slice());
+            let mut read = std::pin::pin!(reader.pooled_frame(&pool));
+            let mut cx = Context::from_waker(std::task::Waker::noop());
+            let (received, polled) = alloc_meter::measure(|| read.as_mut().poll(&mut cx));
+            let Poll::Ready(frame) = polled else {
+                panic!("an in-memory transport and a pool with room never wait");
+            };
+            let (_, permit) = frame
+                .expect("a well-framed run decodes")
+                .expect("the transport holds a frame");
+            assert!(
+                received.peak_bytes <= len,
+                "receiving a run of {len} bytes at target {target} peaked at {} bytes",
+                received.peak_bytes,
+            );
+            if budget.covers(len) {
+                assert!(
+                    len + node <= permit.bytes(),
+                    "a {permit_bytes}-byte permit for a run of {len} bytes beside its \
+                     {node}-byte node",
+                    permit_bytes = permit.bytes(),
+                );
+            } else {
+                assert_eq!(
+                    permit.bytes(),
+                    pool.bytes(),
+                    "a lone record takes the whole pool"
+                );
+            }
+        }
+    }
 }
 
 mod transport;

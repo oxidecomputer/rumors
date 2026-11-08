@@ -1,5 +1,7 @@
 //! Frame boundaries and error context under partial delivery.
 
+use crate::tree::mirror::streaming::message::LaterMatches;
+use crate::tree::mirror::streaming::message::listed;
 use std::collections::BTreeMap;
 
 use super::*;
@@ -27,7 +29,7 @@ impl FrameCase {
             Frame::Reaction(Reaction::Query(children), flow) if !children.is_empty() => {
                 (query(stream, *flow, children), None)
             }
-            Frame::Reaction(Reaction::Match, flow) => {
+            Frame::Reaction(Reaction::Match(_), flow) => {
                 (bare_frame(stream, Signal::Match(*flow)), None)
             }
             Frame::Reaction(Reaction::Query(_), flow) => {
@@ -78,13 +80,13 @@ fn arb_frame_case() -> impl Strategy<Value = FrameCase> {
             .prop_map(|(len, byte)| vec![byte; len]),
     ];
     let reaction = prop_oneof![
-        Just(Reaction::Match),
+        Just(Reaction::Match(LaterMatches::NONE)),
         prop::collection::vec((any::<u8>(), any::<[u8; MERKLE_HASH_LEN]>()), 0..=256)
             .prop_map(BTreeMap::from_iter)
             .prop_map(|children| Reaction::Query(
                 children
                     .into_iter()
-                    .map(|(r, h)| (r, Hash::from(h)))
+                    .map(|(r, h)| listed(r, Hash::from(h)))
                     .collect()
             )),
         prop::collection::vec(contents, 1..=3).prop_map(|records| {

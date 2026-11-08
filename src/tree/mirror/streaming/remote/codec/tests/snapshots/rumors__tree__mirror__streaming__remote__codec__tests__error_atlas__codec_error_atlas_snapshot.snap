@@ -1,6 +1,5 @@
 ---
 source: src/tree/mirror/streaming/remote/codec/tests/error_atlas.rs
-assertion_line: 128
 expression: build_atlas()
 ---
 ENCODE
@@ -200,6 +199,46 @@ DECODE
     origin: Initiator stream 8
     kind: OverbatchedRun(declared=28, budget=0)
     source[0]: supply frame charges 28 wire bytes, batching records past the 0-byte run budget
+  Initiator/match/not-bytes
+    display: Initiator stream 8: match body has head Head { major: 0, value: 0 }; expected a byte string of later matches
+    origin: Initiator stream 8
+    kind: Malformed(part=MatchSet, actual=Head { major: 0, value: 0 })
+    source[0]: match body has head Head { major: 0, value: 0 }; expected a byte string of later matches
+  Initiator/match/empty
+    display: Initiator stream 8: a match frame carries an empty set of later matches; a match covering none has no body
+    origin: Initiator stream 8
+    kind: Malformed(part=MatchSet, empty)
+    source[0]: a match frame carries an empty set of later matches; a match covering none has no body
+  Initiator/match/unordered
+    display: Initiator stream 8: a match's later matches are not canonically encoded: set element 1 at index 1 does not ascend past 2
+    origin: Initiator stream 8
+    kind: InvalidMatchSet(Unordered { index: 1, previous: 2, value: 1 })
+    source[0]: a match's later matches are not canonically encoded: set element 1 at index 1 does not ascend past 2
+    source[1]: set element 1 at index 1 does not ascend past 2
+  Initiator/match/sparse-bitmap
+    display: Initiator stream 8: a match's later matches are not canonically encoded: a set bitmap holds 31 elements; fewer than 32 are spelled as a list
+    origin: Initiator stream 8
+    kind: InvalidMatchSet(SparseBitmap { len: 31 })
+    source[0]: a match's later matches are not canonically encoded: a set bitmap holds 31 elements; fewer than 32 are spelled as a list
+    source[1]: a set bitmap holds 31 elements; fewer than 32 are spelled as a list
+  Initiator/match/too-long
+    display: Initiator stream 8: a match's later matches are not canonically encoded: a set encoding of 33 bytes is longer than the 32-byte bitmap
+    origin: Initiator stream 8
+    kind: InvalidMatchSet(TooLong { len: 33 })
+    source[0]: a match's later matches are not canonically encoded: a set encoding of 33 bytes is longer than the 32-byte bitmap
+    source[1]: a set encoding of 33 bytes is longer than the 32-byte bitmap
+  Initiator/truncated/match-set
+    display: Initiator stream 8: frame ended before its later matches
+    origin: Initiator stream 8
+    kind: Truncated(missing=MatchSet, io=UnexpectedEof)
+    source[0]: frame ended before its later matches
+    source[1]: Io(UnexpectedEof)
+  Initiator/read/match-set
+    display: Initiator stream 8: could not read the frame's later matches
+    origin: Initiator stream 8
+    kind: Read(part=MatchSet, io=Other)
+    source[0]: could not read the frame's later matches
+    source[1]: Io(Other)
   Initiator/frame/trailing
     display: Initiator stream 8: 1 trailing bytes follow the frame
     origin: Initiator stream 8
@@ -340,16 +379,56 @@ DECODE
     origin: Responder stream 8
     kind: OverbatchedRun(declared=28, budget=0)
     source[0]: supply frame charges 28 wire bytes, batching records past the 0-byte run budget
+  Responder/match/not-bytes
+    display: Responder stream 8: match body has head Head { major: 0, value: 0 }; expected a byte string of later matches
+    origin: Responder stream 8
+    kind: Malformed(part=MatchSet, actual=Head { major: 0, value: 0 })
+    source[0]: match body has head Head { major: 0, value: 0 }; expected a byte string of later matches
+  Responder/match/empty
+    display: Responder stream 8: a match frame carries an empty set of later matches; a match covering none has no body
+    origin: Responder stream 8
+    kind: Malformed(part=MatchSet, empty)
+    source[0]: a match frame carries an empty set of later matches; a match covering none has no body
+  Responder/match/unordered
+    display: Responder stream 8: a match's later matches are not canonically encoded: set element 1 at index 1 does not ascend past 2
+    origin: Responder stream 8
+    kind: InvalidMatchSet(Unordered { index: 1, previous: 2, value: 1 })
+    source[0]: a match's later matches are not canonically encoded: set element 1 at index 1 does not ascend past 2
+    source[1]: set element 1 at index 1 does not ascend past 2
+  Responder/match/sparse-bitmap
+    display: Responder stream 8: a match's later matches are not canonically encoded: a set bitmap holds 31 elements; fewer than 32 are spelled as a list
+    origin: Responder stream 8
+    kind: InvalidMatchSet(SparseBitmap { len: 31 })
+    source[0]: a match's later matches are not canonically encoded: a set bitmap holds 31 elements; fewer than 32 are spelled as a list
+    source[1]: a set bitmap holds 31 elements; fewer than 32 are spelled as a list
+  Responder/match/too-long
+    display: Responder stream 8: a match's later matches are not canonically encoded: a set encoding of 33 bytes is longer than the 32-byte bitmap
+    origin: Responder stream 8
+    kind: InvalidMatchSet(TooLong { len: 33 })
+    source[0]: a match's later matches are not canonically encoded: a set encoding of 33 bytes is longer than the 32-byte bitmap
+    source[1]: a set encoding of 33 bytes is longer than the 32-byte bitmap
+  Responder/truncated/match-set
+    display: Responder stream 8: frame ended before its later matches
+    origin: Responder stream 8
+    kind: Truncated(missing=MatchSet, io=UnexpectedEof)
+    source[0]: frame ended before its later matches
+    source[1]: Io(UnexpectedEof)
+  Responder/read/match-set
+    display: Responder stream 8: could not read the frame's later matches
+    origin: Responder stream 8
+    kind: Read(part=MatchSet, io=Other)
+    source[0]: could not read the frame's later matches
+    source[1]: Io(Other)
   Responder/frame/trailing
     display: Responder stream 8: 1 trailing bytes follow the frame
     origin: Responder stream 8
     kind: TrailingBytes(count=1)
     source[0]: 1 trailing bytes follow the frame
-  placement/opening-supplies/decode
-    display: Initiator stream 0: match followed by another reaction on stream 0 is invalid for the initiator's opening supplies
+  placement/unused-opening-stream/decode
+    display: Initiator stream 0: match followed by another reaction on stream 0 is invalid for the initiator's unused opening stream
     origin: Initiator stream 0
-    kind: InvalidSignal::Placement(stream=0, signal=Match(Continue), class=OpeningSupplies)
-    source[0]: match followed by another reaction on stream 0 is invalid for the initiator's opening supplies
+    kind: InvalidSignal::Placement(stream=0, signal=Match(Continue), class=Unused)
+    source[0]: match followed by another reaction on stream 0 is invalid for the initiator's unused opening stream
   placement/leaf-parent/decode
     display: Initiator stream 16: query followed by another reaction on stream 16 is invalid for the initiator's leaf-parent replies
     origin: Initiator stream 16

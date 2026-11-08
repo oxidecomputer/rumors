@@ -152,9 +152,9 @@ a reachable muxed state.
 Preservation along `MReachable` is the stage-3 obligation (the stage-F
 `MuxInv` induction on the flowOk template);
 stating the chase over this interface rather than over `MReachable`
-keeps stage 2 free of the 28-arm preservation sweep, exactly as the
-adjudication's T2 plan prescribes ("closure-order induction, no
-reachability induction"). The fields:
+keeps stage 2 free of the 28-arm preservation sweep, as T2's proof
+strategy requires (closure-order induction, no reachability
+induction). The fields:
 
 - `invl`: the base state's cursors decode (the `InvL` fragment — flow
   is deliberately absent, because a muxed state with frames in flight

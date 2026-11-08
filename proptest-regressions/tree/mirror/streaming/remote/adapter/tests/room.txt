@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7ff22b88f67a9c34aef09db2bc4b5785a40436958818ffdd341fc3d390b25ec9 # shrinks to (asked, count) = ([Listed { radix: 0, hash: "00000000000000000000000000000000", grandchildren: Grandchildren(0), children_less_one: 0 }, Listed { radix: 1, hash: "00000000000000000000000000000000", grandchildren: Grandchildren(0), children_less_one: 0 }], 199), steps = [Supply(255), Query(0), Supply(0)]
+cc 3b28356f86019e59e7db6d544d1f9812e8e1b1b7a3c989a71b325c0f1d914ac6 # shrinks to (asked, count) = ([Listed { radix: 0, hash: "00000000000000000000000000000000", grandchildren: Grandchildren(0), children_less_one: 0 }], 100), steps = [Supply(255), Match(44736)]

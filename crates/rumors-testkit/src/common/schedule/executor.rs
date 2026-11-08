@@ -11,13 +11,14 @@
 
 use std::collections::BTreeMap;
 
-use rumors::{Retire, Version};
+use rumors::{Connection, Retire, Version};
 
 use super::events::{Event, EventIdx, Schedule};
+use crate::common::budget::BudgetAssignment;
 use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce, quiesce_slots};
-use crate::common::window::WindowAssignment;
-use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_with_window};
+use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork_with_budget};
+use rumors::testing::MEMORY_CAPACITY;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -64,15 +65,14 @@ impl<T: Send + Sync + 'static> MembershipExecutionResult<T> {
 /// Run the schedule against a fresh `Vec<Peer<T>>` and a fresh
 /// `Oracle<T>`, allowing every gossip event.
 ///
-/// Peer `i`'s reconciliation
-/// window is `windows.choice(i)` — the suites sweep this dimension, so
-/// the fleet mixes floor, budgeted, and default windows (and sessions
-/// between differently-configured endpoints).
-pub fn execute<T>(schedule: &Schedule<T>, windows: &WindowAssignment) -> ExecutionResult<T>
+/// Peer `i`'s memory budget is `budgets.choice(i)`: the suites sweep this
+/// dimension, so the fleet mixes zero, explicit, and default budgets (and
+/// sessions between differently-configured endpoints).
+pub fn execute<T>(schedule: &Schedule<T>, budgets: &BudgetAssignment) -> ExecutionResult<T>
 where
     T: Clone + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    execute_with(schedule, windows, |_, _, _| true)
+    execute_with(schedule, budgets, |_, _, _| true)
 }
 
 /// Run the schedule and then drive every peer to a full-mesh fixed
@@ -80,12 +80,12 @@ where
 /// same live content as every other and match the oracle's projection.
 pub fn execute_and_quiesce<T>(
     schedule: &Schedule<T>,
-    windows: &WindowAssignment,
+    budgets: &BudgetAssignment,
 ) -> ExecutionResult<T>
 where
     T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    let mut result = execute(schedule, windows);
+    let mut result = execute(schedule, budgets);
     quiesce(&mut result.peers);
     result
 }
@@ -113,7 +113,7 @@ where
 /// otherwise return an oversized fleet instead of the promised panic.
 pub fn execute_with<T, F>(
     schedule: &Schedule<T>,
-    windows: &WindowAssignment,
+    budgets: &BudgetAssignment,
     allow_gossip: F,
 ) -> ExecutionResult<T>
 where
@@ -127,7 +127,7 @@ where
             .any(|e| matches!(e, Event::Bootstrap { .. } | Event::Retire { .. })),
         "membership schedules run through execute_membership"
     );
-    let result = execute_slots(schedule, windows, allow_gossip);
+    let result = execute_slots(schedule, budgets, allow_gossip);
     let peers = result
         .slots
         .into_iter()
@@ -143,24 +143,24 @@ where
 /// Run a membership schedule, allowing every gossip event.
 pub fn execute_membership<T>(
     schedule: &Schedule<T>,
-    windows: &WindowAssignment,
+    budgets: &BudgetAssignment,
 ) -> MembershipExecutionResult<T>
 where
     T: Clone + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    execute_slots(schedule, windows, |_, _, _| true)
+    execute_slots(schedule, budgets, |_, _, _| true)
 }
 
 /// Run a membership schedule, then drive the surviving peers to a
 /// full-mesh fixed point.
 pub fn execute_membership_and_quiesce<T>(
     schedule: &Schedule<T>,
-    windows: &WindowAssignment,
+    budgets: &BudgetAssignment,
 ) -> MembershipExecutionResult<T>
 where
     T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    let mut result = execute_membership(schedule, windows);
+    let mut result = execute_membership(schedule, budgets);
     quiesce_slots(&mut result.slots);
     result
 }
@@ -173,13 +173,13 @@ where
 /// party-disjoint fork of an already-built peer (`fork_parents[i] < i`),
 /// created by serving it a bootstrap. Mid-schedule `Bootstrap` events
 /// append newcomer slots the same way; `Retire` events run a real
-/// retirement session over a clean in-memory link (the absorber side is
+/// retirement session over a clean in-memory connection (the absorber side is
 /// plain gossip) and vacate the retiree's slot, saving its observation
 /// log. All peers descend from one seed and live parties stay pairwise
 /// disjoint, so every session can always merge.
 fn execute_slots<T, F>(
     schedule: &Schedule<T>,
-    windows: &WindowAssignment,
+    budgets: &BudgetAssignment,
     allow_gossip: F,
 ) -> MembershipExecutionResult<T>
 where
@@ -189,12 +189,15 @@ where
     let mut slots: Vec<Option<Peer<T>>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            windows.choice(0).apply(rumors::Peer::seed()).into_rumors()
+            budgets
+                .choice(0)
+                .apply(schedule.network.peer())
+                .into_rumors()
         } else {
             let parent = slots[schedule.fork_parents[i]]
                 .as_ref()
                 .expect("initial peers are all alive during fleet construction");
-            bootstrap_fork_with_window(&parent.local, windows.choice(i))
+            bootstrap_fork_with_budget(&parent.local, budgets.choice(i))
         };
         slots.push(Some(Peer::new(local)));
     }
@@ -245,7 +248,7 @@ where
                 let parent = slots[*parent]
                     .as_ref()
                     .expect("bootstrap names an alive parent");
-                let local = bootstrap_fork_with_window(&parent.local, windows.choice(*newcomer));
+                let local = bootstrap_fork_with_budget(&parent.local, budgets.choice(*newcomer));
                 slots.push(Some(Peer::new(local)));
             }
             Event::Retire { retiree, absorber } => {
@@ -260,24 +263,31 @@ where
                     .expect("retire names an alive absorber");
                 let retiring_peer = block_on(retiring.local.try_into_peer())
                     .expect("the executor holds the only handle");
-                let (mut link_r, mut link_a) = rumors::link::memory_with_capacity(LINK_BUF);
+                let (mut retiring_end, mut absorbing_end) =
+                    rumors::testing::memory_connection(MEMORY_CAPACITY);
                 let (outcome, absorbed) = block_on(async {
                     tokio::join!(
-                        retiring_peer.retire(&mut link_r),
-                        absorbing.local.gossip_once(&mut link_a),
+                        retiring_peer.retire(&mut retiring_end.read, &mut retiring_end.write),
+                        absorbing
+                            .local
+                            .gossip_once(&mut absorbing_end.read, &mut absorbing_end.write),
                     )
                 });
                 absorbed.expect("clean-wire absorber gossip");
                 match outcome {
-                    Retire::Retired => {}
+                    Retire::Retired {
+                        connection: Connection::Reusable { .. },
+                    } => {}
                     Retire::Recovered { .. } => panic!("clean-wire retirement recovered"),
-                    Retire::Uncertain { .. } => panic!("clean-wire retirement uncertain"),
+                    Retire::Retired {
+                        connection: Connection::Lost { .. },
+                    } => panic!("clean-wire retirement lost its connection"),
                     Retire::Declined { .. } => {
                         panic!("the absorber runs plain gossip and never declines")
                     }
                 }
                 absorbing.drain();
-                assert_control_drained(link_r, link_a);
+                assert_connection_drained(retiring_end, absorbing_end);
                 retired_observations.insert(*retiree, retiring.observations);
             }
         }

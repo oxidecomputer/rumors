@@ -1,0 +1,174 @@
+# The reference grid: the links, replica pairs, and budgets the Rumors
+# project publishes its performance figures from. Run it on your own
+# hardware to compare:
+#
+#     rumors-netperf run --grid grids/reference.toml
+#
+# The links span an intra-rack backplane (a 0.1 ms round trip at a rate no
+# emulator can shape, which `uncapped` stands for) to intercontinental
+# paths (250 ms). Every group below is measured on every link and at every
+# budget unless it says otherwise. The run computes from the host's TCP
+# limits which points one connection cannot keep busy, and reruns exactly
+# those with the limits raised inside their own namespaces.
+#
+# Every session runs over TLS 1.3 on its TCP connection: no group sets
+# the `tls` axis, so each takes the tool's default, the transport
+# deployments run. The figures therefore include what encryption and
+# record framing cost a session; set `tls = ["off"]` in a group to
+# measure plain TCP instead.
+#
+# The budgets run from the default down to `0`, which asks for the
+# smallest budget a session can run on: `Peer::sync_memory_budget` raises
+# any budget below `MIN_SYNC_MEMORY_BUDGET` to that minimum, so the `0`
+# points measure a session at the minimum. The diagonal group also runs
+# `unlimited`, a budget no session reaches, as the reference the smaller
+# budgets are compared against, and to measure the memory a session uses
+# when nothing holds it back.
+#
+# A full run is 2,568 points, each run three times: 7,704 sessions. Each
+# group contributes the product of its axes' lengths, less the points its
+# `max_wire_seconds` skips: those whose busier direction the model
+# predicts to need more than that many seconds on the wire alone, at the
+# point's own rate. To these the run adds the reruns with raised TCP
+# limits, whose number depends on the host's limits, and the calibration's
+# sentinel sessions. Split it across hosts with `--shard k/n` when one
+# host's calibrated job count is small.
+
+repetitions = 3
+
+[defaults]
+size_mean = 100
+size_cv = 0
+rate = "1Gbit"
+rtt = "1ms"
+
+# Two replicas of n messages each: disjoint, sharing 90%, and sharing 99%.
+[[group]]
+name = "diagonal"
+pairs = [
+    { insert_a = 10000, insert_b = 10000 },
+    { shared = 9000, insert_a = 1000, insert_b = 1000 },
+    { shared = 9900, insert_a = 100, insert_b = 100 },
+    { insert_a = 100000, insert_b = 100000 },
+    { shared = 90000, insert_a = 10000, insert_b = 10000 },
+    { shared = 99000, insert_a = 1000, insert_b = 1000 },
+    { insert_a = 1000000, insert_b = 1000000 },
+    { shared = 900000, insert_a = 100000, insert_b = 100000 },
+    { shared = 990000, insert_a = 10000, insert_b = 10000 },
+]
+rate = ["10Mbit", "100Mbit", "1Gbit", "uncapped"]
+rtt = ["0.1ms", "1ms", "10ms", "50ms", "100ms", "250ms"]
+budget = ["default", "128MiB", "0", "unlimited"]
+# At 10 Mbit/s the largest pairs only measure the link: skip points whose
+# busier direction would take more than 16 seconds on the wire alone
+# (about 20 MB at 10 Mbit/s).
+max_wire_seconds = 16
+
+# One side holds k messages the other lacks, both orientations.
+[[group]]
+name = "one-sided"
+pairs = [
+    { shared = 100000, insert_a = 1000 },
+    { shared = 100000, insert_b = 1000 },
+    { shared = 100000, insert_a = 100000 },
+    { shared = 100000, insert_b = 100000 },
+    { shared = 1000000, insert_a = 1000 },
+    { shared = 1000000, insert_b = 1000 },
+    { shared = 1000000, insert_a = 100000 },
+    { shared = 1000000, insert_b = 100000 },
+]
+rate = ["10Mbit", "100Mbit", "1Gbit", "uncapped"]
+rtt = ["0.1ms", "1ms", "10ms", "50ms", "100ms", "250ms"]
+budget = ["default", "128MiB", "0"]
+max_wire_seconds = 16
+
+# A peer joining from an empty replica, both orientations.
+[[group]]
+name = "join"
+pairs = [
+    { insert_a = 100000 },
+    { insert_b = 100000 },
+    { insert_a = 1000000 },
+    { insert_b = 1000000 },
+]
+rate = ["10Mbit", "100Mbit", "1Gbit", "uncapped"]
+rtt = ["0.1ms", "1ms", "10ms", "50ms", "100ms", "250ms"]
+budget = ["default", "128MiB", "0"]
+max_wire_seconds = 16
+
+# Both sides diverged, one ten times as much as the other; and two
+# identical replicas, which a session confirms without moving messages.
+[[group]]
+name = "skewed and identical"
+pairs = [
+    { shared = 100000, insert_a = 10000, insert_b = 1000 },
+    { shared = 100000, insert_a = 1000, insert_b = 10000 },
+    { shared = 1000000 },
+]
+rate = ["10Mbit", "100Mbit", "1Gbit", "uncapped"]
+rtt = ["0.1ms", "1ms", "10ms", "50ms", "100ms", "250ms"]
+budget = ["default", "128MiB", "0"]
+max_wire_seconds = 16
+
+# Redactions mixed with insertions, at 1% of the shared set: redactions on
+# one side only, in each orientation; insertions on one side with
+# redactions on the other; and both on both sides.
+[[group]]
+name = "redaction"
+pairs = [
+    { shared = 100000, redact_a = 1000 },
+    { shared = 100000, redact_b = 1000 },
+    { shared = 100000, insert_a = 1000, redact_b = 1000 },
+    { shared = 100000, insert_a = 1000, insert_b = 1000, redact_a = 1000, redact_b = 1000 },
+    { shared = 1000000, redact_a = 10000 },
+    { shared = 1000000, redact_b = 10000 },
+    { shared = 1000000, insert_a = 10000, redact_b = 10000 },
+    { shared = 1000000, insert_a = 10000, insert_b = 10000, redact_a = 10000, redact_b = 10000 },
+]
+rate = ["10Mbit", "100Mbit", "1Gbit", "uncapped"]
+rtt = ["0.1ms", "1ms", "10ms", "50ms", "100ms", "250ms"]
+budget = ["default", "128MiB", "0"]
+max_wire_seconds = 16
+
+# A fresh connection, against the default warm one, on the links with the
+# largest bandwidth-delay products: what connecting and slow start cost a
+# session.
+[[group]]
+name = "fresh connection"
+pairs = [
+    { insert_a = 10000, insert_b = 10000 },
+    { shared = 9000, insert_a = 1000, insert_b = 1000 },
+    { shared = 9900, insert_a = 100, insert_b = 100 },
+    { insert_a = 100000, insert_b = 100000 },
+    { shared = 90000, insert_a = 10000, insert_b = 10000 },
+    { shared = 99000, insert_a = 1000, insert_b = 1000 },
+    { insert_a = 1000000, insert_b = 1000000 },
+    { shared = 900000, insert_a = 100000, insert_b = 100000 },
+    { shared = 990000, insert_a = 10000, insert_b = 10000 },
+]
+rate = ["1Gbit", "uncapped"]
+rtt = ["100ms", "250ms"]
+connection = ["fresh", "warm"]
+
+# An asymmetric link, 100 Mbit/s one way and 10 Mbit/s back, under the
+# one-sided and joining pairs, in both orientations. This group skips no
+# point for its wire time: it exists to measure the slow direction, so its
+# largest pairs run whole even where the link alone predicts them.
+[[group]]
+name = "asymmetric link"
+pairs = [
+    { shared = 100000, insert_a = 1000 },
+    { shared = 100000, insert_b = 1000 },
+    { shared = 100000, insert_a = 100000 },
+    { shared = 100000, insert_b = 100000 },
+    { shared = 1000000, insert_a = 1000 },
+    { shared = 1000000, insert_b = 1000 },
+    { shared = 1000000, insert_a = 100000 },
+    { shared = 1000000, insert_b = 100000 },
+    { insert_a = 100000 },
+    { insert_b = 100000 },
+    { insert_a = 1000000 },
+    { insert_b = 1000000 },
+]
+rate = ["100Mbit/10Mbit"]
+rtt = ["1ms", "10ms", "100ms"]

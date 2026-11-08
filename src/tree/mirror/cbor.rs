@@ -1,7 +1,7 @@
 //! Canonical CBOR head primitives shared by the hand-written wire codecs.
 //!
 //! The V2 wire and the session surfaces around it (preamble, greeting,
-//! party hand-off, stream labels, epilogue) spell every structure as
+//! party hand-off, completion marker) spell every structure as
 //! deterministic-encoding CBOR: shortest-form heads everywhere, definite
 //! lengths only, one spelling per value. That contract is what keeps the
 //! byte-pinning snapshot discipline meaningful — a value has exactly one
@@ -53,10 +53,11 @@ pub(crate) const TAG_CBOR_SEQUENCE: u64 = 63;
 /// Tag number for an embedded CBOR data item in a byte string (RFC 8949).
 pub(crate) const TAG_EMBEDDED_ITEM: u64 = 24;
 
-/// Tag number for self-described CBOR, used by the preamble and bookmark.
+/// Tag number for self-described CBOR (RFC 8949), which marks the bytes
+/// that follow it as a CBOR encoding.
 pub(crate) const TAG_SELF_DESCRIBED: u64 = 55799;
 
-/// The self-described tag's shortest encoding, used by the V2 preamble.
+/// The self-described tag's shortest encoding: its tag head, three bytes.
 ///
 /// A literal, so the openers can compare and assemble it in const
 /// context; the module's own pin test holds it to [`write_tag`]'s

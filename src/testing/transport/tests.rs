@@ -1,64 +1,13 @@
 //! Tests for the shared transport adversity wrappers.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::io::IoSlice;
 
 use futures::poll;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex, split};
+use proptest::prelude::*;
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, duplex, split};
 
-use super::{IoPlan, Side, reorder_accepts, wrap_io, yield_once};
-use crate::link::{Acceptor, Connector, memory};
+use super::{IoPlan, Side, wrap_io};
 use crate::testing::run_to_quiescence;
-
-/// The patient wait forms a batch of two and releases it newest-first,
-/// counting one inversion.
-///
-/// The second stream is connected only after the acceptor has held the
-/// first and begun yielding, so a drain of only-`Ready` arrivals would
-/// release the first alone and count nothing.
-#[test]
-fn reordering_acceptor_inverts_a_patient_batch() {
-    let reordered = Arc::new(AtomicUsize::new(0));
-    let (a, b) = memory();
-    let mut acceptor = reorder_accepts(a, 2, reordered.clone()).acceptor;
-    let connector = b.connector;
-    let released = run_to_quiescence(async {
-        let (_streams, released) = futures::join!(
-            async {
-                let (mut first, _done) = connector.connect().await.unwrap();
-                first.write_all(b"1").await.unwrap();
-                // Let the acceptor take the first arrival and start
-                // waiting before the second exists.
-                for _ in 0..4 {
-                    yield_once().await;
-                }
-                let (mut second, _done) = connector.connect().await.unwrap();
-                second.write_all(b"2").await.unwrap();
-                (first, second)
-            },
-            async {
-                let mut released = Vec::new();
-                for _ in 0..2 {
-                    let (mut rx, _done) = acceptor.accept().await.unwrap();
-                    let mut tag = [0u8; 1];
-                    rx.read_exact(&mut tag).await.unwrap();
-                    released.push(tag[0]);
-                }
-                released
-            },
-        );
-        released
-    })
-    .expect("the batch releases and the harness stays live");
-    assert_eq!(released, b"21", "the batch of two releases newest-first");
-    assert_eq!(
-        reordered.load(Ordering::Relaxed),
-        1,
-        "one batch of two is one recorded inversion"
-    );
-}
 
 /// Flush buffering keeps completed writes invisible to the peer until the
 /// corresponding flush is polled.
@@ -105,6 +54,7 @@ fn successful_adversity_is_lossless() {
         write_delays: vec![1; 8],
         flush_delays: vec![1],
         hold_until_flush: true,
+        vectored: false,
         fault: None,
     };
     let (mut read, mut write, report) = wrap_io(Side::Left, plan, read, write);
@@ -136,4 +86,48 @@ fn successful_adversity_is_lossless() {
     assert_eq!(snapshot.write_bytes, 4);
     assert_eq!(snapshot.read_bytes, 2);
     assert!(snapshot.delayed_polls > 0);
+}
+
+proptest! {
+    /// A vectored adversarial writer takes up to `write_chunk` bytes across a
+    /// vectored write's slices, in order, as one operation.
+    ///
+    /// A writer that is not vectored takes at most `write_chunk` bytes of
+    /// the first nonempty slice, as the trait's default does. Either way the
+    /// bytes it takes reach the peer, at once or at the flush.
+    #[test]
+    fn a_vectored_write_takes_up_to_a_chunk_across_slices(
+        slices in proptest::collection::vec(proptest::collection::vec(any::<u8>(), 0..8), 1..5),
+        chunk in 1usize..32,
+        vectored in any::<bool>(),
+        hold_until_flush in any::<bool>(),
+    ) {
+        let (left, mut peer) = duplex(1024);
+        let (read, write) = split(left);
+        let plan = IoPlan {
+            write_chunk: chunk,
+            vectored,
+            hold_until_flush,
+            ..IoPlan::default()
+        };
+        let (_read, mut write, report) = wrap_io(Side::Left, plan, read, write);
+        prop_assert_eq!(write.is_write_vectored(), vectored);
+        let io_slices: Vec<IoSlice<'_>> = slices.iter().map(|slice| IoSlice::new(slice)).collect();
+        let (taken, received) = run_to_quiescence(async {
+            let taken = write.write_vectored(&io_slices).await.unwrap();
+            write.flush().await.unwrap();
+            let mut received = vec![0; taken];
+            peer.read_exact(&mut received).await.unwrap();
+            (taken, received)
+        })
+        .expect("an in-memory write and flush complete");
+        let offered: Vec<u8> = if vectored {
+            slices.concat()
+        } else {
+            slices.iter().find(|slice| !slice.is_empty()).cloned().unwrap_or_default()
+        };
+        prop_assert_eq!(taken, chunk.min(offered.len()));
+        prop_assert_eq!(&received[..], &offered[..taken]);
+        prop_assert_eq!(report.snapshot().writes, usize::from(taken > 0));
+    }
 }

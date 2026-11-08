@@ -6,10 +6,13 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use rumors::{Peer, Rumors};
+use rumors::Rumors;
 use serde::{Deserialize, Serialize};
 
 use common::wire::{bootstrap_fork, wire_gossip};
+use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
+use rumors_testkit::common::seed::network_seed;
+use rumors_testkit::divided_proptest;
 
 /// The callback belongs to the local payload, not its serialized value.
 #[derive(Clone, Serialize, Deserialize)]
@@ -75,46 +78,60 @@ fn assert_replaced(replica: &Rumors<Payload>) {
     assert_eq!(snapshot.iter().next().unwrap().1.value, 2);
 }
 
-/// Redacting a resident message allows its destructor to read and write the replica.
-#[test]
-fn redact_allows_destructor_access() {
-    completes(|| {
-        let replica = Peer::seed().into_rumors();
-        let version = replica.send(replaces_itself(&replica)).unwrap();
-        replica.redact(&version);
-        assert_replaced(&replica);
-    });
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
+
+    /// Redacting a resident message allows its destructor to read and write the replica.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn redact_allows_destructor_access(network in network_seed()) {
+        completes(move || {
+            let replica = network.peer().into_rumors();
+            let version = replica.send(replaces_itself(&replica)).unwrap();
+            replica.redact(&version);
+            assert_replaced(&replica);
+        });
+    }
+
+    /// A message inserted and redacted in one batch can access the replica when dropped.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn batch_allows_destructor_access(network in network_seed()) {
+        completes(move || {
+            let replica = network.peer().into_rumors();
+            let mut version = replica.snapshot().latest().clone();
+            version.tick(&replica.dangerously_alias_party());
+            replica
+                .batch(|batch| {
+                    batch.send(replaces_itself(&replica))?;
+                    batch.redact(&version);
+                    Ok::<(), rumors::EncodeError>(())
+                })
+                .unwrap();
+            assert_replaced(&replica);
+        });
+    }
 }
 
-/// A message inserted and redacted in one batch can access the replica when dropped.
-#[test]
-fn batch_allows_destructor_access() {
-    completes(|| {
-        let replica = Peer::seed().into_rumors();
-        let mut version = replica.snapshot().latest().clone();
-        version.tick(&replica.dangerously_alias_party());
-        replica
-            .batch(|batch| {
-                batch.send(replaces_itself(&replica))?;
-                batch.redact(&version);
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .unwrap();
-        assert_replaced(&replica);
-    });
-}
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-/// A gossiped redaction permits a destructor's local send, which later converges.
-#[test]
-fn gossip_allows_destructor_access() {
-    completes(|| {
-        let replica = Peer::seed().into_rumors();
-        let version = replica.send(replaces_itself(&replica)).unwrap();
-        let other = bootstrap_fork(&replica);
-        other.redact(&version);
-        wire_gossip(&replica, &other);
-        assert_replaced(&replica);
-        wire_gossip(&replica, &other);
-        assert!(replica.snapshot() == other.snapshot(), "replicas converge");
-    });
+    /// A gossiped redaction permits a destructor's local send, which later converges.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_allows_destructor_access(network in network_seed()) {
+        completes(move || {
+            let replica = network.peer().into_rumors();
+            let version = replica.send(replaces_itself(&replica)).unwrap();
+            let other = bootstrap_fork(&replica);
+            other.redact(&version);
+            wire_gossip(&replica, &other);
+            assert_replaced(&replica);
+            wire_gossip(&replica, &other);
+            assert!(replica.snapshot() == other.snapshot(), "replicas converge");
+        });
+    }
 }

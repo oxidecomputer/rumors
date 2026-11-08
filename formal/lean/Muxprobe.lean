@@ -1,13 +1,13 @@
 /-
 Muxprobe: the executable evidence tier of the mux campaign
 (not part of the library; imported by nothing). Runs the REAL mux semantics — the same
-`Mux.apply`/`mterminal` definitions the theorems of record quantify
+`Mux.apply`/`mterminal` definitions the claimed theorems quantify
 over — across the strategy × skeleton × capacity × interleaving matrix
 the Python probe calibrated, and pins the outcomes.
 
 The matrix: {bottomMostReady (the shipped policy), roundRobin (a second
 work-conserving entry), demand (the idle-capable demand-order pusher,
-π_d run executably), oracle (the T5 oracle of record, the static
+π_d run executably), oracle (T5's oracle, the static
 send-projection pusher)} × {the pinned positives, the margin-0-lifted
 Controls shapes, the wedge family at growing provisions} × C ∈ {1,2,4}
 × two deterministic interleavings (greedy = the kernel pins' order;
@@ -21,7 +21,7 @@ pushfirst = sender-runs-ahead). Expected shape, asserted:
   every matrix capacity (C = 1, the tight one, included — §1.3's
   positive SHAPE, tier 1) but WEDGES on the committed `rand2`
   instance at every matrix capacity: the π-wedge finding (see `piWedge`) — π_d run
-  exactly is NOT a live oracle. T5's oracle of record is instead the
+  exactly is NOT a live oracle. T5's oracle is instead the
   static SEND projection (`oracle` = `sendProj` indexed by own flush
   count, Oracle/Order.lean) — neither π_d nor a state-feedback
   form — and the oracle rows below are its executable coverage: it
@@ -37,12 +37,11 @@ golden file `muxprobe-expected.tsv` (the eventdag gate pattern: drift
 fails loudly); regenerate deliberately with `--update` after a model
 or matrix change and review the diff like a snapshot.
 
-H-c — the price of idling — lives here and only here, demoted to the
-executable tier by the adjudication — the model is
-message-counted, payload-erased, and latency-free, which erases where
-a real cost analysis would live). The step-count ratios printed at the
-end are recorded commentary, never an assertion, and no statement of
-record may consume them.
+H-c — the price of idling — lives here and only here, at the
+executable tier (the model is message-counted, payload-erased, and
+latency-free, which erases where a real cost analysis would live). The
+step-count ratios printed at the end are recorded commentary, never an
+assertion, and no claimed statement may consume them.
 
 Run: lake exe muxprobe [randSeeds] [--update]   (randSeeds defaults to
 25 random margin-0 skeletons for the non-golden sweep; exit code is
@@ -111,9 +110,8 @@ a query into the full cap-1 `asked R 0` channel, which only drains
 after the very frame π_R is waiting to see produced. The precomputed
 order demands a frame the run can no longer produce first — the
 feedback the 'exit' certificate reads per-state is load-bearing, so
-per the adjudication's named fallback, T5's oracle of record must
-be the state-feedback form (or π-eligibility must be repaired), NOT
-`ofSchedule (demandOrder …)` as drafted. Pinned here so the finding
+T5's oracle must take a fallback form (state feedback, or a repaired
+π-eligibility), NOT `ofSchedule (demandOrder …)`. Pinned here so the finding
 cannot silently dissolve. -/
 def piWedge : List (String × Skel) := [("rand2", genSkelM0 2)]
 
@@ -177,7 +175,7 @@ cell-for-cell. -/
 def expectations (cells : Array Cell) : Array String := Id.run do
   let mut errs : Array String := #[]
   -- hypothesis class: every matrix skeleton is inside the class the
-  -- statements of record quantify over (wellFormed + margin-0, hence
+  -- claimed statements quantify over (wellFormed + margin-0, hence
   -- schedulable), so every jam below indicts the mux alone
   for (name, sk) in matrixSkels do
     if !(sk.wellFormed && Mux.margin0 sk && sk.schedulable) then
@@ -238,7 +236,7 @@ def expectations (cells : Array Cell) : Array String := Id.run do
     if x.strat == "demand" && x.skel != "rand2" &&
         x.res.outcome != .terminal then
       errs := errs.push s!"demand pusher should complete: {x.line}"
-  -- the oracle of record completes EVERY matrix skeleton at every C
+  -- T5's oracle completes EVERY matrix skeleton at every C
   -- and interleaving — T5's executable-tier coverage, rand2 included
   -- (the instance that wedges the demand-order pusher)
   for x in cells do
@@ -248,11 +246,11 @@ def expectations (cells : Array Cell) : Array String := Id.run do
   -- committed rand2 instance at every capacity (C-flat by the same
   -- loop) — the P2 finding stays load-bearing; if a model change makes
   -- this complete, π-eligibility has been repaired and T5's oracle
-  -- choice needs a deliberate re-adjudication, not a silent pass
+  -- choice must be revisited deliberately, never passed silently
   for c in caps do
     if !jams cells "rand2" "demand" c then
       errs := errs.push
-        s!"rand2 should wedge the demand-order pusher at C={c} (P2 finding dissolved: re-adjudicate T5)"
+        s!"rand2 should wedge the demand-order pusher at C={c} (P2 finding dissolved: revisit T5's oracle choice)"
   -- commit totality, executably: along every scanned cell each commit
   -- consultation was a singleton, and the matrix witnessed plenty
   let mut consults := 0
@@ -353,7 +351,7 @@ counts are useless here (a completed run's total op count is
 strategy-invariant); rounds expose lockstep stalls. The model is
 message-counted, payload-erased, and latency-free — it erases where a
 real cost analysis lives (H-c is demoted to this tier) — so this is recorded for the log, asserted nowhere, and no
-statement of record may consume it. -/
+claimed statement may consume it. -/
 def hcCommentary : IO Unit := do
   IO.println "  H-c commentary (informational; rounds-to-terminal, C=1):"
   for (name, sk) in pins do

@@ -14,7 +14,7 @@ use std::task::{Context, Poll};
 
 use futures::{Stream, future::poll_fn};
 
-use super::{QueueKind, QueueRole, SendError, bounded};
+use super::{QueueKind, QueueRole, SendError, TrySendError, bounded};
 use crate::testing::schedule::{CHANNEL_SCHEDULE, Countdown};
 
 /// Aggregated observations for every channel created with one role.
@@ -30,7 +30,9 @@ pub struct RoleStats {
     pub receives: usize,
     /// Send polls made while the channel had no available capacity.
     pub blocked_send_polls: usize,
-    /// Largest observed number of queued items.
+    /// Largest observed number of queued items. When a channel's sender
+    /// and receiver run on different threads, it can count one more: the
+    /// item a send had counted but not yet handed over.
     pub high_water: usize,
 }
 
@@ -67,6 +69,19 @@ impl ChannelReport {
         )
     }
 
+    /// Statistics for one role at one typed height.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no channel of `role` was observed: a test that reads a
+    /// role expects the session to have created it.
+    pub fn role(&self, role: QueueRole) -> RoleStats {
+        *self
+            .0
+            .get(&role)
+            .unwrap_or_else(|| panic!("no channel observed for {role:?}"))
+    }
+
     /// Iterate over each observed role and typed height.
     pub fn roles(&self) -> impl Iterator<Item = (QueueRole, RoleStats)> + '_ {
         self.0.iter().map(|(role, stats)| (*role, *stats))
@@ -85,9 +100,18 @@ struct Stats {
     receives: AtomicUsize,
     /// Send polls observed at zero available capacity.
     blocked_send_polls: AtomicUsize,
-    /// Current number of queued items.
+    /// Items counted into the channel and not yet received.
+    ///
+    /// A send counts its item before handing it to the channel
+    /// ([`Stats::sending`]), so the receiver's count of the same item,
+    /// made after it takes the item and on whatever thread it runs, always
+    /// follows it, and the occupancy never falls below zero. It is
+    /// therefore the queued items, and across threads one more while the
+    /// channel's one sender is handing an item over.
     occupancy: AtomicUsize,
-    /// Largest observed occupancy.
+    /// Largest observed occupancy: the most queued items, and across
+    /// threads possibly one more, the item a send had counted but not yet
+    /// handed over.
     high_water: AtomicUsize,
 }
 
@@ -106,11 +130,26 @@ impl Stats {
         }
     }
 
-    /// Record one successful send and its resulting occupancy.
-    fn sent(&self) {
+    /// Count one item into the channel before the send hands it over,
+    /// returning the occupancy that includes it.
+    ///
+    /// The count must come first: once the item is in the channel, a
+    /// receiver on another thread can take it and count it out at once. A
+    /// send that then fails takes its count back ([`unsent`](Self::unsent)).
+    fn sending(&self) -> usize {
+        self.occupancy.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Record one successful send, whose item [`sending`](Self::sending)
+    /// counted at `occupancy`.
+    fn sent(&self, occupancy: usize) {
         self.sends.fetch_add(1, Ordering::Relaxed);
-        let occupancy = self.occupancy.fetch_add(1, Ordering::Relaxed) + 1;
         self.high_water.fetch_max(occupancy, Ordering::Relaxed);
+    }
+
+    /// Take back the count of an item whose send failed.
+    fn unsent(&self) {
+        self.occupancy.fetch_sub(1, Ordering::Relaxed);
     }
 
     /// Record one successful receive and its resulting occupancy.
@@ -142,6 +181,22 @@ pub struct Sender<T> {
 
 /// Send through an instrumented bounded channel.
 impl<T> Sender<T> {
+    /// Send one item if the channel has room, without waiting, recording a
+    /// successful send.
+    ///
+    /// Unlike [`send`](Self::send), this applies no scheduled delay: a delay
+    /// suspends a poll, and this send is never polled. Schedules still reach
+    /// its callers through the receivers they wait on.
+    pub fn try_send(&mut self, item: T) -> Result<(), TrySendError<T>> {
+        let occupancy = self.stats.sending();
+        let result = self.inner.try_send(item);
+        match result {
+            Ok(()) => self.stats.sent(occupancy),
+            Err(_) => self.stats.unsent(),
+        }
+        result
+    }
+
     /// Send one item, applying a scheduled suspension before every poll.
     pub async fn send(&mut self, item: T) -> Result<(), SendError<T>> {
         self.send_with(item, || ()).await
@@ -151,11 +206,13 @@ impl<T> Sender<T> {
     /// the channel is full when the send arrives, before any scheduled delay.
     pub async fn send_with(&mut self, item: T, on_full: impl FnOnce()) -> Result<(), SendError<T>> {
         let mut on_full = Some(on_full);
+        let mut waited = false;
         let mut delay = Countdown::default();
         let ready = poll_fn(|cx| {
             if let Some(on_full) = on_full.take()
                 && self.inner.poll_ready(cx).is_pending()
             {
+                waited = true;
                 on_full();
             }
             if delay.suspend(|| CHANNEL_SCHEDULE.next(), cx) {
@@ -171,14 +228,18 @@ impl<T> Sender<T> {
             ready
         })
         .await;
-        let result = match ready {
-            Ok(()) => self.inner.start_send(item),
+        match ready {
+            Ok(()) => {
+                let occupancy = self.stats.sending();
+                let result = self.inner.start_send(item, waited);
+                match result {
+                    Ok(()) => self.stats.sent(occupancy),
+                    Err(_) => self.stats.unsent(),
+                }
+                result
+            }
             Err(SendError(())) => Err(SendError(item)),
-        };
-        if result.is_ok() {
-            self.stats.sent();
         }
-        result
     }
 }
 
@@ -199,8 +260,23 @@ impl<T> Receiver<T> {
         poll_fn(|cx| self.poll_recv(cx)).await
     }
 
-    /// Poll the receiver after spending this poll's scheduled delay.
+    /// Poll the receiver after spending any hold on its role and this
+    /// poll's scheduled delay.
     fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<T>> {
+        let held = ROLE_HOLDS.with(|holds| {
+            let mut holds = holds.borrow_mut();
+            match holds.get_mut(&self.stats.role) {
+                Some(remaining) if *remaining > 0 => {
+                    *remaining -= 1;
+                    true
+                }
+                _ => false,
+            }
+        });
+        if held {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
         if self.delay.suspend(|| CHANNEL_SCHEDULE.next(), cx) {
             return Poll::Pending;
         }
@@ -210,6 +286,17 @@ impl<T> Receiver<T> {
             self.stats.received();
         }
         polled
+    }
+
+    /// Refuse every further item, then take one already queued without
+    /// waiting, as the production receiver does; no scheduled delay applies,
+    /// since nothing waits.
+    pub fn close_and_try_recv(&mut self) -> Option<T> {
+        let taken = self.inner.close_and_try_recv();
+        if taken.is_some() {
+            self.stats.received();
+        }
+        taken
     }
 }
 
@@ -233,6 +320,7 @@ pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) 
         }
     });
     let (sender, receiver) = bounded::channel(effective_capacity);
+    let sender = sender.edge(role.kind);
     (
         Sender {
             inner: sender,
@@ -256,11 +344,36 @@ std::thread_local! {
     /// Channel observations active on this test thread.
     #[allow(clippy::missing_const_for_thread_local)]
     static OBSERVATIONS: RefCell<Option<Vec<Arc<Stats>>>> = const { RefCell::new(None) };
+    /// Receiver polls still to be held pending, per queue role.
+    #[allow(clippy::missing_const_for_thread_local)]
+    static ROLE_HOLDS: RefCell<BTreeMap<QueueRole, usize>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 /// Run `f` with an explicit sequence of delays at channel poll boundaries.
 pub fn with_schedule<R>(delays: Vec<u8>, f: impl FnOnce() -> R) -> R {
     CHANNEL_SCHEDULE.with(delays, f)
+}
+
+/// Run `f` with the receivers of one queue role held pending for their
+/// first `polls` polls, counted across every receiver of that role.
+///
+/// A held receiver wakes itself, so everything else keeps running while
+/// its consumer waits: the way a test holds one stage still.
+pub fn with_role_hold<R>(role: QueueRole, polls: usize, f: impl FnOnce() -> R) -> R {
+    /// Remove the hold when the scope ends or unwinds.
+    struct Release(QueueRole);
+
+    /// Removes the role's hold.
+    impl Drop for Release {
+        /// Forget any polls the hold has left.
+        fn drop(&mut self) {
+            ROLE_HOLDS.with(|holds| holds.borrow_mut().remove(&self.0));
+        }
+    }
+
+    ROLE_HOLDS.with(|holds| holds.borrow_mut().insert(role, polls));
+    let _release = Release(role);
+    f()
 }
 
 /// Run `f` with every height of one queue kind capped at `limit`.

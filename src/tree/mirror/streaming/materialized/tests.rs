@@ -5,8 +5,10 @@
 //! see: the initiator's pending leaf requests are answered directly by the
 //! counterparty's terminal supplies and absorbed by [`absorb`](super::absorb),
 //! so it gets its own scripted counterparty here, for the accepted shape
-//! and for every malformed one.
+//! and for every malformed one. The opening question, the one the greeting
+//! carries, has its own module ([`opening`]).
 
+use crate::tree::mirror::streaming::message::LaterMatches;
 use std::convert::Infallible;
 
 use futures::stream;
@@ -29,6 +31,8 @@ use crate::{
     },
 };
 
+mod opening;
+
 /// The in-memory backend's erased node representation, which the closing
 /// leg's replies carry.
 type Erased = <Local as Backend>::Erased;
@@ -45,32 +49,39 @@ fn ticked(index: usize) -> Version {
 
 /// A leaf supply at `radix` carrying `version`.
 fn supply(radix: u8, version: Version) -> Reaction<Erased> {
-    let leaf = typed::Node::leaf(version, Message::new(()));
+    let leaf = typed::View::leaf(version, Message::new(()));
     Reaction::Supply(radix, <Local as Backend>::erase(leaf))
 }
 
 /// Drive [`absorb`](super::absorb) against one scripted closing leg.
 ///
 /// A single pending leaf request at radix [`REQUESTED`], answered by the
-/// scripted `replies`, from a counterparty whose greeting declared
-/// `declared` and whose set-length ledger is `ledger`.
+/// scripted `replies`, from a counterparty whose set-length ledger is
+/// `ledger`.
 ///
 /// Returns the loop's result and what, if anything, it passed up to the
 /// assembly above it.
 fn absorb_scripted(
-    declared: Version,
     ledger: SupplyLedger,
     replies: Vec<Reply<Erased>>,
 ) -> (
     Result<(), Error<Infallible>>,
-    Option<Option<typed::Node<Z>>>,
+    Option<Option<typed::View<Z>>>,
 ) {
     let mut bytes = [0u8; 32];
     bytes[31] = REQUESTED;
     let path = Path::from(bytes);
-    let (mut queries, queries_rx) =
-        channel::<Prefix<Z>>(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1);
-    pollster::block_on(queries.send(Prefix::containing(&path))).expect("the loop is live");
+    let (mut queries, queries_rx) = channel::<(
+        Prefix<Z>,
+        crate::tree::mirror::streaming::ledger::Charge,
+        super::Reserved,
+    )>(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), 1);
+    pollster::block_on(queries.send((
+        Prefix::containing(&path),
+        Default::default(),
+        Default::default(),
+    )))
+    .expect("the loop is live");
     drop(queries);
 
     let (returns, mut returns_rx) = channel::<Option<Erased>>(
@@ -79,7 +90,6 @@ fn absorb_scripted(
     );
 
     let result = pollster::block_on(absorb::<Local>(
-        declared,
         ledger,
         stream::iter(replies),
         queries_rx,
@@ -87,7 +97,7 @@ fn absorb_scripted(
         Recorder::default(),
     ));
     let returned = pollster::block_on(async move { returns_rx.recv().await })
-        .map(|leaf| leaf.map(<Local as Backend>::assume::<Z>));
+        .map(|leaf| leaf.map(|leaf| <Local as Backend>::assume(&Prefix::containing(&path), leaf)));
     (result, returned)
 }
 
@@ -95,69 +105,34 @@ fn absorb_scripted(
 fn requested(version: Version) -> Vec<Reply<Erased>> {
     vec![Reply {
         reactions: vec![supply(REQUESTED, version)],
+        charge: Default::default(),
+        last: true,
+        carried: Default::default(),
     }]
 }
 
-/// A terminal leaf supply whose version the declared greeting version
-/// contains is absorbed and passed up to the assembly.
+/// A terminal leaf supply at the requested radix is absorbed and passed up
+/// to the assembly, carrying its supplied version.
 ///
 /// The accepted shape, from which the rejections below differ only in the
 /// scripted reply.
 #[test]
-fn terminal_absorb_accepts_a_contained_supply() {
-    let declared = ticked(0);
-    let (result, returned) = absorb_scripted(
-        declared.clone(),
-        SupplyLedger::new(u64::MAX),
-        requested(declared.clone()),
+fn terminal_absorb_accepts_the_requested_supply() {
+    let version = ticked(0);
+    let (result, returned) =
+        absorb_scripted(SupplyLedger::new(u64::MAX), requested(version.clone()));
+    assert!(
+        result.is_ok(),
+        "the requested supply is absorbed: {result:?}"
     );
-    assert!(result.is_ok(), "a contained supply is absorbed: {result:?}");
     let leaf = returned
         .expect("the absorbed leaf is passed up")
         .expect("the supplied leaf resolves to a node");
     assert_eq!(
-        leaf.ceiling(),
-        &declared,
+        leaf.span().hi(),
+        &version,
         "the absorbed leaf carries the supplied version",
     );
-}
-
-/// A terminal leaf supply whose version strictly dominates the declared
-/// greeting version fails the closing leg with `UncontainedSupply`.
-///
-/// The closing leg is the descent's last ingress. Accepting the escaped leaf
-/// here would add a record the peer's declared version could not redact.
-#[test]
-fn terminal_absorb_rejects_a_dominating_supply() {
-    let declared = ticked(0);
-    let mut escaped = declared.clone();
-    escaped.tick(&nth_party(0));
-    let (result, returned) =
-        absorb_scripted(declared, SupplyLedger::new(u64::MAX), requested(escaped));
-    assert!(
-        matches!(result, Err(Error::Violation(Violation::UncontainedSupply))),
-        "a dominating supply is rejected: {result:?}",
-    );
-    assert!(returned.is_none(), "nothing is passed up past a rejection");
-}
-
-/// A terminal leaf supply whose version is incomparable with the declared
-/// greeting version fails the closing leg with `UncontainedSupply`.
-///
-/// Containment is judged on a partial order: an escape onto a disjoint
-/// party is just as uncontained as strict dominance, the misreading a bare
-/// `!(a <= b)` invites.
-#[test]
-fn terminal_absorb_rejects_an_incomparable_supply() {
-    let declared = ticked(0);
-    let escaped = ticked(31);
-    let (result, returned) =
-        absorb_scripted(declared, SupplyLedger::new(u64::MAX), requested(escaped));
-    assert!(
-        matches!(result, Err(Error::Violation(Violation::UncontainedSupply))),
-        "an incomparable supply is rejected: {result:?}",
-    );
-    assert!(returned.is_none(), "nothing is passed up past a rejection");
 }
 
 /// A terminal leaf supply past the declared set length fails the closing
@@ -168,9 +143,7 @@ fn terminal_absorb_rejects_an_incomparable_supply() {
 /// with a spent ledger so it exercises the terminal check directly.
 #[test]
 fn terminal_absorb_rejects_an_overdrawn_supply() {
-    let declared = ticked(0);
-    let (result, returned) =
-        absorb_scripted(declared.clone(), SupplyLedger::new(0), requested(declared));
+    let (result, returned) = absorb_scripted(SupplyLedger::new(0), requested(ticked(0)));
     assert!(
         matches!(result, Err(Error::Violation(Violation::OverdrawnSupply))),
         "a supply past the declared set length is rejected: {result:?}",
@@ -208,8 +181,8 @@ impl Injection {
         }
     }
 
-    /// The replies answering the one request, every supply carrying the
-    /// contained `version`.
+    /// The replies answering the one request, every supply carrying
+    /// `version`.
     fn script(self, version: Version) -> Vec<Reply<Erased>> {
         let requested = || supply(REQUESTED, version.clone());
         let one = |after_supply: bool, reaction: Reaction<Erased>| {
@@ -218,19 +191,30 @@ impl Injection {
                 reactions.push(requested());
             }
             reactions.push(reaction);
-            vec![Reply { reactions }]
+            vec![Reply {
+                reactions,
+                charge: Default::default(),
+                last: true,
+                carried: Default::default(),
+            }]
         };
         match self {
             Self::UnansweredQuery => Vec::new(),
             Self::UnaskedReply => vec![
                 Reply {
                     reactions: vec![requested()],
+                    charge: Default::default(),
+                    last: true,
+                    carried: Default::default(),
                 },
                 Reply {
                     reactions: Vec::new(),
+                    charge: Default::default(),
+                    last: true,
+                    carried: Default::default(),
                 },
             ],
-            Self::Match { after_supply } => one(after_supply, Reaction::Match),
+            Self::Match { after_supply } => one(after_supply, Reaction::Match(LaterMatches::NONE)),
             Self::Query { after_supply } => one(after_supply, Reaction::Query(Vec::new())),
             Self::DuplicateSupply => one(true, requested()),
             Self::ForeignSupply { after_supply } => {
@@ -265,13 +249,8 @@ proptest! {
         injection in arb_injection(),
         schedule in proptest::collection::vec(0u8..=2, 0..=64),
     ) {
-        let declared = ticked(0);
         let (result, returned) = with_schedule(schedule, || {
-            absorb_scripted(
-                declared.clone(),
-                SupplyLedger::new(u64::MAX),
-                injection.script(declared.clone()),
-            )
+            absorb_scripted(SupplyLedger::new(u64::MAX), injection.script(ticked(0)))
         });
         let expected = injection.expected();
         prop_assert!(

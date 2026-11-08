@@ -7,7 +7,13 @@
 //! per-kind capacity limits, and shrinkable delays at every send and receive
 //! poll.
 
-pub use bounded::SendError;
+#[cfg(test)]
+use bounded::SendError;
+#[cfg(any(test, feature = "test-internals"))]
+pub use bounded::{EdgeSend, EdgeSendHook, observe_edge_sends};
+pub use bounded::{HANDOFF_CAPACITY, TrySendError, UNBOUNDED};
+
+use super::holding::Holding;
 
 /// One semantic edge in the streaming protocol's channel graph.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -42,12 +48,18 @@ pub enum QueueKind {
     TerminalLeafResolutions,
     /// Decoded wire leaves awaiting backend assembly.
     DecodedLeaves,
-    /// Remote-proxy responses awaiting encoding.
+    /// Supplied nodes the backend assembled, awaiting their reply's reader.
+    AssembledSupplies,
+    /// Decoded remote replies parked until their stage takes them.
     ProxyResponses,
     /// Questions issued by the local proxy walk.
     ProxyLocalQuestions,
     /// Scopes passed to the proxy's next level.
     ProxyNextScopes,
+    /// Frames one local encoder hands the pipe's multiplexer.
+    PipeOutgoing,
+    /// Frames the pipe's demultiplexer routes to one level's decoder.
+    PipeIncoming,
 }
 
 impl QueueKind {
@@ -72,10 +84,12 @@ impl QueueKind {
 
     /// Every remote-proxy semantic edge, for its coverage assertions.
     #[cfg(test)]
-    pub const PROXY: [Self; 3] = [
+    pub const PROXY: [Self; 5] = [
         Self::ProxyResponses,
         Self::ProxyLocalQuestions,
         Self::ProxyNextScopes,
+        Self::PipeOutgoing,
+        Self::PipeIncoming,
     ];
 }
 
@@ -95,18 +109,67 @@ impl QueueRole {
     }
 }
 
+impl QueueKind {
+    /// The place in a session whose state this edge's items are, for the
+    /// session-budget meter's attribution ([`super::holding`]), or `None`
+    /// where each item's place is its sender's.
+    ///
+    /// Each edge whose items the ledger charges belongs to the place they
+    /// are charged to. The edges of fixed capacity the charge leaves out, the
+    /// assembly returns, the terminal leaf resolutions, and the assembled
+    /// supplies, belong to assembly, whose bound accounts for them. The
+    /// pipe's lanes carry supply runs, whose permits from the wire pools
+    /// price their nodes, beside every other frame, whose nodes the charge
+    /// of the chunk or the room of the question they belong to prices, so
+    /// each frame's sender names its node's place.
+    #[cfg_attr(not(any(test, feature = "test-internals")), expect(dead_code))]
+    pub(crate) const fn holding(self) -> Option<Holding> {
+        Some(match self {
+            Self::InitiatorRootQuery
+            | Self::ResponderChildQueries
+            | Self::InternalChildQueries
+            | Self::LeafRequests => Holding::Questions,
+            Self::ResponderRootResolution
+            | Self::InternalParentResolutions
+            | Self::InternalChildResolutions
+            | Self::LeafParentResolutions
+            | Self::LeafChildResolutions => Holding::Resolutions,
+            Self::ProxyLocalQuestions | Self::ProxyNextScopes => Holding::QuestionRecords,
+            Self::ProxyResponses => Holding::ParkedReplies,
+            Self::DecodedLeaves => Holding::DecodedLeaves,
+            Self::OutgoingResponses => Holding::OutgoingReplies,
+            Self::AssemblyLevelReturns
+            | Self::InitiatorRootReturn
+            | Self::ResponderRootReturns
+            | Self::TerminalLeafResolutions
+            | Self::AssembledSupplies => Holding::Assembly,
+            Self::PipeOutgoing | Self::PipeIncoming => return None,
+        })
+    }
+}
+
 #[cfg(not(test))]
 pub use bounded::{Receiver, Sender};
 
 /// Create the production channel for a named protocol edge.
+///
+/// With `test-internals`, each send's channel node is attributed to the
+/// edge's place, where it has one ([`QueueKind::holding`]), and each send
+/// is reported to the process's send hook (`observe_edge_sends`).
 #[cfg(not(test))]
-pub fn channel<T>(_: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
-    bounded::channel(capacity)
+pub fn channel<T>(role: QueueRole, capacity: usize) -> (Sender<T>, Receiver<T>) {
+    #[cfg(not(feature = "test-internals"))]
+    let _ = role;
+    let (sender, receiver) = bounded::channel(capacity);
+    #[cfg(feature = "test-internals")]
+    let sender = sender.edge(role.kind);
+    (sender, receiver)
 }
 
 #[cfg(test)]
 pub use instrumented::{
-    ChannelReport, Receiver, Sender, channel, with_kind_capacity, with_observation, with_schedule,
+    ChannelReport, Receiver, Sender, channel, with_kind_capacity, with_observation, with_role_hold,
+    with_schedule,
 };
 
 mod bounded;

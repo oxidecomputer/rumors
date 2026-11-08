@@ -18,6 +18,8 @@ use crate::tree::{
 
 /// Compile-time bounds for each participant's complete phase chain.
 mod peer;
+#[cfg(test)]
+pub(crate) mod split;
 pub use peer::{Client, Peer, Server};
 
 /// Common metadata for a state in the height-typed session schedule.
@@ -39,7 +41,10 @@ pub trait Requests<B: Backend<Node<Z>: Leaf>, H: Height>:
     where
         Self: Sized,
     {
-        Box::pin(self.map(erased::erase_reply::<B, H>))
+        let erased = self.map(erased::erase_reply::<B, H>);
+        #[cfg(test)]
+        let erased = split::requests(erased);
+        Box::pin(erased)
     }
 }
 /// Any stream with the required item and lifetime bounds is a request stream.

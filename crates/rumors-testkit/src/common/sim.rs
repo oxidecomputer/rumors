@@ -18,7 +18,7 @@
 //! 1. **Fleet**: one seed and its clean bootstrap forks.
 //! 2. **Chaos**: every session, every activity script, and every extra
 //!    bootstrap attempt runs concurrently; channel cuts land at arbitrary
-//!    byte offsets, and endpoints vanish mid-stream, via [`FaultPlan`]s.
+//!    byte offsets, and endpoints vanish mid-session, via [`FaultPlan`]s.
 //!    Serving a bootstrap mid-chaos puts
 //!    the snapshot-and-fork critical section under concurrent sends from
 //!    sibling handles (see `run_boot`); a failed attempt may orphan the
@@ -54,10 +54,10 @@
 //! # Loss accounting
 //!
 //! Party id-regions can leave the live universe *legitimately* when a wire
-//! drops mid-hand-off: a bootstrap fork lost in flight, a retiree's
-//! [`Retire::Uncertain`] whose absorber also failed, or a peer that
-//! vanished while bootstrapping or retiring. The engine counts
-//! every such *possible* loss conservatively in
+//! drops mid-hand-off: a bootstrap fork lost in flight, a retirement
+//! whose [`Retire::Retired`] carries a lost connection while its absorber
+//! also failed, or a peer that vanished while bootstrapping or retiring.
+//! The engine counts every such *possible* loss conservatively in
 //! [`SimOutcome::possible_losses`]. Disjointness must hold regardless;
 //! the sharper invariants -- the surviving parties fold-join back to exactly
 //! [`Party::seed`], and the converged value multiset equals the ledger's
@@ -74,27 +74,28 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use before::Party;
 use proptest::prelude::*;
 use rumors::{Error, Gossiped, Peer, Retire, Rumors, Version};
+use tokio::sync::SetOnce;
 
+use crate::common::budget::{BudgetAssignment, BudgetChoice, arb_budget_choice};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::oracle::{readout, version_key};
-use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
+use crate::common::seed::{NetworkSeed, network_seed};
 use crate::common::wire::wire_gossip_async;
 
-/// Upper bound on the byte offset at which a cut can land.
+/// Upper bound on the byte offset at which a cut or a vanish can land.
 ///
 /// Derived from measurement, not transcribed: the envelope session —
 /// a fully-divergent pair on the generator's maximal fork lattice, each
 /// endpoint holding more unique content than an entire plan can create,
 /// every party's ticks entangled into the version bounds, at the
-/// sweep's widest window — moves fewer bytes per endpoint than this
+/// default budget — moves fewer bytes per endpoint than this
 /// bound, and the bound stays within twice that measurement, so
-/// generated cuts reach every byte of the envelope and keep landing
-/// inside real sessions. The envelope dominates plan sessions exactly
+/// generated cuts and vanishes reach every byte of the envelope and keep
+/// landing inside real sessions. The envelope dominates plan sessions exactly
 /// on value count and representatively on version shapes (the boundary
 /// is stated at the pin); the two-sided pin is
 /// `max_cut_spans_the_envelope_session` in `tests/disruption.rs` —
@@ -109,26 +110,6 @@ const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
 /// This leaves time inside nextest's process limit for proptest to persist a
 /// failing case after shrinking it.
 pub const MAX_SHRINK_TIME: u32 = 60_000;
-
-/// Upper bound on the data-stream ordinal a generated vanish names.
-///
-/// Derived from measurement, like `MAX_CUT`: the envelope session opens
-/// fewer data streams per endpoint than this bound, and the bound stays
-/// within twice that count, so generated vanishes reach every stream an
-/// envelope endpoint opens and mostly name streams that exist. The
-/// two-sided pin is `vanish_draw_spans_the_envelope_session` in
-/// `tests/disruption.rs`.
-pub const MAX_VANISH_STREAM: usize = 2;
-
-/// Upper bound on the byte offset into a data stream at which a
-/// generated vanish lands.
-///
-/// Derived from measurement, like `MAX_CUT`: the envelope session's
-/// widest data stream carries fewer bytes than this bound, and the bound
-/// stays within twice that extent, so generated vanishes reach every
-/// byte of the widest stream and keep landing inside real ones. Pinned
-/// with [`MAX_VANISH_STREAM`].
-pub const MAX_VANISH_OFFSET: usize = 1280;
 
 /// One concurrently-executed simulation plan. See the module docs for how
 /// the pieces are scheduled.
@@ -151,13 +132,15 @@ pub struct Plan {
     pub sessions: Vec<Session>,
     /// Retirements run after the chaos phase settles.
     pub retires: Vec<RetireOp>,
-    /// Window choices for the whole fleet: founder `i` runs at
-    /// `windows.choice(i)`, and a newcomer bootstrapped by
-    /// `faulty_boots[j]` takes `windows.choice(j)`.
+    /// Budget choices for the whole fleet: founder `i` runs at
+    /// `budgets.choice(i)`, and a newcomer bootstrapped by
+    /// `faulty_boots[j]` takes `budgets.choice(j)`.
     ///
     /// Founders draw independently, so the chaos includes sessions
     /// between differently-configured endpoints.
-    pub windows: WindowAssignment,
+    pub budgets: BudgetAssignment,
+    /// The seed of the network the first founder creates.
+    pub network: NetworkSeed,
 }
 
 /// One local operation in a peer's concurrent activity script.
@@ -329,24 +312,18 @@ pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
 
 /// Add peer departures to the read and write faults drawn by [`arb_fault`].
 ///
-/// An endpoint may disappear on its first data-stream open, while writing
-/// control bytes, or while writing one of its first [`MAX_VANISH_STREAM`]
-/// data streams. Byte offsets stay below [`MAX_VANISH_OFFSET`], with extra
-/// weight on the first data stream and byte. A point the endpoint never
-/// reaches does not fire.
+/// An endpoint may disappear at any byte offset of its outgoing traffic
+/// below [`MAX_CUT`], the bound that already spans a whole envelope
+/// session's bytes per endpoint, so a vanish lands in the preamble, the
+/// greeting, a frame, between frames, or the closing items alike. A point
+/// the endpoint never reaches does not fire.
 fn arb_fault_or_vanish(faults: bool) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
     }
     let vanish = prop_oneof![
         3 => Just(None),
-        1 => Just(Some(Vanish::AtFirstConnect)),
-        1 => (0..MAX_VANISH_OFFSET).prop_map(|offset| Some(Vanish::OnControl { offset })),
-        1 => (
-            prop_oneof![3 => Just(0usize), 1 => 0..MAX_VANISH_STREAM],
-            prop_oneof![1 => Just(0usize), 2 => 0..MAX_VANISH_OFFSET],
-        )
-            .prop_map(|(index, offset)| Some(Vanish::OnStream { index, offset })),
+        3 => (0..MAX_CUT).prop_map(|offset| Some(Vanish { offset })),
     ];
     (arb_fault(faults), vanish)
         .prop_map(|(cuts, vanish)| FaultPlan { vanish, ..cuts })
@@ -394,7 +371,8 @@ fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
 pub fn arb_plan() -> impl Strategy<Value = Plan> {
     // Draw order is part of the seed-compatibility surface: committed
     // regression seeds regenerate each field from a stable prefix of the
-    // RNG stream, so `windows` draws last.
+    // RNG stream, so `budgets` draws after the plan's other fields, and the
+    // network seed after `budgets`.
     (any::<bool>(), 2usize..=MAX_PLAN_PEERS).prop_flat_map(|(faults, n)| {
         (
             prop::collection::vec(any::<u64>(), 0..=MAX_PLAN_SEED_MESSAGES),
@@ -405,17 +383,27 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
             ),
             prop::collection::vec(arb_session(n, faults), 1..16),
             prop::collection::vec(arb_retire(n, faults), 0..=2),
-            prop::collection::vec(arb_window_choice(), n),
+            prop::collection::vec(arb_budget_choice(), n),
+            network_seed(),
         )
             .prop_map(
-                move |(seed_messages, faulty_boots, scripts, sessions, retires, windows)| Plan {
+                move |(
+                    seed_messages,
+                    faulty_boots,
+                    scripts,
+                    sessions,
+                    retires,
+                    budgets,
+                    network,
+                )| Plan {
                     n_peers: n,
                     seed_messages,
                     faulty_boots,
                     scripts,
                     sessions,
                     retires,
-                    windows: WindowAssignment::new(windows),
+                    budgets: BudgetAssignment::new(budgets),
+                    network,
                 },
             )
     })
@@ -458,7 +446,7 @@ pub fn assert_honest_gossip(out: &Result<Gossiped, Error>) {
 }
 
 /// The survivor of a vanished counterparty ends with an honest error,
-/// never `Ok`: a vanish trips at a write or a stream open, so the
+/// never `Ok`: a vanish trips at a write, so the
 /// counterparty's completion marker, its last write, never lands.
 pub fn assert_survivor(out: &Result<Gossiped, Error>) {
     assert!(
@@ -483,12 +471,16 @@ async fn run_session(
     fault_a: FaultPlan,
     fault_b: FaultPlan,
 ) -> usize {
-    let (link_a, link_b) = rumors::link::memory();
-    let task_a = tokio::spawn(fault::drive(link_a, fault_a, async move |link| {
-        a.gossip_once(link).await
+    let (end_a, end_b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+    let task_a = tokio::spawn(fault::drive(end_a, fault_a, async move |end| {
+        a.gossip_once(end.read, end.write)
+            .await
+            .map(|(gossiped, ..)| gossiped)
     }));
-    let task_b = tokio::spawn(fault::drive(link_b, fault_b, async move |link| {
-        b.gossip_once(link).await
+    let task_b = tokio::spawn(fault::drive(end_b, fault_b, async move |end| {
+        b.gossip_once(end.read, end.write)
+            .await
+            .map(|(gossiped, ..)| gossiped)
     }));
     let (driven_a, driven_b) = tokio::join!(task_a, task_b);
     let driven_a = driven_a.expect("session task A");
@@ -523,15 +515,19 @@ async fn run_session(
 async fn run_boot(
     server: Rumors<u64>,
     fault: FaultPlan,
-    window: WindowChoice,
+    budget: BudgetChoice,
 ) -> (Option<Peer<u64>>, usize) {
-    let (boot_side, serve_side) = rumors::link::memory();
+    let (boot_side, serve_side) =
+        rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let serve = tokio::spawn(async move {
-        let mut link = fault::faulty(serve_side, FaultPlan::NONE);
-        server.gossip_once(&mut link).await
+        let mut end = fault::faulty(serve_side, FaultPlan::NONE);
+        server
+            .gossip_once(&mut end.read, &mut end.write)
+            .await
+            .map(|(gossiped, ..)| gossiped)
     });
-    let boot = tokio::spawn(fault::drive(boot_side, fault, async move |link| {
-        Peer::<u64>::bootstrap().join(link).await
+    let boot = tokio::spawn(fault::drive(boot_side, fault, async move |end| {
+        Peer::<u64>::bootstrap().join(end.read, end.write).await
     }));
     let (served, driven) = tokio::join!(serve, boot);
     let served = served.expect("bootstrap serve task");
@@ -541,7 +537,15 @@ async fn run_boot(
     };
     assert_honest_gossip(&served);
     let newcomer = match joined {
-        rumors::Joined::Joined { peer } => Some(window.apply(peer)),
+        // A lost connection means the whole party arrived before the session
+        // failed, so the joiner keeps it, and the server gave it up: nothing
+        // is lost.
+        rumors::Joined::Joined { peer, connection } => {
+            if let rumors::Connection::Lost { error } = &connection {
+                assert_honest_error(error);
+            }
+            Some(budget.apply(peer))
+        }
         rumors::Joined::Bailed { .. } => {
             unreachable!("the serving peer is never itself bootstrapping")
         }
@@ -549,7 +553,7 @@ async fn run_boot(
             assert_honest_error(&error);
             None
         }
-        rumors::Joined::Unbookmarked(_) => unreachable!("no bookmark was selected"),
+        rumors::Joined::Unbookmarked { .. } => unreachable!("no bookmark was selected"),
     };
     (newcomer, 0)
 }
@@ -604,7 +608,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
 /// handles, this is the only exercise of the observers' watch-coalescing
 /// path (`send_if_modified` racing `borrow_and_update`) outside
 /// single-threaded tests.
-async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
+async fn run_observers(handle: Rumors<u64>, done: Arc<SetOnce<()>>) {
     use futures::{FutureExt, StreamExt};
 
     let mut plain = handle.unordered_messages();
@@ -617,7 +621,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
         // Settle *before* draining: after the writers finish, one more full
         // drain below sees their complete effect, so the coverage check
         // races nothing.
-        let finished = done.load(Ordering::Acquire);
+        let finished = done.initialized();
 
         while let Some(Some((version, _))) = plain.next().now_or_never() {
             assert!(
@@ -676,9 +680,9 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
 /// this loop never samples, and retirements begin only after `done`. A
 /// prober over a phase with founder-to-founder transfers needs a
 /// consistent snapshot, or a re-read that confirms an overlap persists.
-async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<AtomicBool>) {
+async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<SetOnce<()>>) {
     loop {
-        let finished = done.load(Ordering::Acquire);
+        let finished = done.initialized();
         let parties: Vec<(usize, Party)> = handles
             .iter()
             .enumerate()
@@ -720,21 +724,21 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         .collect();
 
     // Phase 1: fleet. The seed's content predates every fork. Each
-    // founder runs at its planned window choice, so the chaos phase mixes
-    // floor, budgeted, and default windows across concurrent sessions.
+    // founder runs at its planned budget choice, so the chaos phase mixes
+    // zero, explicit, and default budgets across concurrent sessions.
     let seed = plan
-        .windows
+        .budgets
         .choice(0)
-        .apply(Peer::<u64>::seed())
+        .apply(plan.network.peer::<u64>())
         .into_rumors();
     {
         seed.send_all(plan.seed_messages.iter().copied()).unwrap();
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for i in 1..plan.n_peers {
-        let child = crate::common::wire::bootstrap_fork_with_window_async(
+        let child = crate::common::wire::bootstrap_fork_with_budget_async(
             &fleet[0],
-            plan.windows.choice(i),
+            plan.budgets.choice(i),
         )
         .await;
         fleet.push(child);
@@ -744,7 +748,9 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     // script, every bootstrap, and the disjointness prober, interleaving
     // freely.
     let casts = fleet;
-    let done = Arc::new(AtomicBool::new(false));
+    // Set once the writers have settled; a task that finds it set sees
+    // everything they did.
+    let done = Arc::new(SetOnce::new());
     let prober = tokio::spawn(probe_disjointness(casts.clone(), Arc::clone(&done)));
     let observers: Vec<_> = casts
         .iter()
@@ -772,7 +778,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             tokio::spawn(run_boot(
                 casts[i % casts.len()].clone(),
                 *fault,
-                plan.windows.choice(i),
+                plan.budgets.choice(i),
             ))
         })
         .collect();
@@ -794,7 +800,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             None => possible_losses += 1,
         }
     }
-    done.store(true, Ordering::Release);
+    done.set(()).expect("the writers settle once");
     prober.await.expect("prober task");
     for observer in observers {
         observer.await.expect("observer task");
@@ -833,15 +839,19 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         // The absorber's side of a retirement is plain gossip, which lives
         // on `Rumors`; it converts back the moment the session ends.
         let absorber = absorber.into_rumors();
-        let (retiree_side, absorber_side) = rumors::link::memory();
-        let retiring = tokio::spawn(fault::drive(retiree_side, op.fault, async move |link| {
-            retiree.retire(link).await
+        let (retiree_side, absorber_side) =
+            rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+        let retiring = tokio::spawn(fault::drive(retiree_side, op.fault, async move |end| {
+            retiree.retire(end.read, end.write).await
         }));
         let absorbing = tokio::spawn({
             let absorber = absorber.clone();
             async move {
-                let mut link = fault::faulty(absorber_side, FaultPlan::NONE);
-                absorber.gossip_once(&mut link).await
+                let mut end = fault::faulty(absorber_side, FaultPlan::NONE);
+                absorber
+                    .gossip_once(&mut end.read, &mut end.write)
+                    .await
+                    .map(|(gossiped, ..)| gossiped)
             }
         });
         let (driven, absorbed) = tokio::join!(retiring, absorbing);
@@ -870,10 +880,15 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             continue;
         };
         match outcome {
-            // The retiree believes its party was delivered; if the absorber
-            // failed too, delivery is unconfirmed on both sides and the
-            // region may be in limbo.
-            Retire::Retired => {
+            // The retiree gave its party up. With a reusable connection the
+            // absorber confirmed it; with a lost one it was in flight when
+            // the wire died. Either way, if the absorber committed cleanly
+            // it holds the party (no loss); if it failed too, delivery is
+            // unconfirmed on both sides and the region may be in limbo.
+            Retire::Retired { connection } => {
+                if let rumors::Connection::Lost { error } = &connection {
+                    assert_honest_error(error);
+                }
                 let transfer = if absorbed.is_err() {
                     possible_losses += 1;
                     Transfer::Lost
@@ -887,18 +902,6 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
                 assert_honest_error(&error);
                 slots[op.retiree] = Some(peer);
                 transfers.push((op.retiree, op.absorber, Transfer::Recovered));
-            }
-            // In flight when the wire died. If the absorber committed
-            // cleanly it holds the party (no loss); otherwise it is gone.
-            Retire::Uncertain { error } => {
-                assert_honest_error(&error);
-                let transfer = if absorbed.is_err() {
-                    possible_losses += 1;
-                    Transfer::Lost
-                } else {
-                    Transfer::Committed
-                };
-                transfers.push((op.retiree, op.absorber, transfer));
             }
             Retire::Declined { .. } => {
                 unreachable!("the absorber runs plain gossip and never declines")
@@ -1083,8 +1086,16 @@ pub fn assert_value_oracle(
 ///    exactly [`Party::seed`] — every id-region is held by exactly one
 ///    live peer, and none leaked.
 pub fn assert_party_invariants(peers: &[Rumors<u64>], possible_losses: usize) {
-    let parties: Vec<Party> = peers.iter().map(|k| k.dangerously_alias_party()).collect();
+    assert_parties_partition(
+        peers.iter().map(|k| k.dangerously_alias_party()).collect(),
+        possible_losses,
+    );
+}
 
+/// The invariants of [`assert_party_invariants`], over parties already
+/// read from their peers, so that a fleet mixing bookmark types can be
+/// checked too.
+pub fn assert_parties_partition(parties: Vec<Party>, possible_losses: usize) {
     for (n, pi) in parties.iter().enumerate() {
         for (m, pj) in parties.iter().enumerate().skip(n + 1) {
             assert!(

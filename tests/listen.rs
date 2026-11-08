@@ -18,398 +18,472 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Peer, Rumors, Version, causally};
+use rumors::{Rumors, Version, causally};
 
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
 };
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
-/// Genesis replay: a from-genesis observer on a populated set yields
-/// exactly the live set, each message once, then goes quiet; after the
-/// completed pass its checkpoint dominates every observed version.
-#[test]
-fn genesis_replay_observes_the_live_set_once() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    {
-        rumors.send_all(0..8u64).unwrap();
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
+
+    /// Genesis replay: a from-genesis observer on a populated set yields
+    /// exactly the live set, each message once, then goes quiet; after the
+    /// completed pass its checkpoint dominates every observed version.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn genesis_replay_observes_the_live_set_once(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        {
+            rumors.send_all(0..8u64).unwrap();
+        }
+
+        let mut obs = rumors.unordered_messages();
+        let (items, ended) = drain(&mut obs);
+        assert!(
+            !ended,
+            "actors are live, so the observer goes quiet, not ended"
+        );
+
+        let observed: BTreeMap<Vec<u8>, u64> = items
+            .iter()
+            .map(|(v, m)| (v.as_bytes().to_vec(), *m))
+            .collect();
+        assert_eq!(observed.len(), items.len(), "no message is observed twice");
+        assert_eq!(
+            observed,
+            live_map(&rumors),
+            "exactly the live set is observed"
+        );
+
+        for (version, _) in &items {
+            assert!(
+                version <= obs.checkpoint(),
+                "the post-pass checkpoint dominates every observed version"
+            );
+        }
     }
 
-    let mut obs = rumors.unordered_messages();
-    let (items, ended) = drain(&mut obs);
-    assert!(
-        !ended,
-        "actors are live, so the observer goes quiet, not ended"
-    );
+    /// Arbitrary start: `unordered_messages_since(v_mid)` observes exactly
+    /// the messages `v_mid` does not causally contain.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn checkpoint_start_observes_only_what_it_does_not_contain(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        rumors.send_all([1, 2, 3]).unwrap();
+        let v_mid = rumors.snapshot().latest().clone();
+        rumors.send_all([4, 5, 6]).unwrap();
 
-    let observed: BTreeMap<Vec<u8>, u64> = items
-        .iter()
-        .map(|(v, m)| (v.as_bytes().to_vec(), *m))
-        .collect();
-    assert_eq!(observed.len(), items.len(), "no message is observed twice");
-    assert_eq!(
-        observed,
-        live_map(&rumors),
-        "exactly the live set is observed"
-    );
+        let mut obs = rumors.unordered_messages_since(v_mid.clone());
+        let (items, _) = drain(&mut obs);
 
-    for (version, _) in &items {
+        let observed: BTreeSet<u64> = items.iter().map(|(_, m)| *m).collect();
+        assert_eq!(
+            observed,
+            BTreeSet::from([4, 5, 6]),
+            "exactly the leaves above v_mid fire"
+        );
+        for (version, _) in &items {
+            // The causal membership predicate itself: `since(&v_mid)` keeps
+            // exactly the versions v_mid does not contain.
+            assert!(
+                causally::since(&v_mid).contains(version),
+                "no observed version is contained in the starting checkpoint"
+            );
+        }
+    }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// Live delivery: messages sent through a sibling `Rumors` clone
+    /// after subscription are observed, as are messages learned via gossip.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn live_sends_and_gossip_learned_messages_are_observed(network in network_seed()) {
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let b = bootstrap_fork(&a);
+
+        let sibling = a.clone();
+
+        let mut obs = a.unordered_messages();
+        let (initial, _) = drain(&mut obs);
+        assert!(initial.is_empty(), "nothing to observe yet");
+
+        // A local send through a sibling clone.
+        sibling.send(10).unwrap();
+        let (items, _) = drain(&mut obs);
+        assert_eq!(items.len(), 1, "the sibling's send is observed");
+        assert_eq!(items[0].1, 10);
+
+        // A message learned through gossip.
+        b.send(20).unwrap();
+        wire_gossip(&a, &b);
+        let (items, _) = drain(&mut obs);
+        assert_eq!(items.len(), 1, "the gossip-learned message is observed");
+        assert_eq!(items[0].1, 20);
+    }
+}
+
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
+
+    /// Redaction honored: an observed-then-redacted message fires nothing
+    /// further; one redacted before subscription never fires.
+    ///
+    /// Further: one inserted and
+    /// redacted wholly between passes is never delivered; a from-now observer
+    /// does not see pre-subscription content.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn redactions_are_honored_silently(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+
+        // Redacted before subscription: never fires.
+        let version_1 = rumors.send(1).unwrap();
+        rumors.redact(&version_1);
+        let mut obs = rumors.unordered_messages();
+        let (items, _) = drain(&mut obs);
+        assert!(items.is_empty(), "a pre-subscription redaction never fires");
+
+        // Observed, then redacted: nothing further fires.
+        let version_2 = rumors.send(2).unwrap();
+        let (items, _) = drain(&mut obs);
+        assert_eq!(items.len(), 1, "the live message fires once");
+        rumors.redact(&version_2);
+        let (items, _) = drain(&mut obs);
+        assert!(items.is_empty(), "a redaction fires no further observation");
+
+        // Inserted and redacted wholly between passes: never delivered.
+        let version_3 = rumors.send(3).unwrap();
+        rumors.redact(&version_3);
+        let (items, _) = drain(&mut obs);
         assert!(
-            version <= obs.checkpoint(),
-            "the post-pass checkpoint dominates every observed version"
+            items.is_empty(),
+            "content already redacted is never delivered"
+        );
+
+        // A from-now observer does not see pre-subscription content.
+        rumors.send(4).unwrap();
+        let mut from_now = rumors.unordered_messages_since(rumors.snapshot().latest().clone());
+        let (items, _) = drain(&mut from_now);
+        assert!(items.is_empty(), "a from-now observer starts quiet");
+        rumors.send(5).unwrap();
+        let (items, _) = drain(&mut from_now);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].1, 5, "only post-subscription content fires");
+    }
+
+    /// Termination: when the last handle on the set drops, the observer
+    /// yields the complete final state and then ends.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn observer_drains_the_final_state_then_ends(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        rumors.send_all([1, 2]).unwrap();
+        let expected = live_map(&rumors);
+
+        let mut obs = rumors.unordered_messages();
+        drop(rumors);
+
+        let (items, ended) = drain(&mut obs);
+        assert!(ended, "with every sender gone the observer ends");
+        assert_eq!(
+            items
+                .into_iter()
+                .map(|(v, m)| (v.as_bytes().to_vec(), m))
+                .collect::<BTreeMap<_, _>>(),
+            expected,
+            "the complete final state is yielded before the end"
+        );
+
+        // Ended is terminal.
+        assert_eq!(step(&mut obs), Step::Ended);
+    }
+
+    /// Pending while actors live: with any handle on the set alive, a
+    /// drained observer is quiet, not ended.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn observer_stays_quiet_while_actors_live(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        rumors.send(1).unwrap();
+
+        let mut obs = rumors.unordered_messages();
+        let (_, ended) = drain(&mut obs);
+        assert!(!ended, "a live handle keeps the observer open");
+
+        let sibling = rumors.clone();
+        drop(rumors);
+        let (_, ended) = drain(&mut obs);
+        assert!(!ended, "a surviving clone keeps the observer open");
+
+        drop(sibling);
+        let (items, ended) = drain(&mut obs);
+        assert!(ended, "dropping the last handle ends the observer");
+        assert!(items.is_empty());
+    }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// Reunite non-interference: an outstanding observer is not an actor —
+    /// it neither blocks [`Rumors::try_into_peer`](rumors::Rumors::try_into_peer)
+    /// nor is ended by it, and it keeps observing across the round-trip.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn observer_does_not_block_reunite_and_survives_it(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+
+        let mut obs = rumors.unordered_messages();
+        let (_, ended) = drain(&mut obs);
+        assert!(!ended);
+
+        // Reuniting resolves immediately despite the outstanding observer.
+        let peer = rumors
+            .try_into_peer()
+            .now_or_never()
+            .expect("an observer does not count against quiescence")
+            .expect("the sole reuniter reclaims the Peer");
+
+        // The round-trip neither ended the observer nor closed the set: a send
+        // through a fresh handle is still observed.
+        let rumors = peer.into_rumors();
+        rumors.send(42).unwrap();
+        let (items, ended) = drain(&mut obs);
+        assert!(!ended, "the reclaimed Peer keeps the set open");
+        assert_eq!(
+            items.len(),
+            1,
+            "the observer keeps observing across reunite"
+        );
+        assert_eq!(items[0].1, 42);
+    }
+}
+
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
+
+    /// Non-blocking observer: an observer mid-pass — its most recent item
+    /// still lent out — holds no lock, so sends on the set proceed and the
+    /// observer sees their effects on its next passes.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn lent_borrows_do_not_block_senders(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        rumors.send_all([1, 2]).unwrap();
+
+        let mut obs = rumors.unordered_messages();
+        let lent = block_on(obs.next()).expect("first item of the pass");
+        let lent_value = *lent.1;
+
+        // With the yielded item outstanding (the observer is mid-pass), a
+        // send must not deadlock.
+        rumors.send(3).unwrap();
+
+        let (rest, _) = drain(&mut obs);
+        assert!(
+            rest.iter().any(|(_, m)| *m == 3),
+            "the mid-pass send is observed by a later pass"
+        );
+        assert!(
+            [1, 2].contains(&lent_value),
+            "the lent item was a first-pass message"
+        );
+    }
+
+    /// Checkpoint round-trip: a checkpoint earned by a completed pass, fed
+    /// to a fresh `unordered_messages_since` on an unchanged set, observes
+    /// nothing and earns an equal checkpoint.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn checkpoint_round_trips_on_an_unchanged_set(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        rumors.send_all([1, 2, 3]).unwrap();
+
+        let mut obs = rumors.unordered_messages();
+        let (items, _) = drain(&mut obs);
+        assert_eq!(items.len(), 3);
+        let checkpoint = obs.checkpoint().clone();
+
+        let mut resumed = rumors.unordered_messages_since(checkpoint.clone());
+        let (items, _) = drain(&mut resumed);
+        assert!(items.is_empty(), "nothing fires on an unchanged set");
+        assert_eq!(
+            resumed.checkpoint(),
+            &checkpoint,
+            "the resumed observer's completed pass earns an equal checkpoint"
         );
     }
 }
 
-/// Arbitrary start: `unordered_messages_since(v_mid)` observes exactly
-/// the messages `v_mid` does not causally contain.
-#[test]
-fn checkpoint_start_observes_only_what_it_does_not_contain() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send_all([1, 2, 3]).unwrap();
-    let v_mid = rumors.snapshot().latest().clone();
-    rumors.send_all([4, 5, 6]).unwrap();
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let mut obs = rumors.unordered_messages_since(v_mid.clone());
-    let (items, _) = drain(&mut obs);
+    /// Replica portability: a checkpoint earned against replica A is a valid
+    /// `since` against replica B of the same universe — messages observed via A
+    /// are skipped, messages B holds that A never saw fire.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn checkpoint_is_portable_across_replicas(network in network_seed()) {
+        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let b = bootstrap_fork(&a);
 
-    let observed: BTreeSet<u64> = items.iter().map(|(_, m)| *m).collect();
-    assert_eq!(
-        observed,
-        BTreeSet::from([4, 5, 6]),
-        "exactly the leaves above v_mid fire"
-    );
-    for (version, _) in &items {
-        // The causal membership predicate itself: `since(&v_mid)` keeps
-        // exactly the versions v_mid does not contain.
-        assert!(
-            causally::since(&v_mid).contains(version),
-            "no observed version is contained in the starting checkpoint"
-        );
+        a.send(1).unwrap();
+        b.send(2).unwrap();
+
+        // Observe everything A has, completing the pass to earn the checkpoint.
+        let mut obs_a = a.unordered_messages();
+        let (items, _) = drain(&mut obs_a);
+        assert_eq!(items.len(), 1);
+        let checkpoint = obs_a.checkpoint().clone();
+
+        // Converge the replicas, then resume against B.
+        wire_gossip(&a, &b);
+        let mut obs_b = b.unordered_messages_since(checkpoint);
+        let (items, _) = drain(&mut obs_b);
+        assert_eq!(items.len(), 1, "only the message A never observed fires");
+        assert_eq!(items[0].1, 2, "A-observed messages are skipped at B");
     }
 }
 
-/// Live delivery: messages sent through a sibling `Rumors` clone
-/// after subscription are observed, as are messages learned via gossip.
-#[test]
-fn live_sends_and_gossip_learned_messages_are_observed() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    let b = bootstrap_fork(&a);
+divided_proptest! {
+    #![divisor(LOCAL_DIVISOR)]
 
-    let sibling = a.clone();
+    /// The observer's non-blocking step yields the same owned items as the
+    /// `Stream` face, and distinguishes a *quiet* observer (nothing new,
+    /// actors live — where an awaited `next` would block) from an *ended*
+    /// one.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn try_next_distinguishes_quiet_from_ended(network in network_seed()) {
+        use rumors::TryNext;
 
-    let mut obs = a.unordered_messages();
-    let (initial, _) = drain(&mut obs);
-    assert!(initial.is_empty(), "nothing to observe yet");
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        rumors.send_all([1, 2]).unwrap();
 
-    // A local send through a sibling clone.
-    sibling.send(10).unwrap();
-    let (items, _) = drain(&mut obs);
-    assert_eq!(items.len(), 1, "the sibling's send is observed");
-    assert_eq!(items[0].1, 10);
+        let mut obs = rumors.unordered_messages();
+        let mut seen = BTreeSet::new();
+        while let TryNext::Message((_, m)) = obs.try_next() {
+            seen.insert(*m);
+        }
+        assert_eq!(seen, BTreeSet::from([1, 2]), "the pending pass drains");
+        assert!(
+            matches!(obs.try_next(), TryNext::Quiet),
+            "with a handle live, a drained observer is quiet, not ended"
+        );
 
-    // A message learned through gossip.
-    b.send(20).unwrap();
-    wire_gossip(&a, &b);
-    let (items, _) = drain(&mut obs);
-    assert_eq!(items.len(), 1, "the gossip-learned message is observed");
-    assert_eq!(items[0].1, 20);
+        rumors.send(3).unwrap();
+        let TryNext::Message((_, m)) = obs.try_next() else {
+            panic!("the new send is immediately available");
+        };
+        assert_eq!(*m, 3);
+
+        drop(rumors);
+        assert!(matches!(obs.try_next(), TryNext::Ended));
+        assert!(
+            matches!(obs.try_next(), TryNext::Ended),
+            "ended is terminal"
+        );
+    }
+
+    /// The `Stream` impl yields every message, owned, and terminates with
+    /// `None` once the set closes.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn stream_face_matches_and_terminates(network in network_seed()) {
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        rumors.send_all([1, 2]).unwrap();
+        let expected = live_map(&rumors);
+
+        let mut obs = rumors.unordered_messages();
+        let mut items = BTreeMap::new();
+        while let Some(Some((v, m))) = obs.next().now_or_never() {
+            items.insert(v.as_bytes().to_vec(), *m);
+        }
+        assert_eq!(items, expected, "the Stream face yields the live set");
+
+        drop(rumors);
+        assert_eq!(
+            obs.next().now_or_never(),
+            Some(None),
+            "the Stream ends once the set closes"
+        );
+    }
+
 }
 
-/// Redaction honored: an observed-then-redacted message fires nothing
-/// further; one redacted before subscription never fires.
+/// The network of [`folding_delivered_versions_can_lose_a_message`]'s
+/// counterexample.
 ///
-/// Further: one inserted and
-/// redacted wholly between passes is never delivered; a from-now observer
-/// does not see pre-subscription content.
-#[test]
-fn redactions_are_honored_silently() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-
-    // Redacted before subscription: never fires.
-    let version_1 = rumors.send(1).unwrap();
-    rumors.redact(&version_1);
-    let mut obs = rumors.unordered_messages();
-    let (items, _) = drain(&mut obs);
-    assert!(items.is_empty(), "a pre-subscription redaction never fires");
-
-    // Observed, then redacted: nothing further fires.
-    let version_2 = rumors.send(2).unwrap();
-    let (items, _) = drain(&mut obs);
-    assert_eq!(items.len(), 1, "the live message fires once");
-    rumors.redact(&version_2);
-    let (items, _) = drain(&mut obs);
-    assert!(items.is_empty(), "a redaction fires no further observation");
-
-    // Inserted and redacted wholly between passes: never delivered.
-    let version_3 = rumors.send(3).unwrap();
-    rumors.redact(&version_3);
-    let (items, _) = drain(&mut obs);
-    assert!(
-        items.is_empty(),
-        "content already redacted is never delivered"
-    );
-
-    // A from-now observer does not see pre-subscription content.
-    rumors.send(4).unwrap();
-    let mut from_now = rumors.unordered_messages_since(rumors.snapshot().latest().clone());
-    let (items, _) = drain(&mut from_now);
-    assert!(items.is_empty(), "a from-now observer starts quiet");
-    rumors.send(5).unwrap();
-    let (items, _) = drain(&mut from_now);
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].1, 5, "only post-subscription content fires");
-}
-
-/// Termination: when the last handle on the set drops, the observer
-/// yields the complete final state and then ends.
-#[test]
-fn observer_drains_the_final_state_then_ends() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send_all([1, 2]).unwrap();
-    let expected = live_map(&rumors);
-
-    let mut obs = rumors.unordered_messages();
-    drop(rumors);
-
-    let (items, ended) = drain(&mut obs);
-    assert!(ended, "with every sender gone the observer ends");
-    assert_eq!(
-        items
-            .into_iter()
-            .map(|(v, m)| (v.as_bytes().to_vec(), m))
-            .collect::<BTreeMap<_, _>>(),
-        expected,
-        "the complete final state is yielded before the end"
-    );
-
-    // Ended is terminal.
-    assert_eq!(step(&mut obs), Step::Ended);
-}
-
-/// Pending while actors live: with any handle on the set alive, a
-/// drained observer is quiet, not ended.
-#[test]
-fn observer_stays_quiet_while_actors_live() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send(1).unwrap();
-
-    let mut obs = rumors.unordered_messages();
-    let (_, ended) = drain(&mut obs);
-    assert!(!ended, "a live handle keeps the observer open");
-
-    let sibling = rumors.clone();
-    drop(rumors);
-    let (_, ended) = drain(&mut obs);
-    assert!(!ended, "a surviving clone keeps the observer open");
-
-    drop(sibling);
-    let (items, ended) = drain(&mut obs);
-    assert!(ended, "dropping the last handle ends the observer");
-    assert!(items.is_empty());
-}
-
-/// Reunite non-interference: an outstanding observer is not an actor —
-/// it neither blocks [`Rumors::try_into_peer`](rumors::Rumors::try_into_peer)
-/// nor is ended by it, and it keeps observing across the round-trip.
-#[test]
-fn observer_does_not_block_reunite_and_survives_it() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-
-    let mut obs = rumors.unordered_messages();
-    let (_, ended) = drain(&mut obs);
-    assert!(!ended);
-
-    // Reuniting resolves immediately despite the outstanding observer.
-    let peer = rumors
-        .try_into_peer()
-        .now_or_never()
-        .expect("an observer does not count against quiescence")
-        .expect("the sole reuniter reclaims the Peer");
-
-    // The round-trip neither ended the observer nor closed the set: a send
-    // through a fresh handle is still observed.
-    let rumors = peer.into_rumors();
-    rumors.send(42).unwrap();
-    let (items, ended) = drain(&mut obs);
-    assert!(!ended, "the reclaimed Peer keeps the set open");
-    assert_eq!(
-        items.len(),
-        1,
-        "the observer keeps observing across reunite"
-    );
-    assert_eq!(items[0].1, 42);
-}
-
-/// Non-blocking observer: an observer mid-pass — its most recent item
-/// still lent out — holds no lock, so sends on the set proceed and the
-/// observer sees their effects on its next passes.
-#[test]
-fn lent_borrows_do_not_block_senders() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send_all([1, 2]).unwrap();
-
-    let mut obs = rumors.unordered_messages();
-    let lent = block_on(obs.next()).expect("first item of the pass");
-    let lent_value = *lent.1;
-
-    // With the yielded item outstanding (the observer is mid-pass), a
-    // send must not deadlock.
-    rumors.send(3).unwrap();
-
-    let (rest, _) = drain(&mut obs);
-    assert!(
-        rest.iter().any(|(_, m)| *m == 3),
-        "the mid-pass send is observed by a later pass"
-    );
-    assert!(
-        [1, 2].contains(&lent_value),
-        "the lent item was a first-pass message"
-    );
-}
-
-/// Checkpoint round-trip: a checkpoint earned by a completed pass, fed
-/// to a fresh `unordered_messages_since` on an unchanged set, observes
-/// nothing and earns an equal checkpoint.
-#[test]
-fn checkpoint_round_trips_on_an_unchanged_set() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send_all([1, 2, 3]).unwrap();
-
-    let mut obs = rumors.unordered_messages();
-    let (items, _) = drain(&mut obs);
-    assert_eq!(items.len(), 3);
-    let checkpoint = obs.checkpoint().clone();
-
-    let mut resumed = rumors.unordered_messages_since(checkpoint.clone());
-    let (items, _) = drain(&mut resumed);
-    assert!(items.is_empty(), "nothing fires on an unchanged set");
-    assert_eq!(
-        resumed.checkpoint(),
-        &checkpoint,
-        "the resumed observer's completed pass earns an equal checkpoint"
-    );
-}
-
-/// Replica portability: a checkpoint earned against replica A is a valid
-/// `since` against replica B of the same universe — messages observed via A
-/// are skipped, messages B holds that A never saw fire.
-#[test]
-fn checkpoint_is_portable_across_replicas() {
-    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    let b = bootstrap_fork(&a);
-
-    a.send(1).unwrap();
-    b.send(2).unwrap();
-
-    // Observe everything A has, completing the pass to earn the checkpoint.
-    let mut obs_a = a.unordered_messages();
-    let (items, _) = drain(&mut obs_a);
-    assert_eq!(items.len(), 1);
-    let checkpoint = obs_a.checkpoint().clone();
-
-    // Converge the replicas, then resume against B.
-    wire_gossip(&a, &b);
-    let mut obs_b = b.unordered_messages_since(checkpoint);
-    let (items, _) = drain(&mut obs_b);
-    assert_eq!(items.len(), 1, "only the message A never observed fires");
-    assert_eq!(items[0].1, 2, "A-observed messages are skipped at B");
-}
-
-/// The observer's non-blocking step yields the same owned items as the
-/// `Stream` face, and distinguishes a *quiet* observer (nothing new,
-/// actors live — where an awaited `next` would block) from an *ended*
-/// one.
-#[test]
-fn try_next_distinguishes_quiet_from_ended() {
-    use rumors::TryNext;
-
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send_all([1, 2]).unwrap();
-
-    let mut obs = rumors.unordered_messages();
-    let mut seen = BTreeSet::new();
-    while let TryNext::Message((_, m)) = obs.try_next() {
-        seen.insert(*m);
-    }
-    assert_eq!(seen, BTreeSet::from([1, 2]), "the pending pass drains");
-    assert!(
-        matches!(obs.try_next(), TryNext::Quiet),
-        "with a handle live, a drained observer is quiet, not ended"
-    );
-
-    rumors.send(3).unwrap();
-    let TryNext::Message((_, m)) = obs.try_next() else {
-        panic!("the new send is immediately available");
-    };
-    assert_eq!(*m, 3);
-
-    drop(rumors);
-    assert!(matches!(obs.try_next(), TryNext::Ended));
-    assert!(
-        matches!(obs.try_next(), TryNext::Ended),
-        "ended is terminal"
-    );
-}
-
-/// The `Stream` impl yields every message, owned, and terminates with
-/// `None` once the set closes.
-#[test]
-fn stream_face_matches_and_terminates() {
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send_all([1, 2]).unwrap();
-    let expected = live_map(&rumors);
-
-    let mut obs = rumors.unordered_messages();
-    let mut items = BTreeMap::new();
-    while let Some(Some((v, m))) = obs.next().now_or_never() {
-        items.insert(v.as_bytes().to_vec(), *m);
-    }
-    assert_eq!(items, expected, "the Stream face yields the live set");
-
-    drop(rumors);
-    assert_eq!(
-        obs.next().now_or_never(),
-        Some(None),
-        "the Stream ends once the set closes"
-    );
-}
+/// Chosen as the first seed, counting up from zero, under which that
+/// test's search finds a later version sorting first within its sends;
+/// the search's own `expect` checks that it still does.
+const COUNTEREXAMPLE_NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// (negative control): folding *delivered* versions is not a sound
 /// resume point.
 ///
-/// Delivery is in path order (the hash of the version), not causal
+/// Delivery is in path order (the version's keyed hash), not causal
 /// order, so a stopped
-/// pass can have delivered `m2` (later version) but not `m1` (earlier);
-/// the fold then causally contains `m1`, and resuming from it skips `m1`
-/// forever — loss, not re-delivery. `UnorderedMessages::checkpoint()` (the
-/// last *completed* pass's frontier) re-delivers instead, which is why the
-/// API exposes the pass checkpoint and not a per-item fold.
+/// pass can have delivered a later version but not the earliest one; the
+/// fold then causally contains the earliest, and resuming from it skips
+/// that message forever — loss, not re-delivery.
+/// `UnorderedMessages::checkpoint()` (the last *completed* pass's frontier)
+/// re-delivers instead, which is why the API exposes the pass checkpoint
+/// and not a per-item fold.
+///
+/// This is an existence proof: it exhibits one counterexample, under the
+/// one network seed [`COUNTEREXAMPLE_NETWORK`], not a property of every
+/// network. Under another seed the earliest message's path can sort first
+/// through every send the search makes, and that network shows nothing.
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
-    // The counterexample shape: the *later*-created of two messages is
-    // delivered first. A leaf's path is the hash of its version, and two
-    // sends from a fresh seed make the same two versions in every universe
-    // (a universe's identifier never enters a version), so their path order
-    // is fixed; it puts the later version first.
-    let later_value = 1u64;
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send(0).unwrap();
-    rumors.send(later_value).unwrap();
-    let snapshot = rumors.snapshot();
-    let first_yielded = snapshot.iter().next().expect("two live messages");
-    assert_eq!(
-        *first_yielded.1, later_value,
-        "the two sends' paths must put the later version first"
-    );
-    drop(snapshot);
+    // The counterexample shape: a later-created message is delivered
+    // before the earliest. A leaf's path is its version's hash keyed by
+    // the network's secret, and successive sends from one seeded network
+    // make the same versions under the same secret, so under
+    // `COUNTEREXAMPLE_NETWORK` their path order is the same on every run.
+    // Send until it puts a later version first.
+    const MAX_SENDS: u64 = 16;
+    const EARLIEST: u64 = 0;
+    let rumors = COUNTEREXAMPLE_NETWORK
+        .peer::<u64>()
+        .sync_memory_budget(0)
+        .into_rumors();
+    let sent = (EARLIEST..MAX_SENDS)
+        .find_map(|value| {
+            rumors.send(value).unwrap();
+            let snapshot = rumors.snapshot();
+            let (_, first) = snapshot.iter().next().expect("a live message");
+            (*first != EARLIEST).then_some(value + 1)
+        })
+        .expect("within a few sends, a later version's path sorts first");
 
-    // Deliver exactly one item — the later version — and stop mid-pass.
+    // Deliver exactly one item — a later version — and stop mid-pass.
     let mut obs = rumors.unordered_messages();
     let Step::Item((delivered_version, delivered_value)) = step(&mut obs) else {
         panic!("the populated set delivers an item");
     };
-    assert_eq!(delivered_value, later_value, "the later version came first");
+    assert_ne!(delivered_value, EARLIEST, "a later version came first");
 
     // The unsound resume: fold the delivered version into genesis.
     let fold = {
@@ -420,17 +494,17 @@ fn folding_delivered_versions_can_lose_a_message() {
     let mut resumed_from_fold = rumors.unordered_messages_since(fold);
     let (items, _) = drain(&mut resumed_from_fold);
     assert!(
-        items.is_empty(),
-        "the fold causally contains the never-delivered message: it is lost"
+        items.iter().all(|(_, value)| *value != EARLIEST),
+        "the fold causally contains the never-delivered earliest message: it is lost"
     );
 
     // The sound resume: the observer's pass checkpoint (genesis — no pass
-    // completed) re-delivers both messages. At-least-once, never loss.
+    // completed) re-delivers every message. At-least-once, never loss.
     let mut resumed_from_checkpoint = rumors.unordered_messages_since(obs.checkpoint().clone());
     let (items, _) = drain(&mut resumed_from_checkpoint);
     assert_eq!(
-        items.len(),
-        2,
+        items.len() as u64,
+        sent,
         "the pass checkpoint re-delivers the interrupted pass instead of losing"
     );
 }
@@ -444,15 +518,16 @@ proptest! {
         taken in any::<prop::sample::Index>(),
         redactions in vec(any::<prop::sample::Index>(), 1..10),
         remote in any::<bool>(),
+        network in network_seed(),
     ) {
-        redact_during_pass(values, taken, redactions, remote, Rumors::unordered_messages)?;
+        redact_during_pass(network, values, taken, redactions, remote, Rumors::unordered_messages)?;
     }
 
     /// Delivery remains duplicate-free and covers the final live set across
     /// sends, local and remote redactions, gossip, and partially drained passes.
     #[test]
-    fn exactly_once_under_interleaving(ops in arb_ops()) {
-        interleave(&ops, Rumors::unordered_messages)?;
+    fn exactly_once_under_interleaving(ops in arb_ops(), network in network_seed()) {
+        interleave(network, &ops, Rumors::unordered_messages)?;
     }
 
     /// Stopping and resuming loses no final live message; each run is duplicate-free.
@@ -463,8 +538,9 @@ proptest! {
         phase_two in vec(any::<u64>(), 0..8),
         taken in any::<prop::sample::Index>(),
         complete_pass in any::<bool>(),
+        network in network_seed(),
     ) {
-        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         rumors.send_all(phase_one.iter().copied()).unwrap();
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,

@@ -16,9 +16,9 @@
 //! one without the other leaves a `# Complexity` heading empty for one
 //! audience, silently, and a literal that drifts from the dataset states
 //! a claim nothing measured. The suite holds the line after every island
-//! include to the literal of record (`$OUT_DIR/fuelscape-contracts/`),
-//! and every claim-shaped literal anywhere in the sources to some text
-//! of record, so a literal that no island include anchors still states a
+//! include to its contract text (`$OUT_DIR/fuelscape-contracts/`), and
+//! every claim-shaped literal anywhere in the sources to some contract
+//! text, so a literal that no island include anchors still states a
 //! measured claim.
 
 use std::collections::BTreeSet;
@@ -43,9 +43,9 @@ fn every_island_is_included_or_exempted() {
     assert!(!emitted.is_empty(), "the island index is never empty");
 
     // Every `/fuelscapes/<op>.html` occurrence in the crate's sources, and
-    // every site whose next line is not the claim literal of record.
+    // every site whose next line is not its contract text.
     let contracts = Path::new(concat!(env!("OUT_DIR"), "/fuelscape-contracts"));
-    let of_record = texts_of_record(contracts);
+    let texts = contract_texts(contracts);
     let mut included = BTreeSet::new();
     let mut faults = Vec::new();
     let mut stack = vec![Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).to_path_buf()];
@@ -69,7 +69,7 @@ fn every_island_is_included_or_exempted() {
                             // Prose naming the directory, this suite's own included.
                             continue;
                         }
-                        let want = format!("\"{}\"", text_of_record(contracts, op));
+                        let want = format!("\"{}\"", contract_text(contracts, op));
                         let found = not_doc_literal(&lines[i + 1..]);
                         if found.as_deref() != Some(want.as_str()) {
                             faults.push(format!(
@@ -81,11 +81,11 @@ fn every_island_is_included_or_exempted() {
                         }
                     }
                     // Any claim-shaped literal, anchored or not, must be some
-                    // text of record.
+                    // contract text.
                     if let Some(claim) = claim_literal(line) {
-                        if !of_record.contains(claim) {
+                        if !texts.contains(claim) {
                             faults.push(format!(
-                                "{}:{}: the claim literal `{claim}` is no measured operation's text of record",
+                                "{}:{}: the claim literal `{claim}` is no measured operation's contract text",
                                 path.display(),
                                 i + 1
                             ));
@@ -101,7 +101,7 @@ fn every_island_is_included_or_exempted() {
     }
     assert!(
         faults.is_empty(),
-        "island sites and claim literals disagree with the texts of record (listed above)"
+        "island sites and claim literals disagree with the contract texts (listed above)"
     );
 
     for (op, _reason) in EXEMPTIONS {
@@ -183,7 +183,7 @@ fn island_include(line: &str) -> Option<&str> {
 }
 
 /// A claim-shaped string literal on `line`: one opening with a backticked
-/// big-O, the form every text of record takes.
+/// big-O, the form every contract text takes.
 fn claim_literal(line: &str) -> Option<&str> {
     // Assembled, so this source never carries the shape it scans for.
     let opening = ['"', '`', 'O', '('].iter().collect::<String>();
@@ -192,18 +192,18 @@ fn claim_literal(line: &str) -> Option<&str> {
     Some(&line[start..end])
 }
 
-/// The literal of record for `op`, as build.rs formatted it.
-fn text_of_record(contracts: &Path, op: &str) -> String {
+/// The contract text for `op`, as build.rs formatted it.
+fn contract_text(contracts: &Path, op: &str) -> String {
     std::fs::read_to_string(contracts.join(format!("{op}.md")))
-        .unwrap_or_else(|e| panic!("no text of record for island {op}: {e}"))
+        .unwrap_or_else(|e| panic!("no contract text for island {op}: {e}"))
         .trim_end()
         .to_string()
 }
 
-/// Every text of record, for the literals no island include anchors.
-fn texts_of_record(contracts: &Path) -> BTreeSet<String> {
+/// Every contract text, for the literals no island include anchors.
+fn contract_texts(contracts: &Path) -> BTreeSet<String> {
     std::fs::read_dir(contracts)
-        .expect("build.rs writes the texts of record")
+        .expect("build.rs writes the contract texts")
         .map(|entry| {
             let path = entry.expect("readable").path();
             std::fs::read_to_string(path)

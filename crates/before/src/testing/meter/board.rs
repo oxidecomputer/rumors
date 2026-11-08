@@ -54,7 +54,7 @@
 //! depends on the body alone: the guest's allocator gives each body a fresh
 //! heap, so nothing the cell's preparation left in the heap reaches the
 //! reading ([`FuelMeter`] describes the hooks). A fuel run judges fuel alone;
-//! the native board stays the measure of record for heap.
+//! heap stays judged by the native board alone.
 //!
 //! Fuel is judged by the same exponent bound and declared models as every
 //! other currency. Its proportional ceilings are calibrated per cell
@@ -64,7 +64,7 @@
 //! measures each cell in a fresh guest instance; the `shard` module's docs
 //! give the deal.
 //!
-//! # The verdict of record
+//! # The acceptance verdict
 //!
 //! One [`Ladder`] sweep measures every cell at each sampling scale, and
 //! everything the board decides about a tree is read from it:

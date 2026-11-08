@@ -3,6 +3,9 @@
 #[cfg(test)]
 use std::io::{ErrorKind, Read};
 
+#[cfg(test)]
+use crate::tree::mirror::streaming::message::Listed;
+
 use crate::tree::mirror::cbor::{self, HeadReadError, MAJOR_ARRAY, MAJOR_UINT};
 
 mod async_io;
@@ -18,8 +21,13 @@ use super::{
     frame::ListingIssue,
     signal::{Signal, Speaker, Stream, WireSignal},
 };
+use crate::tree::mirror::streaming::{
+    byte_set::{ByteSet, ByteSetError, MAX_ENCODED_LEN},
+    holding::Holding,
+    message::LaterMatches,
+};
 #[cfg(test)]
-use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
+use crate::tree::typed::hash::MERKLE_HASH_LEN;
 
 /// Decode one frame from `read`, leaving subsequent bytes untouched.
 #[cfg(test)]
@@ -82,7 +90,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
             .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
         let (stream, signal) = self.opener()?;
         let frame = check_arity(signal, arity)
-            .and_then(|()| self.body(signal))
+            .and_then(|()| self.body(signal, arity))
             .map_err(|kind| DecodeError::stream(self.speaker, stream, kind))?;
         Ok((stream, frame))
     }
@@ -114,9 +122,12 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         decode_signal(self.speaker, index, state)
     }
 
-    fn body(&mut self, signal: Signal) -> Result<Frame, DecodeErrorKind> {
+    fn body(&mut self, signal: Signal, arity: u64) -> Result<Frame, DecodeErrorKind> {
         let frame = match signal {
-            Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
+            Signal::Match(flow) if arity == BODY_FREE_ARITY => {
+                Frame::Reaction(Reaction::Match(LaterMatches::NONE), flow)
+            }
+            Signal::Match(flow) => Frame::Reaction(Reaction::Match(self.match_set()?), flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
             Signal::Query(flow) => Frame::Reaction(Reaction::Query(self.query()?), flow),
             Signal::Supply(flow) => Frame::Reaction(Reaction::Supply(self.supply()?), flow),
@@ -125,18 +136,31 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         Ok(frame)
     }
 
-    fn query(&mut self) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
+    fn match_set(&mut self) -> Result<LaterMatches, DecodeErrorKind> {
+        let head = self.head(FramePart::MatchSet)?;
+        let len = match_set_len(head)?;
+        let mut bytes = [0; MAX_ENCODED_LEN];
+        self.read_exact(&mut bytes[..len], FramePart::MatchSet)?;
+        later_matches(&bytes[..len])
+    }
+
+    fn query(&mut self) -> Result<Vec<Listed>, DecodeErrorKind> {
         let head = self.head(FramePart::QueryChildren)?;
         let mut listing = query_listing(head)?;
         let count = head.value;
         for _ in 0..count {
             let key = self.listing_head()?;
             let radix = listing.key(key).map_err(listing_issue)?;
+            let entry = self.listing_head()?;
+            super::frame::ListingBuilder::entry_head(entry).map_err(listing_issue)?;
             let value = self.listing_head()?;
-            super::frame::ListingBuilder::value_head(value).map_err(listing_issue)?;
+            super::frame::ListingBuilder::hash_head(value).map_err(listing_issue)?;
             let mut digest = [0; MERKLE_HASH_LEN];
             self.read_exact(&mut digest, FramePart::QueryChildren)?;
-            listing.entry(radix, digest);
+            let count = self.listing_head()?;
+            let grandchildren =
+                super::frame::ListingBuilder::count(count).map_err(listing_issue)?;
+            listing.entry(radix, digest, grandchildren);
         }
         Ok(listing.finish())
     }
@@ -247,11 +271,21 @@ pub(super) fn opener_item(head: cbor::Head, item: OpenerItem) -> Result<u64, Dec
     Ok(head.value)
 }
 
+/// The length of a frame array holding only its opener's stream and state.
+pub(super) const BODY_FREE_ARITY: u64 = 2;
+
+/// The length of a frame array holding its opener and a body.
+const BODIED_ARITY: u64 = 3;
+
 /// Enforce the frame array's length against its signal's body arity.
+///
+/// A match takes a body or none: a body carries the later matches it
+/// covers, and a match covering none is body-free.
 pub(super) fn check_arity(signal: Signal, arity: u64) -> Result<(), DecodeErrorKind> {
     let expected = match signal {
-        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => 2,
-        Signal::Query(_) | Signal::Supply(_) => 3,
+        Signal::Match(_) if arity == BODIED_ARITY => BODIED_ARITY,
+        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => BODY_FREE_ARITY,
+        Signal::Query(_) | Signal::Supply(_) => BODIED_ARITY,
     };
     if arity != expected {
         return Err(DecodeErrorKind::FrameArity {
@@ -260,6 +294,36 @@ pub(super) fn check_arity(signal: Signal, arity: u64) -> Result<(), DecodeErrorK
         });
     }
     Ok(())
+}
+
+/// Open a match's body: its head must be a byte string holding a nonempty
+/// set's encoding, at most [`MAX_ENCODED_LEN`] bytes, whose length this
+/// returns.
+///
+/// A match covering no later child is body-free, so an empty body is not
+/// canonical; an over-long one is rejected before any of it is read.
+pub(super) fn match_set_len(head: cbor::Head) -> Result<usize, DecodeErrorKind> {
+    if head.major != cbor::MAJOR_BSTR {
+        return Err(DecodeErrorKind::MatchSetType { actual: head });
+    }
+    match usize::try_from(head.value) {
+        Ok(0) => Err(DecodeErrorKind::EmptyMatchSet),
+        Ok(len) if len <= MAX_ENCODED_LEN => Ok(len),
+        _ => Err(DecodeErrorKind::InvalidMatchSet(ByteSetError::TooLong {
+            len: usize::try_from(head.value).unwrap_or(usize::MAX),
+        })),
+    }
+}
+
+/// Decode a match's body, the `bytes` of its set's encoding, into the later
+/// matches it covers.
+///
+/// The set parks with the reply that carries it, so the session-budget
+/// meter counts its allocation there.
+pub(super) fn later_matches(bytes: &[u8]) -> Result<LaterMatches, DecodeErrorKind> {
+    let set = ByteSet::decode(bytes).map_err(DecodeErrorKind::InvalidMatchSet)?;
+    debug_assert!(!set.is_empty(), "the body's length was checked nonzero");
+    Ok(Holding::ParkedReplies.create(|| LaterMatches::new(set)))
 }
 
 /// Open a query body: its head must be a nonempty listing map (an empty
@@ -273,7 +337,11 @@ pub(super) fn query_listing(
     if head.value == 0 {
         return Err(DecodeErrorKind::EmptyQuery);
     }
-    super::frame::ListingBuilder::new(head.value).map_err(listing_issue)
+    // An incoming query's listing parks with its reply, so the
+    // session-budget meter counts it there.
+    Holding::ParkedReplies
+        .create(|| super::frame::ListingBuilder::new(head.value))
+        .map_err(listing_issue)
 }
 
 /// Open a supply body: the run's embedded-sequence tag and byte-string

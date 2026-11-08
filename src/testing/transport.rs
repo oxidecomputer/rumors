@@ -1,19 +1,14 @@
 //! Stackable, deterministic adversity for test transports across the crate.
 
 use std::{
-    collections::VecDeque,
-    io,
+    io::{self, IoSlice},
     pin::Pin,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
-use crate::link::{Acceptor, Connector, Done, Link, yield_once};
 use crate::testing::schedule::{Countdown, MAX_SCHEDULED_DELAY};
 
 /// Which endpoint owns an observed transport operation.
@@ -34,10 +29,6 @@ pub enum Operation {
     Write,
     /// Flushing a complete frame.
     Flush,
-    /// Opening an outgoing data stream.
-    Connect,
-    /// Accepting an incoming data stream.
-    Accept,
 }
 
 /// Unit in which a transport failure threshold is measured.
@@ -54,16 +45,9 @@ pub enum FaultUnit {
 /// A read fault fires in place of the first *payload-bearing* read beyond
 /// the prefix: end-of-stream probes pass through untouched. This keeps
 /// "would the fault fire?" a function of the clean run's successful-read
-/// counts alone — the control stream reads for a clean goodbye at every
-/// session boundary, so attempts-after-last-success are structural and
-/// must not trip an operations-counted fault.
-///
-/// Stream-supply faults follow the same discipline, counted in operations
-/// only. A connect fault fires in place of the call (a healthy supply's
-/// connects always succeed, so calls and successes coincide); an accept
-/// fault fires in place of the next *successful* accept, so the final
-/// forever-pending accept a session parks on against an honest peer is
-/// structural and cannot trip the threshold.
+/// counts alone: the pipe reads for a clean goodbye at every session
+/// boundary, so attempts-after-last-success are structural and must not
+/// trip an operations-counted fault.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IoFault {
     /// Surface which fails.
@@ -103,6 +87,13 @@ pub struct IoPlan {
     pub flush_delays: Vec<u8>,
     /// Whether writes remain private until the next flush.
     pub hold_until_flush: bool,
+    /// Whether the writer takes vectored writes across their slices.
+    ///
+    /// A vectored writer takes up to `write_chunk` bytes across a write's
+    /// slices as one operation, as a TCP socket does. Otherwise it takes
+    /// only a vectored write's first nonempty slice, as the trait's default
+    /// does.
+    pub vectored: bool,
     /// Optional failure after a successful operation or byte prefix.
     pub fault: Option<IoFault>,
 }
@@ -116,6 +107,7 @@ impl Default for IoPlan {
             write_delays: Vec::new(),
             flush_delays: Vec::new(),
             hold_until_flush: false,
+            vectored: false,
             fault: None,
         }
     }
@@ -134,10 +126,6 @@ pub struct IoReport {
     pub write_bytes: usize,
     /// Successful flushes.
     pub flushes: usize,
-    /// Successfully opened outgoing data streams.
-    pub connects: usize,
-    /// Successfully accepted incoming data streams.
-    pub accepts: usize,
     /// Polls deliberately suspended by the test schedule.
     pub delayed_polls: usize,
     /// Largest successful read.
@@ -185,8 +173,6 @@ impl State {
             Operation::Read => (&self.plan.read_delays, &mut self.read_step),
             Operation::Write => (&self.plan.write_delays, &mut self.write_step),
             Operation::Flush => (&self.plan.flush_delays, &mut self.flush_step),
-            // Supply operations have no delay schedule.
-            Operation::Connect | Operation::Accept => return 0,
         };
         let delay = delays
             .get(*step)
@@ -212,10 +198,6 @@ impl State {
             (Operation::Write, FaultUnit::Operations) => self.report.writes,
             (Operation::Write, FaultUnit::Bytes) => self.report.write_bytes,
             (Operation::Flush, _) => self.report.flushes,
-            // Supply operations transfer no bytes; only operation counting
-            // is meaningful for them.
-            (Operation::Connect, _) => self.report.connects,
-            (Operation::Accept, _) => self.report.accepts,
         };
         if completed < fault.after {
             return None;
@@ -270,9 +252,6 @@ impl State {
             Operation::Read => self.report.read_bytes,
             Operation::Write => self.report.write_bytes,
             Operation::Flush => self.report.flushes,
-            // Supply operations transfer no bytes, so a byte-counted fault
-            // never constrains them.
-            Operation::Connect | Operation::Accept => return usize::MAX,
         };
         fault.after.saturating_sub(completed)
     }
@@ -365,6 +344,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
 /// A writer with deterministic fragmentation, delays, and flush buffering.
 pub struct AdversarialWrite<W> {
     inner: W,
+    /// Whether vectored writes are taken across slices ([`IoPlan::vectored`]).
+    vectored: bool,
     state: Arc<Mutex<State>>,
     write_delay: Countdown,
     flush_delay: Countdown,
@@ -385,22 +366,28 @@ impl<W> std::fmt::Debug for AdversarialWrite<W> {
     }
 }
 
-/// Apply configured fragmentation, buffering, delays, and faults to writes.
-impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
-    /// Admit one write through the shared adversity state.
-    fn poll_write(
-        self: Pin<&mut Self>,
+impl<W: AsyncWrite + Unpin> AdversarialWrite<W> {
+    /// Admit one write offering `offered` bytes through the shared adversity
+    /// state.
+    ///
+    /// The state suspends the write, fails it, or takes at most
+    /// `write_chunk` of the bytes, which `hold` copies into the flush buffer
+    /// when writes are held until a flush, and `forward` writes to the inner
+    /// writer otherwise.
+    fn poll_admit(
+        &mut self,
         cx: &mut Context<'_>,
-        bytes: &[u8],
+        offered: usize,
+        hold: impl FnOnce(&mut Vec<u8>, usize),
+        forward: impl FnOnce(Pin<&mut W>, &mut Context<'_>, usize) -> Poll<io::Result<usize>>,
     ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        if suspend(&this.state, &mut this.write_delay, Operation::Write, cx) {
+        if suspend(&self.state, &mut self.write_delay, Operation::Write, cx) {
             return Poll::Pending;
         }
         let (limit, buffered) = {
-            let mut state = this.state.lock().expect("transport state lock");
+            let mut state = self.state.lock().expect("transport state lock");
             if let Some(error) = state.failure(Operation::Write) {
-                this.write_delay.clear();
+                self.write_delay.clear();
                 return Poll::Ready(Err(error));
             }
             (
@@ -409,21 +396,21 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
                     .write_chunk
                     .max(1)
                     .min(state.remaining_bytes(Operation::Write))
-                    .min(bytes.len()),
+                    .min(offered),
                 state.plan.hold_until_flush,
             )
         };
         let result = if buffered {
-            this.buffered.extend_from_slice(&bytes[..limit]);
+            hold(&mut self.buffered, limit);
             Poll::Ready(Ok(limit))
         } else {
-            Pin::new(&mut this.inner).poll_write(cx, &bytes[..limit])
+            forward(Pin::new(&mut self.inner), cx, limit)
         };
         match result {
             Poll::Ready(Ok(written)) => {
-                this.write_delay.clear();
+                self.write_delay.clear();
                 if written > 0 {
-                    let mut state = this.state.lock().expect("transport state lock");
+                    let mut state = self.state.lock().expect("transport state lock");
                     state.report.writes += 1;
                     state.report.write_bytes += written;
                     state.report.largest_write = state.report.largest_write.max(written);
@@ -431,11 +418,75 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
                 Poll::Ready(Ok(written))
             }
             Poll::Ready(Err(error)) => {
-                this.write_delay.clear();
+                self.write_delay.clear();
                 Poll::Ready(Err(error))
             }
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+/// The first `limit` bytes of `slices`, as slices of their own.
+fn leading<'s>(slices: &'s [IoSlice<'_>], limit: usize) -> Vec<IoSlice<'s>> {
+    let mut room = limit;
+    let mut taken = Vec::new();
+    for slice in slices {
+        if room == 0 {
+            break;
+        }
+        let take = room.min(slice.len());
+        taken.push(IoSlice::new(&slice[..take]));
+        room -= take;
+    }
+    taken
+}
+
+/// Apply configured fragmentation, buffering, delays, and faults to writes.
+impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
+    /// Admit one write through the shared adversity state.
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bytes: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        self.get_mut().poll_admit(
+            cx,
+            bytes.len(),
+            |held, limit| held.extend_from_slice(&bytes[..limit]),
+            |inner, cx, limit| inner.poll_write(cx, &bytes[..limit]),
+        )
+    }
+
+    /// Admit one vectored write: across slices when vectored, and as its
+    /// first nonempty slice otherwise.
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        slices: &[IoSlice<'_>],
+    ) -> Poll<io::Result<usize>> {
+        if !self.vectored {
+            let first = slices
+                .iter()
+                .find(|slice| !slice.is_empty())
+                .map_or(&[][..], |slice| &**slice);
+            return self.poll_write(cx, first);
+        }
+        let offered = slices.iter().map(|slice| slice.len()).sum();
+        self.get_mut().poll_admit(
+            cx,
+            offered,
+            |held, limit| {
+                for slice in leading(slices, limit) {
+                    held.extend_from_slice(&slice);
+                }
+            },
+            |inner, cx, limit| inner.poll_write_vectored(cx, &leading(slices, limit)),
+        )
+    }
+
+    /// Whether vectored writes are taken across slices.
+    fn is_write_vectored(&self) -> bool {
+        self.vectored
     }
 
     /// Deliver buffered bytes and apply the configured flush behavior.
@@ -491,12 +542,23 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
 }
 
 /// Wrap one endpoint's ordered transport halves and retain its observations.
+///
+/// The adversarial reader models the transport, so its fragmentation,
+/// delays, and faults apply to the transport's reads; the session reads
+/// through a `BufReader` over it, as it requires of every read half.
 pub fn wrap_io<R, W>(
     side: Side,
     plan: IoPlan,
     read: R,
     write: W,
-) -> (AdversarialRead<R>, AdversarialWrite<W>, IoReportHandle) {
+) -> (
+    BufReader<AdversarialRead<R>>,
+    AdversarialWrite<W>,
+    IoReportHandle,
+)
+where
+    R: AsyncRead + Unpin,
+{
     let state = Arc::new(Mutex::new(State {
         side,
         plan,
@@ -506,11 +568,11 @@ pub fn wrap_io<R, W>(
         flush_step: 0,
     }));
     (
-        AdversarialRead {
+        BufReader::new(AdversarialRead {
             inner: read,
             state: state.clone(),
             delay: Countdown::default(),
-        },
+        }),
         wrap_write(write, state.clone()),
         IoReportHandle(state),
     )
@@ -518,306 +580,16 @@ pub fn wrap_io<R, W>(
 
 /// Build a writer wrapper sharing already-created adversity state.
 fn wrap_write<W>(write: W, state: Arc<Mutex<State>>) -> AdversarialWrite<W> {
+    let vectored = state.lock().expect("transport state lock").plan.vectored;
     AdversarialWrite {
         inner: write,
+        vectored,
         state,
         write_delay: Countdown::default(),
         flush_delay: Countdown::default(),
         buffered: Vec::new(),
         sent: 0,
     }
-}
-
-/// Wrap one endpoint's whole [`Link`] under one plan and
-/// one report.
-///
-/// The control halves and every data stream share the plan. Delay schedules
-/// and fault thresholds count operations across all of the endpoint's streams
-/// in poll order, extending [`wrap_io`]'s single-pipe behavior to the link.
-pub fn wrap_link<CR, CW, C, A>(
-    side: Side,
-    plan: IoPlan,
-    link: Link<CR, CW, C, A>,
-) -> (AdversarialLink<CR, CW, C, A>, IoReportHandle)
-where
-    CR: AsyncRead + Unpin + Send,
-    CW: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
-{
-    let state = Arc::new(Mutex::new(State {
-        side,
-        plan,
-        report: IoReport::default(),
-        read_step: 0,
-        write_step: 0,
-        flush_step: 0,
-    }));
-    let wrapped = link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            AdversarialRead {
-                inner: control_read,
-                state: state.clone(),
-                delay: Countdown::default(),
-            },
-            wrap_write(control_write, state.clone()),
-            AdversarialConnector {
-                inner: connector,
-                state: state.clone(),
-            },
-            AdversarialAcceptor {
-                inner: acceptor,
-                state: state.clone(),
-            },
-        )
-    });
-    (wrapped, IoReportHandle(state))
-}
-
-/// A link wholly wrapped in one side's shared adversity state.
-pub type AdversarialLink<CR, CW, C, A> = Link<
-    AdversarialRead<CR>,
-    AdversarialWrite<CW>,
-    AdversarialConnector<C>,
-    AdversarialAcceptor<A>,
->;
-
-/// A [`Connector`] whose opened streams write
-/// through the side's shared adversity state.
-pub struct AdversarialConnector<C> {
-    inner: C,
-    state: Arc<Mutex<State>>,
-}
-
-/// Hide the connector and shared fault state from debug output.
-impl<C> std::fmt::Debug for AdversarialConnector<C> {
-    /// Format an opaque adversarial connector.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AdversarialConnector")
-            .finish_non_exhaustive()
-    }
-}
-
-/// Clone the connector while retaining its shared adversity state.
-impl<C: Clone> Clone for AdversarialConnector<C> {
-    /// Clone the underlying connector and state handle.
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            state: self.state.clone(),
-        }
-    }
-}
-
-/// Apply the shared fault plan to outgoing stream opens and writes.
-impl<C: Connector> Connector for AdversarialConnector<C> {
-    type Tx = AdversarialWrite<C::Tx>;
-
-    /// Open a stream unless its configured fault boundary has been reached.
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        // The fault fires in place of the call: a healthy supply's connects
-        // always succeed, so the clean run's success count is also its call
-        // count and "would the fault fire?" remains a function of it.
-        if let Some(error) = self
-            .state
-            .lock()
-            .expect("transport state lock")
-            .failure(Operation::Connect)
-        {
-            return Err(error);
-        }
-        let (tx, done) = self.inner.connect().await?;
-        self.state
-            .lock()
-            .expect("transport state lock")
-            .report
-            .connects += 1;
-        // Completion unwraps the adversity and passes the half through.
-        Ok((
-            wrap_write(tx, self.state.clone()),
-            Done::new(move |wrapped: AdversarialWrite<C::Tx>| done.complete(wrapped.inner)),
-        ))
-    }
-}
-
-/// An [`Acceptor`] whose accepted streams read
-/// through the side's shared adversity state.
-pub struct AdversarialAcceptor<A> {
-    inner: A,
-    state: Arc<Mutex<State>>,
-}
-
-/// Hide the acceptor and shared fault state from debug output.
-impl<A> std::fmt::Debug for AdversarialAcceptor<A> {
-    /// Format an opaque adversarial acceptor.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AdversarialAcceptor")
-            .finish_non_exhaustive()
-    }
-}
-
-/// Apply the shared fault plan to incoming stream accepts and reads.
-impl<A: Acceptor> Acceptor for AdversarialAcceptor<A> {
-    type Rx = AdversarialRead<A::Rx>;
-
-    /// Accept a stream unless its configured fault boundary has been reached.
-    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
-        // An already-injected accept fault keeps failing without consuming
-        // further arrivals.
-        {
-            let mut state = self.state.lock().expect("transport state lock");
-            if state.report.injected.is_some()
-                && let Some(error) = state.failure(Operation::Accept)
-            {
-                return Err(error);
-            }
-        }
-        let (rx, done) = self.inner.accept().await?;
-        let mut state = self.state.lock().expect("transport state lock");
-        // The fault fires in place of a successful accept, so the final
-        // forever-pending accept a session parks on against an honest peer
-        // cannot trip an operations-counted threshold (the same rule
-        // payload-bearing reads follow).
-        if let Some(error) = state.failure(Operation::Accept) {
-            // The arrival is discarded with the failing supply.
-            drop(rx);
-            return Err(error);
-        }
-        state.report.accepts += 1;
-        drop(state);
-        // Completion unwraps the adversity and passes the half through.
-        Ok((
-            AdversarialRead {
-                inner: rx,
-                state: self.state.clone(),
-                delay: Countdown::default(),
-            },
-            Done::new(move |wrapped: AdversarialRead<A::Rx>| done.complete(wrapped.inner)),
-        ))
-    }
-}
-
-/// Cooperative yields spent waiting for another arrival before releasing a
-/// held batch.
-///
-/// Each yield hands the whole closed-world topology one more poll, so the
-/// budget bounds the wait in peer progress rather than wall time. It must
-/// be generous enough for a concurrently working peer to open its next
-/// stream. Expiry releases the held batch, possibly without reordering it.
-const REORDER_PATIENCE: u8 = 32;
-
-/// An [`Acceptor`] that releases arrivals newest-first in bounded batches.
-///
-/// The link contract leaves cross-stream arrival order unspecified, so a
-/// session must pair streams by label alone; this decorator inverts arrival
-/// order whenever the traffic admits it. Each accept awaits one arrival, then
-/// holds it while waiting for up to `batch` arrivals. A fixed patience budget
-/// bounds this wait in cooperative yields, so a lone final stream still flows
-/// and a peer waiting behind the held stream cannot deadlock the harness.
-///
-/// A release of two or more arrivals is an inversion and increments the
-/// shared `reordered` counter. Consumers assert that counter so a ready-only
-/// drain cannot become pass-through unnoticed. The module's unit test shows a
-/// second arrival joining a batch after the first has been held.
-///
-/// The link conformance suite decorates its memory ends with this
-/// acceptor too, so a conformance pass under reordering certifies it.
-pub struct ReorderingAcceptor<A: Acceptor> {
-    inner: A,
-    held: VecDeque<(A::Rx, Done<A::Rx>)>,
-    /// Arrivals buffered before each reversed release.
-    batch: usize,
-    /// Batches of two or more released in reverse order.
-    reordered: Arc<AtomicUsize>,
-}
-
-/// Summarize a reordering acceptor without requiring its transport to be
-/// debuggable.
-impl<A: Acceptor> std::fmt::Debug for ReorderingAcceptor<A> {
-    /// Format the batch configuration and observed reordering progress.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReorderingAcceptor")
-            .field("held", &self.held.len())
-            .field("batch", &self.batch)
-            .field("reordered", &self.reordered.load(Ordering::Relaxed))
-            .finish_non_exhaustive()
-    }
-}
-
-/// Release accepted streams in bounded newest-first batches.
-impl<A: Acceptor> Acceptor for ReorderingAcceptor<A> {
-    type Rx = A::Rx;
-
-    /// Accept the next stream, forming a reversed batch when arrivals overlap.
-    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
-        if let Some(held) = self.held.pop_front() {
-            return Ok(held);
-        }
-        let first = self.inner.accept().await?;
-        self.held.push_front(first);
-        // Hold the arrival while waiting for company. Each round polls a fresh
-        // accept once, drops it if pending as the link contract permits, then
-        // yields so the peer can open its next stream.
-        let mut patience = REORDER_PATIENCE;
-        while self.held.len() < self.batch {
-            let mut next = std::pin::pin!(self.inner.accept());
-            match std::future::poll_fn(|cx| Poll::Ready(next.as_mut().poll(cx))).await {
-                Poll::Ready(Ok(rx)) => {
-                    self.held.push_front(rx);
-                    patience = REORDER_PATIENCE;
-                }
-                // Errored: stop batching and release what is held.
-                // The memory acceptors used here report persistent errors, so
-                // the next call resurfaces this error after the held batch is
-                // released. This wrapper does not support one-shot errors.
-                Poll::Ready(Err(_)) => break,
-                Poll::Pending => {
-                    let Some(remaining) = patience.checked_sub(1) else {
-                        break;
-                    };
-                    patience = remaining;
-                    yield_once().await;
-                }
-            }
-        }
-        if self.held.len() > 1 {
-            self.reordered.fetch_add(1, Ordering::Relaxed);
-        }
-        Ok(self.held.pop_front().expect("at least one arrival is held"))
-    }
-}
-
-/// Wrap `link`'s acceptor so arrivals release in reversed batches of `batch`,
-/// recording reversed batches of two or more in `reordered`.
-///
-/// Always assert on the counter after the run: nonzero where the topology
-/// admits reordering (that is the proof the adversity fired), zero as a
-/// tripwire where it cannot. Without either assertion, pass-through behavior
-/// would satisfy the test unnoticed.
-pub fn reorder_accepts<CR, CW, C, A>(
-    link: Link<CR, CW, C, A>,
-    batch: usize,
-    reordered: Arc<AtomicUsize>,
-) -> Link<CR, CW, C, ReorderingAcceptor<A>>
-where
-    CR: AsyncRead + Unpin + Send,
-    CW: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
-{
-    link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            control_read,
-            control_write,
-            connector,
-            ReorderingAcceptor {
-                inner: acceptor,
-                held: VecDeque::new(),
-                batch,
-                reordered,
-            },
-        )
-    })
 }
 
 /// Suspend one operation according to its next scheduled self-waking delay.

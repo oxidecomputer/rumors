@@ -2,12 +2,12 @@
 σ*-causal: the charter-grain local demand-lockstep strategy — the Lean
 counterpart of the stage-0 probe's faulting view (counterpart, not
 twin — see the probe-relationship section below),
-discharging the definitional half of the σ*-locality residue (Finch's
-ruling: claims of record bind the charter grain — locality means
-information in the causal past, never a Rust-side bridge, which a
+discharging the definitional half of the σ*-locality residue (the
+suite's claims bind the charter grain: locality means information in
+the causal past, never a Rust-side bridge, which a
 local-by-construction Rust function makes vacuous).
 
-# The grain (Finch's F3 ruling, phase 4)
+# The grain
 
 The legacy `LocalEq`/`LocalStrategy` (Mux/Strategy.lean) compares
 session-start VIEWS — but `viewEnc` encodes peer-determined merge
@@ -24,13 +24,13 @@ is exactly that announced view — the probe `KnownSkel`'s Lean
 counterpart, whose t = 0 state is the bare parameters. `CharterLocal`
 (invariance across equal announced views at `.impl`-consistent
 observations) is the locality
-class of record; note it is INCOMPARABLE to the legacy class, not
+class the claims quantify over; note it is INCOMPARABLE to the legacy class, not
 finer: `LocalEq` pairs may differ in announced content (answerer-side
 R children, `leafReqs` of announced scopes), and announced-view pairs
 may differ in unannounced view structure. The a-fortiori transfer
 between the two classes therefore fails in both directions — recorded
 here so nobody re-derives it hopefully (Proofs/C1.lean carries the
-statement-of-record consequences).
+consequences for the claimed statements).
 
 # Why the strategy reads `sk` where it does
 
@@ -42,7 +42,7 @@ census, layouts, closure, demand — is a pure function of the `AView`
 tuple, so `sigmaStarCausal_charterLocal` is a computation, not an
 inference-sufficiency theorem. A payload-erased surrogate that pins the
 same data from the party's own commit ledger (d4/d6 pacing) plus
-arrival counts was designed and rejected for the claim of record: the
+arrival counts was designed and rejected for the claim: the
 alternation parity puts the peer-stage kind marks on the wrong side
 forever (they ride only payloads), so an `MObs`-only strategy
 under-derives and starves on the wedge's provision wall — the
@@ -78,7 +78,7 @@ strategy as a function of pushes and arrivals only — a divergence the
 stage-0 gates report named as a live risk. (ii) The Python fixpoint derives
 through simulated own-side events, so its closure can prove strictly
 more on own-endpoint structure than `inevitableA`. Both directions are
-conservative for the claims of record — the liveness of THIS object is
+conservative for the suite's claims — the liveness of THIS object is
 kernel-proven end to end and rests on the probe nowhere — but P1's
 4,970/4,970 terminal runs validated the Python counterpart, not this
 definition; every P1 citation in this file reads with that
@@ -525,7 +525,7 @@ def inevitableA (av : AView) (tr : List MObs) : List Ev :=
 information? First frames are unconditionally demanded (every
 consumer's first wire-channel operation is the receive itself); later
 frames need the predecessor's consumption in the causal closure —
-the ratified demand rule, `Certified ∪ Inevitable` collapsed by
+the demand rule, `Certified ∪ Inevitable` collapsed by
 construction (stage 0 of `closureNA` is the evidence). -/
 def demandedA (av : AView) (tr : List MObs) (h : Nat) : Bool :=
   pushedCount tr h == 0 ||
@@ -543,7 +543,7 @@ def causalCore (av : AView) (tr : List MObs) : Option Nat :=
     committedInHist av.rootH tr h && demandedA av tr h
 
 /-- σ*-causal: demand-lockstep over the announced sub-skeleton — the
-strategy of record behind `c1_charter_false`. The single skeleton read
+strategy behind `c1_charter_false`. The single skeleton read
 is `aviewOf sk p tr` — the parameters plus the announced records — so
 charter-grain locality is definitional
 (`sigmaStarCausal_charterLocal`). The machine identifies itself from
@@ -586,14 +586,14 @@ theorem ConsistentImpl.of_obsOf (C : Nat) (σI σR : Strategy)
 whose ANNOUNCED VIEWS agree at the observation, on every history both
 skeletons can realize at the shipping interface.
 
-This is Finch's F3 grain — "information in the causal past of that
+This is the charter grain — "information in the causal past of that
 party at the decision point": the announced view (`aviewOf`, the probe
 `KnownSkel`'s counterpart) is precisely what the arrived frames have
 determined, with the session parameters as its t = 0 state. It is
 deliberately NOT the legacy `LocalStrategy` (Mux/Strategy.lean), whose
 `viewEnc` grain encodes peer-determined merge labels a party cannot
 know at session start; the two classes are incomparable (module doc),
-and the claims of record quantify over THIS one (Proofs/C1.lean). -/
+and the suite's claims quantify over THIS one (Proofs/C1.lean). -/
 def CharterLocal (p : Party) (σ : Strategy) : Prop :=
   ∀ (sk sk' : Skel) (tr : List MObs),
     aviewOf sk p tr = aviewOf sk' p tr →
@@ -780,7 +780,7 @@ set_option maxRecDepth 1000000 in
 — completion in the literal kernel sense): announce decode, census,
 layouts, closure, and selection all execute end to end — the strategy
 is a real scheduler, not only a proof object. Capacity is
-message-denominated; the byte caveat of record is Mux/Basic.lean's
+message-denominated; the byte caveat is stated in Mux/Basic.lean's
 module doc (# The byte-denomination caveat). -/
 theorem smokeChain_sigmaStarCausal_completes :
     muxCompletes Pin.smokeChain .impl 1 sigmaStarCausal sigmaStarCausal
@@ -802,7 +802,7 @@ Proofs/CausalMint.lean) the pin stands as an executable witness
 behind `sigmaStarCausal_deadlock_free`, not as the claim's support
 (`muxCompletes` = the drain reaches `mterminal` within the stated
 fuel, completion in the literal kernel sense). Capacity is
-message-denominated; the byte caveat of record is Mux/Basic.lean's
+message-denominated; the byte caveat is stated in Mux/Basic.lean's
 module doc (# The byte-denomination caveat). -/
 theorem wedge_sigmaStarCausal_completes :
     muxCompletes wedge .impl 1 sigmaStarCausal sigmaStarCausal 800

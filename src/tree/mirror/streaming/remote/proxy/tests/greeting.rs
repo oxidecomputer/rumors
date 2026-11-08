@@ -71,18 +71,15 @@ fn carried_listing_converges_with_right_initiator() {
 #[test]
 fn empty_carried_listing_asks_for_everything() {
     // The populated responder: one message on party 0.
-    let mut populated = Tree::<()>::new();
+    let mut populated = Tree::<()>::default();
     populated.act(&nth_party(0), [Action::Insert(Message::new(()))]);
 
     // The emptied initiator: insert-then-forget on party 1 ticks its version
     // while redaction keeps the tree (and so its advertised set) empty.
-    let mut emptied = Tree::new();
+    let mut emptied = Tree::default();
     emptied.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    let paths: Vec<_> = emptied
-        .iter()
-        .map(|(v, _)| crate::tree::typed::Path::for_leaf(v))
-        .collect();
-    emptied.act(&nth_party(1), paths.into_iter().map(Action::Forget));
+    let versions: Vec<_> = emptied.iter().map(|(v, _)| v.clone()).collect();
+    emptied.act(&nth_party(1), versions.into_iter().map(Action::Forget));
     assert!(emptied.is_empty(), "the initiator's tree must be empty");
 
     let expected = {
@@ -94,7 +91,7 @@ fn empty_carried_listing_asks_for_everything() {
     assert_eq!(left, expected.root);
     assert_eq!(right, expected.root);
     assert_eq!(
-        Tree::<()>::from_root(left).hash(),
+        Tree::<()>::from_root(crate::network::NetworkKeys::fixture(), left).hash(),
         populated.hash(),
         "the populated side's content survives; nothing was redacted away"
     );
@@ -102,12 +99,14 @@ fn empty_carried_listing_asks_for_everything() {
 
 /// A converged session (equal versions) ends at the greeting: both carried
 /// listings go unused — the documented cost of carrying them
-/// unconditionally — and no data stream is ever opened or accepted in
-/// either direction.
+/// unconditionally — and no frame crosses in either direction.
+///
+/// Each side flushes exactly one item, its greeting, and reads exactly the
+/// bytes its peer wrote.
 #[test]
 fn converged_session_carries_listings_unused() {
     let build = || {
-        let mut tree = Tree::<()>::new();
+        let mut tree = Tree::<()>::default();
         tree.act(&nth_party(0), [Action::Insert(Message::new(()))]);
         tree
     };
@@ -128,10 +127,16 @@ fn converged_session_carries_listings_unused() {
     assert_eq!(left, expected);
     assert_eq!(right, expected);
 
-    for (side, io) in [("left", &outcome.left_io), ("right", &outcome.right_io)] {
-        let report = io.snapshot();
-        assert_eq!(report.connects, 0, "{side}: equal versions open no stream");
-        assert_eq!(report.accepts, 0, "{side}: equal versions accept no stream");
+    let (left_io, right_io) = (outcome.left_io.snapshot(), outcome.right_io.snapshot());
+    for (side, io, peer) in [("left", left_io, right_io), ("right", right_io, left_io)] {
+        assert_eq!(
+            io.flushes, 1,
+            "{side}: the greeting is the only item written"
+        );
+        assert_eq!(
+            io.read_bytes, peer.write_bytes,
+            "{side}: reads exactly the peer's greeting"
+        );
     }
 }
 

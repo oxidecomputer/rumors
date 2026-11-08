@@ -39,8 +39,7 @@ SEND order (τ's own emission order) is always safe because the demux
 slots absorb exactly that skew. Scope notes: capacity is denominated in
 messages (= scope replies); byte-level soundness of one-reply slots
 rests on the W = 1 structural argument, assumed at the model boundary
-(the reply-denomination ruling, stated canonically in Mux/Basic.lean's
-module doc). NOT claimed:
+(stated canonically in Mux/Basic.lean's module doc). NOT claimed:
 overlap/latency optimality (executable tier only, H-c demoted).
 
 # The `MuxInv` hypothesis
@@ -622,7 +621,7 @@ theorem oracle_mstuck_eq_false (hwf : sk.wellFormed = true)
 -- ============================================================== T5
 
 /-- T5, `oracle_deadlock_free`, over the `MuxInv` ground facts as an
-explicit reachability hypothesis (the adjudication's fallback SLOT,
+explicit reachability hypothesis (T5's fallback form,
 realized as the static send-projection
 pusher: no state feedback needed — see the module doc).
 
@@ -630,8 +629,8 @@ The hypothesis `hpres` is the stage-F obligation
 (`MuxInv` preservation along `MReachable`; `muxInv_init` is its landed
 base case). Everything oracle-specific is discharged here
 unconditionally: `OracleInv` preservation, the stuck-state argmin, and
-the naming lemma. Capacity is message-denominated; the byte caveat of
-record is Mux/Basic.lean's module doc (# The byte-denomination
+the naming lemma. Capacity is message-denominated; the byte caveat is stated
+in Mux/Basic.lean's module doc (# The byte-denomination
 caveat). -/
 theorem oracle_deadlock_free_of_muxInv (hwf : sk.wellFormed = true)
     (hm0 : ∀ sc, sk.dCount sc ≤ sk.capLevel) (C : Nat) (hC : 1 ≤ C)

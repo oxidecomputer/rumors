@@ -52,7 +52,7 @@ mod tests;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
-use rand::Rng;
+use rand::RngExt;
 use rand_chacha::ChaChaRng;
 
 use crate::testing::optrace;

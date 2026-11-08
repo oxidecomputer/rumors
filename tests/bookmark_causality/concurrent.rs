@@ -1,14 +1,17 @@
 //! Generated fleet operations run while bootstrap sessions hold reserved forks.
 
 use futures::{FutureExt, future::LocalBoxFuture};
+use tokio::io::{BufReader, DuplexStream};
 
 use super::*;
+use rumors_testkit::common::seed::network_seed;
 
 /// A bootstrap paused after the provider reserves its donation.
 struct Attempt {
-    /// The newcomer owns its link until joining completes or is cancelled.
-    joining: LocalBoxFuture<'static, rumors::Joined<Msg>>,
-    /// The provider owns its link and the pending donation guard.
+    /// The newcomer owns its connection end until joining completes or is
+    /// cancelled.
+    joining: LocalBoxFuture<'static, rumors::Joined<Msg, BufReader<DuplexStream>, DuplexStream>>,
+    /// The provider owns its connection end and the pending donation guard.
     serving: LocalBoxFuture<'static, Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>>,
     /// The reserved region, used only to check that live peers cannot reclaim it.
     reserved: Party,
@@ -20,10 +23,16 @@ impl Attempt {
     fn reserve(server: &Rumors<Msg, FlakyInMemoryBookmark>) -> Self {
         let before = server.dangerously_alias_party();
         let serving = server.clone();
-        let (mut near, mut far) = rumors::link::memory_with_capacity(LINK_BUF);
+        let (near, far) = rumors::testing::memory_connection(MEMORY_CAPACITY);
         let mut joining =
-            async move { Peer::<Msg>::bootstrap().join(&mut near).await }.boxed_local();
-        let mut serving = async move { serving.gossip_once(&mut far).await }.boxed_local();
+            async move { Peer::<Msg>::bootstrap().join(near.read, near.write).await }.boxed_local();
+        let mut serving = async move {
+            serving
+                .gossip_once(far.read, far.write)
+                .await
+                .map(|(gossiped, ..)| gossiped)
+        }
+        .boxed_local();
         block_on(async {
             assert!(futures::poll!(joining.as_mut()).is_pending());
             assert!(futures::poll!(serving.as_mut()).is_pending());
@@ -50,12 +59,15 @@ impl Attempt {
             assert_not_codec_bug("interleaved bootstrap provider", &error);
         }
         match joined {
-            rumors::Joined::Joined { peer } => {
+            rumors::Joined::Joined {
+                peer,
+                connection: rumors::Connection::Reusable { .. },
+            } => {
                 let label = world.n();
                 let store = DurableStore::default();
                 let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
                 let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-                let peer = block_on(peer.sync_window_floor().bookmark(bookmark)).unwrap();
+                let peer = block_on(peer.sync_memory_budget(0).bookmark(bookmark)).unwrap();
                 world.nodes.push(Node {
                     network: peer.network(),
                     state: NodeState::Live(Box::new(peer.into_rumors())),
@@ -124,10 +136,10 @@ proptest! {
         finish in proptest::collection::vec(any::<bool>(), 1..4),
         steps in proptest::collection::vec(arb_step(4, true), 0..18),
         write_faults in arb_fault_bits(true),
-        limit in prop_oneof![Just(rumors::DEFAULT_BOOKMARK_SIZE_LIMIT), 0usize..2000],
-        network_seed in any::<u64>(),
+        limit in prop_oneof![Just(rumors::default::BOOKMARK_SIZE_LIMIT), 0usize..2000],
+        network in network_seed(),
     ) {
-        let mut world = World::single_network(4, network_seed);
+        let mut world = World::single_network(4, network);
         let NodeState::Live(peer) = std::mem::replace(&mut world.nodes[2].state, NodeState::Dormant) else {
             unreachable!("the initial fleet is live");
         };

@@ -191,7 +191,7 @@ request — and takes `w` whole-subtree provisions behind it on the same
 stream. `wedgeW 6 = wedge` (`wedgeW_six`); the T8 anchors use
 `wedgeW (KR + 5)`, the wall scaled past the parked cells. Margin-0 by
 construction; the statement-path copy of the executable tier's
-`Gen.wedgeFam` (nothing of record may quantify over Gen.lean). -/
+`Gen.wedgeFam` (no claimed theorem may quantify over Gen.lean). -/
 def wedgeW (w : Nat) : Skel :=
   let rootH := 6
   let chainTop := w + 2

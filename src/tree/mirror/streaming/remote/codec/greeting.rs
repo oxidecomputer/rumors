@@ -9,20 +9,16 @@
 //!
 //! The map's keys ride in CBOR deterministic order (bytewise
 //! lexicographic over their encodings), and the decoder requires exactly
-//! this key set in exactly that order: one spelling per greeting.
-//!
-//! - `"listing"`: the sender's root-fan listing, the same
-//!   `{radix: hash}` map spelling a query frame carries.
-//! - `"set_len"`: the sender's declared set size.
-//! - `"version"`: the sender's causal version — the version-atom tag
-//!   wrapping a byte string of the version's canonical encoding.
-//! - `"max_version_bytes"`: the sender's version-size bound.
-//! - `"payload_depth_limit"`: the sender's payload nesting-depth limit,
-//!   which the counterparty's must equal for the session to proceed.
-//! - `"target_message_size"`: the sender's supply-run byte target.
+//! this key set in exactly that order: one spelling per greeting. The key
+//! set and its order are [`FIELDS`]; each field's meaning is documented at
+//! [`Greeting`]. The listing uses the same `{radix: [hash, count − 1]}` map
+//! spelling a query frame carries, and the version is the version-atom tag wrapping a
+//! byte string of the version's canonical encoding; every other field is an
+//! unsigned integer.
 
 use crate::{
     Version,
+    counter::widen,
     tree::mirror::cbor::{
         self, HeadError, MAJOR_BSTR, MAJOR_TAG, MAJOR_TEXT, MAJOR_UINT, TAG_EMBEDDED_ITEM,
     },
@@ -33,24 +29,28 @@ use super::error::QueryOrderError;
 use super::frame::{ListingIssue, parse_listing_map, write_listing};
 
 /// The greeting fields, in the deterministic order the wire requires.
-const FIELDS: [GreetingField; 6] = [
+const FIELDS: [GreetingField; 7] = [
     GreetingField::Listing,
     GreetingField::SetLen,
     GreetingField::Version,
+    GreetingField::Grandchildren,
     GreetingField::MaxVersionBytes,
     GreetingField::PayloadDepthLimit,
     GreetingField::TargetMessageSize,
 ];
+
+/// The most grandchildren a root can have: 256 children of 256 children.
+const MAX_ROOT_GRANDCHILDREN: u64 = 65_536;
 
 /// Render one greeting as its complete control-stream item:
 /// tag 24 wrapping a byte string of the greeting map.
 pub(crate) fn encode_greeting(greeting: &Greeting) -> Vec<u8> {
     let map = greeting_map(greeting);
     let mut item = Vec::with_capacity(
-        cbor::head_len(TAG_EMBEDDED_ITEM) + cbor::head_len(map.len() as u64) + map.len(),
+        cbor::head_len(TAG_EMBEDDED_ITEM) + cbor::head_len(widen(map.len())) + map.len(),
     );
     cbor::write_tag(&mut item, TAG_EMBEDDED_ITEM);
-    cbor::write_head(&mut item, MAJOR_BSTR, map.len() as u64);
+    cbor::write_head(&mut item, MAJOR_BSTR, widen(map.len()));
     item.extend_from_slice(&map);
     item
 }
@@ -58,7 +58,7 @@ pub(crate) fn encode_greeting(greeting: &Greeting) -> Vec<u8> {
 /// Render the greeting map alone.
 fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     let mut map = Vec::new();
-    cbor::write_head(&mut map, cbor::MAJOR_MAP, FIELDS.len() as u64);
+    cbor::write_head(&mut map, cbor::MAJOR_MAP, widen(FIELDS.len()));
     write_key(&mut map, GreetingField::Listing);
     write_listing(&mut map, &greeting.listing);
     write_key(&mut map, GreetingField::SetLen);
@@ -66,8 +66,10 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     write_key(&mut map, GreetingField::Version);
     let version = greeting.version.as_bytes();
     cbor::write_tag(&mut map, crate::tags::VERSION_TAG);
-    cbor::write_head(&mut map, MAJOR_BSTR, version.len() as u64);
+    cbor::write_head(&mut map, MAJOR_BSTR, widen(version.len()));
     map.extend_from_slice(version);
+    write_key(&mut map, GreetingField::Grandchildren);
+    cbor::write_head(&mut map, MAJOR_UINT, greeting.grandchildren);
     write_key(&mut map, GreetingField::MaxVersionBytes);
     cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
     write_key(&mut map, GreetingField::PayloadDepthLimit);
@@ -80,7 +82,7 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
 /// Append one field's text key to a greeting map.
 fn write_key(out: &mut Vec<u8>, field: GreetingField) {
     let key = field.name();
-    cbor::write_head(out, MAJOR_TEXT, key.len() as u64);
+    cbor::write_head(out, MAJOR_TEXT, widen(key.len()));
     out.extend_from_slice(key.as_bytes());
 }
 
@@ -93,6 +95,8 @@ pub enum GreetingField {
     SetLen,
     /// The sender's causal version.
     Version,
+    /// The sender's grandchild count of its root.
+    Grandchildren,
     /// The sender's largest version encoding.
     MaxVersionBytes,
     /// The sender's payload nesting limit.
@@ -108,6 +112,7 @@ impl GreetingField {
             Self::Listing => "listing",
             Self::SetLen => "set_len",
             Self::Version => "version",
+            Self::Grandchildren => "grandchildren",
             Self::MaxVersionBytes => "max_version_bytes",
             Self::PayloadDepthLimit => "payload_depth_limit",
             Self::TargetMessageSize => "target_message_size",
@@ -196,6 +201,12 @@ pub enum GreetingStructureError {
         /// Bytes available after its head.
         available: usize,
     },
+    /// The root grandchild count is more than a root can have.
+    #[error("greeting declares {declared} root grandchildren; a root has at most 65,536")]
+    Grandchildren {
+        /// Count the greeting declared.
+        declared: u64,
+    },
     /// Bytes remain after all greeting fields have been decoded.
     #[error("{remaining} trailing bytes follow the greeting map")]
     Trailing {
@@ -246,7 +257,7 @@ pub enum GreetingError {
 pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     let mut input = bytes;
     let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
-    if head.major != cbor::MAJOR_MAP || head.value != FIELDS.len() as u64 {
+    if head.major != cbor::MAJOR_MAP || head.value != widen(FIELDS.len()) {
         return Err(GreetingError::Structure(GreetingStructureError::Map {
             expected: FIELDS.len(),
             actual: head,
@@ -289,6 +300,15 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     };
     input = rest;
     let version = Version::decode(atom).map_err(GreetingError::Version)?;
+    expect_key(&mut input, GreetingField::Grandchildren)?;
+    let grandchildren = uint(&mut input, GreetingField::Grandchildren)?;
+    if grandchildren > MAX_ROOT_GRANDCHILDREN {
+        return Err(GreetingError::Structure(
+            GreetingStructureError::Grandchildren {
+                declared: grandchildren,
+            },
+        ));
+    }
     expect_key(&mut input, GreetingField::MaxVersionBytes)?;
     let max_version_bytes = uint(&mut input, GreetingField::MaxVersionBytes)?;
     expect_key(&mut input, GreetingField::PayloadDepthLimit)?;
@@ -303,6 +323,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     Ok(Greeting {
         version,
         set_len,
+        grandchildren,
         max_version_bytes,
         payload_depth_limit,
         target_message_size,
@@ -314,7 +335,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
 fn expect_key(input: &mut &[u8], expected: GreetingField) -> Result<(), GreetingError> {
     let name = expected.name();
     let head = cbor::read_head(input).map_err(GreetingError::Head)?;
-    if head.major != MAJOR_TEXT || head.value != name.len() as u64 {
+    if head.major != MAJOR_TEXT || head.value != widen(name.len()) {
         return Err(GreetingError::Structure(GreetingStructureError::Key {
             expected,
             issue: GreetingKeyError::Head(head),

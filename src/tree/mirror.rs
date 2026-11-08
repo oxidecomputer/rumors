@@ -12,10 +12,13 @@
 //! example, by announcing a body and withholding some of it—and leave the
 //! session waiting; applications impose deadlines on that wait. Under the
 //! trusted-counterparty model (see the crate docs), validation detects
-//! implementation defects rather than enforcing a security boundary. In
-//! particular, frame lengths are trusted for allocation after the preamble
-//! validates the counterparty (see [`framing`]). Every ingress has
-//! malformed-input tests beside its parser.
+//! implementation defects rather than enforcing a security boundary. A
+//! declared-length body read allocates by the declared length up front
+//! only once that length is judged and its bytes set aside: a supply run's
+//! body, once the run budget admits its length, or its heads show one
+//! record spanning it, and the receive pool has granted its permit. Every
+//! other body read grows its buffer only as bytes arrive (see
+//! [`framing`]). Every ingress has malformed-input tests beside its parser.
 
 pub mod streaming;
 
@@ -26,10 +29,11 @@ pub(crate) mod cbor;
 pub(crate) mod framing;
 pub(crate) mod party;
 pub(crate) mod preamble;
+pub(crate) mod secret;
 
 /// Whether `bound` is causally contained in `declared`: the version-
-/// containment predicate the protocol enforces on supplied subtrees at
-/// ingestion.
+/// containment predicate the protocol enforces on every supplied leaf at
+/// ingestion, against both greetings.
 ///
 /// Named because version order is partial and the callers branch on the
 /// *negation*: a bound that is incomparable with the declared version is

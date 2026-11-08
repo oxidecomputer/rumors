@@ -31,7 +31,7 @@
 //! refuses fuel readings from any other deal. The smoke suite exercises the
 //! round trip (emit, parse, reorder, re-judge) across two shard counts, so a
 //! break in the protocol or in the merge's board-order reconstruction is
-//! caught before any board of record is rendered.
+//! caught before any acceptance board is rendered.
 //!
 //! # The wire form
 //!
@@ -589,7 +589,7 @@ pub(super) fn merge_samples(
     // measures fewer cells (an applicability arm regressing to `None`)
     // still merges cleanly; this is the one total check comparing the
     // union against the declared reach, and being merge-layer it fires at
-    // every scale, the acceptance ladder of record included.
+    // every scale, the acceptance ladder included.
     for (family_position, family) in FamilyId::board().enumerate() {
         let declared = family.spec().cells;
         let merged = cells

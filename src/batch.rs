@@ -4,7 +4,6 @@ use tokio::sync::watch;
 
 use crate::message::{EncodeError, PayloadCodec};
 use crate::tree::Action;
-use crate::tree::typed::Path;
 use crate::{Inner, Version};
 
 /// Insertions and redactions queued for one atomic commit.
@@ -64,9 +63,11 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
 
     /// Queue a redaction of the message stamped with `version`.
     ///
-    /// Redacting a version not held at commit time is a no-op.
+    /// Redacting a version not held at commit time is a no-op. The commit's
+    /// [`Committed::redacted`] counts the queued redactions that removed a
+    /// message.
     pub fn redact(&mut self, version: &Version) {
-        self.actions.push(Action::Forget(Path::for_leaf(version)));
+        self.actions.push(Action::Forget(version.clone()));
     }
 
     /// Queue every message `messages` yields.
@@ -92,7 +93,8 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
     /// Queue a redaction of every version `versions` yields.
     ///
     /// Equivalent to calling [`redact`](Self::redact) on each in turn;
-    /// versions not held at commit time are no-ops.
+    /// versions not held at commit time are no-ops, and
+    /// [`Committed::redacted`] counts the rest.
     pub fn redact_all<I>(&mut self, versions: I)
     where
         I: IntoIterator,
@@ -103,17 +105,47 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
         }
     }
 
-    /// Apply the queued actions and return the replica's resulting frontier.
-    pub(crate) fn commit(self) -> Version {
+    /// Apply the queued actions; return the replica's resulting frontier and
+    /// how many messages the queued redactions removed.
+    pub(crate) fn commit(self) -> Commit {
         let Batch { inner, actions, .. } = self;
-        let mut latest = None;
+        let mut commit = None;
         Inner::commit(inner, |party, tree| {
             // A later action may discard an earlier insert. Keep the queued
             // handles until the commit releases the lock, even on unwind.
-            let changed = tree.act(party, actions.iter().cloned());
-            latest = Some(tree.latest().clone());
-            changed
+            let acted = tree.act(party, actions.iter().cloned());
+            commit = Some(Commit {
+                latest: tree.latest().clone(),
+                redacted: acted.removed,
+            });
+            acted.changed
         });
-        latest.expect("commit closure always runs")
+        commit.expect("commit closure always runs")
     }
+}
+
+/// What one batch commit did, for the local operations built on batches.
+pub(crate) struct Commit {
+    /// The replica's frontier right after the commit.
+    pub(crate) latest: Version,
+    /// How many messages the batch's redactions removed.
+    pub(crate) redacted: usize,
+}
+
+/// The result of a committed [`Rumors::batch`](crate::Rumors::batch): the
+/// closure's value, and what the batch's redactions removed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Committed<R> {
+    /// The value the batch closure returned.
+    pub value: R,
+    /// How many messages the batch's [`redact`](Batch::redact)s removed.
+    ///
+    /// A redaction removes a message only if this replica held it, live, when
+    /// the batch committed. A version it never received, or had already
+    /// redacted, adds nothing, and nor does a second redaction of one version
+    /// in the same batch. A redaction that removes nothing changes nothing,
+    /// here or elsewhere: a message this replica never received is live if
+    /// it arrives later, and a message it already redacted stays redacted.
+    pub redacted: usize,
 }

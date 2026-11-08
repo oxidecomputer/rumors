@@ -1,10 +1,10 @@
 /-
 The weave/trace alignment (PROGRESS.md §7 3b): the opening worklist's
 per-owner filters ARE the manual traces — the two hypotheses
-`weaveState_wcount` still owes. This file carries the design of
-record for that proof and its Skel-arithmetic base layer.
+`weaveState_wcount` still owes. This file carries the design for
+that proof and its Skel-arithmetic base layer.
 
-# The master induction (design of record)
+# The master induction (its design)
 
 For the subtree op `.scope h k F` (stage `h`, scope index `k`, feed
 `F`), under `wellFormed`, with `k < stageLen h`,

@@ -24,8 +24,11 @@ pub enum Phase {
     /// this phase. A failure means the peer's commit is unconfirmed; it does
     /// not undo local changes.
     ///
-    /// A failed bootstrap returns no peer, even if the provider completed
-    /// its side. Retry with the builder in [`Joined::Failed`](crate::Joined::Failed).
+    /// A bootstrap served by a provider has received its whole identity
+    /// before this phase, so a failure here returns its live peer, beside a
+    /// [`Connection::Lost`](crate::Connection::Lost) carrying this error.
+    /// Two bootstrappers exchange no identity, so a failure here returns
+    /// each one's builder in [`Joined::Failed`](crate::Joined::Failed).
     Completion,
 }
 
@@ -52,10 +55,6 @@ pub enum TransportOperation {
     Write,
     /// Making buffered writes visible to the peer.
     Flush,
-    /// Opening an outgoing data stream.
-    Open,
-    /// Waiting for an incoming data stream.
-    Accept,
 }
 
 impl fmt::Display for TransportOperation {
@@ -65,25 +64,24 @@ impl fmt::Display for TransportOperation {
             Self::Read => "read",
             Self::Write => "write",
             Self::Flush => "flush",
-            Self::Open => "open",
-            Self::Accept => "accept",
         })
     }
 }
 
-/// A data-stream position, when a failure can be attributed to one direction.
+/// A logical data-stream position, when a failure can be attributed to one
+/// direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DataStream {
     /// The elected role sending this stream's bytes.
     pub sender: Role,
-    /// The logical stream index, if its label or frame identified one.
+    /// The logical stream index, if a frame identified one.
     pub index: Option<u8>,
 }
 
 /// Where a session detected a failure.
 ///
-/// `data_stream` is absent for control traffic and for failures detected
-/// without a particular data-stream direction. Context describes detection;
+/// `data_stream` is absent for the preamble, greeting, and closing items, and
+/// for failures detected without a particular data-stream direction. Context describes detection;
 /// it does not establish which peer or transport implementation is at fault.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -133,7 +131,7 @@ impl fmt::Display for Context {
 /// A transport operation failed or the peer closed before it could complete.
 ///
 /// Inspect `source.kind()` for the I/O category. A clean close before required
-/// bytes or streams arrive is represented by `UnexpectedEof`. The context and
+/// bytes arrive is represented by `UnexpectedEof`. The context and
 /// original source remain available for logging; no message parsing is needed.
 #[derive(Debug, thiserror::Error)]
 #[error("{operation} failed during {context}: {source}")]
@@ -165,7 +163,7 @@ pub struct ProtocolViolation {
 }
 
 impl Error {
-    /// Locate an I/O failure at a control-stream operation.
+    /// Locate an I/O failure at an operation outside the data frames.
     pub(crate) fn transport(
         phase: Phase,
         operation: TransportOperation,

@@ -5,11 +5,12 @@ use ciborium::value::Value;
 use futures::channel::oneshot;
 use proptest::prelude::*;
 use rumors::error::Phase;
-use rumors::{Error, Network, Retire};
+use rumors::{Connection, Error, Network, Retire};
 
-use super::{GatedBookmark, Msg, Peer, Rumors, block_on, boot_from, gossip};
+use super::{GatedBookmark, Msg, Rumors, block_on, boot_from, gossip};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::flaky::{DurableStore, persisted_record};
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// A converged pair with current durable records at both endpoints.
 struct Pair {
@@ -26,11 +27,14 @@ struct Pair {
 /// Construct the state needed to isolate identity transfer from reconciliation.
 impl Pair {
     /// Bootstrap and settle both records so the next writes concern donation.
-    fn new(initial: usize) -> Self {
+    ///
+    /// The receiver is the first peer of the network `network` names.
+    fn new(network: NetworkSeed, initial: usize) -> Self {
         block_on(async {
             let receiver_bookmark = GatedBookmark::new(DurableStore::default());
             let donor_bookmark = GatedBookmark::new(DurableStore::default());
-            let receiver = Peer::<Msg>::seed()
+            let receiver = network
+                .peer::<Msg>()
                 .bookmark(receiver_bookmark.clone())
                 .await
                 .unwrap()
@@ -67,11 +71,12 @@ fn encoded_len(value: Value) -> usize {
     bytes.len()
 }
 
-/// Measure the donation's start and length, and the donor's total incoming bytes.
-fn boundaries(initial: usize) -> (usize, usize, usize) {
+/// Measure the donation's start and length, and the donor's total incoming
+/// bytes, on the pair [`Pair::new`] builds from `network`.
+fn boundaries(network: NetworkSeed, initial: usize) -> (usize, usize, usize) {
     let Pair {
         donor, receiver, ..
-    } = Pair::new(initial);
+    } = Pair::new(network, initial);
     let identity = donor.dangerously_alias_party();
     let frame = encoded_len(Value::Tag(
         rumors::tags::PARTY_TAG,
@@ -81,16 +86,21 @@ fn boundaries(initial: usize) -> (usize, usize, usize) {
     let completion = encoded_len(Value::Text(".".into()));
     block_on(async {
         let donor = donor.try_into_peer().await.unwrap();
-        let (a, mut b) = rumors::link::memory();
+        let (a, mut b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let (mut a, meter) = fault::metered(a);
-        let (outcome, accepted) = tokio::join!(donor.retire(&mut a), receiver.gossip_once(&mut b));
-        assert!(matches!(outcome, Retire::Retired));
-        accepted.unwrap();
-        assert_eq!(
-            meter.streams_opened(),
-            0,
-            "converged retirement uses only control"
+        let (outcome, accepted) = tokio::join!(
+            donor.retire(&mut a.read, &mut a.write),
+            receiver.gossip_once(&mut b.read, &mut b.write)
         );
+        assert!(matches!(
+            outcome,
+            Retire::Retired {
+                connection: Connection::Reusable { .. }
+            }
+        ));
+        accepted.unwrap();
+        // The donation and the completion marker are the donor's last two
+        // items, so the donation starts that far before its last byte.
         (meter.written() - frame - completion, frame, meter.read())
     })
 }
@@ -139,16 +149,17 @@ enum Cancellation {
 
 proptest! {
     /// Wire stalls expire through the public deadline, recovering ownership only
-    /// before donation starts and never leaving the interrupted link reusable.
+    /// before donation starts.
     #[test]
     fn retirement_deadlines_respect_wire_handoff(
         initial in 0usize..6,
         offset in any::<proptest::sample::Index>(),
+        network in network_seed(),
     ) {
-        let (start, frame, _) = boundaries(initial);
+        let (start, frame, _) = boundaries(network, initial);
         for stage in [Failure::Preamble, Failure::Reconciliation,
             Failure::DonationStart, Failure::DonationPrefix] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let receiver_before = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
@@ -160,17 +171,13 @@ proptest! {
                 _ => unreachable!(),
             };
             let (outcome, accepted) = block_on(async {
-                let (a, mut b) = rumors::link::memory();
-                let (mut a, stalled) = fault::stall_at(a, Vanish::OnControl { offset: cut });
+                let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+                let (a, stalled) = fault::stall_at(a, Vanish { offset: cut });
                 let deadline = std::sync::Mutex::new(Some(stalled));
                 let donor = pair.donor.try_into_peer().await.unwrap()
                     .session_deadline(move || deadline.lock().unwrap().take().unwrap());
-                let outgoing = async move {
-                    let outcome = donor.retire(&mut a).await;
-                    assert!(a.session_state().poisoned());
-                    outcome
-                };
-                tokio::join!(outgoing, pair.receiver.gossip_once(&mut b))
+                let outgoing = async move { donor.retire(a.read, a.write).await };
+                tokio::join!(outgoing, pair.receiver.gossip_once(b.read, b.write))
             });
             if matches!(stage, Failure::Preamble | Failure::Reconciliation) {
                 let Retire::Recovered { peer, error: Error::DeadlineExceeded } = outcome else {
@@ -183,7 +190,7 @@ proptest! {
                 assert_eq!(live.snapshot().hash(), pair.receiver.snapshot().hash());
                 assert_eq!(recorded(&pair.donor_bookmark, network), Some(identity));
             } else {
-                assert!(matches!(outcome, Retire::Uncertain { error: Error::DeadlineExceeded }));
+                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::DeadlineExceeded } }));
                 assert!(recorded(&pair.donor_bookmark, network).is_none());
             }
             assert!(accepted.is_err(), "an incomplete donation cannot be accepted");
@@ -195,10 +202,13 @@ proptest! {
     /// Expiry during persistence preserves a recoverable donor before handoff,
     /// even after durable removal, and consumes it after the recipient absorbs it.
     #[test]
-    fn retirement_deadlines_respect_durable_handoff(initial in 0usize..6) {
+    fn retirement_deadlines_respect_durable_handoff(
+        initial in 0usize..6,
+        network in network_seed(),
+    ) {
         for stage in [Cancellation::BeforeRemoval, Cancellation::AfterRemoval,
             Cancellation::AfterAbsorption] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let mut expected_receiver = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
@@ -216,10 +226,10 @@ proptest! {
                         let deadline = deadline.lock().unwrap().take().unwrap();
                         async move { deadline.await.unwrap() }
                     });
-                let (mut a, mut b) = rumors::link::memory();
+                let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let outgoing = async move {
                     let outcome = {
-                        let mut retiring = std::pin::pin!(donor.retire(&mut a));
+                        let mut retiring = std::pin::pin!(donor.retire(a.read, a.write));
                         tokio::select! {
                             biased;
                             () = gate.entered() => {},
@@ -228,20 +238,20 @@ proptest! {
                         expire.send(()).unwrap();
                         retiring.await
                     };
-                    assert!(a.session_state().poisoned());
                     // The recipient may be paused after absorption. Let it
-                    // finish its durable write and observe the closed link.
+                    // finish its durable write and observe the closed
+                    // connection.
                     gate.release();
                     outcome
                 };
-                tokio::join!(outgoing, pair.receiver.gossip_once(&mut b))
+                tokio::join!(outgoing, pair.receiver.gossip_once(b.read, b.write))
             });
             let expected_donor = if stage == Cancellation::BeforeRemoval {
                 Some(identity.dangerously_alias())
             } else { None };
             assert_eq!(recorded(&pair.donor_bookmark, network), expected_donor);
             if stage == Cancellation::AfterAbsorption {
-                assert!(matches!(outcome, Retire::Uncertain { error: Error::DeadlineExceeded }));
+                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::DeadlineExceeded } }));
                 expected_receiver.join(identity).unwrap();
             } else {
                 let Retire::Recovered { peer, error: Error::DeadlineExceeded } = outcome else {
@@ -267,12 +277,13 @@ proptest! {
     fn retirement_errors_preserve_the_recovery_boundary(
         initial in 0usize..6,
         offset in any::<proptest::sample::Index>(),
+        network in network_seed(),
     ) {
-        let (start, frame, incoming) = boundaries(initial);
+        let (start, frame, incoming) = boundaries(network, initial);
         for stage in [Failure::Preamble, Failure::Reconciliation, Failure::DonationStart,
             Failure::DonationPrefix, Failure::Completion, Failure::Removal,
             Failure::AfterRemoval, Failure::AfterAbsorption] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let receiver_before = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
@@ -293,16 +304,16 @@ proptest! {
             };
             let (outcome, accepted) = block_on(async {
                 let donor = pair.donor.try_into_peer().await.unwrap();
-                let (a, b) = rumors::link::memory();
+                let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let outgoing = async move {
-                    let mut a = fault::faulty(a, plan);
-                    donor.retire(&mut a).await
+                    let a = fault::faulty(a, plan);
+                    donor.retire(a.read, a.write).await
                 };
-                // Each session owns its link endpoint, so a storage failure
+                // Each session owns its connection end, so a storage failure
                 // closes the wire and wakes a donor awaiting confirmation.
                 let incoming = async {
-                    let mut b = b;
-                    pair.receiver.gossip_once(&mut b).await
+                    let b = b;
+                    pair.receiver.gossip_once(b.read, b.write).await
                 };
                 tokio::join!(outgoing, incoming)
             });
@@ -326,7 +337,7 @@ proptest! {
                 }
                 assert_eq!(recorded(&pair.donor_bookmark, network), Some(identity.dangerously_alias()));
             } else {
-                let Retire::Uncertain { error } = outcome else {
+                let Retire::Retired { connection: Connection::Lost { error } } = outcome else {
                     panic!("possible handoff must consume the peer, stage {stage:?}: {outcome:?}");
                 };
                 transport_phase(&error, if matches!(stage, Failure::Completion | Failure::AfterAbsorption) { Phase::Completion } else { Phase::IdentityTransfer });
@@ -353,27 +364,28 @@ proptest! {
     fn retirement_cancellation_respects_durable_handoff(
         initial in 0usize..6,
         offset in any::<proptest::sample::Index>(),
+        network in network_seed(),
     ) {
-        let (start, frame, _) = boundaries(initial);
+        let (start, frame, _) = boundaries(network, initial);
         for stage in [Cancellation::BeforeRemoval, Cancellation::AfterRemoval,
             Cancellation::DonationPrefix, Cancellation::AfterAbsorption] {
-            let pair = Pair::new(initial);
+            let pair = Pair::new(network, initial);
             let identity = pair.donor.dangerously_alias_party();
             let mut expected_receiver = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
             block_on(async {
                 let donor = pair.donor.try_into_peer().await.unwrap();
-                let (mut a, mut b) = rumors::link::memory();
+                let (mut a, mut b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 if stage == Cancellation::DonationPrefix {
                     // Drop the actual retirement future with a strict prefix of
                     // its party frame on the wire, not an injected I/O error.
                     let plan = FaultPlan {
-                        vanish: Some(Vanish::OnControl { offset: start + 1 + offset.index(frame - 1) }),
+                        vanish: Some(Vanish { offset: start + 1 + offset.index(frame - 1) }),
                         ..FaultPlan::NONE
                     };
                     let (driven, received) = tokio::join!(
-                        fault::drive(a, plan, async move |link: &mut fault::FaultyLink| donor.retire(link).await),
-                        pair.receiver.gossip_once(&mut b),
+                        fault::drive(a, plan, async move |end: fault::FaultyEnd| donor.retire(end.read, end.write).await),
+                        pair.receiver.gossip_once(&mut b.read, &mut b.write),
                     );
                     assert!(driven.vanished(), "the retirement future must be cancelled");
                     assert!(received.is_err(), "the recipient cannot accept an incomplete party");
@@ -382,8 +394,8 @@ proptest! {
                     if stage == Cancellation::BeforeRemoval { gate.arm(); } else { gate.arm_after_write(); }
                     // Leaving this scope cancels both futures at the announced
                     // persistence boundary; their memory remains inspectable.
-                    let mut retiring = std::pin::pin!(donor.retire(&mut a));
-                    let mut receiving = std::pin::pin!(pair.receiver.gossip_once(&mut b));
+                    let mut retiring = std::pin::pin!(donor.retire(&mut a.read, &mut a.write));
+                    let mut receiving = std::pin::pin!(pair.receiver.gossip_once(&mut b.read, &mut b.write));
                     tokio::select! {
                         biased;
                         () = gate.entered() => {},

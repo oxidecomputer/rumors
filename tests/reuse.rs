@@ -10,268 +10,244 @@
 //! changes.
 
 use rumors_testkit::common;
+use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::time::Duration;
 
-use rumors::testing::{IoPlan, IoSide, wrap_link};
-use rumors::{Peer, Rumors};
+use rumors::Rumors;
+use rumors::testing::{IoPlan, IoSide, wrap_io};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
-use crate::common::wire::{assert_control_drained, bootstrap_fork_async};
+use crate::common::wire::{assert_connection_drained, bootstrap_fork_async, tokio_block_on};
+use rumors_testkit::common::property::SESSION_DIVISOR;
+use rumors_testkit::common::seed::{NetworkSeed, network_seed};
+use rumors_testkit::divided_proptest;
 
 /// Generous wall-clock bound: these sessions are in-memory and finish in
 /// microseconds, so hitting the deadline means lost bytes wedged a session,
 /// not a slow machine.
 const DEADLINE: Duration = Duration::from_secs(10);
 
-/// Link stream capacity, comfortably larger than everything a round ships, so
-/// an eager side can finish a session and write its next preamble without
-/// waiting on the laggard — the exact interleaving the eager test pins.
-const LINK_BUF: usize = 64 * 1024;
-
 /// How many sequential sessions each test drives over the one connection.
 const ROUNDS: u64 = 3;
 
-/// Converged no-op sessions run before the divergent rounds in the epoch
-/// wrap test.
-///
-/// With the [`WRAP_ROUNDS`] divergent rounds after them, the
-/// link's u8 session counter crosses 255 and wraps to 0 mid-way through
-/// the divergent rounds.
-const PRE_WRAP_SESSIONS: usize = u8::MAX as usize - 2;
-
-/// Divergent sessions bracketing the epoch wrap: with
-/// [`PRE_WRAP_SESSIONS`] before them they begin two epochs below `u8::MAX`,
-/// cross the maximum, and continue after wrapping to zero.
-const WRAP_ROUNDS: u64 = 6;
-
-/// Create a connected, party-disjoint pair: a freshly seeded peer and a
-/// bootstrap fork of it. The two ends of one link they will keep reusing are
-/// created per test.
-async fn pair() -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+/// Create a connected, party-disjoint pair: the first peer of the network
+/// `network` names and a bootstrap fork of it. The two ends of one
+/// connection they will keep reusing are created per test.
+async fn pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
+    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     let b = bootstrap_fork_async(&a).await;
     (a, b)
 }
 
-/// Sessions separated by a barrier reuse the connection: once a round's two
-/// `gossip` calls have both returned `Ok`, the same reader/writer pair hosts
-/// the next round, and every round converges the pair.
-#[tokio::test(flavor = "current_thread")]
-async fn barriered_sessions_reuse_the_connection() {
-    let (a, b) = pair().await;
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+    /// Sessions separated by a barrier reuse the connection: once a round's two
+    /// `gossip` calls have both returned `Ok`, the same reader/writer pair hosts
+    /// the next round, and every round converges the pair.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn barriered_sessions_reuse_the_connection(network in network_seed()) {
+        tokio_block_on(async {
+            let (a, b) = pair(network).await;
 
-    for round in 0..ROUNDS {
-        a.send(round).unwrap();
-        b.send(round + 100).unwrap();
-        let (a_out, b_out) = timeout(DEADLINE, async {
-            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
-        })
-        .await
-        .expect("barriered round deadlocked");
-        a_out.expect("A's session");
-        b_out.expect("B's session");
-        assert_eq!(
-            a.snapshot().hash(),
-            b.snapshot().hash(),
-            "round {round} did not converge the pair"
-        );
+            let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
+
+            for round in 0..ROUNDS {
+                a.send(round).unwrap();
+                b.send(round + 100).unwrap();
+                let (a_out, b_out) = timeout(DEADLINE, async {
+                    tokio::join!(
+                        a.gossip_once(&mut a_end.read, &mut a_end.write),
+                        b.gossip_once(&mut b_end.read, &mut b_end.write)
+                    )
+                })
+                .await
+                .expect("barriered round deadlocked");
+                a_out.expect("A's session");
+                b_out.expect("B's session");
+                assert_eq!(
+                    a.snapshot().hash(),
+                    b.snapshot().hash(),
+                    "round {round} did not converge the pair"
+                );
+            }
+            // Reuse rests on each round ending at a clean boundary; after the last
+            // round the connection must hold nothing in either direction.
+            assert_connection_drained(a_end, b_end);
+        });
     }
-    // Reuse rests on each round ending at a clean boundary; after the last
-    // round the control stream must hold nothing in either direction.
-    assert_control_drained(a_link, b_link);
-}
 
-/// An eagerly re-initiating side loses nothing: each peer runs its
-/// `send; gossip` rounds on its own schedule with no cross-peer barrier.
-///
-/// The faster side's next preamble goes on the wire while the slower side is
-/// still consuming the previous session's trailing frames.
-/// Those preamble
-/// bytes must survive to start the next session — a session reader that
-/// buffers past the frames it consumes would swallow them and wedge both
-/// peers.
-#[tokio::test(flavor = "current_thread")]
-async fn eager_reinitiation_reuses_the_connection() {
-    let (a, b) = pair().await;
+    /// An eagerly re-initiating side loses nothing: each peer runs its
+    /// `send; gossip` rounds on its own schedule with no cross-peer barrier.
+    ///
+    /// The faster side's next preamble goes on the wire while the slower side is
+    /// still consuming the previous session's trailing frames.
+    /// Those preamble
+    /// bytes must survive to start the next session — a session reader that
+    /// buffers past the frames it consumes would swallow them and wedge both
+    /// peers.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn eager_reinitiation_reuses_the_connection(network in network_seed()) {
+        tokio_block_on(async {
+            let (a, b) = pair(network).await;
 
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
+            let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
 
-    let drive_a = async {
-        for round in 0..ROUNDS {
-            a.send(round).unwrap();
-            a.gossip_once(&mut a_link).await.expect("A's session");
-        }
-    };
-    let drive_b = async {
-        for round in 0..ROUNDS {
-            b.send(round + 100).unwrap();
-            b.gossip_once(&mut b_link).await.expect("B's session");
-        }
-    };
-    timeout(DEADLINE, async { tokio::join!(drive_a, drive_b) })
-        .await
-        .expect("eager rounds deadlocked: a next-session preamble was lost");
+            let drive_a = async {
+                for round in 0..ROUNDS {
+                    a.send(round).unwrap();
+                    a.gossip_once(&mut a_end.read, &mut a_end.write)
+                        .await
+                        .expect("A's session");
+                }
+            };
+            let drive_b = async {
+                for round in 0..ROUNDS {
+                    b.send(round + 100).unwrap();
+                    b.gossip_once(&mut b_end.read, &mut b_end.write)
+                        .await
+                        .expect("B's session");
+                }
+            };
+            timeout(DEADLINE, async { tokio::join!(drive_a, drive_b) })
+                .await
+                .expect("eager rounds deadlocked: a next-session preamble was lost");
 
-    // Both sides ran the same number of sessions, so the last session paired
-    // the final states: converged, holding every message both sides sent.
-    assert_eq!(a.snapshot().hash(), b.snapshot().hash());
-    assert_eq!(a.snapshot().len(), 2 * ROUNDS as usize);
-    assert_control_drained(a_link, b_link);
-}
-
-/// An epilogue-only session still advances the link's session epoch on
-/// both ends.
-///
-/// A converged pair runs a zero-data-stream session (nothing
-/// differs, so reconciliation opens no streams — asserted through the
-/// wrapped links' stream counters, not assumed), then diverges and
-/// reconciles again over the same link. The second session's data streams
-/// are labeled with each end's next epoch, so it converges only if the
-/// empty session advanced both counters in lockstep — catching any future
-/// "advance the epoch only when streams open" optimization on either end.
-#[tokio::test(flavor = "current_thread")]
-async fn empty_sessions_advance_epochs_in_lockstep() {
-    let (a, b) = pair().await;
-    let (a_link, b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let (mut a_link, a_report) = wrap_link(IoSide::Left, IoPlan::default(), a_link);
-    let (mut b_link, b_report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
-
-    // Session 1: the pair is converged, so this is preamble, greeting, and
-    // epilogue only — no data stream opens in either direction.
-    let (a_out, b_out) = timeout(DEADLINE, async {
-        tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
-    })
-    .await
-    .expect("the converged session deadlocked");
-    a_out.expect("A's empty session");
-    b_out.expect("B's empty session");
-
-    // The premise everything above rests on, asserted rather than assumed:
-    // the converged session opened no data streams. If a future change
-    // gives converged sessions a stream (an unconditional probe, say), the
-    // "epilogue-only session" coverage silently disappears — this catches
-    // that rot.
-    let (a_empty, b_empty) = (a_report.snapshot(), b_report.snapshot());
-    assert_eq!(
-        (
-            a_empty.connects,
-            a_empty.accepts,
-            b_empty.connects,
-            b_empty.accepts,
-        ),
-        (0, 0, 0, 0),
-        "the converged session must open no data streams in either direction",
-    );
-
-    // Session 2, same link, real divergence: its streams carry epoch 1.
-    a.send(1).unwrap();
-    b.send(2).unwrap();
-    let (a_out, b_out) = timeout(DEADLINE, async {
-        tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
-    })
-    .await
-    .expect("the divergent session deadlocked");
-    a_out.expect("A's divergent session");
-    b_out.expect("B's divergent session");
-    assert_eq!(a.snapshot().hash(), b.snapshot().hash());
-    assert_eq!(a.snapshot().len(), 2);
-}
-
-/// The u8 session epoch wraps while both ends stay in lockstep: after
-/// enough sessions on one link the counter crosses 255 back to 0, and
-/// sessions spanning the wrap still label their streams consistently and
-/// converge.
-///
-/// Strategy: converged no-op sessions advance to two epochs below `u8::MAX`,
-/// then divergent rounds cross the maximum and continue after wrapping to
-/// zero.
-#[tokio::test(flavor = "current_thread")]
-async fn epoch_wrap_keeps_the_pair_in_lockstep() {
-    let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let pre_wrap_epoch = PRE_WRAP_SESSIONS as u8;
-    let final_epoch = pre_wrap_epoch.wrapping_add(WRAP_ROUNDS as u8);
-    assert!(
-        final_epoch < pre_wrap_epoch,
-        "the fixture must cross the epoch boundary"
-    );
-
-    for session in 0..PRE_WRAP_SESSIONS {
-        let (a_out, b_out) = timeout(DEADLINE, async {
-            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
-        })
-        .await
-        .unwrap_or_else(|_| panic!("no-op session {session} deadlocked"));
-        a_out.expect("A's no-op session");
-        b_out.expect("B's no-op session");
+            // Both sides ran the same number of sessions, so the last session paired
+            // the final states: converged, holding every message both sides sent.
+            assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+            assert_eq!(a.snapshot().len(), 2 * ROUNDS as usize);
+            assert_connection_drained(a_end, b_end);
+        });
     }
-    assert_eq!(a_link.session_state().epoch(), pre_wrap_epoch);
-    assert_eq!(b_link.session_state().epoch(), pre_wrap_epoch);
-
-    for round in 0..WRAP_ROUNDS {
-        a.send(round).unwrap();
-        b.send(100 + round).unwrap();
-        let (a_out, b_out) = timeout(DEADLINE, async {
-            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
-        })
-        .await
-        .unwrap_or_else(|_| panic!("wrap round {round} deadlocked"));
-        a_out.expect("A's wrap-spanning session");
-        b_out.expect("B's wrap-spanning session");
-        assert_eq!(
-            a.snapshot().hash(),
-            b.snapshot().hash(),
-            "wrap round {round} did not converge the pair"
-        );
-        let expected_epoch = pre_wrap_epoch.wrapping_add(round as u8 + 1);
-        assert_eq!(a_link.session_state().epoch(), expected_epoch);
-        assert_eq!(b_link.session_state().epoch(), expected_epoch);
-    }
-    assert_eq!(a.snapshot().len(), 2 * WRAP_ROUNDS as usize);
-    assert_control_drained(a_link, b_link);
 }
 
-/// Negative control for `assert_control_drained`: the assert must catch the
-/// class it gates.
-///
-/// A pre-drain bug leaves peer-sent control bytes, never consumed by the
-/// session, buffered ahead of the next read — a class that otherwise only
-/// hand-tracing every early-out path catches. This test manufactures
-/// exactly that shape: a clean session runs to `Ok` on both sides, then
-/// one stray byte is planted on B's control write half (landing unread in
-/// front of A), and the drain assert must fail. If this test ever passes
-/// with the helper silent, the gate's drain coverage has rotted to a no-op.
-#[tokio::test(flavor = "current_thread")]
-async fn drain_assert_catches_a_planted_leftover_byte() {
-    let (a, b) = pair().await;
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let (a_out, b_out) = timeout(DEADLINE, async {
-        tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
-    })
-    .await
-    .expect("the clean session deadlocked");
-    a_out.expect("A's session");
-    b_out.expect("B's session");
+/// Items each side flushes in a session that carries no frame: the
+/// preamble, the greeting, and the completion marker, one flush each.
+const FRAMELESS_FLUSHES: usize = 3;
 
-    // Plant one unread byte toward A: what a session that failed to drain
-    // a peer frame would leave resting on the control stream.
-    let mut b_parts = b_link;
-    b_parts
-        .control_write
-        .write_all(&[0xAA])
-        .await
-        .expect("planting the leftover byte");
-    let b_link = b_parts;
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
 
-    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        assert_control_drained(a_link, b_link);
-    }));
-    assert!(
-        caught.is_err(),
-        "the drain assert must fail on a planted leftover control byte"
-    );
+    /// A session that carries no frame leaves the connection reusable.
+    ///
+    /// A converged pair runs a session of control items alone (nothing differs,
+    /// so no frame crosses — asserted through the wrapped halves' flush counts,
+    /// not assumed), then diverges and reconciles again over the same
+    /// connection, which converges only if the frameless session left both
+    /// halves exactly at its boundary.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn a_frameless_session_leaves_the_connection_reusable(network in network_seed()) {
+        tokio_block_on(async {
+            let (a, b) = pair(network).await;
+            let (a_end, b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
+            let (mut a_read, mut a_write, a_report) = wrap_io(
+                IoSide::Left,
+                IoPlan::default(),
+                a_end.read.into_inner(),
+                a_end.write,
+            );
+            let (mut b_read, mut b_write, b_report) = wrap_io(
+                IoSide::Right,
+                IoPlan::default(),
+                b_end.read.into_inner(),
+                b_end.write,
+            );
+
+            // Session 1: the pair is converged, so this is preamble, greeting, and
+            // epilogue only.
+            let (a_out, b_out) = timeout(DEADLINE, async {
+                tokio::join!(
+                    a.gossip_once(&mut a_read, &mut a_write),
+                    b.gossip_once(&mut b_read, &mut b_write)
+                )
+            })
+            .await
+            .expect("the converged session deadlocked");
+            a_out.expect("A's frameless session");
+            b_out.expect("B's frameless session");
+
+            // The premise everything above rests on, asserted rather than assumed:
+            // the converged session flushed no frame. If a future change gives
+            // converged sessions a frame (an unconditional probe, say), the
+            // "frameless session" coverage silently disappears — this catches that
+            // rot.
+            let (a_empty, b_empty) = (a_report.snapshot(), b_report.snapshot());
+            assert_eq!(
+                (a_empty.flushes, b_empty.flushes),
+                (FRAMELESS_FLUSHES, FRAMELESS_FLUSHES),
+                "the converged session must flush no frame in either direction",
+            );
+
+            // Session 2, same connection, real divergence.
+            a.send(1).unwrap();
+            b.send(2).unwrap();
+            let (a_out, b_out) = timeout(DEADLINE, async {
+                tokio::join!(
+                    a.gossip_once(&mut a_read, &mut a_write),
+                    b.gossip_once(&mut b_read, &mut b_write)
+                )
+            })
+            .await
+            .expect("the divergent session deadlocked");
+            a_out.expect("A's divergent session");
+            b_out.expect("B's divergent session");
+            assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+            assert_eq!(a.snapshot().len(), 2);
+        });
+    }
+
+    /// Negative control for `assert_connection_drained`: the assert must catch the
+    /// class it gates.
+    ///
+    /// A pre-drain bug leaves peer-sent bytes, never consumed by the session,
+    /// buffered ahead of the next read — a class that otherwise only
+    /// hand-tracing every early-out path catches. This test manufactures
+    /// exactly that shape: a clean session runs to `Ok` on both sides, then
+    /// one stray byte is planted on B's write half (landing unread in front of
+    /// A), and the drain assert must fail. If this test ever passes
+    /// with the helper silent, the gate's drain coverage has rotted to a no-op.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn drain_assert_catches_a_planted_leftover_byte(network in network_seed()) {
+        tokio_block_on(async {
+            let (a, b) = pair(network).await;
+            let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
+            let (a_out, b_out) = timeout(DEADLINE, async {
+                tokio::join!(
+                    a.gossip_once(&mut a_end.read, &mut a_end.write),
+                    b.gossip_once(&mut b_end.read, &mut b_end.write)
+                )
+            })
+            .await
+            .expect("the clean session deadlocked");
+            a_out.expect("A's session");
+            b_out.expect("B's session");
+
+            // Plant one unread byte toward A: what a session that failed to drain
+            // a peer item would leave resting on the connection.
+            b_end
+                .write
+                .write_all(&[0xAA])
+                .await
+                .expect("planting the leftover byte");
+
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                assert_connection_drained(a_end, b_end);
+            }));
+            assert!(
+                caught.is_err(),
+                "the drain assert must fail on a planted leftover byte"
+            );
+        });
+    }
 }

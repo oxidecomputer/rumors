@@ -15,7 +15,7 @@ edition = "2021"
 # `meter` feature exposes the committed adversarial family generators the
 # renders overlay as marked points.
 before = { workspace = true, features = ["meter"] }
-# The fuel apparatus of record: the fuzzfit harness's wasmtime driver runs
+# The fuel apparatus: the fuzzfit harness's wasmtime driver runs
 # one public operation per guest call under deterministic instruction-count
 # fuel. Reused whole rather than duplicated, so the atlas and the band
 # enforcement read the same currency from the same guest.
@@ -36,13 +36,13 @@ clap = { workspace = true, features = ["derive"] }
 
 # Exact-integer counting tables and proportional choice: uniform sampling
 # is arithmetic over exact counts, never floats.
-num-bigint = { workspace = true, features = ["rand"] }
+num-bigint = { workspace = true, features = ["rand_0_10"] }
 num-traits.workspace = true
-# Deterministic per-cell seed streams; the same documented-portable
-# generator the fuzzfit harness and the parent crate's sweeps use, at the 0.8
-# releases num-bigint 0.4's `rand` feature speaks.
-rand08.workspace = true
-rand_chacha03.workspace = true
+# Deterministic per-cell seed streams: ChaCha, the documented-portable
+# generator the parent crate's sweeps use, at the releases num-bigint's
+# `rand_0_10` feature speaks.
+rand.workspace = true
+rand_chacha.workspace = true
 # Host-side fan-out across sampling cells; every cell's RNG is seeded from
 # (op, size, sample index), so parallel order cannot change any draw.
 rayon.workspace = true

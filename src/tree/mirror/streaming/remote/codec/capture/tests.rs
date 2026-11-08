@@ -11,17 +11,19 @@ use crate::Version;
 use crate::message::{Message, PayloadDepthLimit};
 use crate::tree::mirror::cbor::MAJOR_BSTR;
 
+use super::super::budget::RunBudget;
 use super::super::encode::encode;
 use super::super::frame::{Frame, LeafRun, Reaction};
 use super::super::signal::Flow;
 
-/// Encode one supply frame carrying `payload` as a single record on
-/// stream 0, the harness-reachable shape a captured frame arrives in.
+/// Encode one initiator supply frame carrying `payload` as a single record
+/// on stream 1, an interior stream: the harness-reachable shape a captured
+/// frame arrives in.
 fn supply_frame(payload: &Message) -> (Stream, Vec<u8>) {
     let mut run = LeafRun::new();
-    run.push(&Version::new(), payload)
+    run.push(&Version::new(), payload, RunBudget::default())
         .expect("one record fits a fresh run");
-    let stream = Stream::new(0).expect("stream 0 names a stream");
+    let stream = Stream::new(1).expect("stream 1 names a stream");
     let frame = (stream, Frame::Reaction(Reaction::Supply(run), Flow::End));
     let mut bytes = Vec::new();
     encode(Speaker::Initiator, &frame, &mut bytes).expect("a supply frame encodes");
@@ -195,19 +197,6 @@ fn items_accounting_refuses_unobserved_bytes() {
 #[should_panic(expected = "does not match the wire")]
 fn items_accounting_refuses_diverging_items() {
     assert_items_account_for(&[vec![1, 9]], &[1, 2]);
-}
-
-/// The stream label parses to its epoch and index, and reports its
-/// exact byte length.
-#[test]
-fn stream_label_parses_epoch_and_index() {
-    let mut bytes = Vec::new();
-    cbor::write_head(&mut bytes, MAJOR_UINT, 1);
-    cbor::write_head(&mut bytes, MAJOR_UINT, 200);
-    bytes.push(0xee);
-    let ((epoch, index), len) = stream_label(&bytes);
-    assert_eq!((epoch, index), (1, 200));
-    assert_eq!(len, 3, "one short head and one byte-argument head");
 }
 
 /// Control items are named by their shape.

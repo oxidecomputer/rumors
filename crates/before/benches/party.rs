@@ -3,9 +3,10 @@
 //! oracle counterpart and are timed for the impl alone.
 
 use before::Party;
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
+use std::hint::black_box;
 
 mod common;
 use common::{SEED, SIZES};

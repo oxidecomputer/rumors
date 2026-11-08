@@ -33,7 +33,7 @@ pub const WORST_MAP_SCALES: [(&str, f64); 2] =
 /// the rendered table.
 ///
 /// The band is the constant-factor headroom the board's calibrated ceilings
-/// grant a single reading (a ratified ceiling is the worst reading ×1.25): two
+/// grant a single reading (a committed ceiling is the worst reading ×1.25): two
 /// families inside it are one reading apart, not two classes, so their rank
 /// order is a fact about the chosen scale's constants, not about the shapes;
 /// the flag stops a reader from over-reading rank 1 vs rank 2. The flag never
@@ -49,7 +49,7 @@ const MAP_CURRENCIES: [Currency; 1] = [Currency::Heap];
 pub(super) struct Entry {
     /// The family name.
     pub(super) family: &'static str,
-    /// The board's normalized constant of record for the cell.
+    /// The normalized constant the board judges the cell by.
     pub(super) value: f64,
     /// Whether the cell is judged under a declared model for this
     /// currency (rendered `*`: intended and modeled).
