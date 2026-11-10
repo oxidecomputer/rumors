@@ -64,6 +64,7 @@ alloc-meter = { path = "crates/alloc-meter" }
 aes-gcm = { version = "0.11", default-features = false }
 anyhow = "1"
 async-stream = "0.3"
+axum = { version = "0.8.9", default-features = false }
 # The visualizer encodes through the scalar URL-safe engine alone, so the
 # SIMD engines behind the default `simd-unsafe` feature stay uncompiled.
 base64 = { version = "0.23", default-features = false, features = ["std"] }
@@ -115,6 +116,7 @@ hmac = "0.13"
 # HPKE (RFC 9180), rozbb/rust-hpke on RustCrypto's `p256`, `hkdf` and
 # `aes-gcm`: the bootstrap's sealed exchange.
 hpke = { version = "0.15", default-features = false }
+http = "1"
 indicatif = "0.18"
 insta = "1.49"
 itertools = "0.15"
@@ -123,6 +125,7 @@ mimalloc = "0.1"
 nix = { version = "0.31", default-features = false }
 num-bigint = "0.5"
 num-traits = "0.2"
+nutype = { version = "0.8", features = ["serde"] }
 peak_alloc = "0.3"
 plotters = { version = "0.3", default-features = false }
 # 1.0's `block_on` keeps a wakeup only in its thread's park token, so a
@@ -134,6 +137,7 @@ pollster = { version = "0.4", features = ["macro"] }
 postcard = { version = "1", default-features = false, features = ["use-std"] }
 proptest = "1.12"
 rand = "0.10"
+redb = "4.5"
 rand08 = { package = "rand", version = "0.8" }
 rand_chacha = "0.10"
 rand_chacha03 = { package = "rand_chacha", version = "0.3" }
@@ -172,6 +176,7 @@ tempfile = "3.27"
 thiserror = "2"
 tinyvec = { version = "1.13", features = ["alloc"] }
 tokio = { version = "1", default-features = false }
+tokio-util = { version = "0.7", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 toml = "1"
 tracing = "0.1"
@@ -224,7 +229,7 @@ test-internals = ["tokio/rt", "dep:cbor-diag", "dep:proptest", "dep:rand_chacha"
 conformance = []
 # Atomic file storage for bookmarks, driven by a caller-supplied blocking
 # executor. Tokio's `rt` provides the blocking pool behind `TokioBlocking`.
-fs = ["dep:tempfile", "tokio/rt"]
+fs = ["dep:redb", "tokio/rt"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }
@@ -253,13 +258,18 @@ seq-macro.workspace = true
 smallvec.workspace = true
 tinyvec.workspace = true
 thiserror.workspace = true
+# `Display` for enums that label parts of a frame or reply but describe no
+# failure, so they are not errors.
+strum_macros.workspace = true
 hex.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "sync"] }
 futures.workspace = true
 async-stream.workspace = true
 rand.workspace = true
 schnellru.workspace = true
-tempfile = { workspace = true, optional = true }
+# The `fs` feature's `FileBookmark`: one crash-safe file per bookmark, locked
+# for the bookmark's lifetime.
+redb = { workspace = true, optional = true }
 # The wire-capture renderer behind `test-internals` renders every captured
 # item in diagnostic notation through this crate.
 cbor-diag = { workspace = true, optional = true }
@@ -271,7 +281,8 @@ proptest = { workspace = true, optional = true }
 rand_chacha = { workspace = true, optional = true }
 
 [dev-dependencies]
-rumors = { path = ".", features = ["test-internals", "conformance"] }
+# The kv example persists its peer identity through `FileBookmark`.
+rumors = { path = ".", features = ["test-internals", "conformance", "fs"] }
 rumors-testkit.workspace = true
 # The meter feature lights before's instrument surface for this crate's
 # own tests: the conservation suite reads the exact-bit-length observation
@@ -292,6 +303,8 @@ tokio = { workspace = true, features = [
     # Paused-clock runtimes: the latency benchmarks charge simulated wire
     # delay to virtual time so sweeps cost wall-clock compute only.
     "test-util",
+    # The kv example retires its peer on Ctrl-C.
+    "signal",
 ] }
 rand.workspace = true
 # Deterministic tests and benchmarks use ChaCha: its output is fixed across
@@ -307,10 +320,27 @@ fork.workspace = true
 # oracle for the documented bindings, with its allocating API.
 hpke = { workspace = true, features = ["alloc"] }
 # The TLS record suite runs sessions over TLS 1.3 to check that the
-# default write batch fits each record in one TCP segment.
-rcgen.workspace = true
+# default write batch fits each record in one TCP segment. The kv example
+# creates its self-signed network credentials and writes them as PEM.
+rcgen = { workspace = true, features = ["pem"] }
 rustls.workspace = true
 tokio-rustls.workspace = true
+# The kv example's command-line interface, its error reporting, and its
+# cancellation and task tracking.
+clap = { workspace = true, features = ["derive"] }
+anyhow.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
+# The kv example's HTTP interface: plain-text and JSON reads, and form-encoded
+# writes, served over HTTP/1.
+axum = { workspace = true, features = ["tokio", "http1", "json", "form"] }
+# The kv example parses peer addresses as `host[:port]` authorities, resolved
+# when it dials.
+http.workspace = true
+# The kv example's keys and values: non-empty strings, checked when parsed.
+nutype.workspace = true
+# The kv example publishes its credentials file atomically, without
+# overwriting one that a concurrently starting node already published.
+tempfile.workspace = true
 
 [profile.dev]
 debug = "line-tables-only"

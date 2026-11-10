@@ -20,7 +20,7 @@ pub enum Error<E> {
     #[error("failed to decode the peer's greeting")]
     GreetingDecode(#[source] codec::GreetingError),
     /// Sending the local greeting failed before reconciliation began.
-    #[error("{operation} failed during the greeting: {source}")]
+    #[error("{operation} failed during the greeting")]
     GreetingWrite {
         /// Whether writing or flushing failed.
         operation: crate::error::TransportOperation,

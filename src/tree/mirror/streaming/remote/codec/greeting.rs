@@ -157,11 +157,12 @@ pub enum GreetingStructureError {
         actual: cbor::Head,
     },
     /// The next map key does not name the field required at this position.
-    #[error("expected the {expected} key next, but {issue}")]
+    #[error("expected the {expected} key next")]
     Key {
         /// Field whose key belongs at this position.
         expected: GreetingField,
         /// How the received key differs.
+        #[source]
         issue: GreetingKeyError,
     },
     /// A numeric field is encoded as another CBOR major type.
@@ -239,17 +240,17 @@ pub enum GreetingStructureError {
 #[non_exhaustive]
 pub enum GreetingError {
     /// A head was truncated, indefinite, reserved, or widened.
-    #[error("greeting head is not canonical: {0}")]
-    Head(HeadError),
+    #[error("greeting head is not canonical")]
+    Head(#[source] HeadError),
     /// The greeting's fixed structure is malformed.
-    #[error("greeting is malformed: {0}")]
-    Structure(GreetingStructureError),
+    #[error("greeting is malformed")]
+    Structure(#[source] GreetingStructureError),
     /// The listing map violated a structural rule.
-    #[error("greeting listing is malformed: {0}")]
-    Listing(ListingIssue),
+    #[error("greeting listing is malformed")]
+    Listing(#[source] ListingIssue),
     /// The version atom's bytes are not one canonical version encoding.
-    #[error("greeting version does not decode: {0}")]
-    Version(before::error::Decode),
+    #[error("greeting version does not decode")]
+    Version(#[source] before::error::Decode),
 }
 
 /// Parse a greeting map from the embedded byte string's exact content.

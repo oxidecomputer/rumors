@@ -60,36 +60,36 @@ impl fmt::Display for Origin {
 }
 
 /// The absent or malformed component of a frame.
-#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, strum_macros::Display, PartialEq, Eq)]
 pub enum FramePart {
     /// The array head that begins a frame.
-    #[error("frame head")]
+    #[strum(to_string = "frame head")]
     FrameHead,
     /// The signal that identifies the frame's operation.
-    #[error("signal")]
+    #[strum(to_string = "signal")]
     Signal,
     /// The set of later matches carried by a match.
-    #[error("later matches")]
+    #[strum(to_string = "later matches")]
     MatchSet,
     /// The child map carried by a query.
-    #[error("query child listing")]
+    #[strum(to_string = "query child listing")]
     QueryChildren,
     /// The length that begins a supplied run.
-    #[error("supply run head")]
+    #[strum(to_string = "supply run head")]
     SupplyLength,
     /// The records carried by a supplied run.
-    #[error("supply run")]
+    #[strum(to_string = "supply run")]
     SupplyRun,
 }
 
 /// One unsigned integer in the two-item frame opener.
-#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, strum_macros::Display, PartialEq, Eq)]
 pub enum OpenerItem {
     /// The logical stream index.
-    #[error("stream index")]
+    #[strum(to_string = "stream index")]
     Stream,
     /// The reaction state code.
-    #[error("state code")]
+    #[strum(to_string = "state code")]
     State,
 }
 
@@ -127,7 +127,7 @@ pub enum EncodeErrorKind {
 
 /// An outgoing codec failure with its speaker and stream.
 #[derive(Debug, thiserror::Error)]
-#[error("{origin}: {kind}")]
+#[error("{origin}: could not encode a frame")]
 pub struct EncodeError {
     /// The direction and logical stream being written.
     pub origin: Origin,
@@ -151,7 +151,7 @@ impl EncodeError {
 #[non_exhaustive]
 pub enum DecodeLeafError {
     /// The record's version is invalid.
-    #[error("supplied Version could not be decoded: {0}")]
+    #[error("supplied Version could not be decoded")]
     Version(#[source] VersionDecodeError),
     /// The record's payload is invalid.
     #[error("supplied Message could not be decoded")]
@@ -162,7 +162,7 @@ pub enum DecodeLeafError {
 #[derive(Debug, thiserror::Error)]
 pub enum VersionDecodeError {
     /// The version tag's CBOR head is malformed.
-    #[error("version tag head is invalid: {0}")]
+    #[error("version tag head is invalid")]
     TagHead(#[source] HeadError),
     /// The version atom does not begin with the version tag.
     #[error("version tag is {actual:?}; expected the version-atom tag")]
@@ -171,7 +171,7 @@ pub enum VersionDecodeError {
         actual: Head,
     },
     /// The version byte string's CBOR head is malformed.
-    #[error("version byte-string head is invalid: {0}")]
+    #[error("version byte-string head is invalid")]
     BytesHead(#[source] HeadError),
     /// The version tag does not wrap a byte string.
     #[error("version body has head {actual:?}; expected a byte string")]
@@ -194,7 +194,7 @@ pub enum VersionDecodeError {
         available: usize,
     },
     /// The complete bytes are not one valid version encoding.
-    #[error("version bytes are invalid: {0}")]
+    #[error("version bytes are invalid")]
     Value(#[source] before::error::Decode),
 }
 
@@ -224,7 +224,7 @@ pub enum DecodeErrorKind {
         source: std::io::Error,
     },
     /// A CBOR head was truncated, reserved, indefinite, or not shortest-form.
-    #[error("frame's {part} head is invalid: {source}")]
+    #[error("frame's {part} head is invalid")]
     Head {
         /// The frame component whose head was invalid.
         part: FramePart,
@@ -233,7 +233,7 @@ pub enum DecodeErrorKind {
         source: HeadError,
     },
     /// A query's child listing violated its shared structural grammar.
-    #[error("query child listing is invalid: {0}")]
+    #[error("query child listing is invalid")]
     InvalidListing(#[source] ListingIssue),
     /// The frame item does not begin with a CBOR array.
     #[error("frame head is {actual:?}; expected an array")]
@@ -276,7 +276,7 @@ pub enum DecodeErrorKind {
     )]
     EmptyMatchSet,
     /// A match's body is not a set's canonical encoding.
-    #[error("a match's later matches are not canonically encoded: {0}")]
+    #[error("a match's later matches are not canonically encoded")]
     InvalidMatchSet(#[source] ByteSetError),
     /// A query body does not begin with a child-listing map.
     #[error("query body has head {actual:?}; expected a child-listing map")]
@@ -331,7 +331,7 @@ pub enum DecodeErrorKind {
 
 /// An incoming codec failure with its known protocol origin.
 #[derive(Debug, thiserror::Error)]
-#[error("{origin}: {kind}")]
+#[error("{origin}: could not decode a frame")]
 pub struct DecodeError {
     /// The known direction and logical stream.
     pub origin: Origin,

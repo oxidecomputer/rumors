@@ -73,7 +73,7 @@ proptest! {
             a.send(7).unwrap();
             let before = a.snapshot().hash();
             let (mut end, mut remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut sessions = a.gossip(&mut end.read, &mut end.write);
+            let mut sessions = a.gossip_stream(&mut end.read, &mut end.write);
             for _ in 0..idle_polls {
                 assert!(sessions.next().now_or_never().is_none());
                 assert_eq!(deadlines.count(), 0, "idle is untimed");
@@ -118,8 +118,8 @@ proptest! {
             let other_handle = a.clone();
             let (mut ab, mut ba) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (mut ac, mut ca) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut to_b = a.gossip(&mut ab.read, &mut ab.write);
-            let mut to_c = other_handle.gossip(&mut ac.read, &mut ac.write);
+            let mut to_b = a.gossip_stream(&mut ab.read, &mut ab.write);
+            let mut to_c = other_handle.gossip_stream(&mut ac.read, &mut ac.write);
             for round in 0..rounds {
                 b.send(round).unwrap();
                 let (left, right) = futures::join!(to_b.next(), b.gossip_once(&mut ba.read, &mut ba.write));
@@ -214,7 +214,7 @@ divided_proptest! {
                     .into_rumors();
                 let (mut end, mut remote) =
                     rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-                let mut sessions = a.gossip(&mut end.read, &mut end.write);
+                let mut sessions = a.gossip_stream(&mut end.read, &mut end.write);
                 assert!(sessions.next().now_or_never().is_none());
                 advance(Duration::from_secs(60)).await;
                 assert!(sessions.next().now_or_never().is_none());
@@ -272,7 +272,7 @@ proptest! {
             assert!(store.lock().unwrap().is_some());
             let b = peer.into_rumors();
             assert_eq!(a.snapshot().hash(), b.snapshot().hash());
-            let mut sessions = b.gossip(&mut far.read, &mut far.write);
+            let mut sessions = b.gossip_stream(&mut far.read, &mut far.write);
             assert!(sessions.next().now_or_never().is_none(), "passive policy survives join");
             assert_eq!(deadlines.count(), attempts + 1, "idle is untimed");
             drop(sessions);
@@ -315,7 +315,7 @@ divided_proptest! {
             let a = failure.peer.into_rumors();
             let (mut end, _remote) =
                 rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut sessions = a.gossip(&mut end.read, &mut end.write);
+            let mut sessions = a.gossip_stream(&mut end.read, &mut end.write);
             assert!(sessions.next().now_or_never().is_none());
             assert_eq!(deadlines.count(), 0);
             drop(sessions);

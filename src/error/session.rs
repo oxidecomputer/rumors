@@ -135,7 +135,7 @@ impl fmt::Display for Context {
 /// bytes arrive is represented by `UnexpectedEof`. The context and original
 /// source remain available for logging; no message parsing is needed.
 #[derive(Debug, thiserror::Error)]
-#[error("{operation} failed during {context}: {source}")]
+#[error("{operation} failed during {context}")]
 #[non_exhaustive]
 pub struct TransportError {
     /// Where the failure was detected.
@@ -154,7 +154,7 @@ pub struct TransportError {
 /// concrete type is not part of the public API; applications handle this as one
 /// failure category rather than depending on individual grammar checks.
 #[derive(Debug, thiserror::Error)]
-#[error("protocol violation during {context}: {source}")]
+#[error("protocol violation during {context}")]
 pub struct ProtocolViolation {
     /// Where the violation was detected, with stream information when known.
     pub context: Context,

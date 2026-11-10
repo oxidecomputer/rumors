@@ -1,346 +1,243 @@
-//! A guided first session: two peers, one universe, two messages, one
-//! redaction.
+//! A practical guide: using `rumors` to build an eventually-consistent
+//! replicated KV store.
 //!
-//! In this tutorial we will build a two-peer gossip network inside a single
-//! process: seed a universe, send a message and see it, bootstrap a second peer
-//! that arrives already holding it, keep the pair converged over a long-lived
-//! connection, and finally redact the message and watch it vanish from both
-//! replicas. Along the way we will meet [`Peer`](crate::Peer),
-//! [`Rumors`](crate::Rumors), [`Snapshot`](crate::Snapshot), in-memory
-//! connections, and the [`gossip`](crate::Rumors::gossip) driver.
+//! In this tutorial, we will start from scratch and build up a complete,
+//! running application, which implements a key-value store using `rumors` to
+//! synchronize state. To follow along, paste each Rust code block successively
+//! into your `main.rs`.
 //!
-//! Everything runs over in-memory connections, so there is no network to
-//! configure. Binding a real transport is the crate docs'
-//! [transport](crate#transport) section's topic; how a session works under the
-//! hood is the [`reconciliation`](crate::reconciliation) page's. Neither is
-//! needed here.
+//! # Step 1: dependencies
 //!
-//! Every step below is a complete program: paste it over your `main.rs`, run
-//! it, and compare against the output shown.
-//!
-//! # Step 1: a place to stand
-//!
-//! Start a fresh binary crate (`cargo new meetings`) and add three
-//! dependencies:
+//! Start a fresh binary crate (`cargo new kv`) and add three dependencies:
 //!
 //! ```toml
 //! [dependencies]
 //! rumors = "0.1"
-//! tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread"] }
 //! futures = "0.3"
+//! rustls = "0.23"
+//! tokio = { version = "1", features = [
+//!     "io-util", "macros", "net", "rt-multi-thread", "time",
+//! ] }
+//! tokio-rustls = "0.26"
 //! ```
 //!
 //! We drive everything with Tokio for convenience only; the crate itself is
 //! [runtime-independent](crate#runtime-independence) — sessions and observers
-//! are plain futures and streams. `futures` supplies the `StreamExt` adapter we
-//! will use in step 5.
+//! are plain futures and streams.
 //!
-//! Replace `main.rs` with an async main that can report errors:
+//! ```ignore
+//! use std::error::Error;
+//! use std::path::Path;
+//! use std::sync::Arc;
 //!
-//! ```
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     Ok(())
-//! }
-//! ```
+//! use rustls::pki_types::pem::PemObject;
+//! use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+//! use rustls::server::WebPkiClientVerifier;
+//! use rustls::{ClientConfig, RootCertStore, ServerConfig};
+//! use tokio_rustls::{TlsAcceptor, TlsConnector};
 //!
-//! `cargo run` should compile and print nothing. That empty program is the
-//! foundation every following step builds on.
-//!
-//! # Step 2: seed a universe
-//!
-//! A gossip network — a *universe* — begins when exactly one process calls
-//! [`seed`](crate::Peer::seed); every other participant will join by
-//! bootstrapping from a member. (In a real deployment, pick the seeder by fiat
-//! — a `--seed` flag on one host is plenty; to start leaderlessly instead, see
-//! [Bootstrapping without
-//! consensus](crate::Peer#bootstrapping-without-consensus).) Seed the universe
-//! and trade the [`Peer`](crate::Peer) for the [`Rumors`](crate::Rumors) handle
-//! we will work with:
-//!
-//! ```
-//! use rumors::Peer;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let alice = Peer::<String>::seed().into_rumors();
-//!
-//!     println!("alice holds {} messages", alice.snapshot().len());
-//!     Ok(())
-//! }
-//! ```
-//!
-//! The output should be exactly:
-//!
-//! ```text
-//! alice holds 0 messages
-//! ```
-//!
-//! Notice the type parameter: this universe carries `String` messages, and
-//! every peer in it will agree on that.
-//!
-//! # Step 3: send a message and see it
-//!
-//! Now send something, and read it back through a
-//! [`snapshot`](crate::Rumors::snapshot) — a cheap, point-in-time view of the
-//! live set:
-//!
-//! ```
-//! use rumors::Peer;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let alice = Peer::<String>::seed().into_rumors();
-//!
-//!     alice.send("the meeting is at noon".to_string())?;
-//!
-//!     for (_version, message) in alice.snapshot().iter() {
-//!         println!("alice holds: {message}");
+//! fn tls(dir: &Path) -> Result<(TlsConnector, TlsAcceptor), Box<dyn Error>> {
+//!     let mut network_ca = RootCertStore::empty();
+//!     for authority in CertificateDer::pem_file_iter(dir.join("ca.pem"))? {
+//!         network_ca.add(authority?)?;
 //!     }
-//!     Ok(())
+//!     let network_ca = Arc::new(network_ca);
+//!     let cert = CertificateDer::pem_file_iter(dir.join("cert.pem"))?
+//!         .collect::<Result<Vec<_>, _>>()?;
+//!     let key = PrivateKeyDer::from_pem_file(dir.join("key.pem"))?;
+//!
+//!     let client = ClientConfig::builder()
+//!         .with_root_certificates(network_ca.clone())
+//!         .with_client_auth_cert(cert.clone(), key.clone_key())?;
+//!     let verifier = WebPkiClientVerifier::builder(network_ca).build()?;
+//!     let server = ServerConfig::builder()
+//!         .with_client_cert_verifier(verifier)
+//!         .with_single_cert(cert, key)?;
+//!     Ok((Arc::new(client).into(), Arc::new(server).into()))
 //! }
 //! ```
 //!
-//! ```text
-//! alice holds: the meeting is at noon
-//! ```
+//! ```ignore
+//! use std::collections::BTreeMap;
+//! use std::sync::Mutex;
+//! use std::time::Duration;
 //!
-//! A `send` commits right there, at the call; it errs only on a payload that
-//! violates the [payload contract](crate#choosing-a-payload-type). Applying
-//! several changes as one commit is [`batch`](crate::Rumors::batch)'s job. The
-//! snapshot yields a [`Version`](crate::Version) alongside each message; step 6
-//! uses it to redact that specific message.
+//! use rumors::{Peer, Rumors};
 //!
-//! # Step 4: bootstrap Bob
+//! fn session_deadline() -> tokio::time::Sleep {
+//!     tokio::time::sleep(Duration::from_secs(30))
+//! }
 //!
-//! A second peer does not call `seed` — it would create a separate universe,
-//! forever unable to gossip with this one. Instead it
-//! [`bootstrap`](crate::Peer::bootstrap)s through any established member: one
-//! session against Alice joins her network and gives Bob a full replica. A
-//! session runs over one connection, which it takes as two halves, a read half
-//! and a write half. `tokio::io::duplex` makes an in-process connection,
-//! `tokio::io::split` splits each end into its halves, and
-//! `tokio::io::BufReader` buffers each read half, as a session requires; each
-//! end is a conduit to exactly one counterparty. Alice serves her end from a
-//! spawned task while Bob joins through the other:
+//! struct State {
+//!     rumors: Option<Rumors<String>>,
+//!     kv: BTreeMap<String, String>,
+//! }
 //!
-//! ```
-//! use rumors::Peer;
+//! struct Node {
+//!     state: Mutex<State>,
+//! }
 //!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string())?;
-//!
-//!     // Alice serves one gossip session on her end of the connection...
-//!     let (near, far) = tokio::io::duplex(64 * 1024);
-//!     let (far_read, far_write) = tokio::io::split(far);
-//!     let far_read = tokio::io::BufReader::new(far_read);
-//!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
-//!
-//!     // ...and Bob joins the universe through the other end.
-//!     let (near_read, near_write) = tokio::io::split(near);
-//!     let near_read = tokio::io::BufReader::new(near_read);
-//!     let rumors::Joined::Joined { peer: bob, .. } =
-//!         Peer::<String>::bootstrap().join(near_read, near_write).await
-//!     else {
-//!         panic!("Alice must serve Bob’s bootstrap");
-//!     };
-//!     let bob = bob.into_rumors();
-//!     server.await??;
-//!
-//!     for (_version, message) in bob.snapshot().iter() {
-//!         println!("bob holds: {message}");
+//! impl Node {
+//!     fn new() -> Self {
+//!         let peer = Peer::seed().session_deadline(session_deadline);
+//!         let state = State {
+//!             rumors: Some(peer.into_rumors()),
+//!             kv: BTreeMap::new(),
+//!         };
+//!         Self {
+//!             state: Mutex::new(state),
+//!         }
 //!     }
-//!     Ok(())
 //! }
 //! ```
 //!
-//! ```text
-//! bob holds: the meeting is at noon
-//! ```
+//! ```ignore
+//! use rumors::error::Mismatch;
 //!
-//! Notice that Bob arrives converged: the message Alice sent before the two
-//! ever met is already in his replica. Serving a bootstrap took nothing special
-//! from Alice — an ordinary [`gossip`](crate::Rumors::gossip) call serves Bob's
-//! join automatically.
-//!
-//! # Step 5: keep the pair converged
-//!
-//! To *keep* the pair converged, each side drives its own end of a long-lived
-//! connection — the *bridge* — with [`gossip`](crate::Rumors::gossip): the
-//! driver initiates a session whenever its `when` stream ticks (if there's been
-//! local change since the last gossip), and serves whatever the remote
-//! initiates. That second half is what to remember about the bridge — a driver
-//! serves only while polled, so a converged pair needs **one driver per end**,
-//! each polled, even if only one end ever originates news. Reusing the
-//! bootstrap connection here would be legal (a session that ends `Ok` returns
-//! its halves at a clean session boundary, ready for the next), but we moved
-//! its far end into Alice's serving task, so we make a fresh pair for the
-//! bridge:
-//!
-//! ```
-//! use futures::StreamExt;
-//! use rumors::Peer;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string())?;
-//!
-//!     let (near, far) = tokio::io::duplex(64 * 1024);
-//!     let (far_read, far_write) = tokio::io::split(far);
-//!     let far_read = tokio::io::BufReader::new(far_read);
-//!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
-//!     let (near_read, near_write) = tokio::io::split(near);
-//!     let near_read = tokio::io::BufReader::new(near_read);
-//!     let rumors::Joined::Joined { peer: bob, .. } =
-//!         Peer::<String>::bootstrap().join(near_read, near_write).await
+//! fn loses_to_remote(error: &rumors::Error) -> bool {
+//!     let rumors::Error::Mismatch(Mismatch::Network {
+//!         local_network,
+//!         local_min_events,
+//!         remote_network,
+//!         remote_min_events,
+//!         ..
+//!     }) = error
 //!     else {
-//!         panic!("Alice must serve Bob’s bootstrap");
+//!         return false;
 //!     };
-//!     let bob = bob.into_rumors();
-//!     server.await??;
-//!
-//!     // A second, long-lived connection between them, one driver per end.
-//!     let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
-//!     let (alice_read, alice_write) = tokio::io::split(alice_side);
-//!     let alice_read = tokio::io::BufReader::new(alice_read);
-//!     let (bob_read, bob_write) = tokio::io::split(bob_side);
-//!     let bob_read = tokio::io::BufReader::new(bob_read);
-//!
-//!     alice.send("bring the slides".to_string())?;
-//!
-//!     let mut alice_drive = alice.gossip(alice_read, alice_write);
-//!     let mut bob_drive = bob.gossip(bob_read, bob_write);
-//!
-//!     // Alice's change signal initiates; Bob's driver serves. One
-//!     // session converges the pair, and each driver reports it.
-//!     let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
-//!     pushed.expect("alice's driver is running")?;
-//!     served.expect("bob's driver is running")?;
-//!
-//!     assert_eq!(bob.snapshot().len(), 2);
-//!     println!("bob holds {} messages", bob.snapshot().len());
-//!     Ok(())
+//!     (local_min_events, local_network) < (remote_min_events, remote_network)
 //! }
 //! ```
 //!
-//! ```text
-//! bob holds 2 messages
-//! ```
+//! ```ignore
+//! use rumors::Joined;
+//! use tokio::io::{AsyncRead, AsyncWrite, BufReader};
 //!
-//! Providing [`changes`](crate::Rumors::changes) as the `when` stream
-//! implements push-on-change; an interval stream would gossip on a cadence
-//! instead. In an application these drivers live in long-running tasks, polled
-//! for as long as the connection should stay converged — here we poll each
-//! exactly once, for exactly one session.
+//! impl Node {
+//!     async fn gossip_over(
+//!         &self,
+//!         stream: impl AsyncRead + AsyncWrite + Send + Unpin,
+//!     ) -> Result<(), Box<dyn Error>> {
+//!         let (read, write) = tokio::io::split(stream);
+//!         let read = BufReader::new(read);
 //!
-//! # Step 6: redact, and watch it vanish
+//!         let current = self.state.lock().unwrap().rumors.clone();
+//!         let (rumors, read, write) = match current {
+//!             Some(rumors) => (rumors, read, write),
+//!             None => {
+//!                 let bootstrap =
+//!                     Peer::bootstrap().session_deadline(session_deadline);
+//!                 match bootstrap.join(read, write).await {
+//!                     Joined::Joined { peer, connection } => {
+//!                         let rumors = peer.into_rumors();
+//!                         self.state.lock().unwrap().rumors =
+//!                             Some(rumors.clone());
+//!                         let (read, write) = connection.into_halves()?;
+//!                         (rumors, read, write)
+//!                     }
+//!                     other => Err(format!("join failed: {other:?}"))?,
+//!                 }
+//!             }
+//!         };
 //!
-//! The meeting is over; take the message back. Redaction names a message by its
-//! [`Version`](crate::Version), and versions come back out of observation —
-//! snapshots and the [message streams](crate#how-should-you-observe-messages)
-//! attach one to every message — so we find the version by looking, then hand
-//! it to [`redact`](crate::Rumors::redact) and let the drivers spread the
-//! deletion. With this final addition, the whole program reads:
-//!
-//! ```
-//! use futures::StreamExt;
-//! use rumors::Peer;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string())?;
-//!
-//!     let (near, far) = tokio::io::duplex(64 * 1024);
-//!     let (far_read, far_write) = tokio::io::split(far);
-//!     let far_read = tokio::io::BufReader::new(far_read);
-//!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip_once(far_read, far_write).await });
-//!     let (near_read, near_write) = tokio::io::split(near);
-//!     let near_read = tokio::io::BufReader::new(near_read);
-//!     let rumors::Joined::Joined { peer: bob, .. } =
-//!         Peer::<String>::bootstrap().join(near_read, near_write).await
-//!     else {
-//!         panic!("Alice must serve Bob’s bootstrap");
-//!     };
-//!     let bob = bob.into_rumors();
-//!     server.await??;
-//!
-//!     let (alice_side, bob_side) = tokio::io::duplex(64 * 1024);
-//!     let (alice_read, alice_write) = tokio::io::split(alice_side);
-//!     let alice_read = tokio::io::BufReader::new(alice_read);
-//!     let (bob_read, bob_write) = tokio::io::split(bob_side);
-//!     let bob_read = tokio::io::BufReader::new(bob_read);
-//!
-//!     alice.send("bring the slides".to_string())?;
-//!
-//!     let mut alice_drive = alice.gossip(alice_read, alice_write);
-//!     let mut bob_drive = bob.gossip(bob_read, bob_write);
-//!
-//!     let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
-//!     pushed.expect("alice's driver is running")?;
-//!     served.expect("bob's driver is running")?;
-//!
-//!     assert_eq!(bob.snapshot().len(), 2);
-//!     println!("bob holds {} messages", bob.snapshot().len());
-//!
-//!     // New: find the version by observing, redact, and drive one more
-//!     // session.
-//!     let snapshot = alice.snapshot();
-//!     let (version, _message) = snapshot
-//!         .iter()
-//!         .find(|(_, message)| message.as_str() == "the meeting is at noon")
-//!         .expect("alice still holds the meeting message");
-//!     alice.redact(version);
-//!
-//!     let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
-//!     pushed.expect("alice's driver is running")?;
-//!     served.expect("bob's driver is running")?;
-//!
-//!     assert_eq!(alice.snapshot().len(), 1);
-//!     assert_eq!(bob.snapshot().len(), 1);
-//!     for (_version, message) in bob.snapshot().iter() {
-//!         println!("bob still holds: {message}");
+//!         let result = rumors.gossip(read, write).await;
+//!         if let Err(error) = &result
+//!             && loses_to_remote(error)
+//!         {
+//!             let mut state = self.state.lock().unwrap();
+//!             state.rumors.take_if(|c| c.network() == rumors.network());
+//!         }
+//!         result?;
+//!         Ok(())
 //!     }
-//!     Ok(())
 //! }
 //! ```
 //!
-//! ```text
-//! bob holds 2 messages
-//! bob still holds: bring the slides
+//! ```ignore
+//! use std::net::SocketAddr;
+//!
+//! use rustls::pki_types::ServerName;
+//! use tokio::net::TcpStream;
+//!
+//! impl Node {
+//!     async fn connect(
+//!         &self,
+//!         tls: &TlsConnector,
+//!         addr: SocketAddr,
+//!         name: ServerName<'static>,
+//!     ) -> Result<(), Box<dyn Error>> {
+//!         let tcp = TcpStream::connect(addr).await?;
+//!         tcp.set_nodelay(true)?;
+//!         let stream = tls.connect(name, tcp).await?;
+//!         self.gossip_over(stream).await
+//!     }
+//!
+//!     async fn accept(
+//!         &self,
+//!         tls: &TlsAcceptor,
+//!         tcp: TcpStream,
+//!     ) -> Result<(), Box<dyn Error>> {
+//!         tcp.set_nodelay(true)?;
+//!         let stream = tls.accept(tcp).await?;
+//!         self.gossip_over(stream).await
+//!     }
+//! }
 //! ```
 //!
-//! Notice what happened on Bob's side: the message is simply *gone*, on a
-//! replica that never called `redact` — and no deletion record replaced it
-//! anywhere; how that works without tombstones is the
-//! [`reconciliation`](crate::reconciliation) page's story.
+//! ```ignore
+//! use tokio::net::TcpListener;
 //!
-//! # You have converged
+//! impl Node {
+//!     async fn dial(
+//!         self: Arc<Self>,
+//!         tls: TlsConnector,
+//!         addr: SocketAddr,
+//!         name: ServerName<'static>,
+//!     ) {
+//!         loop {
+//!             if let Err(e) = self.connect(&tls, addr, name.clone()).await {
+//!                 eprintln!("connection to {addr} ended: {e}");
+//!             }
+//!             tokio::time::sleep(Duration::from_secs(1)).await;
+//!         }
+//!     }
 //!
-//! You have built a two-peer universe: seeded it, replicated a message to a
-//! peer that joined later, kept both ends converged with change-driven drivers,
-//! and redacted a message contagiously out of every replica. Every piece here
-//! scales past the demo: more peers mean more `bootstrap` calls and more driven
-//! connections, nothing else new.
+//!     async fn serve(
+//!         self: Arc<Self>,
+//!         tls: TlsAcceptor,
+//!         listener: TcpListener,
+//!     ) -> std::io::Result<()> {
+//!         loop {
+//!             let (tcp, addr) = listener.accept().await?;
+//!             let (node, tls) = (self.clone(), tls.clone());
+//!             tokio::spawn(async move {
+//!                 if let Err(e) = node.accept(&tls, tcp).await {
+//!                     eprintln!("connection from {addr} ended: {e}");
+//!                 }
+//!             });
+//!         }
+//!     }
+//! }
+//! ```
 //!
-//! Where to go next:
+//! ```ignore
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn Error>> {
+//!     let (connector, acceptor) = tls(Path::new("tls"))?;
+//!     let node = Arc::new(Node::new());
 //!
-//! - The full peer lifecycle — retirement, its outcomes, reclaiming the
-//!   [`Peer`](crate::Peer) from its handles — is one runnable example on
-//!   [`Peer`](crate::Peer).
-//! - Reacting to messages as they arrive (instead of polling snapshots) is the
-//!   [observers](crate#how-should-you-observe-messages) section's decision
-//!   guide.
-//! - A real deployment passes the two halves of a network connection, such as a
-//!   split TCP stream; the crate docs' [transport](crate#transport) section
-//!   states what the connection must guarantee.
-//! - To limit version growth across restarts, reuse a
-//!   [`Bookmark`](crate::Bookmark).
-//! - And for how a session actually reconciles two replicas —
-//!   [`reconciliation`](crate::reconciliation).
+//!     let peers = [
+//!         ("peer-2.example.com", "192.0.2.2:4433"),
+//!         ("peer-3.example.com", "192.0.2.3:4433"),
+//!     ];
+//!     for (name, addr) in peers {
+//!         let name = ServerName::try_from(name)?;
+//!         let addr = addr.parse()?;
+//!         tokio::spawn(node.clone().dial(connector.clone(), addr, name));
+//!     }
+//!
+//!     let listener = TcpListener::bind("0.0.0.0:4433").await?;
+//!     node.serve(acceptor, listener).await?;
+//!     Ok(())
+//! }
+//! ```

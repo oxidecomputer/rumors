@@ -167,18 +167,20 @@ fn observer_futures_are_send() {
     drop(fut);
 }
 
-/// Custom peer policies retain Send for the continuous driver and one-shot
-/// future.
+/// Custom peer policies retain Send for the continuous driver, the future
+/// that drives it to its end, and the one-shot future.
 #[test]
 fn configured_gossip_is_send() {
     let rumors = NETWORK
         .peer::<String>()
         .gossip_when(|changes| changes)
+        .gossip_until(std::future::pending::<()>())
         .session_deadline(std::future::pending)
         .into_rumors();
     let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let driver = rumors.gossip(&mut end.read, &mut end.write);
+    let driver = rumors.gossip_stream(&mut end.read, &mut end.write);
     require_send(&driver);
     drop(driver);
+    require_send(&rumors.gossip(&mut end.read, &mut end.write));
     require_send(&rumors.gossip_once(&mut end.read, &mut end.write));
 }

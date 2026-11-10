@@ -107,6 +107,8 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 ///
 /// - Use one bookmark for one peer across its restarts. Never share it between
 ///   concurrently live peers or duplicate it to start another peer.
+///   [`FileBookmark`] refuses to open a bookmark that another live
+///   `FileBookmark` on the same machine holds.
 /// - Replace the record atomically, and never roll back a successful store. A
 ///   stale but valid record can cause versions to be reused and corrupt the
 ///   set.
@@ -120,17 +122,19 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 ///
 /// The `fs` feature provides [`FileBookmark`]. Its constructor takes the
 /// application's way to run blocking work, a [`RunBlocking`] runner; a Tokio
-/// application passes [`TokioBlocking`]:
+/// application passes [`TokioBlocking`]. It locks the bookmark, and fails if
+/// another live peer holds it:
 ///
 /// ```
 /// # #[cfg(feature = "fs")]
 /// # {
 /// use rumors::{FileBookmark, Peer, TokioBlocking};
 ///
-/// # async fn attach(peer: Peer<String>) {
-/// let bookmark = FileBookmark::new("peer.bookmark", TokioBlocking);
+/// # async fn attach(peer: Peer<String>) -> Result<(), std::fs::TryLockError> {
+/// let bookmark = FileBookmark::new("peer.bookmark", TokioBlocking).await?;
 /// let peer = peer.bookmark(bookmark).await;
 /// # let _ = peer;
+/// # Ok(())
 /// # }
 /// # }
 /// ```

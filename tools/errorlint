@@ -1,0 +1,504 @@
+#!/usr/bin/env python3
+"""Report thiserror messages that display an error's cause.
+
+Usage:
+    errorlint PATH...
+    errorlint --self-test
+
+An error with a cause either returns the cause from `source()` or prints it in
+its own message, never both: the `std::error::Error` docs ask for one or the
+other, because a reporter that walks the chain (anyhow's `{:#}`, for one)
+prints a cause the message already printed a second time. This repository
+returns the cause from `source()`, and each message describes only its own
+error's context. The checker holds every `#[error("...")]` message to two
+rules:
+
+1. The message names no source field: a field marked `#[source]` or
+   `#[from]`, or a field named `source`, which thiserror treats as the source
+   without a mark.
+2. The message names no other field whose type is an error. Mark that field
+   `#[source]` and leave it out of the message, or write
+   `#[error(transparent)]` when the message would add nothing to the field's
+   own.
+
+A field's type is an error when its last path segment ends in `Error`, when it
+is a `dyn` trait object over `Error`, or when it names a type that derives
+`Error` or implements it by hand anywhere under the scanned roots. The match is
+by name, so a non-error type that shares an error type's name reads as an
+error. A type that only labels a context (`"frame head"`) is not an error, and
+derives its `Display` some other way.
+
+The checker is lexical, like this repository's other checkers, and fails
+closed: it reports an `#[error(...)]` attribute, or a decorated item, that it
+cannot read, so a form it does not understand never passes unexamined. It
+recognizes an attribute only where `#[error(` begins a line, which keeps doc
+comments that quote one out of the verdict. The self-test pins the forms the
+tree uses.
+
+Directories named in `IGNORED_DIRECTORIES` are never entered under any root:
+build output and vendored trees hold none of this repository's errors, and
+`.claude` may hold nested worktrees of this repository, whose state must not
+move this tree's verdict.
+"""
+
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path
+
+
+IGNORED_DIRECTORIES = {".git", ".claude", "node_modules", "target"}
+
+ERROR_ATTRIBUTE = re.compile(r"^[ \t]*#\[\s*error\s*\(", re.MULTILINE)
+DERIVE = re.compile(r"#\[\s*derive\s*\(([^)]*)\)\s*\]")
+DERIVED_ITEM = re.compile(r"\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum)\s+([A-Za-z_]\w*)")
+HAND_IMPLEMENTED = re.compile(
+    r"\bimpl\b[^{;]*?\b(?:(?:std|core)::error::)?Error\s+for\s+([A-Za-z_]\w*)"
+)
+STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"', re.DOTALL)
+CHAR_LITERAL = re.compile(r"'(?:[^'\\]|\\.)'")
+IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+SOURCE_ATTRIBUTE = re.compile(r"#\[\s*(?:source|from)\s*\]")
+VISIBILITY = re.compile(r"pub(?:\s*\([^)]*\))?\s+")
+NAMED_FIELD = re.compile(r"([A-Za-z_]\w*)\s*:(?!:)\s*(.*)", re.DOTALL)
+CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+
+
+class Unreadable(Exception):
+    """A form the checker does not understand, reported rather than skipped."""
+
+
+def skip_opaque(text, pos):
+    """The index just past a literal or comment at `pos`, or `pos` itself.
+
+    Brackets and commas inside either belong to no structure. A `'` that opens
+    no char literal begins a lifetime, which the caller steps over like any
+    other character.
+    """
+    for literal in (STRING_LITERAL, CHAR_LITERAL):
+        match = literal.match(text, pos)
+        if match:
+            return match.end()
+    if text.startswith("//", pos):
+        newline = text.find("\n", pos)
+        return len(text) if newline == -1 else newline + 1
+    if text.startswith("/*", pos):
+        close = text.find("*/", pos + 2)
+        if close == -1:
+            raise Unreadable("unterminated block comment")
+        return close + 2
+    return pos
+
+
+def matching(text, pos):
+    """The index just past the bracket that closes the one at `text[pos]`.
+
+    Brackets inside literals and comments do not count, and neither does the
+    `>` of an arrow (`->`), so a function type inside generics leaves the depth
+    intact.
+    """
+    opener = text[pos]
+    closer = CLOSERS[opener]
+    depth = 0
+    index = pos
+    while index < len(text):
+        after_opaque = skip_opaque(text, index)
+        if after_opaque != index:
+            index = after_opaque
+            continue
+        char = text[index]
+        if char == opener:
+            depth += 1
+        elif char == closer and not (char == ">" and text[index - 1] == "-"):
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    raise Unreadable(f"unbalanced `{opener}`")
+
+
+def skip_trivia(text, pos):
+    """Skip whitespace, comments, and attributes, returning the next index.
+
+    Collects the skipped attributes' text, so a field's `#[source]` survives.
+    """
+    attributes = []
+    while pos < len(text):
+        if text[pos].isspace():
+            pos += 1
+        elif text.startswith("//", pos):
+            newline = text.find("\n", pos)
+            pos = len(text) if newline == -1 else newline + 1
+        elif text.startswith("/*", pos):
+            close = text.find("*/", pos + 2)
+            if close == -1:
+                raise Unreadable("unterminated block comment")
+            pos = close + 2
+        elif text.startswith("#[", pos):
+            end = matching(text, pos + 1)
+            attributes.append(text[pos:end])
+            pos = end
+        else:
+            break
+    return pos, attributes
+
+
+def split_top_level(body):
+    """Split a field list at the commas outside any bracket, literal, or comment."""
+    parts = []
+    depth = 0
+    start = 0
+    index = 0
+    while index < len(body):
+        after_opaque = skip_opaque(body, index)
+        if after_opaque != index:
+            index = after_opaque
+            continue
+        char = body[index]
+        if char in "([{<":
+            depth += 1
+        elif char in ")]}" or (char == ">" and body[index - 1] != "-"):
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append(body[start:index])
+            start = index + 1
+        index += 1
+    parts.append(body[start:])
+    return [part for part in parts if part.strip()]
+
+
+def is_error_type(field_type, error_types):
+    """Whether a field's type reads as an error, by the module doc's rule."""
+    if re.search(r"\bdyn\b[^>]*\bError\b", field_type):
+        return True
+    base = re.sub(r"<.*", "", field_type, flags=re.DOTALL)
+    base = re.sub(r"^&\s*(?:'\w+\s+)?(?:mut\s+)?", "", base.strip())
+    last = base.split("::")[-1].strip()
+    return last.endswith("Error") or last in error_types
+
+
+def referenced_names(arguments):
+    """The field names an `#[error(...)]` attribute's arguments refer to.
+
+    The message's placeholders (`{name}`, `{0:?}`) name fields directly. Any
+    further format arguments may name fields as `.name`, `.0`, or bare
+    identifiers inside an expression (`stream.index()`); every identifier
+    there counts, since only names that are also fields matter.
+    """
+    message = STRING_LITERAL.match(arguments)
+    if not message:
+        raise Unreadable("the message is not a plain string literal")
+    names = set()
+    placeholders = message.group(0).replace("{{", "").replace("}}", "")
+    for placeholder in re.findall(r"\{([^{}]*)\}", placeholders):
+        argument = re.split(r"[:.]", placeholder, maxsplit=1)[0].strip()
+        if argument:
+            names.add(argument)
+    rest = arguments[message.end() :].strip()
+    if rest:
+        if not rest.startswith(","):
+            raise Unreadable("unexpected text after the message")
+        rest = STRING_LITERAL.sub('""', rest)
+        names.update(re.findall(r"\.(\d+)", rest))
+        names.update(IDENTIFIER.findall(rest))
+    return names
+
+
+def decorated_fields(text, pos):
+    """The `(item name, fields)` of the variant or struct an attribute decorates.
+
+    Each field is `(name, type, is_source)`, where a tuple field's name is its
+    index. A unit item has no fields.
+    """
+    pos, _ = skip_trivia(text, pos)
+    visibility = VISIBILITY.match(text, pos)
+    if visibility:
+        pos = visibility.end()
+    keyword = IDENTIFIER.match(text, pos)
+    if not keyword:
+        raise Unreadable("no item follows the attribute")
+    if keyword.group(0) == "enum":
+        raise Unreadable("an enum-level message")
+    is_struct = keyword.group(0) == "struct"
+    if is_struct:
+        name = IDENTIFIER.match(text, skip_trivia(text, keyword.end())[0])
+        if not name:
+            raise Unreadable("a struct without a name")
+    else:
+        name = keyword
+    pos, _ = skip_trivia(text, name.end())
+    if is_struct and text.startswith("<", pos):
+        pos, _ = skip_trivia(text, matching(text, pos))
+    if is_struct and text.startswith("where", pos):
+        brace = text.find("{", pos)
+        if brace == -1:
+            raise Unreadable("a where clause with no body")
+        pos = brace
+    if pos >= len(text) or text[pos] in ",};=":
+        return name.group(0), []
+    if text[pos] not in "({":
+        raise Unreadable(f"unexpected `{text[pos]}` after `{name.group(0)}`")
+    tuple_fields = text[pos] == "("
+    body = text[pos + 1 : matching(text, pos) - 1]
+    fields = []
+    for index, part in enumerate(split_top_level(body)):
+        start, attributes = skip_trivia(part, 0)
+        declaration = part[start:]
+        visibility = VISIBILITY.match(declaration)
+        if visibility:
+            declaration = declaration[visibility.end() :]
+        if tuple_fields:
+            field_name, field_type = str(index), declaration.strip()
+        else:
+            named = NAMED_FIELD.match(declaration)
+            if not named:
+                raise Unreadable(f"cannot read the field `{declaration.strip()}`")
+            field_name, field_type = named.group(1), named.group(2).strip()
+        is_source = field_name == "source" or any(
+            SOURCE_ATTRIBUTE.fullmatch(attribute) for attribute in attributes
+        )
+        fields.append((field_name, field_type, is_source))
+    return name.group(0), fields
+
+
+def error_types_in(text):
+    """The names of the types `text` derives `Error` for or implements it on."""
+    names = set()
+    for derive in DERIVE.finditer(text):
+        derived = (path.strip().split("::")[-1] for path in derive.group(1).split(","))
+        if "Error" in derived:
+            item = DERIVED_ITEM.match(text, skip_trivia(text, derive.end())[0])
+            if item:
+                names.add(item.group(1))
+    names.update(HAND_IMPLEMENTED.findall(text))
+    return names
+
+
+def findings_in(text, error_types):
+    """Yield `(line, message)` for each `#[error]` message breaking a rule."""
+    for attribute in ERROR_ATTRIBUTE.finditer(text):
+        line = text.count("\n", 0, attribute.start()) + 1
+        try:
+            arguments_end = matching(text, attribute.end() - 1)
+            arguments = text[attribute.end() : arguments_end - 1].strip()
+            close, _ = skip_trivia(text, arguments_end)
+            if not text.startswith("]", close):
+                raise Unreadable("the attribute does not close after its arguments")
+            if arguments == "transparent":
+                continue
+            names = referenced_names(arguments)
+            item, fields = decorated_fields(text, close + 1)
+        except Unreadable as reason:
+            yield line, (
+                f"cannot read this `#[error]` attribute or the item it decorates "
+                f"({reason}); teach tools/errorlint the form"
+            )
+            continue
+        for field, field_type, is_source in fields:
+            if field not in names:
+                continue
+            if is_source:
+                yield line, (
+                    f"`{item}` displays its source `{field}`, which the error "
+                    f"chain already carries; leave it out of the message"
+                )
+            elif is_error_type(field_type, error_types):
+                yield line, (
+                    f"`{item}` displays the error `{field}: {field_type}` without "
+                    f"making it the source; mark it `#[source]` and leave it out "
+                    f"of the message, or write `#[error(transparent)]`"
+                )
+
+
+def rust_files(root):
+    """Yield repository source files without descending into ignored trees."""
+    if root.is_file():
+        if root.suffix == ".rs":
+            yield root
+        return
+    for directory, children, files in os.walk(root):
+        children[:] = sorted(
+            child for child in children if child not in IGNORED_DIRECTORIES
+        )
+        for filename in sorted(files):
+            if filename.endswith(".rs"):
+                yield Path(directory, filename)
+
+
+def self_test():
+    """Pin the forms the gate relies on, each verdict, and the directory walk."""
+    source = "displays its source"
+    hidden = "without making it the source"
+    unreadable = "cannot read"
+    cases = [
+        # A message that leaves its source out passes.
+        ('#[error("reading failed")]\nRead(#[source] io::Error),', []),
+        # Rule 1, through each way a field becomes the source.
+        ('#[error("reading failed: {0}")]\nRead(#[source] io::Error),', [(1, source)]),
+        ('#[error("reading failed: {0}")]\nRead(#[from] io::Error),', [(1, source)]),
+        ('#[error("failed: {source}")]\nIo { source: io::Error },', [(1, source)]),
+        ('#[error("failed: {source:?}")]\nIo { source: io::Error },', [(1, source)]),
+        # Rule 1 through further format arguments, `.0` and bare expressions.
+        ('#[error("failed: {}", .0)]\nRead(#[source] io::Error),', [(1, source)]),
+        (
+            '#[error("failed: {}", source.kind())]\nIo { source: io::Error },',
+            [(1, source)],
+        ),
+        # A struct with generics and a where clause, whose source has
+        # another name.
+        (
+            "#[derive(Debug, thiserror::Error)]\n"
+            '#[error("{origin}: {kind}")]\n'
+            "pub struct Coded<K: Debug> where K: Clone {\n"
+            "    /// Where it failed.\n"
+            "    pub origin: Origin,\n"
+            "    #[source]\n"
+            "    pub kind: K,\n"
+            "}",
+            [(2, source)],
+        ),
+        # Rule 2: an error-typed field the message names, by suffix, by a
+        # derive, by a hand-written impl, and as a trait object.
+        ('#[error("head is not canonical: {0}")]\nHead(HeadError),', [(1, hidden)]),
+        (
+            "#[derive(Debug, Error)]\npub enum Decode { Truncated }\n"
+            '#[error("bad version: {0}")]\nVersion(before::error::Decode),',
+            [(3, hidden)],
+        ),
+        (
+            "impl std::error::Error for Manual {}\n"
+            '#[error("manual: {0}")]\nWrapped(Manual),',
+            [(2, hidden)],
+        ),
+        (
+            '#[error("violation: {cause}")]\n'
+            "Violation { cause: Box<dyn std::error::Error + Send + Sync> },",
+            [(1, hidden)],
+        ),
+        # A label, a plain value, and a reference field are not errors.
+        (
+            "#[derive(Debug, strum_macros::Display)]\npub enum Part { Head }\n"
+            '#[error("could not read the frame\'s {part}")]\n'
+            "Read { part: Part, #[source] source: io::Error },",
+            [],
+        ),
+        ('#[error("{len} bytes at {at:?}")]\nLong { len: usize, at: &\'a [u8] },', []),
+        # `transparent` forwards both the message and the source.
+        ("#[error(transparent)]\nHead(HeadError),", []),
+        # A message spanning lines, with docs and attributes before the item.
+        (
+            "#[error(\n"
+            '    "head is invalid: {head}"\n'
+            ")]\n"
+            "/// A malformed head.\n"
+            "#[allow(dead_code)]\n"
+            "Malformed { head: HeadError },",
+            [(1, hidden)],
+        ),
+        # Escaped braces name nothing; a format spec still names its field.
+        ('#[error("literal {{0}}")]\nRead(#[source] io::Error),', []),
+        ('#[error("{0:?}")]\nRead(#[source] io::Error),', [(1, source)]),
+        # Commas, brackets, and apostrophes inside field docs split nothing.
+        (
+            '#[error("{operation} failed")]\n'
+            "Io {\n"
+            "    /// The operation (one of read, write, or flush.\n"
+            "    operation: Operation,\n"
+            "    /// The transport's error, or `UnexpectedEof` /* [sic */ on a close.\n"
+            "    #[source]\n"
+            "    source: io::Error,\n"
+            "},",
+            [],
+        ),
+        # A unit variant has nothing to display.
+        ('#[error("truncated")]\nTruncated,', []),
+        # Commas and arrows inside a field's type do not split the field.
+        (
+            '#[error("{map:?}")]\n'
+            "Odd { map: HashMap<u8, Box<dyn Fn(u8) -> u8>>, #[source] source: io::Error },",
+            [],
+        ),
+        # A doc comment quoting an attribute is not an attribute.
+        ('/// Write `#[error("{0}")]` like so.\nfn example() {}', []),
+        # Forms the checker cannot read fail closed.
+        ('#[error(concat!("a", "b"))]\nJoined(#[source] io::Error),', [(1, unreadable)]),
+        ('#[error("{0}")]\npub enum Whole { One(io::Error) }', [(1, unreadable)]),
+    ]
+    for case, expected in cases:
+        actual = [
+            (line, next(kind for kind in (source, hidden, unreadable) if kind in message))
+            for line, message in findings_in(case, error_types_in(case))
+        ]
+        if actual != expected:
+            raise AssertionError(f"expected {expected}, got {actual} for:\n{case}")
+
+    # The walk: an explicitly named root is scanned; the ignored directory
+    # names are pruned wherever they appear beneath it.
+    with tempfile.TemporaryDirectory() as scratch:
+        root = Path(scratch)
+        expected = [root / "src" / "kept.rs", root / "src" / "nested" / "kept.rs"]
+        pruned = [
+            root / ".claude" / "worktrees" / "agent" / "src" / "pruned.rs",
+            root / "target" / "debug" / "pruned.rs",
+            root / "src" / "target" / "pruned.rs",
+            root / "src" / ".git" / "pruned.rs",
+            root / "src" / "node_modules" / "pruned.rs",
+            root / "src" / "not_rust.txt",
+        ]
+        for path in expected + pruned:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('#[error("{0}")]\nRead(#[source] E),\n', encoding="utf-8")
+        walked = sorted(rust_files(root))
+        if walked != sorted(expected):
+            raise AssertionError(f"expected {sorted(expected)}, walked {walked}")
+        # A file named directly is scanned regardless of its directory.
+        if list(rust_files(pruned[0])) != [pruned[0]]:
+            raise AssertionError(f"explicit file {pruned[0]} was not yielded")
+
+
+def main(argv):
+    if argv[1:] == ["--self-test"]:
+        self_test()
+        return 0
+    roots = [Path(argument) for argument in argv[1:]]
+    if not roots:
+        print("usage: errorlint PATH...", file=sys.stderr)
+        return 2
+
+    # A nonexistent root would match no files and read as a clean sweep, so a
+    # renamed or relocated directory would silently vacate its check coverage
+    # forever. A missing root is a usage error, never a pass.
+    missing = [root for root in roots if not root.exists()]
+    if missing:
+        for root in missing:
+            print(f"errorlint: no such file or directory: {root}", file=sys.stderr)
+        return 2
+
+    # Rule 2 reads a field's type against every error type under the roots,
+    # so the first pass collects those names before the second judges.
+    sources = {}
+    for root in roots:
+        for path in rust_files(root):
+            sources.setdefault(path.resolve(), (path, path.read_text(encoding="utf-8")))
+    error_types = set()
+    for _, text in sources.values():
+        error_types |= error_types_in(text)
+
+    found = False
+    for path, text in sources.values():
+        for line, message in findings_in(text, error_types):
+            found = True
+            print(f"{path}:{line}: {message}")
+    if found:
+        print(
+            "\nAn error's message describes its own context; its cause belongs "
+            "in `source()`, where a chain-walking reporter prints it once.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

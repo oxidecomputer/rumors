@@ -1,5 +1,6 @@
 //! The wire-session drivers for [`Peer`]: [`bootstrap`](Bootstrap::join),
-//! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire).
+//! [`gossip_stream`](crate::Rumors::gossip_stream), and
+//! [`retire`](Peer::retire).
 //!
 //! A [`ForkGuard`] restores bootstrap forks abandoned before transmission.
 //! Retirement owns its consumed `Peer` until the outcome determines whether the
@@ -142,8 +143,8 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W,
 }
 
 /// One completed exchange, returned by
-/// [`gossip_once`](crate::Rumors::gossip_once) or yielded by the
-/// [`gossip`](crate::Rumors::gossip) stream.
+/// [`gossip_once`](crate::Rumors::gossip_once) or yielded by
+/// [`gossip_stream`](crate::Rumors::gossip_stream).
 ///
 /// One of these exists per successful session; a failed session is an `Err`
 /// instead (the terminal `Err` of the `gossip` stream).
@@ -544,8 +545,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// dropping this future cannot lose the handoff decision.
     ///
     /// Success includes session statistics and the converged frontier, before
-    /// concurrent local commits. [`gossip`](crate::Rumors::gossip) uses that
-    /// frontier to decide whether further gossip is needed.
+    /// concurrent local commits. The
+    /// [`gossip_stream`](crate::Rumors::gossip_stream) driver uses that frontier
+    /// to decide whether further gossip is needed.
     ///
     /// `staged` holds any preamble bytes already read by the continuous gossip
     /// driver. The erased halves and [`Reconciliation`] keep protocol code

@@ -160,7 +160,7 @@ divided_proptest! {
             a.send_all([42]).unwrap();
 
             let (mut a_end, mut b_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
-            let mut a_drive = a.gossip(&mut a_end.read, &mut a_end.write);
+            let mut a_drive = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             // The serving side's policy stream stays quiet, so its session is
             // remote-led (a `changes()` stream's first tick would initiate).
             let b = b
@@ -169,7 +169,7 @@ divided_proptest! {
                 .unwrap()
                 .gossip_when(|_| futures::stream::pending::<()>())
                 .into_rumors();
-            let mut b_drive = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut b_drive = b.gossip_stream(&mut b_end.read, &mut b_end.write);
             let (pushed, served) = tokio::join!(a_drive.next(), b_drive.next());
             let pushed = pushed.expect("driver running").expect("push succeeds");
             let served = served.expect("driver running").expect("serve succeeds");

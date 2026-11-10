@@ -1,5 +1,4 @@
-//! A conformance suite for the piece of persistence a deployment implements
-//! itself: the bookmark store.
+//! A conformance suite for testing any caller-provided bookmark store.
 //!
 //! Enable the `conformance` feature in a dev-dependency to use [`bookmark`],
 //! which checks repeatable loads and complete record replacement. The suite

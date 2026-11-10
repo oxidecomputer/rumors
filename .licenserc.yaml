@@ -69,7 +69,7 @@ header:
   # hand, below the shebang, where `check` accepts it and `fix` leaves it.
   language:
     Python:
-      filenames: ["doclint", "fuelscape-assets", "manifestlint", "readme", "testdoc", "workflowlint"]
+      filenames: ["doclint", "errorlint", "fuelscape-assets", "manifestlint", "readme", "testdoc", "workflowlint"]
       comment_style_id: PythonStyle
     JavaScript:
       extensions: [".js"]

@@ -230,12 +230,12 @@ impl<E> From<Overdraft> for DecodeError<E> {
 }
 
 /// What a reply's bound limits ([`DecodeError::ExceedsBound`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 pub enum BoundedPart {
     /// The reply's reactions.
-    #[error("reactions")]
+    #[strum(to_string = "reactions")]
     Reactions,
     /// The listing entries its queries carry together.
-    #[error("listing entries")]
+    #[strum(to_string = "listing entries")]
     Listing,
 }

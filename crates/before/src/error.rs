@@ -80,7 +80,7 @@ pub enum ParseValue {
     InvalidSyntax,
     /// The text has the documented syntax, but its contents do not encode a
     /// valid value of the requested type.
-    #[error("invalid value encoding: {0}")]
+    #[error("invalid value encoding")]
     InvalidEncoding(#[source] Decode),
 }
 
@@ -132,7 +132,7 @@ pub enum Decode {
     #[error("input of 2^61 bytes or more has a bit count no u64 can hold")]
     TooLarge,
     /// The underlying reader failed.
-    #[error("read error: {0}")]
+    #[error("read error")]
     Io(#[source] io::Error),
 }
 

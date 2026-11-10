@@ -32,8 +32,8 @@ pub enum HandOffDefect {
     UnaddressableLength,
 
     /// A head violates the wire's deterministic-encoding contract.
-    #[error("a hand-off head is not canonical: {0}")]
-    HeadMalformed(HeadError),
+    #[error("a hand-off head is not canonical")]
+    HeadMalformed(#[source] HeadError),
 
     /// The byte string's content is not one canonical party encoding.
     ///
@@ -42,8 +42,8 @@ pub enum HandOffDefect {
     /// declared length cuts short is
     /// [`Truncated`](before::error::Decode::Truncated) here, not a transport
     /// truncation.
-    #[error("the hand-off bytes are not one canonical party encoding: {0}")]
-    Undecodable(before::error::Decode),
+    #[error("the hand-off bytes are not one canonical party encoding")]
+    Undecodable(#[source] before::error::Decode),
 }
 
 /// Encode a donation now and return the future that transmits it.

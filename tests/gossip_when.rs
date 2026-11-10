@@ -23,7 +23,7 @@ use rumors::{
     Error, Gossip, Gossiped, Led, Rumors,
     testing::{Quiescence, run_to_quiescence},
 };
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, BufReader, DuplexStream};
 use tokio::time::timeout;
 
 use crate::common::fault::{self, FaultPlan, faulty};
@@ -128,9 +128,9 @@ divided_proptest! {
             let (mut a_end, mut b_end) = connection();
             let once = || stream::once(std::future::ready(()));
             let a = with_policy_stream(a, once());
-            let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             let b = with_policy_stream(b, once());
-            let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
             assert_eq!(a_session.converged, b_session.converged);
@@ -162,9 +162,9 @@ divided_proptest! {
 
             let (a_tx, a_when) = ticks();
             let a = with_policy_stream(a, a_when);
-            let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             for round in 0..3u64 {
                 a.send(round).unwrap();
@@ -193,8 +193,8 @@ divided_proptest! {
             let (mut a_end, mut b_end) = connection();
 
             // Real drivers: each side's policy stream is its own change signal.
-            let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
-            let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             // Round 1: the initial `changes()` yield on both sides drives the
             // reconnect-convergence session (both led locally; one session total).
@@ -241,9 +241,9 @@ divided_proptest! {
 
             let (a_tx, a_when) = ticks();
             let a = with_policy_stream(a, a_when);
-            let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             // First tick: fresh driver, no token yet — the unconditional first
             // session (reconnect convergence).
@@ -289,9 +289,9 @@ divided_proptest! {
 
             let (a_tx, a_when) = ticks();
             let a = with_policy_stream(a, a_when);
-            let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             let b = with_policy_stream(b, stream::pending::<Gossip>());
-            let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             // Converge the pair: the fresh driver's first policy item always initiates
             // (reconnect convergence).
@@ -357,10 +357,10 @@ divided_proptest! {
             // Four drivers, every policy stream a real change signal. Consume
             // session items in the background of the convergence check: the
             // drivers only progress while polled.
-            let a_drv = a.gossip(&mut ab_a_end.read, &mut ab_a_end.write);
-            let b_ab_drv = b.gossip(&mut ab_b_end.read, &mut ab_b_end.write);
-            let b_bc_drv = b.gossip(&mut bc_b_end.read, &mut bc_b_end.write);
-            let c_drv = c.gossip(&mut bc_c_end.read, &mut bc_c_end.write);
+            let a_drv = a.gossip_stream(&mut ab_a_end.read, &mut ab_a_end.write);
+            let b_ab_drv = b.gossip_stream(&mut ab_b_end.read, &mut ab_b_end.write);
+            let b_bc_drv = b.gossip_stream(&mut bc_b_end.read, &mut bc_b_end.write);
+            let c_drv = c.gossip_stream(&mut bc_c_end.read, &mut bc_c_end.write);
             let drive_all = futures::future::join4(
                 a_drv.for_each(|item| async move {
                     item.expect("A driver session");
@@ -426,10 +426,10 @@ divided_proptest! {
             let (mut ab_a_end, mut ab_b_end) = connection();
             let (mut bc_b_end, mut bc_c_end) = connection();
 
-            let mut a_drv = a.gossip(&mut ab_a_end.read, &mut ab_a_end.write);
-            let mut b_ab_drv = b.gossip(&mut ab_b_end.read, &mut ab_b_end.write);
-            let mut b_bc_drv = b.gossip(&mut bc_b_end.read, &mut bc_b_end.write);
-            let mut c_drv = c.gossip(&mut bc_c_end.read, &mut bc_c_end.write);
+            let mut a_drv = a.gossip_stream(&mut ab_a_end.read, &mut ab_a_end.write);
+            let mut b_ab_drv = b.gossip_stream(&mut ab_b_end.read, &mut ab_b_end.write);
+            let mut b_bc_drv = b.gossip_stream(&mut bc_b_end.read, &mut bc_b_end.write);
+            let mut c_drv = c.gossip_stream(&mut bc_c_end.read, &mut bc_c_end.write);
 
             // The unconditional first sessions converge both connections.
             let initial =
@@ -494,7 +494,7 @@ divided_proptest! {
 
             // A's `when` is already exhausted: its driver ends without a session.
             let a = with_policy_stream(a, stream::empty::<()>());
-            let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             assert!(
                 timeout(DEADLINE, a_sessions.next())
                     .await
@@ -503,7 +503,7 @@ divided_proptest! {
             );
             drop(a_sessions);
             let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             // Dropping A's end hangs the connection up at a session
             // boundary; B's responder ends cleanly.
@@ -540,8 +540,8 @@ divided_proptest! {
             let a = with_policy_stream(a, a_when);
             let b = with_policy_stream(b, stream::pending::<()>());
             {
-                let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
-                let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+                let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
                 // Freeze the session mid-flight: a couple of single polls per side
                 // get the preambles (and the first protocol frames) onto the wire,
@@ -590,9 +590,9 @@ divided_proptest! {
         let (mut a_end, mut b_end) = connection();
         let (a_tx, a_when) = ticks();
         let a = with_policy_stream(a, a_when);
-        let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+        let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
         let b = with_policy_stream(b, stream::pending::<()>());
-        let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+        let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
         a.send(1).unwrap();
         a_tx.unbounded_send(()).expect("driver alive");
@@ -638,12 +638,12 @@ divided_proptest! {
                 .into_rumors();
             let (mut a_end, mut b_end) = connection();
             let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             // Phase 1: a single-tick driver runs one session and ends cleanly.
             a.send(1).unwrap();
             {
-                let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
                 let (a_item, b_item) = timeout(
                     DEADLINE,
                     futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -678,7 +678,7 @@ divided_proptest! {
             // Phase 3: and then a second driver.
             a.send(3).unwrap();
             {
-                let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
                 let (a_item, b_item) = timeout(
                     DEADLINE,
                     futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -709,7 +709,7 @@ divided_proptest! {
             let (mut a_end, _b_end) = connection();
             let rumors = with_policy_stream(rumors, stream::pending::<()>());
             {
-                let _driver = rumors.gossip(&mut a_end.read, &mut a_end.write);
+                let _driver = rumors.gossip_stream(&mut a_end.read, &mut a_end.write);
             }
             assert!(rumors.try_into_peer().await.is_some());
         });
@@ -753,13 +753,13 @@ async fn run_severed(network: NetworkSeed, a_fault: FaultPlan, b_fault: FaultPla
     let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
         let mut a_end = a_end;
-        a.gossip(&mut a_end.read, &mut a_end.write)
+        a.gossip_stream(&mut a_end.read, &mut a_end.write)
             .collect::<Vec<_>>()
             .await
     };
     let b_task = async {
         let mut b_end = b_end;
-        b.gossip(&mut b_end.read, &mut b_end.write)
+        b.gossip_stream(&mut b_end.read, &mut b_end.write)
             .collect::<Vec<_>>()
             .await
     };
@@ -846,13 +846,13 @@ async fn fixture_session_bytes(network: NetworkSeed) -> (usize, usize, usize) {
     let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
         let mut a_end = a_end;
-        a.gossip(&mut a_end.read, &mut a_end.write)
+        a.gossip_stream(&mut a_end.read, &mut a_end.write)
             .collect::<Vec<_>>()
             .await
     };
     let b_task = async {
         let mut b_end = b_end;
-        b.gossip(&mut b_end.read, &mut b_end.write)
+        b.gossip_stream(&mut b_end.read, &mut b_end.write)
             .collect::<Vec<_>>()
             .await
     };
@@ -1046,9 +1046,9 @@ proptest! {
             let (b_tx, b_when) = ticks();
 
             let a = with_policy_stream(a, a_when);
-            let a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             let b = with_policy_stream(b, b_when);
-            let b_sessions = b.gossip(&mut b_end.read, &mut b_end.write);
+            let b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
 
             // Collectors poll the drivers to completion; any session error
             // panics, which is the test's core assertion.
@@ -1144,7 +1144,7 @@ proptest! {
             let _b_read = b.read;
 
             let a = with_policy_stream(a, stream::pending::<()>());
-            let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
 
             // Four bytes of a preamble, then hang up mid-preamble. Closing the
             // write half toward A signals end-of-stream on A's read half.
@@ -1198,7 +1198,7 @@ proptest! {
 
             let a = with_policy_stream(a, stream::pending::<()>());
             {
-                let mut a_sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
                 let item = timeout(DEADLINE, a_sessions.next())
                     .await
                     .expect("error never surfaced")
@@ -1219,7 +1219,7 @@ proptest! {
     }
 }
 
-/// How a driver ends, for checking that it stays ended.
+/// How a driver ends.
 #[derive(Clone, Copy, Debug)]
 enum Ending {
     /// The local policy ends with no session in flight.
@@ -1235,6 +1235,39 @@ async fn next_item<S: stream::Stream + Unpin>(sessions: &mut S) -> Option<S::Ite
     timeout(DEADLINE, sessions.next())
         .await
         .expect("the driver deadlocked")
+}
+
+/// A replica whose driver over the returned end ends as `ending` says, and the
+/// remote halves that must stay open for it to end that way.
+///
+/// The remote's halves stay open unless the case ends them. A truncated
+/// preamble keeps the read half, so that the replica's own writes succeed and
+/// only its read fails.
+async fn arrange_ending(
+    network: NetworkSeed,
+    ending: Ending,
+) -> (
+    Rumors<u64>,
+    rumors::testing::MemoryEnd,
+    (Option<BufReader<DuplexStream>>, Option<DuplexStream>),
+) {
+    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+    let (a_end, b_end) = connection();
+    let policy = match ending {
+        Ending::PolicyEnds => stream::empty::<()>().left_stream(),
+        Ending::HangUp | Ending::TerminalError => stream::pending::<()>().right_stream(),
+    };
+    let a = with_policy_stream(a, policy);
+    let kept_open = match ending {
+        Ending::PolicyEnds => (Some(b_end.read), Some(b_end.write)),
+        Ending::HangUp => (None, None),
+        Ending::TerminalError => {
+            let mut b_write = b_end.write;
+            b_write.write_all(b"RUMO").await.expect("partial write");
+            (Some(b_end.read), None)
+        }
+    };
+    (a, a_end, kept_open)
 }
 
 divided_proptest! {
@@ -1256,28 +1289,8 @@ divided_proptest! {
         network in network_seed(),
     ) {
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let (mut a_end, b_end) = connection();
-            let policy = match ending {
-                Ending::PolicyEnds => stream::empty::<()>().left_stream(),
-                Ending::HangUp | Ending::TerminalError => stream::pending::<()>().right_stream(),
-            };
-            let a = with_policy_stream(a, policy);
-
-            // The remote's halves stay open unless the case ends them. A
-            // truncated preamble keeps the read half, so that A's own writes
-            // succeed and only its read fails.
-            let (b_read, mut b_write) = (b_end.read, b_end.write);
-            match ending {
-                Ending::PolicyEnds => {}
-                Ending::HangUp => drop((b_read, b_write)),
-                Ending::TerminalError => {
-                    b_write.write_all(b"RUMO").await.expect("partial write");
-                    drop(b_write);
-                }
-            }
-
-            let mut sessions = a.gossip(&mut a_end.read, &mut a_end.write);
+            let (a, mut a_end, _kept_open) = arrange_ending(network, ending).await;
+            let mut sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
             if let Ending::TerminalError = ending {
                 assert!(
                     matches!(next_item(&mut sessions).await, Some(Err(_))),
@@ -1290,6 +1303,78 @@ divided_proptest! {
                 assert!(sessions.is_terminated());
                 assert!(next_item(&mut sessions).await.is_none(), "an ended driver stays ended");
             }
+        });
+    }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// `gossip` resolves `Ok(())` exactly when the driver ends cleanly,
+    /// and with the driver's error otherwise: `Ok` when the policy ends or the
+    /// remote hangs up at a session boundary, `Err` when the remote dies
+    /// mid-preamble.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_reports_how_the_driver_ended(
+        ending in prop_oneof![
+            Just(Ending::PolicyEnds),
+            Just(Ending::HangUp),
+            Just(Ending::TerminalError),
+        ],
+        network in network_seed(),
+    ) {
+        block_on(async {
+            let (a, mut a_end, _kept_open) = arrange_ending(network, ending).await;
+            let ended = timeout(DEADLINE, a.gossip(&mut a_end.read, &mut a_end.write))
+                .await
+                .expect("the driver deadlocked");
+            match ending {
+                Ending::PolicyEnds | Ending::HangUp => {
+                    assert!(ended.is_ok(), "a clean end is Ok, got {ended:?}");
+                }
+                Ending::TerminalError => assert!(ended.is_err(), "a terminal error is Err"),
+            }
+        });
+    }
+
+    /// A resolved `gossip_until` signal ends a driver at its next session
+    /// boundary, even under a policy that never ends, and every driver started
+    /// after it resolves ends at once, without a session.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_until_ends_every_driver_under_any_policy(network in network_seed()) {
+        block_on(async {
+            let (a, b) = pair(network).await;
+            let (stop, stopped) = futures::channel::oneshot::channel::<()>();
+            let a = a
+                .try_into_peer()
+                .now_or_never()
+                .expect("fixture owns the only gossip handle")
+                .expect("fixture reclaims its peer")
+                .gossip_when(|_| stream::pending::<()>())
+                .gossip_until(stopped)
+                .into_rumors();
+            b.send(1).unwrap();
+
+            // B's default policy initiates; A only serves, and converges.
+            let (mut a_end, mut b_end) = connection();
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            one_round(&mut a_sessions, &mut b_sessions).await;
+            assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+
+            stop.send(()).unwrap();
+            assert!(next_item(&mut a_sessions).await.is_none(), "the stopped driver ends");
+
+            let (mut later_end, _remote) = connection();
+            let mut later = a.gossip_stream(&mut later_end.read, &mut later_end.write);
+            assert!(
+                next_item(&mut later).await.is_none(),
+                "a driver started after the stop ends at once"
+            );
         });
     }
 }

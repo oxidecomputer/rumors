@@ -3,7 +3,7 @@
 use std::future::{Future, pending};
 use std::sync::Arc;
 
-use futures::future::{BoxFuture, Either};
+use futures::future::{BoxFuture, Either, FutureExt, Shared};
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 
@@ -22,6 +22,9 @@ pub(crate) struct Policy<T: Send + Sync + 'static> {
     when: Option<Arc<Initiation<T>>>,
     /// None leaves sessions untimed without allocating a deadline future.
     deadline: Option<Arc<Deadline>>,
+    /// None lets the policy stream run until it ends on its own; once this
+    /// resolves, it ends every driver's policy stream.
+    until: Option<Shared<BoxFuture<'static, ()>>>,
 }
 
 /// Default to push-on-change with no session deadline.
@@ -31,6 +34,7 @@ impl<T: Send + Sync + 'static> Default for Policy<T> {
         Self {
             when: None,
             deadline: None,
+            until: None,
         }
     }
 }
@@ -42,6 +46,7 @@ impl<T: Send + Sync + 'static> Clone for Policy<T> {
         Self {
             when: self.when.clone(),
             deadline: self.deadline.clone(),
+            until: self.until.clone(),
         }
     }
 }
@@ -69,6 +74,14 @@ impl<T: Send + Sync + 'static> Policy<T> {
         self.deadline = Some(Arc::new(move || Box::pin(deadline())));
     }
 
+    /// Replace the signal that ends every driver's policy stream.
+    pub(super) fn set_until<F>(&mut self, until: F)
+    where
+        F: Future + Send + 'static,
+    {
+        self.until = Some(until.map(drop).boxed().shared());
+    }
+
     /// Race a complete wire exchange against one application-owned deadline. A
     /// ready session result wins, preserving confirmed completion or a failure.
     pub(super) async fn run<R, B: Bookmark>(
@@ -91,11 +104,16 @@ impl<T: Send + Sync + 'static> Policy<T> {
         }
     }
 
-    /// Give the factory sole ownership of this connection's subscription.
+    /// Give the factory sole ownership of this connection's subscription, and
+    /// end the resulting stream once the stop signal resolves.
     pub(super) fn when(&self, changes: Changes<T>) -> BoxStream<'static, Gossip> {
-        match &self.when {
+        let when = match &self.when {
             Some(when) => when(changes),
             None => Box::pin(changes.map(Into::into)),
+        };
+        match &self.until {
+            Some(until) => Box::pin(when.take_until(until.clone())),
+            None => when,
         }
     }
 }

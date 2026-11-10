@@ -127,7 +127,7 @@ fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value:
 
 /// Every feasible failure pins its fields and source chain, and its origin
 /// where one exists (the record-level witnesses carry none; `record_errors`
-/// says why).
+/// says why); no failure's display repeats its source's.
 #[test]
 fn codec_error_atlas_snapshot() {
     insta::assert_snapshot!(build_atlas());
@@ -788,16 +788,24 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
     }
 }
 
+/// Render `error`'s source chain, asserting that no error's display repeats
+/// its source's: a reporter that walks the chain prints each cause once.
 fn record_sources(out: &mut String, error: &(dyn Error + 'static)) {
     let mut depth = 0;
+    let mut outer = error;
     let mut source = error.source();
     while let Some(current) = source {
+        assert!(
+            !outer.to_string().contains(&current.to_string()),
+            "{outer:?} displays its source, which the error chain already carries: {outer}",
+        );
         if let Some(io) = current.downcast_ref::<io::Error>() {
             writeln!(out, "    source[{depth}]: Io({:?})", io.kind()).unwrap();
         } else {
             writeln!(out, "    source[{depth}]: {current}").unwrap();
         }
         depth += 1;
+        outer = current;
         source = current.source();
     }
 }

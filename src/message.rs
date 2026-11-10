@@ -94,7 +94,7 @@ pub enum EncodeError {
     /// The payload type's [`serde::Deserialize`] implementation rejected the
     /// bytes its own [`serde::Serialize`] implementation produced: admitted,
     /// such a value would fail at every receiver instead.
-    #[error("message payload does not survive its own serde round-trip: {0}")]
+    #[error("message payload does not survive its own serde round-trip")]
     Roundtrip(#[source] io::Error),
     /// The payload value's encoding decodes to a different value (by the
     /// payload type's own `Eq`): the serde pairing is lossy for this value.

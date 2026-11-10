@@ -850,9 +850,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// changes.
     ///
     /// The factory receives a fresh [`Changes`] subscription for each
-    /// [`Rumors::gossip`](crate::Rumors::gossip) driver. It can adapt that
-    /// stream, combine it with periodic heartbeat requests, or ignore it and
-    /// provide its own policy. An always-pending stream only serves remote
+    /// connection's driver, from [`Rumors::gossip`](crate::Rumors::gossip) or
+    /// [`Rumors::gossip_stream`](crate::Rumors::gossip_stream). It can adapt
+    /// that stream, combine it with periodic heartbeat requests, or ignore it
+    /// and provide its own policy. An always-pending stream only serves remote
     /// initiations. An endless, always-ready stream can busy-loop.
     ///
     /// Each item converts to [`Gossip`]; `()` means initiate if this connection
@@ -864,36 +865,45 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// The factory is shared by all handles and may be called concurrently for
     /// different connections. Each returned stream belongs to one driver.
     ///
-    /// # Graceful shutdown
+    /// To end every driver's policy on a shared signal, whichever policy this
+    /// selects, use [`gossip_until`](Self::gossip_until) rather than building
+    /// the signal into the factory.
+    pub fn gossip_when<F, S>(mut self, when: F) -> Self
+    where
+        F: Fn(crate::Changes<T>) -> S + Send + Sync + 'static,
+        S: futures::Stream + Send + 'static,
+        S::Item: Into<crate::Gossip>,
+    {
+        self.settings.gossip_policy.set_when(when);
+        self
+    }
+
+    /// End every gossip driver's initiation policy once `stop` resolves, for a
+    /// graceful shutdown.
     ///
-    /// Capture a shared shutdown signal in the factory to end the policy
-    /// streams for every clone's gossip drivers. Each driver observes the
-    /// signal between sessions; keep polling it until it ends so an active
-    /// exchange can finish. Use [`session_deadline`](Self::session_deadline) to
-    /// bound a stalled exchange.
+    /// The drivers of every handle share `stop`, and its output is discarded.
+    /// Each driver observes it between sessions: a driver with a session in
+    /// flight finishes that session, then ends cleanly, its connection resting
+    /// at a session boundary. Ending a driver's policy ends the driver, so it
+    /// serves no further remote initiations either. `stop` bounds whichever
+    /// policy [`gossip_when`](Self::gossip_when) selects, the default included.
+    /// Use [`session_deadline`](Self::session_deadline) to bound a stalled
+    /// exchange.
     ///
     /// ```
     /// # pollster::block_on(async {
-    /// use futures::{channel::oneshot, FutureExt, StreamExt};
+    /// use futures::channel::oneshot;
     /// use rumors::Peer;
     ///
     /// let (stop, stopped) = oneshot::channel::<()>();
-    /// let stopped = stopped.map(|_| ()).shared();
-    /// let rumors = Peer::<String>::seed()
-    ///     .gossip_when(move |changes| changes.take_until(stopped.clone()))
-    ///     .into_rumors();
+    /// let rumors = Peer::<String>::seed().gossip_until(stopped).into_rumors();
     ///
     /// let (connection, _remote) = tokio::io::duplex(64 * 1024);
     /// let (read, write) = tokio::io::split(connection);
     /// let read = tokio::io::BufReader::new(read);
     /// let handle = rumors.clone();
-    /// let drive = async move {
-    ///     let mut sessions = handle.gossip(read, write);
-    ///     while let Some(session) = sessions.next().await {
-    ///         session?;
-    ///     }
-    ///     Ok::<_, rumors::Error>(())
-    /// }; // Finishing this future drops its `handle`.
+    /// let drive = async move { handle.gossip(read, write).await };
+    /// // Finishing `drive` drops its `handle`.
     ///
     /// // Request shutdown, then keep driving gossip while reclaiming the peer.
     /// stop.send(()).unwrap();
@@ -907,17 +917,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [`Rumors::try_into_peer`] waits for every other handle to be dropped,
     /// including handles held by tasks doing work other than gossip.
     ///
-    /// Shutdown remains in effect for new drivers using this policy; replace
-    /// the policy before restarting gossip. Shutdown does not force a final
+    /// Once `stop` has resolved, it stays in effect: a driver started later
+    /// ends at once. Replace it (with [`std::future::pending`] to clear it)
+    /// before restarting gossip. Stopping does not force a final
     /// synchronization of pending local changes, retire the peer, or affect
     /// explicit [`Rumors::gossip_once`] calls.
-    pub fn gossip_when<F, S>(mut self, when: F) -> Self
+    pub fn gossip_until<F>(mut self, stop: F) -> Self
     where
-        F: Fn(crate::Changes<T>) -> S + Send + Sync + 'static,
-        S: futures::Stream + Send + 'static,
-        S::Item: Into<crate::Gossip>,
+        F: Future + Send + 'static,
     {
-        self.settings.gossip_policy.set_when(when);
+        self.settings.gossip_policy.set_until(stop);
         self
     }
 

@@ -14,3 +14,8 @@ formal/lean/eventdag-out/
 # Scan/threat-model working state (session scratch, resumable checkpoints)
 /.ccsec-state/
 /.threat-model-state/
+
+# The kv example's default directories: its shared credentials, and each node's
+# bookmark slots.
+/kv-credentials/
+/kv-bookmarks/

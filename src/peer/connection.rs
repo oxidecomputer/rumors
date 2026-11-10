@@ -5,8 +5,8 @@ use std::fmt;
 use crate::Error;
 use crate::bookmark::{Bookmark, NoBookmark};
 
-/// Whether a connection can carry another session, once this side has joined or
-/// left the network over it.
+/// Whether a connection can carry another session, once we've finished using
+/// it.
 ///
 /// A session that completes leaves its connection exactly at the session
 /// boundary, ready for another session; a session that fails leaves it at an

@@ -142,6 +142,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         self
     }
 
+    /// Set the signal that ends the joined peer's gossip drivers; see
+    /// [`Peer::gossip_until`].
+    pub fn gossip_until<F>(mut self, stop: F) -> Self
+    where
+        F: Future + Send + 'static,
+    {
+        self.settings.gossip_policy.set_until(stop);
+        self
+    }
+
     /// Set the join's session deadline, also inherited by the joined peer. See
     /// [`Peer::session_deadline`] for timing and expiry behavior. Bookmark
     /// attachment after the wire session is not covered.

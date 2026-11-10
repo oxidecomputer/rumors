@@ -12,6 +12,7 @@ use crate::message::EncodeError;
 use crate::{
     Batch, Committed, Error, Gossiped, Network, Peer, Snapshot, SynchronizationSettings, Version,
 };
+use futures::StreamExt;
 use futures::stream::FusedStream;
 use std::borrow::Borrow;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -494,7 +495,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// session's [`SessionStats`](crate::SessionStats). Its `led` is always
     /// [`Led::Local`](crate::Led::Local): calling `gossip_once` is this side's
     /// initiation, and a remote initiation already in flight merges into the
-    /// same session, exactly as racing [`gossip`](Self::gossip) triggers do.
+    /// same session, exactly as racing [`gossip_stream`](Self::gossip_stream)
+    /// triggers do.
     ///
     /// On `Ok`, both replicas hold every message either one held when the
     /// session began **and neither had deleted**, and the peer has confirmed
@@ -530,6 +532,39 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.gossip_once(read, write).await
     }
 
+    /// Gossip over one connection until it ends, running the
+    /// [`gossip_stream`](Self::gossip_stream) driver and discarding each
+    /// session's [`Gossiped`].
+    ///
+    /// Resolves `Ok(())` when the driver ends cleanly: the remote hangs up
+    /// between sessions, or the local policy ends, as
+    /// [`Peer::gossip_until`] arranges. Resolves with the first error
+    /// otherwise; the connection's position is then unknown, so discard it and
+    /// reconnect. Dropping this future drops the driver, so everything
+    /// [`gossip_stream`](Self::gossip_stream) documents about deadlines,
+    /// cancellation, and concurrent connections applies.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # async fn example(rumors: &rumors::Rumors<String>, connection: tokio::net::TcpStream)
+    /// # -> Result<(), rumors::Error> {
+    /// let (read, write) = connection.into_split();
+    /// rumors.gossip(tokio::io::BufReader::new(read), write).await
+    /// # }
+    /// ```
+    pub async fn gossip<R, W>(&self, read: R, write: W) -> Result<(), Error<B>>
+    where
+        R: AsyncBufRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        let mut sessions = self.gossip_stream(read, write);
+        while let Some(session) = sessions.next().await {
+            session?;
+        }
+        Ok(())
+    }
+
     /// Keep one connection synchronized, yielding an outcome after each gossip
     /// session.
     ///
@@ -549,7 +584,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// them, but **keep polling the resultant stream to drive the connection.**
     ///
     /// To force one exchange regardless of the initiation policy, use
-    /// [`gossip_once`](Self::gossip_once).
+    /// [`gossip_once`](Self::gossip_once). To drive the connection without
+    /// inspecting each session, use [`gossip`](Self::gossip).
     ///
     /// # Ending the driver
     ///
@@ -613,7 +649,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # }
     /// ```
     #[must_use = "the driver does nothing until the returned stream is polled"]
-    pub fn gossip<'a, R, W>(
+    pub fn gossip_stream<'a, R, W>(
         &'a self,
         read: R,
         write: W,

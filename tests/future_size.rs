@@ -90,7 +90,7 @@ fn gossip_stream_fits_budget() {
     drop(peer);
 
     let alice: Rumors<()> = NETWORK.peer().sync_memory_budget(0).into_rumors();
-    let sessions = alice.gossip(&mut end.read, &mut end.write);
+    let sessions = alice.gossip_stream(&mut end.read, &mut end.write);
     let size = size_of_val(&sessions);
 
     assert!(

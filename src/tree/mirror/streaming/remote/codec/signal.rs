@@ -182,23 +182,23 @@ impl fmt::Display for Speaker {
 }
 
 /// The phase-specific signal grammar of a logical stream.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 pub enum StreamClass {
     /// The initiator's first stream, which no phase uses: the opening question
     /// it would carry rides the greeting instead.
-    #[error("the initiator's unused opening stream")]
+    #[strum(to_string = "the initiator's unused opening stream")]
     Unused,
     /// The responder's answer to the listing in the greeting.
-    #[error("the responder's opening reply")]
+    #[strum(to_string = "the responder's opening reply")]
     OpeningReply,
     /// Replies exchanged while descending through interior nodes.
-    #[error("an interior reply stream")]
+    #[strum(to_string = "an interior reply stream")]
     InteriorReplies,
     /// The initiator's replies about parents of leaves.
-    #[error("the initiator's leaf-parent replies")]
+    #[strum(to_string = "the initiator's leaf-parent replies")]
     LeafParentReplies,
     /// The responder's final replies containing leaves.
-    #[error("the responder's terminal leaf replies")]
+    #[strum(to_string = "the responder's terminal leaf replies")]
     TerminalLeafReplies,
 }
 

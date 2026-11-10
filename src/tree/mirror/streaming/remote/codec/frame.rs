@@ -462,7 +462,7 @@ pub enum LeafRunError {
     #[error("a supply run carries no leaf records")]
     Empty,
     /// A record's leading heads are truncated or non-canonical.
-    #[error("a leaf record's heads are invalid in the {remaining} bytes left in its run: {source}")]
+    #[error("a leaf record's heads are invalid in the {remaining} bytes left in its run")]
     Head {
         /// Bytes left in the run when the invalid head was read.
         remaining: usize,
@@ -471,11 +471,12 @@ pub enum LeafRunError {
         source: HeadError,
     },
     /// The bytes where a record belongs do not spell a record item.
-    #[error("a {remaining}-byte run tail is not a leaf record: {issue}")]
+    #[error("a {remaining}-byte run tail is not a leaf record")]
     NotARecord {
         /// Bytes remaining where the next record should begin.
         remaining: usize,
         /// How the item's structure differs from a record.
+        #[source]
         issue: RecordStructureError,
     },
     /// A record's content overruns the run's declared length.
@@ -520,16 +521,16 @@ pub enum RecordStructureError {
 #[non_exhaustive]
 pub enum ListingIssue {
     /// A head was truncated, indefinite, reserved, or widened.
-    #[error("{0}")]
+    #[error(transparent)]
     Head(HeadError),
     /// Canonical heads do not spell a valid child-listing map.
-    #[error("{0}")]
+    #[error(transparent)]
     Structure(ListingStructureError),
     /// The digest bytes behind a value head were cut short.
     #[error("listing hash bytes are truncated")]
     Truncated,
     /// Adjacent keys were not strictly ascending.
-    #[error("{0}")]
+    #[error(transparent)]
     Order(QueryOrderError),
 }
 

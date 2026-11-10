@@ -167,7 +167,7 @@ impl Preamble {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     /// Reading or writing the fixed frame failed.
-    #[error("{operation} failed during the preamble: {source}")]
+    #[error("{operation} failed during the preamble")]
     Io {
         /// The failed control-stream operation.
         operation: TransportOperation,
@@ -193,9 +193,10 @@ pub(crate) enum Error {
     },
     /// The preamble opened correctly but a field of it is not spelled the way
     /// the dialect demands.
-    #[error("peer preamble is malformed: {defect}")]
+    #[error("peer preamble is malformed")]
     Malformed {
         /// The field or encoding rule the preamble violated.
+        #[source]
         defect: PreambleDefect,
     },
     /// The peer closed the stream inside its preamble.

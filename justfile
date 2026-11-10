@@ -136,7 +136,7 @@ fmt-check:
 # Each tools/ checker runs its self-test first, so a checker bug fails the
 # gate instead of passing everything. Each tool's header documents its rules.
 
-# doclint and testdoc walk named roots, never `.`, whose untracked trees
+# The Rust-source checkers walk named roots, never `.`, whose untracked trees
 # (worktrees nested under `.claude/`) would otherwise enter the verdict.
 
 # Flag doc-comment summaries and included-figure layouts that render wrong.
@@ -148,6 +148,11 @@ doclint:
 testdoc:
     ./tools/testdoc --self-test
     ./tools/testdoc benches crates src tests
+
+# Hold every error message to its own context, leaving its cause to `source()`.
+errorlint:
+    ./tools/errorlint --self-test
+    ./tools/errorlint benches crates src tests
 
 # Hold every workflow step to committed or immutably-pinned code.
 workflowlint:
@@ -343,7 +348,7 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # Run the build-free gate tier, sequentially.
-gate-lints: fmt-check doclint testdoc workflowlint manifestlint readme-check
+gate-lints: fmt-check doclint testdoc errorlint workflowlint manifestlint readme-check
 
 # Each stream logs to its own file, and failing streams' logs replay in full
 # at the end. A stream that records neither an ok nor a failed marker

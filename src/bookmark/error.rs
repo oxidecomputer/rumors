@@ -19,7 +19,7 @@ pub enum FormatError {
     },
 
     /// The bytes do not have the expected CBOR envelope structure.
-    #[error("not a rumors bookmark: {defect}")]
+    #[error("not a rumors bookmark")]
     NotABookmark {
         /// Which part of the frame shape failed.
         #[source]
@@ -41,12 +41,12 @@ pub enum FormatError {
     HashMismatch,
 
     /// The lent reader failed mid-stream, before a frame could be examined.
-    #[error("reading the stored bookmark failed: {0}")]
+    #[error("reading the stored bookmark failed")]
     Read(#[source] std::io::Error),
 
     /// An intact frame contains an invalid record. The source gives CBOR,
     /// record-shape, or atom-decoding details for diagnosing the writer's
     /// error.
-    #[error("the bookmark payload is not a valid recovery record: {0}")]
+    #[error("the bookmark payload is not a valid recovery record")]
     Record(#[source] ciborium::de::Error<std::io::Error>),
 }

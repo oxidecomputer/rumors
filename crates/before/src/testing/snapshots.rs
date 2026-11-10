@@ -271,9 +271,8 @@ fn rank_rendered_forms() {
 ///
 /// These strings are the crate's error representation (what a caller's logs and
 /// wrapped error chains show), so a wording change must be a deliberate re-pin
-/// here, never a silent drift. `Decode::Io`'s rendering wraps the underlying
-/// `std::io::Error`'s own Display output, which std owns, so its row pins only
-/// the crate-owned prefix.
+/// here, never a silent drift. A wrapping error leaves its cause to the
+/// standard error chain, so every row is crate-owned text.
 #[test]
 fn error_display_strings() {
     let block = [
@@ -288,6 +287,10 @@ fn error_display_strings() {
         format!("Decode::Truncated     {}", Decode::Truncated),
         format!("Decode::TrailingBits  {}", Decode::TrailingBits),
         format!("Decode::NotCanonical  {}", Decode::NotCanonical),
+        format!(
+            "Decode::Io            {}",
+            Decode::Io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))
+        ),
     ]
     .join("\n");
     assert_snapshot!(block, @"
@@ -295,15 +298,10 @@ fn error_display_strings() {
     Crossed               span endpoints cross: the start is not within the end
     ParseRank             invalid rank
     ParseValue::Syntax    invalid value syntax
-    ParseValue::Encoding  invalid value encoding: input is not canonical
+    ParseValue::Encoding  invalid value encoding
     Decode::Truncated     unexpected end of input
     Decode::TrailingBits  malformed or spurious trailing input
     Decode::NotCanonical  input is not canonical
+    Decode::Io            read error
     ");
-
-    let io = Decode::Io(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
-    assert!(
-        io.to_string().starts_with("read error: "),
-        "Decode::Io renders with the crate-owned prefix: {io}"
-    );
 }
