@@ -7,14 +7,72 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tempfile::NamedTempFile;
+use tokio::runtime::Handle;
 use tokio::sync::Mutex as AsyncMutex;
 
 use super::Bookmark;
 
+/// Runs a [`FileBookmark`]'s synchronous filesystem jobs where blocking is
+/// permitted.
+///
+/// [`TokioBlocking`] runs them on Tokio's blocking pool. For another executor,
+/// implement this trait on a type of your own; this runner gives each job a
+/// thread of its own:
+///
+/// ```
+/// use std::io;
+///
+/// use futures::channel::oneshot;
+/// use rumors::RunBlocking;
+///
+/// struct OwnThread;
+///
+/// impl RunBlocking for OwnThread {
+///     async fn run_blocking(&self, job: Box<dyn FnOnce() + Send>) -> io::Result<()> {
+///         let (finished, done) = oneshot::channel();
+///         std::thread::spawn(move || {
+///             job();
+///             let _ = finished.send(());
+///         });
+///         done.await.map_err(io::Error::other)
+///     }
+/// }
+/// ```
+pub trait RunBlocking: Send + Sync {
+    /// Run `job` where blocking is permitted, and resolve only after it
+    /// finishes.
+    ///
+    /// Calling this method must not block. Its result reports whether the
+    /// runner completed the job; the bookmark method that dispatched the job
+    /// reports filesystem errors separately.
+    fn run_blocking(
+        &self,
+        job: Box<dyn FnOnce() + Send + 'static>,
+    ) -> impl Future<Output = io::Result<()>> + Send;
+}
+
+/// Runs each job on the blocking pool of the Tokio runtime that dispatches it.
+///
+/// # Errors
+///
+/// A job dispatched outside a Tokio runtime fails with an I/O error, as does a
+/// job whose blocking task panics or is cancelled by runtime shutdown.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TokioBlocking;
+
+/// Dispatch onto the current Tokio runtime's blocking pool.
+impl RunBlocking for TokioBlocking {
+    async fn run_blocking(&self, job: Box<dyn FnOnce() + Send + 'static>) -> io::Result<()> {
+        let runtime = Handle::try_current().map_err(io::Error::other)?;
+        runtime.spawn_blocking(job).await.map_err(io::Error::other)
+    }
+}
+
 /// A bookmark stored as one atomically replaced file.
 ///
-/// [`new`](Self::new) takes a callback that moves each synchronous filesystem
-/// job onto the application's blocking executor. Stores write and sync a
+/// [`new`](Self::new) takes a [`RunBlocking`] runner that moves each
+/// synchronous filesystem job onto the application's blocking executor;
+/// [`TokioBlocking`] is the runner for Tokio applications. Stores write and sync a
 /// temporary file beside the destination, rename it over the previous record,
 /// and sync the parent directory before reporting success.
 ///
@@ -25,44 +83,34 @@ use super::Bookmark;
 /// operation on this bookmark waits behind it. Reclaiming the peer does not
 /// release that wait; see
 /// [`Rumors::try_into_peer`](crate::Rumors::try_into_peer).
-pub struct FileBookmark<F> {
+pub struct FileBookmark<R> {
     /// The file replaced by each successful store.
     path: PathBuf,
     /// The application's bridge to a context where blocking is permitted.
-    run_blocking: F,
+    runner: R,
     /// Keep dispatched work ordered even if its awaiting task is cancelled.
     serial: Arc<AsyncMutex<()>>,
 }
 
-impl<F> FileBookmark<F> {
-    /// Store a bookmark at `path`, running filesystem jobs through
-    /// `run_blocking`.
+impl<R: RunBlocking> FileBookmark<R> {
+    /// Store a bookmark at `path`, running filesystem jobs through `runner`.
     ///
-    /// The parent directory must already exist. The callback must execute its
-    /// supplied job where blocking is permitted and resolve only after the job
-    /// finishes. Calling the callback itself must not block. Its result reports
-    /// whether the runner completed the job; filesystem errors are returned
-    /// separately by the bookmark method. The callback may use a runtime's
-    /// blocking executor, a dedicated worker, or another equivalent facility.
-    pub fn new<Fut>(path: impl Into<PathBuf>, run_blocking: F) -> Self
-    where
-        F: Fn(Box<dyn FnOnce() + Send + 'static>) -> Fut,
-        Fut: Future<Output = io::Result<()>> + Send,
-    {
+    /// The parent directory must already exist. Pass [`TokioBlocking`] from a
+    /// Tokio application, or a [`RunBlocking`] of your own for another
+    /// executor.
+    pub fn new(path: impl Into<PathBuf>, runner: R) -> Self {
         Self {
             path: path.into(),
-            run_blocking,
+            runner,
             serial: Arc::new(AsyncMutex::new(())),
         }
     }
 
     /// Run one filesystem operation without letting cancellation reorder it.
-    async fn run<R, G, Fut>(&self, operation: G) -> io::Result<R>
+    async fn run<T, G>(&self, operation: G) -> io::Result<T>
     where
-        R: Send + 'static,
-        G: FnOnce() -> io::Result<R> + Send + 'static,
-        F: Fn(Box<dyn FnOnce() + Send + 'static>) -> Fut,
-        Fut: Future<Output = io::Result<()>> + Send,
+        T: Send + 'static,
+        G: FnOnce() -> io::Result<T> + Send + 'static,
     {
         let serial = self.serial.clone().lock_owned().await;
         let result = Arc::new(Mutex::new(None));
@@ -73,7 +121,7 @@ impl<F> FileBookmark<F> {
             }
             drop(serial);
         });
-        (self.run_blocking)(job).await?;
+        self.runner.run_blocking(job).await?;
         result
             .lock()
             .map_err(poisoned)?
@@ -83,7 +131,7 @@ impl<F> FileBookmark<F> {
 }
 
 /// Show the destination without requiring the blocking runner to be debuggable.
-impl<F> std::fmt::Debug for FileBookmark<F> {
+impl<R> std::fmt::Debug for FileBookmark<R> {
     /// Format the path and hide the runner and serialization state.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FileBookmark")
@@ -93,11 +141,7 @@ impl<F> std::fmt::Debug for FileBookmark<F> {
 }
 
 /// Read and atomically replace the configured file.
-impl<F, Fut> Bookmark for FileBookmark<F>
-where
-    F: Fn(Box<dyn FnOnce() + Send + 'static>) -> Fut + Send + Sync,
-    Fut: Future<Output = io::Result<()>> + Send,
-{
+impl<R: RunBlocking> Bookmark for FileBookmark<R> {
     /// Filesystem or blocking-executor failure.
     type Error = io::Error;
     /// A complete in-memory snapshot of the stored file.

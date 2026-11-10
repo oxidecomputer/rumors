@@ -432,10 +432,10 @@ pub use batch::{Batch, Committed};
 // the widget's assets are attached to rustdoc's own view of before only).
 #[doc(no_inline)]
 pub use before::{Count, Version, causally};
+pub use bookmark::{BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, FormatError, NoBookmark};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
-pub use bookmark::FileBookmark;
-pub use bookmark::{BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, FormatError, NoBookmark};
+pub use bookmark::{FileBookmark, RunBlocking, TokioBlocking};
 pub use error::Error;
 pub use message::EncodeError;
 pub use network::Network;

@@ -191,8 +191,9 @@ test-internals = ["tokio/rt", "dep:cbor-diag", "dep:proptest", "dep:rand_chacha"
 # A conformance suite for caller-built bookmark storage. Enable from a
 # dev-dependency to validate an application's storage adapter.
 conformance = []
-# Atomic file storage for bookmarks, driven by caller-supplied blocking execution.
-fs = ["dep:tempfile"]
+# Atomic file storage for bookmarks, driven by a caller-supplied blocking
+# executor. Tokio's `rt` provides the blocking pool behind `TokioBlocking`.
+fs = ["dep:tempfile", "tokio/rt"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }

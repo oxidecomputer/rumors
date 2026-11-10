@@ -49,7 +49,7 @@ use record::Record;
 
 pub use error::FormatError;
 #[cfg(feature = "fs")]
-pub use file::FileBookmark;
+pub use file::{FileBookmark, RunBlocking, TokioBlocking};
 pub use format::BOOKMARK_FORMAT_VERSION;
 
 /// Persistent restart bookkeeping that limits growth of message versions.
@@ -118,24 +118,17 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 ///
 /// # Examples
 ///
-/// The `fs` feature provides [`FileBookmark`]. Its constructor accepts the
-/// application's way to run blocking work; this Tokio example supplies
-/// `spawn_blocking`; Rumors requires this to be supplied because it does not
-/// itself depend on any async runtime.
+/// The `fs` feature provides [`FileBookmark`]. Its constructor takes the
+/// application's way to run blocking work, a [`RunBlocking`] runner; a Tokio
+/// application passes [`TokioBlocking`]:
 ///
 /// ```
 /// # #[cfg(feature = "fs")]
 /// # {
-/// use std::io;
-///
-/// use rumors::{FileBookmark, Peer};
+/// use rumors::{FileBookmark, Peer, TokioBlocking};
 ///
 /// # async fn attach(peer: Peer<String>) {
-/// let bookmark = FileBookmark::new("peer.bookmark", |job| async move {
-///     tokio::task::spawn_blocking(job)
-///         .await
-///         .map_err(io::Error::other)
-/// });
+/// let bookmark = FileBookmark::new("peer.bookmark", TokioBlocking);
 /// let peer = peer.bookmark(bookmark).await;
 /// # let _ = peer;
 /// # }
