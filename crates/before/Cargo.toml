@@ -4,7 +4,23 @@ version = "0.1.0"
 edition = "2021"
 description = "Interval Tree Clocks with canonical binary storage and a linear-typed API."
 license = "MPL-2.0"
+repository.workspace = true
 readme = "README.md"
+# The package carries the library and every file its build script reads:
+# the fuelscape datasets, the widget's stylesheet and script, and the
+# space-consumption figure with the README's themed copy of it. The tests,
+# benches, examples and measuring harnesses build on workspace crates that
+# are never published, and the other measurement results and the reference
+# material serve this repository's own verification.
+include = [
+    "/src/**",
+    "/build.rs",
+    "/fuelscape/**",
+    "/docs/**",
+    "/results/space_consumption/itc_space_consumption.svg",
+    "/README.md",
+    "/LICENSE*",
+]
 
 # docs.rs renders the feature-gated impls the crate advertises (`serde`,
 # `borsh`) and nothing of the bench- and test-only features (`oracle`,
@@ -56,7 +72,7 @@ insta.workspace = true
 rayon.workspace = true
 indicatif.workspace = true
 tempfile.workspace = true
-before = { workspace = true, features = ["oracle", "meter"] }
+before = { path = ".", features = ["oracle", "meter"] }
 
 [features]
 default = []

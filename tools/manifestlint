@@ -13,6 +13,14 @@
 # `registry`, `package` — restates or contradicts the table, and such a
 # restatement drifts silently when the table moves.
 #
+# A package's dependency on itself, the dev-dependency that turns on its own
+# test features, is the one entry that never inherits: it declares
+# `path = "."` and its feature selections alone. Cargo publishes an
+# inherited entry's version as a crates.io requirement, and a requirement on
+# the crate's own release cannot resolve while that release is being
+# packaged; cargo instead strips a path-only dev-dependency from the
+# published manifest.
+#
 # Cargo offers no native check: `cargo metadata` resolves inheritance before
 # reporting, so an inherited entry and a locally-versioned one are
 # indistinguishable in its output, and no cargo lint reads manifests. Cargo
@@ -67,6 +75,10 @@ from typing import NamedTuple
 # `optional` at the member whenever the dependency backs a feature.
 ALLOWED_KEYS = {"workspace", "features", "optional", "default-features"}
 
+# What a package's dependency on itself may say: its own directory, and the
+# features its tests turn on.
+SELF_KEYS = {"path", "features"}
+
 # The dependency tables a manifest may carry; each is also legal under a
 # `[target.'…'.<table>]` heading.
 DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
@@ -101,7 +113,10 @@ def violations(manifest):
     """Yield `(table, name, reason)` for every dependency entry that is not
     a workspace inheritance plus allowed member-side additions. The
     manifest's own `[workspace.dependencies]` table sets the versions; it is
-    not a member declaration, and is never scanned."""
+    not a member declaration, and is never scanned. A dependency on the
+    package itself, by key or by `package` rename, is held to the
+    self-dependency rule instead."""
+    own = manifest.get("package", {}).get("name")
     tables = []
     for kind in DEP_TABLES:
         if kind in manifest:
@@ -111,7 +126,18 @@ def violations(manifest):
                 tables.append((f"target.{target}.{kind}", cfg[kind]))
     for table, deps in tables:
         for name, spec in deps.items():
-            if not isinstance(spec, dict):
+            renamed = isinstance(spec, dict) and spec.get("package") == own
+            if own is not None and (name == own or renamed):
+                if (
+                    not isinstance(spec, dict)
+                    or spec.get("path") != "."
+                    or not set(spec) <= SELF_KEYS
+                ):
+                    yield table, name, (
+                        'is this package itself, so it declares path = "." '
+                        "and features alone"
+                    )
+            elif not isinstance(spec, dict):
                 yield table, name, (
                     f"declares {spec!r} instead of inheriting the workspace entry"
                 )
@@ -309,6 +335,36 @@ def self_test():
         # The workspace table itself sets the versions; it is never a
         # member declaration: entries there carry versions by design.
         ("[workspace.dependencies]\na = \"1\"", []),
+        # A package's dependency on itself names its own directory and the
+        # features its tests turn on.
+        (
+            '[package]\nname = "a"\n'
+            '[dev-dependencies]\na = { path = ".", features = ["x"] }',
+            [],
+        ),
+        # Inheriting the workspace entry would publish its version as a
+        # requirement on the crate's own unpublished release.
+        (
+            '[package]\nname = "a"\n[dev-dependencies]\na.workspace = true',
+            [("dev-dependencies", "a")],
+        ),
+        # So would a version beside the path.
+        (
+            '[package]\nname = "a"\n'
+            '[dev-dependencies]\na = { path = ".", version = "1" }',
+            [("dev-dependencies", "a")],
+        ),
+        # A path elsewhere is not the package itself.
+        (
+            '[package]\nname = "a"\n[dev-dependencies]\na = { path = "../a" }',
+            [("dev-dependencies", "a")],
+        ),
+        # A rename does not hide a self-dependency.
+        (
+            '[package]\nname = "a"\n'
+            '[dev-dependencies]\nb = { package = "a", path = "." }',
+            [("dev-dependencies", "b")],
+        ),
     ]
     for source, expected in cases:
         if isinstance(expected, tuple):

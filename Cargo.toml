@@ -49,6 +49,11 @@ default-members = [
     "crates/suanpan",
 ]
 
+# The publishable crates inherit their repository from here with
+# `repository.workspace = true`.
+[workspace.package]
+repository = "https://github.com/oxidecomputer/rumors"
+
 [workspace.dependencies]
 alloc-meter = { path = "crates/alloc-meter" }
 aes-gcm = { version = "0.11", default-features = false }
@@ -57,7 +62,10 @@ async-stream = "0.3"
 # The visualizer encodes through the scalar URL-safe engine alone, so the
 # SIMD engines behind the default `simd-unsafe` feature stay uncompiled.
 base64 = { version = "0.23", default-features = false, features = ["std"] }
-before = { path = "crates/before" }
+# The publishable crates carry a version beside their path: cargo publish
+# replaces the path with the version, and cargo refuses a version that the
+# crate at the path does not satisfy, so the two cannot drift apart.
+before = { path = "crates/before", version = "0.1.0" }
 # A fixed-size bit array backs `ByteSet`, the protocol's set of radixes.
 bitvec = { version = "1.1", default-features = false }
 board-fuel-harness = { path = "crates/before/board-fuel/harness" }
@@ -152,7 +160,8 @@ smallvec = { version = "1.16", features = ["union"] }
 spin = { version = "0.12", default-features = false, features = ["spin_mutex"] }
 static_assertions = "1.1"
 strum_macros = "0.28.0"
-suanpan = { path = "crates/suanpan" }
+# Versioned beside its path for publishing; see `before` above.
+suanpan = { path = "crates/suanpan", version = "0.1.0" }
 suanpan-fuel-protocol = { path = "crates/suanpan/fuel/protocol" }
 tempfile = "3.27"
 thiserror = "2"
@@ -173,7 +182,14 @@ zeroize = "1.9"
 name = "rumors"
 version = "0.1.0"
 edition = "2024"
+description = "Lightspeed causal gossip."
+repository.workspace = true
 readme = "README.md"
+# The package carries the library alone. The test suites, benches and
+# examples build on `rumors-testkit`, which is never published, and the
+# formal models, tools and CI configuration verify this repository rather
+# than the crate.
+include = ["/src/**", "/README.md", "/LICENSE*"]
 
 # docs.rs renders the feature-gated surface the crate advertises
 # (`conformance`, `fs`) and nothing of `test-internals`, whose introspection
@@ -249,7 +265,7 @@ proptest = { workspace = true, optional = true }
 rand_chacha = { workspace = true, optional = true }
 
 [dev-dependencies]
-rumors = { workspace = true, features = ["test-internals", "conformance"] }
+rumors = { path = ".", features = ["test-internals", "conformance"] }
 rumors-testkit.workspace = true
 # The meter feature lights before's instrument surface for this crate's
 # own tests: the conservation suite reads the exact-bit-length observation

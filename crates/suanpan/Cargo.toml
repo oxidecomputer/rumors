@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "Exact signed accumulation with bounded carry and cancellation work."
 license = "MPL-2.0"
+repository.workspace = true
 readme = "README.md"
+# The package carries the library alone; the fuel harnesses build on
+# workspace crates that are never published.
+include = ["/src/**", "/README.md", "/LICENSE*"]
 
 # docs.rs renders the `num-bigint` conversions the crate docs advertise,
 # which no default-feature build compiles; the justfile's `docs-docsrs` leg
