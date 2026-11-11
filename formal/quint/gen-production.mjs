@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Oxide Computer Company
+
 // Generates production.qnt: streamingMirror instances at the Rust
 // production constants (ROOT_H = 32, F = 256, CAP_LEVEL = 256).
 //

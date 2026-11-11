@@ -257,6 +257,55 @@ supply-chain:
     # shellcheck disable=SC2086
     cargo deny --workspace $tools check bans licenses
 
+# Every source file must carry the MPL-2.0 notice that .licenserc.yaml states,
+# and that file lists the paths that carry none. Needs license-eye
+# (`brew install license-eye`).
+
+# Check that every source file carries the MPL-2.0 notice.
+license-headers: (_license-eye "check")
+
+# Insert the MPL-2.0 notice into every source file that lacks it.
+license-headers-fix: (_license-eye "fix")
+
+# license-eye lists its files through git when it runs inside a repository,
+# and go-git's status walk reads every file under the ignored directories
+# (target/ above all), while inside a linked git worktree (every jj workspace
+# but the main one) it finds no files at all. Outside a repository it globs
+# its configured paths instead. So both recipes run it in a mirror of hard
+# links to the files git lists, tracked and untracked but not ignored, under
+# target/ (the same filesystem, and ignored). `fix` rewrites each file in
+# place, so its edits reach the real files through the links. A run that
+# covered no file fails, and the mirror is removed however the run ends.
+_license-eye command:
+    #!/usr/bin/env python3
+    import os, re, shutil, subprocess, sys, tempfile
+    os.chdir("{{ justfile_directory() }}")
+    os.makedirs("target", exist_ok=True)
+    mirror = tempfile.mkdtemp(prefix="license-eye.", dir="target")
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            capture_output=True, check=True,
+        ).stdout.split(b"\0")
+        for path in map(os.fsdecode, filter(None, listed)):
+            # A symlink's target is itself listed; a listed file can be
+            # missing from disk when the working copy deletes it.
+            if os.path.islink(path) or not os.path.isfile(path):
+                continue
+            link = os.path.join(mirror, path)
+            os.makedirs(os.path.dirname(link), exist_ok=True)
+            os.link(path, link)
+        run = subprocess.run(
+            ["license-eye", "header", "{{ command }}"],
+            cwd=mirror, capture_output=True, text=True,
+        )
+        sys.stdout.write(run.stdout + run.stderr)
+        if not re.search(r"Totally checked [1-9][0-9]* files", run.stdout + run.stderr):
+            sys.exit("license-eye covered no files")
+        sys.exit(run.returncode)
+    finally:
+        shutil.rmtree(mirror)
+
 # The fuzz targets live in a detached workspace no root command reaches.
 # Its tests replay every committed seed; the coverage-guided run is
 # `just fuzz`, too slow and nondeterministic for the gate.

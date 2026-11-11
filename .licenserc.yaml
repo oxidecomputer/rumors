@@ -1,0 +1,88 @@
+# The MPL-2.0 notice every source file in this repository must carry, checked by
+# `just license-headers` and inserted by `just license-headers-fix` through
+# license-eye (Apache SkyWalking Eyes).
+header:
+  license:
+    # The notice from Exhibit A of the MPL-2.0, followed by the copyright line
+    # Exhibit A permits. `fix` writes this text, with the current year.
+    content: |
+      This Source Code Form is subject to the terms of the Mozilla Public
+      License, v. 2.0. If a copy of the MPL was not distributed with this
+      file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+      Copyright [year] Oxide Computer Company
+    # `check` accepts any year in the copyright line, so each file keeps the
+    # year its notice was written.
+    pattern: |
+      This Source Code Form is subject to the terms of the Mozilla Public
+      License, v\. 2\.0\. If a copy of the MPL was not distributed with this
+      file, You can obtain one at https://mozilla\.org/MPL/2\.0/\.
+
+      Copyright \d{4} Oxide Computer Company
+
+  # Every tracked file must carry the notice unless it is listed below, so a new
+  # kind of source file fails the check until it is given a comment style or
+  # an exclusion. license-eye also skips everything .gitignore names.
+  paths:
+    - '**'
+  paths-ignore:
+    # Third-party work under its own license: the Interval Tree Clocks paper
+    # and its figures, and the visualizer's fonts.
+    - 'crates/before/reference/**'
+    - 'crates/before-viz/www/fonts/**'
+    # License texts.
+    - '**/LICENSE'
+    # Documentation, which states its license where it renders.
+    - '**/*.md'
+    # Data, measurements and generated artifacts: snapshots, proptest seeds,
+    # fuzz seeds, fuelscape datasets, figures and dumps.
+    - '**/*.json'
+    - '**/*.snap'
+    - '**/*.txt'
+    - '**/*.proptest-regressions'
+    - 'crates/before/fuzz/seeds/**'
+    - '**/*.csv'
+    - '**/*.tsv'
+    - '**/*.gz'
+    - '**/*.sha256'
+    - '**/*.svg'
+    - '**/*.png'
+    - '**/*.pdf'
+    # Build and CI configuration.
+    - '**/*.toml'
+    - '**/*.lock'
+    - '**/*.yml'
+    - '**/.gitignore'
+    - 'justfile'
+    - 'formal/lean/lean-toolchain'
+    - '.licenserc.yaml'
+
+  # Report through the terminal only; license-eye never comments on pull
+  # requests.
+  comment: never
+
+  # Comment styles beyond license-eye's defaults: languages it has none for,
+  # the extensionless Python tools, and line comments for JavaScript and
+  # TypeScript, matching their files' own comments. license-eye's line and
+  # block styles insert the notice above a shebang, so each script with one
+  # whose language has neither style (the Node scripts) carries its notice by
+  # hand, below the shebang, where `check` accepts it and `fix` leaves it.
+  language:
+    Python:
+      filenames: ["doclint", "fuelscape-assets", "manifestlint", "readme", "testdoc", "workflowlint"]
+      comment_style_id: PythonStyle
+    JavaScript:
+      extensions: [".js", ".mjs"]
+      comment_style_id: DoubleSlash
+    TypeScript:
+      extensions: [".ts"]
+      comment_style_id: DoubleSlash
+    Lean:
+      extensions: [".lean"]
+      comment_style_id: DoubleDash
+    Quint:
+      extensions: [".qnt"]
+      comment_style_id: DoubleSlash
+    Typst:
+      extensions: [".typ"]
+      comment_style_id: DoubleSlash
