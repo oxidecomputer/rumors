@@ -1,0 +1,11 @@
+[package]
+name = "rumors"
+version = "0.0.0"
+edition = "2021"
+description = "Reserved for the rumors crate, in development at https://github.com/oxidecomputer/rumors."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/oxidecomputer/rumors"
+
+# The empty workspace table keeps this placeholder out of the repository's
+# workspace, whose tools and lockfile cover only the real crates.
+[workspace]
