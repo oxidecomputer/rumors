@@ -65,10 +65,19 @@ sha2 = "0.11"
 sha3 = "0.12"
 borsh = "1"
 bytes = "1"
-# Oxide's fork of cbor-diag: nesting depth is bounded by default in every
-# input-driven parse and print (upstream recurses on input-controlled
-# depth), so wire-derived bytes can be rendered without a guard in front.
-cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", rev = "a6a713671f92526b921bc926173266257379d609" }
+# The wire-capture renderer behind `rumors`'s `test-internals` renders the
+# snapshot suites' captured traffic through the released cbor-diag, which
+# recurses on input-controlled nesting depth; the renderer runs only on the
+# suites' own traffic, and its module docs state the depth bound it holds.
+# Pinned exact because the rendering is the snapshots' byte pin: a new
+# release that printed anything differently would move every snapshot.
+cbor-diag = "=0.1.12"
+# Oxide's fork of cbor-diag, for `rumors-tracing`, which renders traffic
+# from the network: nesting depth is bounded by default in every
+# input-driven parse and print, so wire-derived bytes can be rendered
+# without a guard in front. A git dependency, so `rumors-tracing` cannot be
+# published until the fork is.
+cbor-diag-bounded = { package = "cbor-diag", git = "https://github.com/oxidecomputer/cbor-diag-rs", rev = "a6a713671f92526b921bc926173266257379d609" }
 # Depth admission and wire ingress run the same compiled deserializer, so
 # decode-recursion accounting is symmetric within a binary, and across a
 # mixed-version fleet it holds only if every build shares one accounting.

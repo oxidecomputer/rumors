@@ -12,7 +12,7 @@
 //! The harness holds every item to canonical form before rendering it: every
 //! head at its shortest width, definite lengths, well-formed simple values, no
 //! NaN, text free of control characters, and a re-encoding equal to the bytes,
-//! checked down through embedded CBOR to the printer's depth limit. On a
+//! checked down through every embedded item the printer unfolds. On a
 //! canonical item, diagnostic notation with encoding indicators spells the
 //! value exactly, so two different canonical byte streams cannot render
 //! identically; any other item renders as an explicit failure line carrying the
@@ -39,6 +39,20 @@
 //! Structural violations of the capture itself (a control item whose opening
 //! head is not canonical, a frame whose opener is not the codec's or
 //! contradicts its stream) are panics: the harness, not the peer, is broken.
+//!
+//! # Depth
+//!
+//! `cbor-diag` recurses on nesting depth without limit: its parser once per
+//! level of structure, and its printer once per level of structure and once
+//! per embedded item it unfolds. The renderer bounds what the printer walks:
+//! the canonical check counts structure and embedded unfolds together against
+//! [`DEPTH_LIMIT`] and rejects an item that exceeds it, so that item renders as
+//! the explicit failure line over its exact hex and never reaches the printer.
+//! The parser's recursion on structural depth stays unbounded. That is
+//! acceptable only because the renderer reads nothing but the test suites' own
+//! traffic: items the suites build by hand, and sessions between their own
+//! peers, each of whose payloads has passed the sending peer's payload depth
+//! limit. Never point the renderer at bytes from outside the test suites.
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
@@ -50,6 +64,18 @@ use crate::tree::mirror::cbor::{
 };
 
 use super::{Speaker, Stream, signal::WireSignal};
+
+/// The deepest an item may nest, counting levels of structure and embedded
+/// unfolds together, and still render as diagnostic notation; a deeper item
+/// renders as its exact hex.
+///
+/// Either rendering pins the same bytes, so the limit decides only how much
+/// structure a snapshot spells out. It also bounds the canonical walk's
+/// recursion and the printer's (see the module's depth section). At 256 it
+/// sits far above the committed snapshots' items, which nest a handful of
+/// levels; a payload nested near the payload depth limit can exceed it, and
+/// renders as hex.
+const DEPTH_LIMIT: usize = 256;
 
 #[cfg(test)]
 mod tests;
@@ -253,7 +279,7 @@ fn render_item(item: &[u8], out: &mut String) {
     if parsed.to_bytes() != item {
         return fallback(item, "re-encodes differently", out);
     }
-    match canonical(&parsed, cbor_diag::DEFAULT_DEPTH_LIMIT) {
+    match canonical(&parsed, DEPTH_LIMIT) {
         Ok(()) => writeln!(out, "{}", parsed.to_diag_pretty()).unwrap(),
         Err(reason) => fallback(item, &reason, out),
     }
@@ -268,13 +294,14 @@ fn render_item(item: &[u8], out: &mut String) {
 /// float a NaN, text free of control characters, and every embedded item (tags
 /// 24 and 63) canonical and re-encoding to its bytes.
 ///
-/// The walk mirrors the printer's depth budget: `remaining` counts down one per
-/// level, embedded content is parsed with what is left, and a level past the
-/// budget is accepted unchecked because the printer shows it as hex. Recursion
-/// is therefore bounded by the parser's depth limit.
+/// `remaining` counts down one per level, structure and embedded unfolds alike,
+/// and an item that exhausts it is rejected rather than accepted unchecked: the
+/// printer unfolds embedded CBOR without limit, so it must never reach a level
+/// this walk has not checked. The walk's recursion is therefore bounded by
+/// [`DEPTH_LIMIT`], and so is the printer's on every item the walk accepts.
 fn canonical(item: &DataItem, remaining: usize) -> Result<(), String> {
     let Some(remaining) = remaining.checked_sub(1) else {
-        return Ok(());
+        return Err("nested past the depth limit".into());
     };
     match item {
         DataItem::Integer { value, bitwidth } | DataItem::Negative { value, bitwidth } => {
@@ -336,8 +363,11 @@ fn canonical(item: &DataItem, remaining: usize) -> Result<(), String> {
 /// The embedded item the printer unfolds under tag 24 must be canonical and
 /// fill its byte string exactly; content that does not parse stays a byte
 /// string, which the printer shows as hex.
+///
+/// The walk parses with the function the printer unfolds with, so the two
+/// agree on which byte strings unfold.
 fn embedded_item(data: &[u8], remaining: usize) -> Result<(), String> {
-    match cbor_diag::parse_bytes_with_limit(data, remaining) {
+    match cbor_diag::parse_bytes(data) {
         Ok(item) if item.to_bytes() != data => Err("embedded item re-encodes differently".into()),
         Ok(item) => {
             canonical(&item, remaining).map_err(|why| format!("in an embedded item, {why}"))
@@ -348,9 +378,11 @@ fn embedded_item(data: &[u8], remaining: usize) -> Result<(), String> {
 
 /// Every item the printer unfolds from a tag-63 sequence must be canonical and
 /// re-encode to its span; the unparsed remainder, if any, stays a byte string.
+///
+/// As for tag 24, the walk parses with the function the printer unfolds with.
 fn embedded_sequence(data: &[u8], remaining: usize) -> Result<(), String> {
     let mut rest = data;
-    while let Ok(Some((item, len))) = cbor_diag::parse_bytes_partial_with_limit(rest, remaining) {
+    while let Ok(Some((item, len))) = cbor_diag::parse_bytes_partial(rest) {
         if item.to_bytes() != rest[..len] {
             return Err("an embedded sequence item re-encodes differently".into());
         }

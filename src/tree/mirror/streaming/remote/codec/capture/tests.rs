@@ -251,32 +251,85 @@ fn embedded_chain(levels: usize) -> Vec<u8> {
     bytes
 }
 
-/// A chain of embedded byte strings nested far past the depth limit renders
-/// with bounded recursion.
+/// Build `levels` nested one-element arrays around a single `0x00` uint.
+fn nested_arrays(levels: usize) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for _ in 0..levels {
+        cbor::write_head(&mut bytes, MAJOR_ARRAY, 1);
+    }
+    cbor::write_head(&mut bytes, MAJOR_UINT, 0);
+    bytes
+}
+
+/// An item nested exactly to the depth limit renders as diagnostic notation,
+/// with every embedded level unfolded, and one level deeper falls back to its
+/// exact bytes, for nested structure and embedded unfolds alike.
 ///
-/// Unfolding stops at the limit and the remainder stands as a plain byte
-/// string; the walk returns rather than overflowing the stack.
+/// The canonical walk counts both kinds of level against one budget, and the
+/// innermost uint is a level of its own, so `DEPTH_LIMIT - 1` levels of
+/// wrapping fill the budget exactly.
 #[test]
-fn deep_embedded_chain_stops_unfolding_instead_of_recursing() {
-    let bytes = embedded_chain(10 * cbor_diag::DEFAULT_DEPTH_LIMIT);
-    let mut out = String::new();
-    render_item(&bytes, &mut out);
+fn the_depth_limit_admits_its_last_level_and_rejects_the_next() {
+    let families: [(&str, fn(usize) -> Vec<u8>, usize); 2] = [
+        ("nested arrays", nested_arrays, 0),
+        ("an embedded chain", embedded_chain, DEPTH_LIMIT - 1),
+    ];
+    for (family, build, unfolds) in families {
+        let out = rendered(&build(DEPTH_LIMIT - 1)).join("\n");
+        assert!(
+            !out.starts_with("!!"),
+            "{family} at the limit renders as notation: {out:.120}"
+        );
+        assert_eq!(
+            out.matches("<<").count(),
+            unfolds,
+            "{family} at the limit unfolds every embedded level"
+        );
+
+        let past = build(DEPTH_LIMIT);
+        let out = rendered(&past).join("\n");
+        assert!(
+            out.starts_with("!! not rendered as CBOR (")
+                && out.contains("nested past the depth limit"),
+            "{family} one level past the limit falls back, naming the depth: {out:.120}"
+        );
+        assert!(
+            out.contains(&format!("h'{}'", hex::encode(&past))),
+            "{family} past the limit keeps its exact bytes"
+        );
+    }
+}
+
+/// A chain of embedded byte strings nested far past the depth limit renders as
+/// the explicit fallback over its exact bytes.
+///
+/// The canonical walk rejects the chain at the limit, so the printer, which
+/// unfolds embedded CBOR without limit, never walks it: the render returns
+/// rather than overflowing the stack.
+#[test]
+fn deep_embedded_chain_falls_back_explicitly() {
+    let bytes = embedded_chain(10 * DEPTH_LIMIT);
+    let out = rendered(&bytes).join("\n");
     assert!(
-        out.starts_with("24_0(<<"),
-        "the chain unfolds from the top: {out:.80}"
+        out.starts_with("!! not rendered as CBOR (") && out.contains("nested past the depth limit"),
+        "the chain falls back, naming the depth: {out:.120}"
     );
-    assert!(out.contains("24_0(h'"), "and stops at the limit: {out:.80}");
+    assert!(
+        out.contains(&format!("h'{}'", hex::encode(&bytes))),
+        "the exact bytes stand"
+    );
 }
 
 /// The same nesting arriving as a supply record's payload (a captured frame
-/// rendered whole) renders with the same bounded unfold.
+/// rendered whole) falls back the same way.
 ///
-/// An application payload of legal CBOR can nest arbitrarily, and the frame
-/// walk must return, never overflow.
+/// The payload depth limit bounds a payload's decode recursion, which never
+/// enters embedded byte strings, so an admitted payload can carry embedded
+/// items nested arbitrarily; the frame walk must return, never overflow.
 #[test]
-fn deep_payload_through_the_frame_path_renders() {
+fn deep_payload_through_the_frame_path_falls_back() {
     let payload = Message::from_slice::<ciborium::Value>(
-        &embedded_chain(10 * cbor_diag::DEFAULT_DEPTH_LIMIT),
+        &embedded_chain(10 * DEPTH_LIMIT),
         PayloadDepthLimit::default(),
     )
     .expect("the chain is exactly one CBOR item");
@@ -284,26 +337,7 @@ fn deep_payload_through_the_frame_path_renders() {
     let mut out = String::new();
     render_frame(Speaker::Initiator, stream, 0, &bytes, &mut out);
     assert!(
-        out.contains("24_0(h'"),
-        "unfolding stopped at the limit: {out:.120}"
-    );
-}
-
-/// Structure nested past cbor-diag's depth limit is not one parseable item: the
-/// whole buffer falls back explicitly, naming the depth, rather than recursing
-/// without bound on input-controlled depth.
-#[test]
-fn structure_past_the_depth_limit_falls_back_explicitly() {
-    let mut bytes = Vec::new();
-    for _ in 0..=cbor_diag::DEFAULT_DEPTH_LIMIT {
-        cbor::write_head(&mut bytes, MAJOR_ARRAY, 1);
-    }
-    cbor::write_head(&mut bytes, MAJOR_UINT, 0);
-    let mut out = String::new();
-    render_item(&bytes, &mut out);
-    assert!(out.starts_with("!! not rendered as CBOR ("), "{out:.120}");
-    assert!(
-        out.contains(&format!("h'{}'", hex::encode(&bytes))),
-        "the exact bytes stand"
+        out.contains("!! not rendered as CBOR (") && out.contains("nested past the depth limit"),
+        "the frame falls back, naming the depth: {out:.120}"
     );
 }

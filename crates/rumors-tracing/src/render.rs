@@ -28,7 +28,7 @@ pub(crate) struct DiagCbor<'a>(pub(crate) &'a [u8]);
 
 impl fmt::Display for DiagCbor<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut out = match cbor_diag::parse_bytes(self.0) {
+        let mut out = match cbor_diag_bounded::parse_bytes(self.0) {
             Ok(item) => item.to_diag(),
             Err(_) => {
                 // Cap the hex before encoding it, at a quarter of the

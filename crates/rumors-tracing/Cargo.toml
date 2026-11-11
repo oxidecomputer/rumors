@@ -7,7 +7,7 @@ license = "MPL-2.0"
 readme = "README.md"
 
 [dependencies]
-cbor-diag.workspace = true
+cbor-diag-bounded.workspace = true
 hex.workspace = true
 rumors.workspace = true
 tracing.workspace = true
