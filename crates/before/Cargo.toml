@@ -3,7 +3,7 @@ name = "before"
 version = "0.1.0"
 edition = "2021"
 description = "Interval Tree Clocks with canonical binary storage and a linear-typed API."
-license = "MPL-2.0"
+license.workspace = true
 repository.workspace = true
 readme = "README.md"
 # The package carries the library and every file its build script reads:

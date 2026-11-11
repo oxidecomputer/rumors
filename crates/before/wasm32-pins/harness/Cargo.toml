@@ -3,6 +3,7 @@ name = "wasm32-pins-harness"
 version = "0.0.0"
 publish = false
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 # Executes the guest on a genuinely 32-bit `usize`. Tool-side only: this crate

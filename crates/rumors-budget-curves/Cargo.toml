@@ -9,6 +9,7 @@ name = "rumors-budget-curves"
 version = "0.0.0"
 publish = false
 edition = "2024"
+license.workspace = true
 
 [dependencies]
 # The sessions run the library's own session code, with the test-internals

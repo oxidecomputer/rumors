@@ -3,6 +3,7 @@ name = "fuzzfit-guest"
 version = "0.0.0"
 publish = false
 edition = "2021"
+license.workspace = true
 
 # A cdylib so `cargo build --target wasm32-unknown-unknown` emits a plain wasm
 # module (no wasm-bindgen: the ABI is hand-written u32/i32 exports over linear

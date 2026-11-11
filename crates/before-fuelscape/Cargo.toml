@@ -9,6 +9,7 @@ name = "before-fuelscape"
 version = "0.0.0"
 publish = false
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 # The subject under audit: the samplers target its encoded codecs, and the

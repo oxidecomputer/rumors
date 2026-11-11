@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Front-end for the interactive Interval Tree Clocks visualizer.",
+  "license": "MPL-2.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "bundle": "esbuild src/main.ts --bundle --format=esm --outfile=dist/app.js",

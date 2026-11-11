@@ -26,9 +26,19 @@
 # indistinguishable in its output, and no cargo lint reads manifests. Cargo
 # does own member *discovery*, so the tool asks `cargo metadata --no-deps`
 # which manifests belong to the workspace and reads each with the standard
-# library's TOML parser. Detached workspaces (the fuzz targets, with their
-# own Cargo.lock) are separate workspaces with their own tables, outside
-# this tool's scope.
+# library's TOML parser. Detached workspaces, such as the fuzz targets with
+# their own Cargo.lock, are separate workspaces with their own dependency
+# tables, outside the dependency rule.
+#
+# The root Cargo.toml's [workspace.package] sets every crate's license, so
+# each member declares `license.workspace = true`. A member that states its
+# own expression drifts from the table silently when the table moves, and
+# cargo reports a member that states none only when it is packaged for
+# publication. A package in a detached workspace cannot inherit
+# from the root table, so it must state the root's license expression
+# literally. The tool finds those packages as the tracked package manifests
+# that are not members, the way the justfile's `supply-chain` recipe finds
+# every lockfile.
 #
 # The root Cargo.toml's `default-members` divides the production crates from
 # the tool-side members, every member it leaves out, which reach tooling the
@@ -52,14 +62,16 @@
 # guessed at.
 #
 # Usage:
-#   manifestlint --self-test   # pin the declarations, default members, and
-#                              # filters the rules accept and reject
+#   manifestlint --self-test   # pin the declarations, licenses, default
+#                              # members, and filters the rules accept and
+#                              # reject
 #   manifestlint               # check the workspace containing the current
 #                              # directory
 #
 # Exits non-zero if any violation is found, printing `manifest: [table] name`,
-# `Cargo.toml: default-members`, or `.config/nextest.toml: default-filter`
-# plus what offends, the way the rest of the gate names its failures.
+# `Cargo.toml: [workspace.package] license`, `Cargo.toml: default-members`,
+# or `.config/nextest.toml: default-filter` plus what offends, the way the
+# rest of the gate names its failures.
 
 import json
 import re
@@ -151,6 +163,30 @@ def violations(manifest):
                     )
 
 
+def license_violations(manifest, detached_license=None):
+    """Yield `(table, name, reason)` when a package manifest's license
+    departs from the workspace's. With `detached_license` unset the manifest
+    is a member's, which must inherit `[workspace.package]`'s license; set,
+    it is the root's license expression, which a package of a detached
+    workspace must state literally. A manifest without a `[package]` table
+    (a virtual workspace) declares no license, and is never at fault."""
+    package = manifest.get("package")
+    if package is None:
+        return
+    license = package.get("license")
+    if detached_license is None:
+        if license != {"workspace": True}:
+            yield "package", "license", (
+                f"declares {license!r} instead of inheriting the workspace "
+                f"license (license.workspace = true)"
+            )
+    elif license != detached_license:
+        yield "package", "license", (
+            f"declares {license!r}, but a detached workspace states the root's "
+            f"{detached_license!r} literally"
+        )
+
+
 def default_member_violations(members):
     """Yield `(name, reason)` for every default member that would bring a
     tool-side member's tooling into plain cargo's selection. `members` maps
@@ -235,6 +271,33 @@ def member_manifests(metadata):
     return sorted(Path(package["manifest_path"]) for package in metadata["packages"])
 
 
+def detached_manifests(metadata, members):
+    """Every tracked manifest under the workspace root that is not one of
+    `members`: the root's own manifest when it is virtual, and the manifests
+    of detached workspaces."""
+    root = Path(metadata["workspace_root"])
+    tracked = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "-z", "--", ":(glob)**/Cargo.toml"],
+        check=True,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+    resolved = {path.resolve() for path in members}
+    return sorted(
+        path
+        for path in (root / name for name in tracked.split("\0") if name)
+        if path.resolve() not in resolved
+    )
+
+
+def workspace_license(metadata):
+    """The license expression the root manifest's `[workspace.package]`
+    sets, or `None` when it sets none."""
+    with open(Path(metadata["workspace_root"]) / "Cargo.toml", "rb") as f:
+        manifest = tomllib.load(f)
+    return manifest.get("workspace", {}).get("package", {}).get("license")
+
+
 def workspace_members(metadata):
     """Map each member's package name to its `Member`. A dependency is on a
     member when it carries a `path`, since every path dependency in this
@@ -268,12 +331,30 @@ def default_filter(metadata):
 
 
 def check(paths):
-    """Print every violation in `paths`, returning how many were found."""
+    """Print every violation in the member manifests `paths`, returning how
+    many were found."""
     found = 0
     for path in paths:
         with open(path, "rb") as f:
             manifest = tomllib.load(f)
-        for table, name, reason in violations(manifest):
+        for table, name, reason in [*violations(manifest), *license_violations(manifest)]:
+            print(f"{path}: [{table}] {name} {reason}")
+            found += 1
+    return found
+
+
+def check_detached(paths, license):
+    """Print every license violation in the detached manifests `paths`
+    against the root's license expression `license`, returning how many were
+    found."""
+    if license is None:
+        print("Cargo.toml: [workspace.package] license is unset, so no crate can inherit it")
+        return 1
+    found = 0
+    for path in paths:
+        with open(path, "rb") as f:
+            manifest = tomllib.load(f)
+        for table, name, reason in license_violations(manifest, license):
             print(f"{path}: [{table}] {name} {reason}")
             found += 1
     return found
@@ -373,6 +454,39 @@ def self_test():
         if actual != expected:
             raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
 
+    # Each case is a manifest, the license a detached workspace must state
+    # (`None` for a member), and whether the manifest's license is at fault.
+    license = "MPL-2.0"
+    license_cases = [
+        # A member inherits the workspace license.
+        ("[package]\nname = \"a\"\nlicense.workspace = true", None, False),
+        # A member's own expression, even the workspace's today, drifts
+        # silently when the table moves; a member with none is unlicensed.
+        (f"[package]\nname = \"a\"\nlicense = {license!r}", None, True),
+        ("[package]\nname = \"a\"", None, True),
+        # workspace = false is spelled inheritance but is not one.
+        ("[package]\nname = \"a\"\nlicense = { workspace = false }", None, True),
+        # A virtual manifest has no package to license.
+        ("[workspace]\nmembers = [\"a\"]", None, False),
+        ("[workspace]\nmembers = [\"a\"]", license, False),
+        # A detached workspace states the root's expression, and nothing
+        # else; cargo resolves its inheritance against its own workspace.
+        (f"[workspace]\n[package]\nname = \"a\"\nlicense = {license!r}", license, False),
+        ("[workspace]\n[package]\nname = \"a\"\nlicense = \"MIT\"", license, True),
+        ("[workspace]\n[package]\nname = \"a\"\nlicense.workspace = true", license, True),
+        ("[workspace]\n[package]\nname = \"a\"", license, True),
+    ]
+    for source, detached, faulty in license_cases:
+        actual = [
+            (table, name)
+            for table, name, _ in license_violations(tomllib.loads(source), detached)
+        ]
+        expected = [("package", "license")] if faulty else []
+        if actual != expected:
+            raise AssertionError(
+                f"expected {expected}, got {actual} for detached={detached!r}:\n{source}"
+            )
+
     # A workspace like this one: a default root package and the production
     # crate it depends on, one carrying a resource-instrument test, beside a
     # Wasmtime harness and a tool built on the harness.
@@ -439,7 +553,9 @@ def main():
         print("usage: manifestlint [--self-test]", file=sys.stderr)
         return 2
     metadata = cargo_metadata()
-    found = check(member_manifests(metadata))
+    members = member_manifests(metadata)
+    found = check(members)
+    found += check_detached(detached_manifests(metadata, members), workspace_license(metadata))
     found += check_tools(default_filter(metadata), workspace_members(metadata))
     return 1 if found else 0
 

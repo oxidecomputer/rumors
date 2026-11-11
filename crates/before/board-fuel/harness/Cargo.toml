@@ -3,6 +3,7 @@ name = "board-fuel-harness"
 version = "0.0.0"
 publish = false
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 # The harness merges, judges, captures, and recalibrates the guests' readings

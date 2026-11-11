@@ -1,14 +1,16 @@
-# Configuration for the duplicate-dependency sweep (`just supply-chain`,
-# which runs `cargo deny check bans`). Scope: the full feature-and-target
-# closure of the root workspace's default members, development
-# dependencies excluded; the tool-side members, every member that is not a
-# default one, are excluded from the sweep. Advisories are a separate check
-# (`cargo audit`), which covers every version in every lockfile.
+# Configuration for the duplicate-dependency and license sweeps (`just
+# supply-chain`, which runs `cargo deny check bans licenses`). Scope: the
+# full feature-and-target closure of the root workspace's default members,
+# development dependencies excluded; the tool-side members, every member
+# that is not a default one, are excluded from the sweeps. Advisories are a
+# separate check (`cargo audit`), which covers every version in every
+# lockfile.
 
 [graph]
 all-features = true
-# A crate duplicated only among development dependencies compiles twice
-# for tests and never ships, so it doesn't count.
+# A development dependency never ships: a crate duplicated only among them
+# compiles twice for tests alone, and its license binds no one who uses
+# the published crates.
 exclude-dev = true
 
 # A crate resolved at two versions in what ships compiles twice and can
@@ -19,3 +21,21 @@ exclude-dev = true
 [bans]
 multiple-versions = "warn"
 skip = []
+
+# Every crate that ships, the workspace's own included, must carry a license
+# expression satisfiable from this list. The workspace's crates are licensed
+# `MPL-2.0`, and cargo-deny checks their expressions alongside their
+# dependencies', so `MPL-2.0` is listed for them; it admits a dependency
+# under the same terms as well. The other entries are exactly the permissive
+# licenses the shipped closure needs today, so a dependency that brings any
+# other license fails the sweep until someone adds that license here
+# deliberately. A choice inside an expression (`MIT OR LGPL-2.1-or-later`)
+# is satisfied by any one allowed license.
+[licenses]
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+]

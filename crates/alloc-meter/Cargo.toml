@@ -2,6 +2,7 @@
 name = "alloc-meter"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 publish = false
 description = "A per-thread counting global allocator for the workspace's resource tests"
 

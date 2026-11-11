@@ -226,11 +226,12 @@ amp-board-smoke:
 # cargo-audit checks every tracked Cargo.lock against RustSec, the gate's
 # one network fetch: vulnerabilities fail, other advisories warn. cargo-deny
 # reports crates that ship at more than one version in the default members,
-# as warnings; deny.toml gives the reasoning, and tool-only and
-# development-only duplicates are exempt because they never ship. Needs
-# `cargo install cargo-audit cargo-deny`.
+# as warnings, and fails on any shipped crate whose license expression
+# deny.toml's list cannot satisfy; deny.toml gives the reasoning for both,
+# and tool-only and development-only crates are exempt because they never
+# ship. Needs `cargo install cargo-audit cargo-deny`.
 
-# Audit advisories on every lockfile and report duplicate crate versions that ship.
+# Audit advisories on every lockfile, report duplicate crate versions that ship, and check their licenses.
 supply-chain:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -254,7 +255,7 @@ supply-chain:
     ')
     # Word splitting is wanted: `tools` is a list of `--exclude NAME` pairs.
     # shellcheck disable=SC2086
-    cargo deny --workspace $tools check bans
+    cargo deny --workspace $tools check bans licenses
 
 # The fuzz targets live in a detached workspace no root command reaches.
 # Its tests replay every committed seed; the coverage-guided run is

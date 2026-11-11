@@ -49,9 +49,14 @@ default-members = [
     "crates/suanpan",
 ]
 
-# The publishable crates inherit their repository from here with
-# `repository.workspace = true`.
+# Every member inherits its license from here with `license.workspace =
+# true`, and the publishable crates inherit their repository with
+# `repository.workspace = true`. A detached package, which is its own
+# workspace, cannot inherit from this table, so its manifest states the same
+# license expression itself. `manifestlint` holds every member and every
+# detached package to this expression.
 [workspace.package]
+license = "MPL-2.0"
 repository = "https://github.com/oxidecomputer/rumors"
 
 [workspace.dependencies]
@@ -183,6 +188,7 @@ name = "rumors"
 version = "0.1.0"
 edition = "2024"
 description = "Lightspeed causal gossip."
+license.workspace = true
 repository.workspace = true
 readme = "README.md"
 # The package carries the library alone. The test suites, benches and

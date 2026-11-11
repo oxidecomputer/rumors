@@ -3,6 +3,7 @@ name = "focused-fuel-guest"
 version = "0.0.0"
 publish = false
 edition = "2021"
+license.workspace = true
 
 # A cdylib so `cargo build --target wasm32-unknown-unknown` emits a plain wasm
 # module whose exports the harness calls directly.
