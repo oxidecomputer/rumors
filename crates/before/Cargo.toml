@@ -33,8 +33,9 @@ features = ["serde", "borsh"]
 
 # build.rs is a pure formatter: it renders the committed fuelscape
 # widget datasets (fuelscape/) into the doc islands the # Complexity
-# sections include from $OUT_DIR. serde_json only reads the committed
-# JSON; nothing is measured or computed at build time.
+# sections include from $OUT_DIR, and themes the committed
+# space-consumption figure for the crate docs. serde_json only reads the
+# committed JSON; nothing is measured or computed at build time.
 [build-dependencies]
 serde_json.workspace = true
 

@@ -3,7 +3,10 @@
 //! Inputs, all committed: `fuelscape/` (the `fuelscape-widget-data` documents
 //! the `before-fuelscape` compactor derives from a measuring dump; that crate
 //! owns the format, the binning, and the two-ways verification against the
-//! dump) and `docs/` (the widget's stylesheet and script).
+//! dump), `docs/` (the widget's stylesheet and script, and the README's copy
+//! of the space-consumption figure), and
+//! `results/space_consumption/itc_space_consumption.svg` (the space-consumption
+//! figure itself).
 //!
 //! Outputs: `$OUT_DIR/fuelscapes/<op>.html` — one single-line `<details>`
 //! island per operation, pulled into a `# Complexity` section via
@@ -27,6 +30,10 @@
 //! `$OUT_DIR/fuelscape-contracts/<op>.md` is the contract text for each
 //! literal, the island's summary as Markdown, and the doc-attachment totality
 //! test holds every site's literal to it.
+//! `$OUT_DIR/space_consumption.svg` is the space-consumption figure with its
+//! ink set to `currentColor`, which the crate docs inline; the README's copy
+//! adapts its ink through a media query instead, and the script holds that
+//! committed copy equal to its derivation from the figure.
 //!
 //! This script is a pure formatter: it re-bins nothing, computes no statistics,
 //! and holds no constants the widget or compactor also hold. Every failure here
@@ -41,6 +48,7 @@ fn main() {
     println!("cargo:rerun-if-changed=fuelscape");
     println!("cargo:rerun-if-changed=docs/fuelscape.css");
     println!("cargo:rerun-if-changed=docs/fuelscape.js");
+    println!("cargo:rerun-if-changed=results/space_consumption/itc_space_consumption.svg");
 
     let out_dir = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
     write_assets(Path::new(&out_dir));
@@ -199,6 +207,9 @@ fn theme_svg(svg: &str, ink: Ink) -> String {
 fn check_readme_figure_fresh(figure: &str) {
     println!("cargo:rerun-if-env-changed=BEFORE_REGEN_DOC_FIGURE");
     let path = "docs/itc_space_consumption_readme.svg";
+    // The regeneration below writes the file this watches, so the build after
+    // a regeneration reruns the script once and finds the figure fresh.
+    println!("cargo:rerun-if-changed={path}");
     let want = theme_svg(figure, Ink::MediaQuery);
     if std::env::var_os("BEFORE_REGEN_DOC_FIGURE").is_some() {
         std::fs::write(path, &want).expect("the README figure is writable");
