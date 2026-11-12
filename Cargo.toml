@@ -103,6 +103,7 @@ csv = "1"
 dirs = "7"
 dlmalloc = "0.2"
 dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
+escargot = "1"
 flate2 = "1"
 focused-fuel-protocol = { path = "crates/before/focused-fuel/protocol" }
 # 0.11.0 does not build on illumos: it combines `libc`'s `POSIX_SPAWN_*`
@@ -184,6 +185,8 @@ tokio-util = { version = "0.7", default-features = false }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 toml = "1"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ureq = { version = "3", default-features = false }
 # The link-measurement tool's readable source revision, from the git
 # command line, which every host that builds from a checkout already has.
 vergen-gitcl = "10"
@@ -371,6 +374,15 @@ syn = { workspace = true, features = ["full", "visit"] }
 # The kv example publishes its credentials file atomically, without
 # overwriting one that a concurrently starting node already published.
 tempfile.workspace = true
+# The kv example logs through `tracing`, filtered by `RUST_LOG`.
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# The kv suite builds the example, drives its HTTP interface, reads its JSON
+# listings, and interrupts its processes to shut them down gracefully.
+escargot.workspace = true
+ureq.workspace = true
+serde_json.workspace = true
+nix = { workspace = true, features = ["signal"] }
 
 [profile.dev]
 debug = "line-tables-only"

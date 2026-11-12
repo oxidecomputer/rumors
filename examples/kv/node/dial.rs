@@ -4,6 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use http::uri::Authority;
 use tokio::time::sleep;
+use tracing::warn;
 
 use super::Node;
 
@@ -22,7 +23,7 @@ impl Node {
             retry = match self.connect(&address).await {
                 Ok(()) => RETRY_MIN,
                 Err(e) => {
-                    eprintln!("connection to {address} ended: {e:#}");
+                    warn!(%address, error = &*e, "connection to peer ended");
                     (retry * 2).clamp(RETRY_MIN, RETRY_MAX)
                 }
             };

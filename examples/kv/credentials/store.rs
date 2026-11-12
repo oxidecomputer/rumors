@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use pem::Pem;
 use tempfile::NamedTempFile;
+use tracing::info;
 
 use super::Credentials;
 
@@ -24,9 +25,9 @@ impl Credentials {
         let path = dir.join(CREDENTIALS_FILE);
         match file.persist_noclobber(&path) {
             Err(error) if error.error.kind() == ErrorKind::AlreadyExists => {}
-            Ok(_) => eprintln!(
-                "created network credentials at {}; copy this file to other machines to let them join",
-                path.display()
+            Ok(_) => info!(
+                path = %path.display(),
+                "created network credentials; copy this file to other machines to let them join"
             ),
             Err(error) => {
                 return Err(error.error).with_context(|| format!("creating {}", path.display()));

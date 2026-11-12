@@ -19,3 +19,5 @@ tempfile = "3.27"
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

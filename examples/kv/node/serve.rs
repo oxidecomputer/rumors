@@ -1,9 +1,11 @@
+use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::sleep;
+use tracing::warn;
 
 use super::Node;
 
@@ -16,7 +18,7 @@ impl Node {
             self.gossip_over(read, write).await
         };
         if let Err(e) = accepted.await {
-            eprintln!("connection from {address} ended: {e:#}");
+            warn!(%address, error = &*e, "connection from peer ended");
         }
     }
 
@@ -25,7 +27,7 @@ impl Node {
             let (tcp, address) = match accepted {
                 Ok(accepted) => accepted,
                 Err(e) => {
-                    eprintln!("cannot accept connections: {e}");
+                    warn!(error = &e as &dyn Error, "cannot accept connections");
                     self.stop.run_until_cancelled(sleep(ACCEPT_BACKOFF)).await;
                     continue;
                 }

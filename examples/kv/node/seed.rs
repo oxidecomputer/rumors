@@ -3,6 +3,7 @@ use std::time::Duration;
 use anyhow::Result;
 use rumors::Peer;
 use tokio::time::sleep;
+use tracing::info;
 
 use crate::replica::Replica;
 
@@ -23,6 +24,7 @@ impl Node {
             .await
             .map_err(|unbookmarked| unbookmarked.error)?;
 
+        info!(network = %peer.network(), "seeded network");
         let replica = Replica::new(peer, &self.stop);
         current.send_replace(Some(replica.clone()));
         self.tasks.spawn(replica.keep_updated());
