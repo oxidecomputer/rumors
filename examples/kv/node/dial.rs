@@ -13,7 +13,11 @@ const RETRY_MAX: Duration = Duration::from_secs(30);
 
 impl Node {
     async fn connect(&self, address: &Authority) -> Result<()> {
-        let (read, write) = self.tls.connect(address).await?;
+        let handshake = self.tls.connect(address);
+        let Some(halves) = self.stop.run_until_cancelled(handshake).await else {
+            return Ok(());
+        };
+        let (read, write) = halves?;
         self.gossip_over(read, write).await
     }
 

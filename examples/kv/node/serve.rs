@@ -14,7 +14,11 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(500);
 impl Node {
     async fn accept(&self, tcp: TcpStream, address: SocketAddr) {
         let accepted = async {
-            let (read, write) = self.tls.accept(tcp).await?;
+            let handshake = self.tls.accept(tcp);
+            let Some(halves) = self.stop.run_until_cancelled(handshake).await else {
+                return Ok(());
+            };
+            let (read, write) = halves?;
             self.gossip_over(read, write).await
         };
         if let Err(e) = accepted.await {

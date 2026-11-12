@@ -420,6 +420,42 @@ fn interrupting_a_node_with_idle_connections_exits_cleanly() {
     }
 }
 
+/// Interrupting a node that has accepted a connection on its gossip port that
+/// has sent nothing, not even the start of a TLS handshake, shuts it down with
+/// exit status 0.
+#[test]
+fn interrupting_a_node_with_a_silent_gossip_connection_exits_cleanly() {
+    let dirs = Dirs::new();
+    let mut a = dirs.node("a").start();
+    a.set(&[("k", "from-a")]);
+    let _silent = TcpStream::connect(a.gossip()).unwrap();
+    // The node accepts connections in order, so once b, dialing after the
+    // silent connection, replicates, the silent connection is accepted too.
+    let b = dirs.node("b").peer(a.gossip()).start();
+    eventually(|| b.reads("k", Some("from-a")));
+
+    let status = a.interrupt();
+    assert!(status.success(), "{status}");
+}
+
+/// Interrupting a node whose only peer accepts connections but never answers
+/// a TLS handshake shuts it down with exit status 0: the node stops dialing in
+/// the middle of a handshake, and its attempt to retire to that peer gives up.
+#[test]
+fn interrupting_a_node_whose_peer_never_answers_exits_cleanly() {
+    let dirs = Dirs::new();
+    let peer = TcpListener::bind("127.0.0.1:0").unwrap();
+    peer.set_nonblocking(true).unwrap();
+    let mut a = dirs.node("a").peer(peer.local_addr().unwrap()).start();
+    let _dialed = eventually(|| {
+        peer.accept()
+            .map_err(|error| format!("a has not dialed its peer: {error}"))
+    });
+
+    let status = a.interrupt();
+    assert!(status.success(), "{status}");
+}
+
 /// A node that departs cleanly gives its peer nothing to report: b dials a
 /// and replicates a write, b is interrupted and retires to a, and once a shuts
 /// down too, a's log holds no line about a connection ending.
