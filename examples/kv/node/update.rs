@@ -1,9 +1,16 @@
+use std::time::Duration;
+
+use anyhow::{Context, Result};
 use tokio::time::timeout;
+
+use crate::table::Update;
+
+use super::Node;
 
 const REJOIN_WAIT: Duration = Duration::from_secs(5);
 
 impl Node {
-    async fn update(&self, updates: &[Update]) -> Result<()> {
+    pub(crate) async fn update(&self, updates: &[Update]) -> Result<()> {
         if timeout(REJOIN_WAIT, self.wait_for_replica()).await.is_err() {
             self.seed().await?;
         }

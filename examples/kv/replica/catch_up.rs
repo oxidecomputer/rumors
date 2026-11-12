@@ -1,6 +1,10 @@
 use futures::StreamExt;
 use rumors::{EncodeError, TryNext};
 
+use crate::table::Update;
+
+use super::Replica;
+
 impl Replica {
     fn catch_up(&self) {
         let mut view = self.view.lock().unwrap();
@@ -10,12 +14,12 @@ impl Replica {
             }
         }
     }
-    fn update(&self, updates: &[Update]) -> Result<(), EncodeError> {
+    pub(crate) fn update(&self, updates: &[Update]) -> Result<(), EncodeError> {
         self.rumors.send_all(updates.iter().cloned())?;
         self.catch_up();
         Ok(())
     }
-    async fn keep_updated(self) {
+    pub(crate) async fn keep_updated(self) {
         let mut changes = self.rumors.changes();
         while let Some(Some(())) = self.stop.run_until_cancelled(changes.next()).await {
             self.catch_up();

@@ -1,8 +1,15 @@
-use anyhow::bail;
-use rumors::Joined;
+use anyhow::{Result, bail};
+use rumors::{Joined, Peer};
+use tokio::io::{AsyncBufRead, AsyncWrite};
+use tokio::time::sleep;
+
+use crate::replica::Replica;
+
+use super::Node;
+use super::seed::SESSION_DEADLINE;
 
 impl Node {
-    async fn join(
+    pub(super) async fn join(
         &self,
         read: impl AsyncBufRead + Unpin + Send,
         write: impl AsyncWrite + Unpin + Send,

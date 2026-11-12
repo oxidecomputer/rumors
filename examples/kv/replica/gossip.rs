@@ -1,15 +1,17 @@
-enum Ended {
+use rumors::error::Mismatch;
+use rumors::{Count, FileBookmark, TokioBlocking};
+use tokio::io::{AsyncBufRead, AsyncWrite};
+
+use super::Replica;
+
+pub(crate) enum Ended {
     Closed,
     Overtaken,
     Overtaking,
 }
 
-use rumors::Count;
-use rumors::error::Mismatch;
-use tokio::io::{AsyncBufRead, AsyncWrite};
-
 impl Replica {
-    async fn gossip(
+    pub(crate) async fn gossip(
         &self,
         read: impl AsyncBufRead + Unpin + Send,
         write: impl AsyncWrite + Unpin + Send,
@@ -17,6 +19,7 @@ impl Replica {
         let Err(error) = self.rumors.gossip(read, write).await else {
             return Ok(Ended::Closed);
         };
+
         if let rumors::Error::Mismatch(Mismatch::Network {
             local_network,
             local_min_events,

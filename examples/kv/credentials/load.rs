@@ -1,20 +1,22 @@
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+use std::path::Path;
 
-struct Credentials {
-    cert: CertificateDer<'static>,
-    key: PrivateKeyDer<'static>,
-}
+use anyhow::{Context, Result};
+use rustls::pki_types::pem::PemObject;
+
+use super::Credentials;
+use super::store::CREDENTIALS_FILE;
 
 impl Credentials {
-    fn load_or_create(dir: &Path) -> Result<Self> {
+    pub(crate) fn load_or_create(dir: &Path) -> Result<Self> {
         fn read_pem<T: PemObject>(path: &Path) -> Result<T> {
             T::from_pem_file(path).with_context(|| format!("reading {}", path.display()))
         }
 
         let path = dir.join(CREDENTIALS_FILE);
         if !path.exists() {
-            create(dir)?;
+            Self::generate()?.store(dir)?;
         }
+
         Ok(Self {
             cert: read_pem(&path)?,
             key: read_pem(&path)?,

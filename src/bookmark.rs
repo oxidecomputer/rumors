@@ -130,6 +130,7 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// # {
 /// use rumors::{FileBookmark, Peer, TokioBlocking};
 ///
+/// # #[expect(dead_code)]
 /// # async fn attach(peer: Peer<String>) -> Result<(), std::fs::TryLockError> {
 /// let bookmark = FileBookmark::new("peer.bookmark", TokioBlocking).await?;
 /// let peer = peer.bookmark(bookmark).await;

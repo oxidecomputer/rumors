@@ -25,6 +25,7 @@ use super::Bookmark;
 /// use futures::channel::oneshot;
 /// use rumors::RunBlocking;
 ///
+/// # #[expect(dead_code)]
 /// struct OwnThread;
 ///
 /// impl RunBlocking for OwnThread {
@@ -93,6 +94,7 @@ impl RunBlocking for TokioBlocking {
 ///
 /// ```
 /// # #[cfg(feature = "fs")]
+/// # #[expect(dead_code)]
 /// # async fn claim(directory: &std::path::Path) -> std::io::Result<()> {
 /// use std::fs::TryLockError;
 ///

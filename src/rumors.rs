@@ -547,6 +547,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # Example
     ///
     /// ```no_run
+    /// # #[expect(dead_code)]
     /// # async fn example(rumors: &rumors::Rumors<String>, connection: tokio::net::TcpStream)
     /// # -> Result<(), rumors::Error> {
     /// let (read, write) = connection.into_split();
@@ -634,16 +635,18 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # Example
     ///
     /// ```no_run
+    /// # #[expect(dead_code)]
     /// # async fn example(rumors: &rumors::Rumors<String>, connection: tokio::net::TcpStream)
     /// # -> Result<(), rumors::Error> {
     /// use futures::StreamExt;
     ///
     /// let (read, write) = connection.into_split();
     /// let read = tokio::io::BufReader::new(read);
-    /// let mut sessions = rumors.gossip(read, write);
+    /// let mut sessions = rumors.gossip_stream(read, write);
     /// while let Some(session) = sessions.next().await {
     ///     let completed = session?;
     ///     // Inspect `completed` or continue driving the connection.
+    ///     # let _ = completed;
     /// }
     /// # Ok(())
     /// # }

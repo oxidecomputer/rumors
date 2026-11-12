@@ -1,13 +1,15 @@
+use super::Replica;
+
 impl Replica {
-    fn same_network(&self, other: &Replica) -> bool {
+    pub(crate) fn same_network(&self, other: &Replica) -> bool {
         self.rumors.network() == other.rumors.network()
     }
 
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.rumors.snapshot().latest().is_empty()
     }
 
-    fn abandon(&self) {
+    pub(crate) fn abandon(&self) {
         self.stop.cancel();
     }
 }

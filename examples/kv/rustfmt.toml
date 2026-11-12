@@ -1,0 +1,5 @@
+# The kv example is also a tutorial whose chapters follow its modules,
+# in order of declaration, recursively. So we must disable module reordering
+# in rustfmt, because otherwise it would mix up our teaching sequence!
+edition = "2024"
+reorder_modules = false

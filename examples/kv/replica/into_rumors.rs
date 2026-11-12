@@ -1,5 +1,11 @@
+use rumors::{FileBookmark, Rumors, TokioBlocking};
+
+use crate::table::Update;
+
+use super::Replica;
+
 impl Replica {
-    fn into_rumors(self) -> Rumors<Update, FileBookmark<TokioBlocking>> {
+    pub(crate) fn into_rumors(self) -> Rumors<Update, FileBookmark<TokioBlocking>> {
         self.rumors
     }
 }

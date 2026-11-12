@@ -300,6 +300,7 @@
 //!
 //! // Each peer can connect and accept. On either side, TLS authenticates
 //! // the other side against the network's certificate authority.
+//! # #[expect(dead_code)]
 //! fn tls(
 //!     network_ca: RootCertStore,
 //!     cert: Vec<CertificateDer<'static>>,
@@ -316,6 +317,7 @@
 //!     Ok((Arc::new(client).into(), Arc::new(server).into()))
 //! }
 //!
+//! # #[expect(dead_code)]
 //! async fn connect(
 //!     rumors: &Rumors<String>,
 //!     tls: &TlsConnector,
@@ -328,6 +330,7 @@
 //!     gossip_over(rumors, stream).await
 //! }
 //!
+//! # #[expect(dead_code)]
 //! async fn accept(
 //!     rumors: &Rumors<String>,
 //!     tls: &TlsAcceptor,
@@ -376,6 +379,10 @@
 // Programmer error in recursive async traits can create large futures, so we
 // check to make sure it's not an issue
 #![deny(clippy::large_futures)]
+// Doctests compile as warning-free as the rest of the crate. The tutorial's
+// generated fragments allow dead code alone, since each shows a prefix of a
+// program whose later items use what the prefix defines.
+#![doc(test(attr(deny(warnings))))]
 
 mod batch;
 mod bookmark;
@@ -398,6 +405,25 @@ pub mod tags;
 #[doc(hidden)]
 pub mod testing;
 mod tree;
+
+/// Expands to the tutorial's code fragment for one chunk of the kv example,
+/// which the build script renders when the `tutorial` feature is on.
+#[cfg(feature = "tutorial")]
+macro_rules! tutorial {
+    ($chunk:literal) => {
+        include_str!(concat!(env!("OUT_DIR"), "/tutorial/kv/", $chunk, ".md"))
+    };
+}
+
+/// Expands to nothing: without the `tutorial` feature, the build script
+/// renders no fragments, and the tutorial carries its prose alone.
+#[cfg(not(feature = "tutorial"))]
+macro_rules! tutorial {
+    ($chunk:literal) => {
+        ""
+    };
+}
+
 pub mod tutorial;
 
 #[cfg(test)]

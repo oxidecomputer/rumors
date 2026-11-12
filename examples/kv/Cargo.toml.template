@@ -1,0 +1,21 @@
+[package]
+name = "kv"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8.9", default-features = false, features = ["form", "http1", "json", "tokio"] }
+clap = { version = "4", features = ["derive"] }
+futures = { version = "0.3", default-features = false, features = ["async-await", "std"] }
+http = "1"
+nutype = { version = "0.8", features = ["serde"] }
+pem = "4"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+rumors = { version = "0.1.0", features = ["fs"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+tempfile = "3.27"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-util = { version = "0.7", features = ["rt"] }

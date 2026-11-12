@@ -1,11 +1,17 @@
 use std::time::Duration;
 
+use anyhow::Result;
+use rumors::Peer;
 use tokio::time::sleep;
 
-const SESSION_DEADLINE: Duration = Duration::from_secs(30);
+use crate::replica::Replica;
+
+use super::Node;
+
+pub(super) const SESSION_DEADLINE: Duration = Duration::from_secs(30);
 
 impl Node {
-    async fn seed(&self) -> Result<()> {
+    pub(super) async fn seed(&self) -> Result<()> {
         let current = self.current.lock().await;
         if current.borrow().is_some() {
             return Ok(());

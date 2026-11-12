@@ -1,6 +1,11 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
 
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::time::sleep;
+
+use super::Node;
 
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(500);
 
@@ -15,7 +20,7 @@ impl Node {
         }
     }
 
-    async fn serve(self: Arc<Self>, listener: TcpListener) {
+    pub(super) async fn serve(self: Arc<Self>, listener: TcpListener) {
         while let Some(accepted) = self.stop.run_until_cancelled(listener.accept()).await {
             let (tcp, address) = match accepted {
                 Ok(accepted) => accepted,

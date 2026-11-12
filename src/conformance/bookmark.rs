@@ -5,6 +5,7 @@
 //! overwrite their contents with opaque bytes, including empty records.
 //!
 //! ```
+//! # #[expect(dead_code)]
 //! # async fn validate<B: rumors::Bookmark>(fresh: impl AsyncFnMut() -> B) {
 //! rumors::conformance::bookmark::check(
 //!     fresh,

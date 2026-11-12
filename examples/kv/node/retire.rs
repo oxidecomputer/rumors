@@ -1,5 +1,9 @@
+use tokio::io::AsyncWriteExt;
+
+use super::Node;
+
 impl Node {
-    async fn retire(&self) {
+    pub(super) async fn retire(&self) {
         let replica = self.current.lock().await.send_replace(None);
         if let Some(replica) = replica
             && let Some(mut peer) = replica.into_rumors().try_into_peer().await

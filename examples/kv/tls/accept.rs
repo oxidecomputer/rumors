@@ -1,5 +1,11 @@
+use anyhow::Result;
+use tokio::io::{AsyncBufRead, AsyncWrite, BufReader};
+use tokio::net::TcpStream;
+
+use super::Tls;
+
 impl Tls {
-    async fn accept(
+    pub(crate) async fn accept(
         &self,
         tcp: TcpStream,
     ) -> Result<(

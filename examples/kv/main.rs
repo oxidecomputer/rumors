@@ -1,12 +1,22 @@
 //! An eventually consistent key-value store, replicated by causal gossip.
 
-include!("table.rs");
-include!("replica.rs");
-include!("credentials.rs");
-include!("tls.rs");
-include!("node.rs");
-include!("api.rs");
-include!("cli.rs");
+mod table;
+mod replica;
+mod credentials;
+mod tls;
+mod node;
+mod api;
+mod cli;
+
+use anyhow::{Context, Result};
+use clap::Parser;
+use tokio::net::TcpListener;
+
+use crate::api::router;
+use crate::cli::Cli;
+use crate::credentials::Credentials;
+use crate::node::Node;
+use crate::tls::Tls;
 
 #[tokio::main]
 async fn main() -> Result<()> {

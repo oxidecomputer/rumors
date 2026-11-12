@@ -1,3 +1,12 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Result;
+use http::uri::Authority;
+use tokio::time::sleep;
+
+use super::Node;
+
 const RETRY_MIN: Duration = Duration::from_millis(500);
 const RETRY_MAX: Duration = Duration::from_secs(30);
 
@@ -7,7 +16,7 @@ impl Node {
         self.gossip_over(read, write).await
     }
 
-    async fn dial(self: Arc<Self>, address: Authority) {
+    pub(super) async fn dial(self: Arc<Self>, address: Authority) {
         let mut retry = Duration::ZERO;
         while self.stop.run_until_cancelled(sleep(retry)).await.is_some() {
             retry = match self.connect(&address).await {

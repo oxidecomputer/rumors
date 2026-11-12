@@ -1,8 +1,12 @@
 use std::cmp::Ordering;
 use std::collections::btree_map::Entry;
 
+use rumors::Version;
+
+use super::{Table, Update};
+
 impl Table {
-    fn update(&mut self, version: Version, update: &Update) -> Option<Version> {
+    pub(crate) fn update(&mut self, version: Version, update: &Update) -> Option<Version> {
         let value = update.value.clone();
         match self.entries.entry(update.key.clone()) {
             Entry::Vacant(entry) => {

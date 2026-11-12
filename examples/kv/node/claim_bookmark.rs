@@ -1,7 +1,12 @@
-use std::fs::TryLockError;
+use std::fs::{self, TryLockError};
+
+use anyhow::Result;
+use rumors::{FileBookmark, TokioBlocking};
+
+use super::Node;
 
 impl Node {
-    async fn claim_bookmark(&self) -> Result<FileBookmark<TokioBlocking>> {
+    pub(super) async fn claim_bookmark(&self) -> Result<FileBookmark<TokioBlocking>> {
         fs::create_dir_all(&self.bookmarks_dir)?;
         let mut slot = 0;
         loop {

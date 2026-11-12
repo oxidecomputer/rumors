@@ -911,6 +911,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// finished.unwrap();
     /// let peer = peer.expect("this is the only caller reclaiming the peer");
     /// // The peer can now be reconfigured or retired.
+    /// # let _ = peer;
     /// # });
     /// ```
     ///

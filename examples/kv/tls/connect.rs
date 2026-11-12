@@ -1,12 +1,17 @@
-const DEFAULT_PORT: u16 = 8081;
-
+use anyhow::Result;
 use http::uri::Authority;
 use rustls::pki_types::ServerName;
-use tokio::io::BufReader;
+use tokio::io::{AsyncBufRead, AsyncWrite, BufReader};
 use tokio::net::TcpStream;
 
+use crate::credentials::NETWORK_NAME;
+
+use super::Tls;
+
+pub(crate) const DEFAULT_PORT: u16 = 8081;
+
 impl Tls {
-    async fn connect(
+    pub(crate) async fn connect(
         &self,
         address: &Authority,
     ) -> Result<(

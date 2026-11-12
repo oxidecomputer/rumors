@@ -1,9 +1,14 @@
 use std::io;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use anyhow::Result;
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
+
+use crate::replica::Ended;
+
+use super::Node;
 
 impl Node {
-    async fn gossip_over(
+    pub(super) async fn gossip_over(
         &self,
         mut read: impl AsyncBufRead + Unpin + Send,
         mut write: impl AsyncWrite + Unpin + Send,

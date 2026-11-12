@@ -102,6 +102,29 @@ test-release *args:
 # one binary per example, whose link time dominated the gate. A separate
 # target dir keeps the two compilers from invalidating each other.
 
+# The tutorial shows the kv example's manifest, `examples/kv/Cargo.toml.template`,
+# as the `Cargo.toml` a reader writes, so it must build the example on its own.
+# The leg copies the example into a crate of its own beside this workspace,
+# takes `rumors` from this checkout, and builds offline against this
+# repository's lockfile, so the versions are the ones the repository builds
+# with. Warnings and unused dependencies fail the example's own build alone.
+
+# Build the kv example as its own crate, from the manifest the tutorial shows.
+kv-standalone:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{ justfile_directory() }}"
+    crate=target/kv-standalone
+    rm -rf "$crate/src"
+    mkdir -p "$crate/src"
+    cp -R examples/kv/. "$crate/src/"
+    rm "$crate/src/Cargo.toml.template" "$crate/src/rustfmt.toml"
+    { cat examples/kv/Cargo.toml.template; printf '\n[workspace]\n'; } > "$crate/Cargo.toml"
+    cp Cargo.lock "$crate/Cargo.lock"
+    cargo rustc --offline --manifest-path "$crate/Cargo.toml" --bin kv \
+        --config "patch.crates-io.rumors.path='$PWD'" \
+        -- -D warnings -D unused-crate-dependencies
+
 # Run the doctests (nightly), which nextest does not run.
 doctest:
     RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" cargo +{{ nightly_toolchain }} test --doc --all-features --target-dir target/doctest-nightly
@@ -124,20 +147,13 @@ clippy-default:
     cargo clippy -p rumors --lib --tests -- -D warnings
     cargo clippy -p rumors --lib -- -D warnings
 
-# cargo fmt follows `mod` declarations but not `include!`, so it never reaches
-# the kv example's topic files and their chunks, which its `main.rs` includes as
-# one tutorial. Those files go to rustfmt by name, with the edition cargo would
-# otherwise supply.
-
 # Format the whole workspace.
 fmt:
     cargo fmt --all
-    rustfmt --edition 2024 examples/kv/*.rs examples/kv/*/*.rs
 
 # Verify formatting without rewriting (the gate variant of `fmt`).
 fmt-check:
     cargo fmt --all --check
-    rustfmt --edition 2024 --check examples/kv/*.rs examples/kv/*/*.rs
 
 # ── commit gate: everything main's first-parent line must pass, fully clean ──
 # Each tools/ checker runs its self-test first, so a checker bug fails the
@@ -407,6 +423,7 @@ gate-streams:
     began=$SECONDS
     start_stream workspace     0 _gate-workspace
     start_stream doctest      10 _gate-doctest
+    start_stream kv-standalone 10 _gate-kv-standalone
     start_stream board        10 _gate-board
     start_stream board-fuel   10 _gate-board-fuel
     start_stream suanpan-fuel 10 _gate-suanpan-fuel
@@ -452,6 +469,7 @@ gate-streams:
 # `_gate-wasm` holds both legs that build the fuzz-fit guest.
 _gate-workspace: clippy clippy-default docs test-all future-size amp-board-smoke
 _gate-doctest: doctest
+_gate-kv-standalone: kv-standalone
 
 _gate-board: amp-board-acceptance
 
@@ -873,7 +891,7 @@ worst-cases:
 # gate, not on shared runners.
 
 # Build everything in CI's primary job, without running libFuzzer.
-ci: gate-lints _gate-workspace _gate-doctest _gate-fuzz _gate-internal-docs _gate-docsrs _gate-curves fuelscape-claims features wasm-check bench-build fuelscape-verify viz
+ci: gate-lints _gate-workspace _gate-doctest _gate-kv-standalone _gate-fuzz _gate-internal-docs _gate-docsrs _gate-curves fuelscape-claims features wasm-check bench-build fuelscape-verify viz
 
 # Re-run the gate judgments suitable for shared CI runners.
 ci-instruments: _gate-audit _gate-board _gate-surface
