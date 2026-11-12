@@ -4,6 +4,7 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 license.workspace = true
+authors.workspace = true
 
 # The program format the interleaving-fuel harness encodes and its wasm guest
 # decodes. Both halves link this one crate, so an encoder and a decoder cannot

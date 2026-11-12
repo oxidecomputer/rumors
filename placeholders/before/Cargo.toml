@@ -4,6 +4,7 @@ version = "0.0.0"
 edition = "2024"
 description = "Reserved for the before crate, in development at https://github.com/oxidecomputer/rumors."
 license = "MPL-2.0"
+authors = ["finch@oxidecomputer.com"]
 repository = "https://github.com/oxidecomputer/rumors"
 
 # This prevents docs.rs from building docs for all the targets.

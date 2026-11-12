@@ -3,6 +3,7 @@ name = "before-viz"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
+authors.workspace = true
 description = "WASM replay engine for the interactive Interval Tree Clocks visualizer."
 publish = false
 

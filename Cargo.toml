@@ -49,14 +49,16 @@ default-members = [
     "crates/suanpan",
 ]
 
-# Every member inherits its license from here with `license.workspace =
-# true`, and the publishable crates inherit their repository with
-# `repository.workspace = true`. A detached package, which is its own
-# workspace, cannot inherit from this table, so its manifest states the same
-# license expression itself. `manifestlint` holds every member and every
-# detached package to this expression.
+# Every member inherits its license and authors from here with
+# `license.workspace = true` and `authors.workspace = true`, and the
+# publishable crates inherit their repository with `repository.workspace =
+# true`. A detached package, which is its own workspace, cannot inherit from
+# this table, so its manifest states the same license expression and authors
+# itself. `manifestlint` holds every member and every detached package to this
+# license expression.
 [workspace.package]
 license = "MPL-2.0"
+authors = ["finch@oxidecomputer.com"]
 repository = "https://github.com/oxidecomputer/rumors"
 
 [workspace.dependencies]
@@ -201,6 +203,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Lightspeed causal gossip."
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
 readme = "README.md"
 # The package carries the library, plus the kv example and the build script

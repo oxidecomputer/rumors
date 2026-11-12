@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "A tracing adapter for rumors gossip sessions: spans per session and stream, one structured event per observed wire item."
 license.workspace = true
+authors.workspace = true
 readme = "README.md"
 # Held back from crates.io: the renderer depends on the bounded cbor-diag
 # fork as a git dependency, which crates.io does not accept.

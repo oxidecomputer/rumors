@@ -8,8 +8,10 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 # The root manifest's `[workspace.package]` table, which this detached
-# workspace cannot inherit from, sets the same license for every member.
+# workspace cannot inherit from, sets the same license and authors for every
+# member.
 license = "MPL-2.0"
+authors = ["finch@oxidecomputer.com"]
 
 [package.metadata]
 cargo-fuzz = true

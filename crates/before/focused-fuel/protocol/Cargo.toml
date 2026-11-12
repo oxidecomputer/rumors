@@ -4,6 +4,7 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 license.workspace = true
+authors.workspace = true
 
 [dependencies]
 # Derives the probe numbering's checked conversion from `u32`.

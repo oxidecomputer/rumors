@@ -4,6 +4,7 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 license.workspace = true
+authors.workspace = true
 
 # A cdylib makes the single typed check function directly callable by wasmtime.
 # Inputs are synthesized inside the guest, so no bulk data crosses the host

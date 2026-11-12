@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Exact signed accumulation with bounded carry and cancellation work."
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
 readme = "README.md"
 # The package carries the library alone; the fuel harnesses build on

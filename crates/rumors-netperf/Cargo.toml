@@ -19,6 +19,7 @@ version = "0.1.0"
 publish = false
 edition = "2024"
 license.workspace = true
+authors.workspace = true
 readme = "README.md"
 description = "Measure how fast Rumors replicas synchronize over emulated links and between hosts"
 

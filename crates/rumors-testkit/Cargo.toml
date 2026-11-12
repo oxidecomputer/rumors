@@ -3,6 +3,7 @@ name = "rumors-testkit"
 version = "0.1.0"
 edition = "2024"
 license.workspace = true
+authors.workspace = true
 publish = false
 description = "Shared test and benchmark support for the rumors workspace"
 
