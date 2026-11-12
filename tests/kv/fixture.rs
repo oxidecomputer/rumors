@@ -20,9 +20,10 @@ use tempfile::TempDir;
 use ureq::Agent;
 
 /// How long a scenario waits for any one expected state: a node starting,
-/// writes converging, a process exiting. Reconnecting after a peer restarts
-/// waits out the example's dial backoff, a few seconds at most here, so a
-/// miss means the state is not coming.
+/// writes converging, a process exiting.
+///
+/// Reconnecting after a peer restarts waits out the example's dial backoff, a
+/// few seconds at most here, so a miss means the state is not coming.
 pub const DEADLINE: Duration = Duration::from_secs(30);
 
 /// How often [`eventually`] looks again.

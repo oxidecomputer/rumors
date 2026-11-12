@@ -53,10 +53,11 @@ fn agreement(what: &str, seen: &[Option<String>]) -> Result<String, String> {
     }
 }
 
-/// A node's writes are readable in its very next request: the last value of a
-/// key repeated in one write wins, a percent-encoded value decodes, a key
-/// never written reads as 404, and a delete answers 204 whether or not the key
-/// is present, leaving it absent.
+/// A node's writes are readable in its very next request.
+///
+/// The last value of a key repeated in one write wins, a percent-encoded value
+/// decodes, a key never written reads as 404, and a delete answers 204 whether
+/// or not the key is present, leaving it absent.
 #[test]
 fn one_node_reads_its_own_writes_and_deletes() {
     let dirs = Dirs::new();
@@ -158,10 +159,11 @@ fn a_node_whose_only_write_was_empty_joins_a_network_with_data() {
 }
 
 /// Nodes that meet before anyone writes take on one network and merge the
-/// writes they later make apart: b and c meet through a, and all three log
-/// taking on one network; a is killed, b and c each overwrite one key while
-/// they cannot reach each other, and a restarted a that dials both brings all
-/// three to one of their values.
+/// writes they later make apart.
+///
+/// Nodes b and c meet through a, and all three log taking on one network; a is
+/// killed, b and c each overwrite one key while they cannot reach each other,
+/// and a restarted a that dials both brings all three to one of their values.
 #[test]
 fn nodes_that_meet_empty_merge_writes_made_apart() {
     let dirs = Dirs::new();
@@ -209,10 +211,11 @@ fn partition(dirs: &Dirs) -> (Node, Node, Node) {
     (a, b, c)
 }
 
-/// Networks that each hold data never merge: b and c write before any node
-/// can reach both, and once a joins one of them and meets the other, b and c
-/// keep their own networks and values, and a holds the value of the network it
-/// joined.
+/// Networks that each hold data never merge.
+///
+/// Nodes b and c write before any node can reach both, and once a joins one of
+/// them and meets the other, b and c keep their own networks and values, and a
+/// holds the value of the network it joined.
 #[test]
 fn networks_that_each_hold_data_stay_apart() {
     let dirs = Dirs::new();
@@ -269,9 +272,11 @@ fn the_credentials_file_alone_admits_a_node_elsewhere() {
 }
 
 /// Nodes starting at once on an empty credentials directory agree on one
-/// credential: exactly one logs creating it, the directory holds only
-/// `credentials.pem`, readable and writable by its owner alone, and a fourth
-/// node dialing all three replicates its write to each.
+/// credential.
+///
+/// Exactly one logs creating it, the directory holds only `credentials.pem`,
+/// readable and writable by its owner alone, and a fourth node dialing all
+/// three replicates its write to each.
 #[test]
 fn nodes_starting_at_once_agree_on_one_credential() {
     let dirs = Dirs::new();
@@ -307,10 +312,11 @@ fn nodes_starting_at_once_agree_on_one_credential() {
     eventually(|| all_read(&[a, b, c], "k", Some("from-d")));
 }
 
-/// Nodes reuse free bookmark slots before creating new ones: three nodes hold
-/// slots 0, 1, and 2; after one is interrupted and another killed, the two
-/// nodes started next hold all three again; and with every slot held, the
-/// next node creates slot 3.
+/// Nodes reuse free bookmark slots before creating new ones.
+///
+/// Three nodes hold slots 0, 1, and 2; after one is interrupted and another
+/// killed, the two nodes started next hold all three again; and with every
+/// slot held, the next node creates slot 3.
 #[test]
 fn nodes_reuse_free_bookmark_slots_before_creating_more() {
     let dirs = Dirs::new();
@@ -336,9 +342,11 @@ fn nodes_reuse_free_bookmark_slots_before_creating_more() {
 }
 
 /// The command line rejects a peer that is not `host`, `host:port`, or
-/// `:port` with clap's usage error, exit status 2, naming the value; it
-/// accepts `localhost`, and `:port`, which reaches a node on that port of
-/// this machine.
+/// `:port`.
+///
+/// Each rejected value gets clap's usage error, exit status 2, naming the
+/// value; the command line accepts `localhost`, and `:port`, which reaches a
+/// node on that port of this machine.
 #[test]
 fn peers_parse_as_a_host_and_an_optional_port() {
     let dirs = Dirs::new();
@@ -439,8 +447,10 @@ fn interrupting_a_node_with_a_silent_gossip_connection_exits_cleanly() {
 }
 
 /// Interrupting a node whose only peer accepts connections but never answers
-/// a TLS handshake shuts it down with exit status 0: the node stops dialing in
-/// the middle of a handshake, and its attempt to retire to that peer gives up.
+/// a TLS handshake shuts it down with exit status 0.
+///
+/// The node stops dialing in the middle of a handshake, and its attempt to
+/// retire to that peer gives up.
 #[test]
 fn interrupting_a_node_whose_peer_never_answers_exits_cleanly() {
     let dirs = Dirs::new();
