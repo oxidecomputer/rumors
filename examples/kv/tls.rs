@@ -40,4 +40,4 @@ impl Tls {
 mod connect;
 mod accept;
 
-pub(crate) use connect::DEFAULT_PORT;
+pub(crate) use connect::DEFAULT_GOSSIP_PORT;

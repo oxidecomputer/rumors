@@ -415,15 +415,7 @@ macro_rules! tutorial {
     };
 }
 
-/// Expands to nothing: without the `tutorial` feature, the build script
-/// renders no fragments, and the tutorial carries its prose alone.
-#[cfg(not(feature = "tutorial"))]
-macro_rules! tutorial {
-    ($chunk:literal) => {
-        ""
-    };
-}
-
+#[cfg(feature = "tutorial")]
 pub mod tutorial;
 
 #[cfg(test)]

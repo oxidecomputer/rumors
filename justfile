@@ -165,7 +165,7 @@ fmt-check:
 # Flag doc-comment summaries and included-figure layouts that render wrong.
 doclint:
     ./tools/doclint --self-test
-    ./tools/doclint benches crates src tests
+    ./tools/doclint benches build build.rs crates src tests
 
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:

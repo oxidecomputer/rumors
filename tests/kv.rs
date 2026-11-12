@@ -23,7 +23,7 @@ mod fixture;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::net::{TcpListener, TcpStream};
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::thread;
 
@@ -341,18 +341,19 @@ fn nodes_reuse_free_bookmark_slots_before_creating_more() {
     held(&[0, 1, 2, 3]);
 }
 
-/// The command line rejects a peer that is not `host`, `host:port`, or
-/// `:port`.
+/// The command line rejects a peer that is not `host`, `host:port`, `port`,
+/// or `:port`.
 ///
 /// Each rejected value gets clap's usage error, exit status 2, naming the
-/// value; the command line accepts `localhost`, and `:port`, which reaches a
-/// node on that port of this machine.
+/// value; the command line accepts `localhost`, and `port` and `:port`, each
+/// of which reaches a node on that port of this machine.
 #[test]
 fn peers_parse_as_a_host_and_an_optional_port() {
     let dirs = Dirs::new();
     for value in [
         "host:notaport",
         "host:99999",
+        "99999",
         ":notaport",
         ":",
         "user@host:7101",
@@ -369,6 +370,37 @@ fn peers_parse_as_a_host_and_an_optional_port() {
     drop(dirs.node("localhost").peer("localhost").start());
 
     let a = dirs.node("a").start();
+    a.set(&[("k", "from-a")]);
+    let b = dirs
+        .node("b")
+        .peer(format!(":{}", a.gossip().port()))
+        .start();
+    let c = dirs.node("c").peer(a.gossip().port()).start();
+    eventually(|| all_read(&[&b, &c], "k", Some("from-a")));
+}
+
+/// The command line takes `port` or `:port` for `--gossip` and `--http`,
+/// keeping each flag's default host.
+///
+/// A node started with `--gossip :0 --http 0` gossips on every interface,
+/// where another node reaches it, and serves HTTP on loopback alone; `:notaport`
+/// for either flag exits with clap's usage error, exit status 2, naming the
+/// value.
+#[test]
+fn listening_addresses_take_a_bare_port() {
+    let dirs = Dirs::new();
+    for launch in [
+        dirs.node("rejected gossip").gossip(":notaport"),
+        dirs.node("rejected http").http(":notaport"),
+    ] {
+        let mut node = launch.spawn();
+        assert_eq!(node.wait_exit().code(), Some(2));
+        assert!(node.logged("':notaport'"));
+    }
+
+    let a = dirs.node("a").gossip(":0").http("0").start();
+    assert_eq!(a.gossip().ip(), Ipv4Addr::UNSPECIFIED);
+    assert_eq!(a.http().ip(), Ipv4Addr::LOCALHOST);
     a.set(&[("k", "from-a")]);
     let b = dirs
         .node("b")

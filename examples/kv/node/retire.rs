@@ -6,7 +6,7 @@ impl Node {
     pub(super) async fn retire(&self) {
         let replica = self.current.lock().await.send_replace(None);
         if let Some(replica) = replica
-            && let Some(mut peer) = replica.into_rumors().try_into_peer().await
+            && let Some(mut peer) = replica.rumors.try_into_peer().await
         {
             for address in &self.peers {
                 if let Ok((read, write)) = self.tls.connect(address).await {

@@ -3,18 +3,23 @@
 //!
 //! The example is an ordinary crate whose modules are its chunks: each file
 //! declares its modules in teaching order, and a file's own items are a chunk
-//! too, placed before or after the modules it declares, wherever the items
-//! stand relative to those declarations. The tutorial presents
+//! too, placed among the modules it declares wherever the items stand among
+//! those declarations. The tutorial presents
 //! the same program as one file, built up a chunk at a time, so flattening
 //! deletes what only the module structure needs: `mod` declarations, imports
 //! through `crate::`, `super::`, or `self::`, visibility, module docs, and
 //! imports of names an earlier chunk already imported. Each deletion removes
 //! exactly the tokens involved and keeps the rest of the text byte for byte.
+//! Flattening also deletes the blank lines between consecutive imports, so a
+//! chunk's imports read as one block, in the order the source lists them,
+//! however its groups were separated for rustfmt, and it deletes every
+//! `#[rustfmt::skip]`, which only tells rustfmt how to treat the example's
+//! source.
 //!
 //! Flattening rejects what deletion alone cannot express: a crate-relative
 //! path outside an import, a name bound to two different things across the
-//! program, a glob import, or a file whose own items stand on both sides of
-//! its module declarations.
+//! program, a glob import, or a file whose own items a module declaration
+//! splits in two.
 //!
 //! Each fragment is a `no_run` doctest whose hidden lines hold every earlier
 //! chunk, so the doctests compile every prefix of the program: a chunk that
@@ -28,7 +33,7 @@ use std::path::Path;
 use proc_macro2::{LineColumn, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::visit::{self, Visit};
-use syn::{AttrStyle, Expr, ImplItem, Item, Lit, Meta, UseTree, Visibility};
+use syn::{AttrStyle, Attribute, Expr, ImplItem, Item, Lit, Meta, UseTree, Visibility};
 
 /// The name of the chunk that holds the crate root's own items.
 pub const ROOT: &str = "main";
@@ -52,10 +57,12 @@ pub struct Chunk {
 /// Read the example at `dir` and return its chunks in teaching order.
 ///
 /// Each file's modules follow the order the file declares them in. A file's
-/// own items form a chunk named after the file, placed before its modules if
-/// the items precede their declarations, as a type's definition precedes the
-/// modules that say what it can do, and after them if the items follow, as
-/// `main.rs`'s do. A file with no items of its own contributes no chunk.
+/// own items form a chunk named after the file, placed among its modules where
+/// the items stand among their declarations: before them, as a type's
+/// definition precedes the modules that say what it can do; between them, as
+/// a type's definition follows the modules defining the types it holds; or
+/// after them, as `main.rs`'s items do. A file with no items of its own
+/// contributes no chunk.
 pub fn chunks(dir: &Path) -> Result<Vec<Chunk>, String> {
     let mut chunks = Vec::new();
     walk(dir, None, &mut chunks)?;
@@ -73,12 +80,12 @@ fn walk(dir: &Path, module: Option<&str>, chunks: &mut Vec<Chunk>) -> Result<(),
         .map_err(|error| format!("reading {}: {error}", path.display()))?;
     let file = parse(&source, &name)?;
     let children = declared_modules(&file, &name)?;
-    let placement = placement(&file, &children, &name)?;
-    let mut own = (placement != Placement::Absent).then_some(Chunk { name, source });
-    if placement == Placement::Before {
-        chunks.extend(own.take());
-    }
-    for child in &children {
+    let position = position(&file, &children, &name)?;
+    let mut own = position.is_some().then_some(Chunk { name, source });
+    for (index, child) in children.iter().enumerate() {
+        if position == Some(index) {
+            chunks.extend(own.take());
+        }
         let child = match module {
             None => child.clone(),
             Some(module) => format!("{module}/{child}"),
@@ -89,42 +96,34 @@ fn walk(dir: &Path, module: Option<&str>, chunks: &mut Vec<Chunk>) -> Result<(),
     Ok(())
 }
 
-/// Where a file's own items stand relative to the modules it declares.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Placement {
-    /// The file has no items of its own.
-    Absent,
-    /// The items precede every module declaration, or there are none.
-    Before,
-    /// The items follow every module declaration.
-    After,
-}
-
-/// Where `file`'s own items stand: every item except its module declarations
-/// and the imports that flattening deletes, which name `children` or start
-/// at `crate`, `super`, or `self`.
-fn placement(file: &syn::File, children: &[String], name: &str) -> Result<Placement, String> {
-    let mut own = Vec::new();
-    let mut declarations = Vec::new();
-    for (index, item) in file.items.iter().enumerate() {
+/// Where `file`'s own items stand among the modules it declares, as the
+/// number of declarations that precede them, or `None` if it has no items of
+/// its own.
+///
+/// A file's own items are every item except its module declarations and the
+/// imports that flattening deletes, which name `children` or start at
+/// `crate`, `super`, or `self`. They form one chunk, so no module declaration
+/// may stand between two of them.
+fn position(file: &syn::File, children: &[String], name: &str) -> Result<Option<usize>, String> {
+    let mut declared = 0;
+    let mut position = None;
+    for item in &file.items {
         match item {
-            Item::Mod(_) => declarations.push(index),
+            Item::Mod(_) => declared += 1,
             Item::Use(import) if is_relative(&import.tree, children) => {}
-            _ => own.push(index),
+            _ => match position {
+                None => position = Some(declared),
+                Some(at) if at == declared => {}
+                Some(_) => {
+                    return Err(format!(
+                        "{name}: keep the file's own items together, with no module \
+                         declaration among them"
+                    ));
+                }
+            },
         }
     }
-    let (Some(first), Some(last)) = (own.first(), own.last()) else {
-        return Ok(Placement::Absent);
-    };
-    match (declarations.first(), declarations.last()) {
-        (None, _) | (_, None) => Ok(Placement::Before),
-        (Some(&first_declaration), _) if *last < first_declaration => Ok(Placement::Before),
-        (_, Some(&last_declaration)) if *first > last_declaration => Ok(Placement::After),
-        _ => Err(format!(
-            "{name}: keep the file's own items together, before or after its module \
-             declarations"
-        )),
-    }
+    Ok(position)
 }
 
 /// Whether every name `tree` imports is reached through `crate`, `super`,
@@ -205,6 +204,14 @@ impl Program {
                 edits.push(lines.whole_lines(attribute.to_token_stream(), String::new()));
             }
         }
+        for attribute in rustfmt_skips(&file) {
+            edits.push(lines.attribute(attribute));
+        }
+        for pair in file.items.windows(2) {
+            if let [Item::Use(above), Item::Use(below)] = pair {
+                edits.extend(lines.blank_lines_between(above, below));
+            }
+        }
         for item in &file.items {
             match item {
                 Item::Mod(module) => {
@@ -230,9 +237,11 @@ impl Program {
     }
 
     /// Bind the names an import introduces, returning what replaces the
-    /// import in the one-file program: nothing if every name is new and so the
-    /// import stays as written, the new names alone if only some are, and an
-    /// empty text if none are or the import stays inside the crate.
+    /// import in the one-file program.
+    ///
+    /// It returns nothing if every name is new and so the import stays as
+    /// written, the new names alone if only some are, and an empty text if none
+    /// are or the import stays inside the crate.
     fn import(&mut self, chunk: &Chunk, tree: &UseTree) -> Result<Option<String>, String> {
         let mut leaves = Vec::new();
         collect_leaves(tree, &mut Vec::new(), &mut leaves, &chunk.name)?;
@@ -417,6 +426,36 @@ fn defined_name(item: &Item) -> Option<String> {
     Some(ident.to_string())
 }
 
+/// Every `#[rustfmt::skip]` among `file`'s items, at any depth: on an item, a
+/// field, or a method, or inside a body.
+///
+/// The file's own inner attributes are left out, since flattening deletes
+/// them all already.
+fn rustfmt_skips(file: &syn::File) -> Vec<&Attribute> {
+    struct Finder<'ast> {
+        found: Vec<&'ast Attribute>,
+    }
+    impl<'ast> Visit<'ast> for Finder<'ast> {
+        fn visit_attribute(&mut self, attribute: &'ast Attribute) {
+            if let Meta::Path(path) = &attribute.meta
+                && path.leading_colon.is_none()
+                && path
+                    .segments
+                    .iter()
+                    .map(|segment| segment.ident.to_string())
+                    .eq(["rustfmt", "skip"])
+            {
+                self.found.push(attribute);
+            }
+        }
+    }
+    let mut finder = Finder { found: Vec::new() };
+    for item in &file.items {
+        finder.visit_item(item);
+    }
+    finder.found
+}
+
 /// Every visibility marker on `item`, its fields, and its associated items.
 fn visibilities(item: &Item) -> impl Iterator<Item = &Visibility> {
     let mut found: Vec<&Visibility> = Vec::new();
@@ -583,6 +622,40 @@ impl<'a> Lines<'a> {
         }
     }
 
+    /// An edit deleting the blank lines between `above` and `below`, if
+    /// nothing but blank lines separates them.
+    ///
+    /// The edit starts after the line `above` ends on and stops at the line
+    /// `below` starts on, so it touches but never overlaps the whole-line edit
+    /// of either item.
+    fn blank_lines_between(&self, above: &impl ToTokens, below: &impl ToTokens) -> Option<Edit> {
+        let end = self.range(above.to_token_stream()).end;
+        let start = self.range(below.to_token_stream()).start;
+        let gap_start = end + self.source[end..start].find('\n')? + 1;
+        let gap_end = self.source[..start].rfind('\n')? + 1;
+        (gap_start < gap_end && self.source[gap_start..gap_end].trim().is_empty()).then(|| Edit {
+            range: gap_start..gap_end,
+            replacement: String::new(),
+        })
+    }
+
+    /// An edit deleting an attribute: its whole lines when it stands on lines
+    /// of its own, and otherwise the attribute and the spaces after it.
+    fn attribute(&self, attribute: &Attribute) -> Edit {
+        let Range { start, end } = self
+            .whole_lines(attribute.to_token_stream(), String::new())
+            .range;
+        let trailing = if self.source[..end].ends_with('\n') {
+            0
+        } else {
+            self.source[end..].len() - self.source[end..].trim_start_matches(' ').len()
+        };
+        Edit {
+            range: start..end + trailing,
+            replacement: String::new(),
+        }
+    }
+
     /// An edit deleting a visibility marker and the spaces after it.
     fn visibility(&self, vis: &Visibility) -> Edit {
         let Range { start, end } = match vis {
@@ -644,9 +717,11 @@ fn tidy(text: &str) -> String {
 }
 
 /// Render the fragment for chunk `index`: a `no_run` doctest showing that
-/// chunk, with every earlier chunk as hidden lines. Every fragment but the
-/// last allows dead code, since a prefix defines items only later chunks
-/// use, and ends with a hidden `main` so that its items stay top-level.
+/// chunk, with every earlier chunk as hidden lines.
+///
+/// Every fragment but the last allows dead code, since a prefix defines items
+/// only later chunks use, and ends with a hidden `main` so that its items stay
+/// top-level.
 pub fn fragment(flattened: &[String], index: usize) -> Result<String, String> {
     let last = index + 1 == flattened.len();
     let mut out = String::from("\n```no_run\n");

@@ -11,7 +11,7 @@ use crate::credentials::NETWORK_NAME;
 
 use super::Tls;
 
-pub(crate) const DEFAULT_PORT: u16 = 8081;
+pub(crate) const DEFAULT_GOSSIP_PORT: u16 = 9000;
 
 pub(super) const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -24,7 +24,7 @@ impl Tls {
         impl AsyncWrite + Unpin + Send,
     )> {
         let host = address.host().trim_start_matches('[').trim_end_matches(']');
-        let port = address.port_u16().unwrap_or(DEFAULT_PORT);
+        let port = address.port_u16().unwrap_or(DEFAULT_GOSSIP_PORT);
         let name = ServerName::try_from(NETWORK_NAME)?;
         let handshake = async {
             let tcp = TcpStream::connect((host, port)).await?;

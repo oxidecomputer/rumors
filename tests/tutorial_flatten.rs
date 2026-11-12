@@ -55,6 +55,23 @@ fn flattening_deletes_module_structure_and_keeps_the_rest() {
     );
 }
 
+/// Flattening deletes every `#[rustfmt::skip]`, at any depth: its whole line
+/// when it stands alone, and the attribute and the spaces after it when it
+/// shares a line with code. Every other attribute stays.
+#[test]
+fn flattening_deletes_rustfmt_skip_and_keeps_other_attributes() {
+    let flattened = flatten(&[(
+        ROOT,
+        "#[rustfmt::skip]\n#[derive(Debug)]\nstruct A {\n    #[rustfmt::skip] x: u8,\n}\n\nimpl A {\n    #[rustfmt::skip]\n    fn f() {}\n}\n\n#[rustfmt::skip::macros(m)]\nfn main() {}\n",
+    )]);
+    assert_eq!(
+        flattened,
+        [
+            "#[derive(Debug)]\nstruct A {\n    x: u8,\n}\n\nimpl A {\n    fn f() {}\n}\n\n#[rustfmt::skip::macros(m)]\nfn main() {}"
+        ]
+    );
+}
+
 /// An import of a name an earlier chunk imported from the same path is
 /// dropped, and a group that repeats only some names keeps the new ones.
 #[test]
@@ -130,9 +147,12 @@ fn a_glob_import_is_rejected() {
     assert!(matches!(result, Err(error) if error.contains("glob")));
 }
 
-/// The chunks of an example follow each file's module declarations, with a
-/// file's own items before its modules when they precede the declarations,
-/// after them when they follow, and absent when the file has none.
+/// The chunks of an example follow each file's module declarations, with each
+/// file's own items where they stand among those declarations.
+///
+/// A file's own items come before its modules when they precede the
+/// declarations, between them when they stand between, after them when they
+/// follow, and not at all when the file has none.
 #[test]
 fn chunks_follow_declarations_with_own_items_where_they_stand() {
     let dir = tempfile::tempdir().unwrap();
@@ -143,7 +163,7 @@ fn chunks_follow_declarations_with_own_items_where_they_stand() {
     };
     write(
         "main.rs",
-        "mod first;\nmod second;\nmod third;\n\nfn main() {}\n",
+        "mod first;\nmod second;\nmod third;\nmod fourth;\n\nfn main() {}\n",
     );
     write("first.rs", "struct First;\n\nmod a;\nmod b;\n");
     write("first/a.rs", "struct A;\n");
@@ -152,6 +172,9 @@ fn chunks_follow_declarations_with_own_items_where_they_stand() {
     write("second/c.rs", "pub(super) struct C;\n");
     write("third.rs", "mod d;\n");
     write("third/d.rs", "struct D;\n");
+    write("fourth.rs", "mod e;\n\nstruct Fourth;\n\nmod f;\n");
+    write("fourth/e.rs", "struct E;\n");
+    write("fourth/f.rs", "struct F;\n");
 
     let names: Vec<String> = tutorial::chunks(dir.path())
         .unwrap()
@@ -161,15 +184,16 @@ fn chunks_follow_declarations_with_own_items_where_they_stand() {
     assert_eq!(
         names,
         [
-            "first", "first/a", "first/b", "second/c", "second", "third/d", ROOT
+            "first", "first/a", "first/b", "second/c", "second", "third/d", "fourth/e", "fourth",
+            "fourth/f", ROOT
         ]
     );
 }
 
-/// A file whose own items stand on both sides of its module declarations is
-/// rejected, since its chunk would have no single place in the order.
+/// A file whose own items a module declaration splits in two is rejected,
+/// since its items form one chunk, which has one place in the order.
 #[test]
-fn own_items_on_both_sides_of_module_declarations_are_rejected() {
+fn own_items_split_by_a_module_declaration_are_rejected() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(
         dir.path().join("main.rs"),

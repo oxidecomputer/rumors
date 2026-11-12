@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use rumors::{Joined, Peer};
 use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::time::sleep;
-use tracing::info;
+use tracing::debug;
 
 use crate::replica::Replica;
 
@@ -28,7 +28,7 @@ impl Node {
             .await
         {
             Joined::Joined { peer, connection } => {
-                info!(network = %peer.network(), "joined network");
+                debug!(network = %peer.network(), "joined network");
                 let replica = Replica::new(peer, &self.stop);
                 current.send_replace(Some(replica.clone()));
                 self.tasks.spawn(replica.clone().keep_updated());

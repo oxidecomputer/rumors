@@ -3,9 +3,8 @@ use std::io;
 use anyhow::Result;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
-use crate::replica::Ended;
-
 use super::Node;
+use super::give_way::{GiveWay, give_way};
 
 impl Node {
     pub(super) async fn gossip_over(
@@ -26,18 +25,22 @@ impl Node {
             () = self.stop.cancelled() => None,
         };
 
-        if let Some(replica) = replica {
-            let ended = replica.gossip(&mut read, &mut write).await?;
-
-            if let Ended::Overtaken = ended {
-                let current = self.current.lock().await;
-                let abandoning = current
-                    .borrow()
-                    .as_ref()
-                    .is_some_and(|held| held.same_network(&replica) && held.is_empty());
-                if abandoning {
-                    current.send_replace(None);
-                    replica.abandon();
+        if let Some(replica) = replica
+            && let Err(error) = replica.rumors.gossip(&mut read, &mut write).await
+        {
+            match give_way(&error) {
+                None => return Err(error.into()),
+                Some(GiveWay::Them) => {}
+                Some(GiveWay::Us) => {
+                    let current = self.current.lock().await;
+                    let abandoning = current.borrow().as_ref().is_some_and(|held| {
+                        held.rumors.network() == replica.rumors.network()
+                            && held.rumors.snapshot().latest().is_empty()
+                    });
+                    if abandoning {
+                        current.send_replace(None);
+                        replica.stop.cancel();
+                    }
                 }
             }
         }

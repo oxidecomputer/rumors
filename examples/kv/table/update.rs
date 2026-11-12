@@ -3,7 +3,13 @@ use std::collections::btree_map::Entry;
 
 use rumors::Version;
 
-use super::{Table, Update};
+use super::{Key, Table, Value};
+
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Update {
+    pub(crate) key: Key,
+    pub(crate) value: Option<Value>,
+}
 
 impl Table {
     pub(crate) fn update(&mut self, version: Version, update: &Update) -> Option<Version> {
