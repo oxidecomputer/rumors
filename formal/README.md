@@ -29,13 +29,10 @@ The Lean holds the documentation. Start here:
 - **The models and proofs** — [`MODEL.md`](MODEL.md) (the protocol model),
   [`PROGRESS.md`](PROGRESS.md) and [`PLAN.md`](PLAN.md) (campaign one's records), the maps of the proofs
   ([`lean/StreamingMirror/Proofs/Map.lean`](lean/StreamingMirror/Proofs/Map.lean), [`Mux/Proofs/Map.lean`](lean/StreamingMirror/Mux/Proofs/Map.lean)).
-- **Running the checks** — [`check.sh`](quint/check.sh), `lake build`,
-  `lake exe eventdag`, plus `lake exe muxprobe` / `just muxprobe`
-  (the mux campaign's golden-pinned executable matrix). The Quint
-  tier's manual is [`quint/README.md`](quint/README.md); exhaustive
-  model checking was never achieved there — the deadlock-freedom
-  claims rest on the kernel-checked Lean artifact (full statement in
-  the manual).
+- **Running the checks** — `lake build`, `lake exe eventdag`, plus
+  `lake exe muxprobe` / `just muxprobe` (the mux campaign's
+  golden-pinned executable matrix). The deadlock-freedom claims rest on
+  the kernel-checked Lean artifact.
 
 Archaeology: the mux campaign's design documents (spec, audit notes,
 statement audit) were last complete in the tree at commit `a5cf8e3b`;

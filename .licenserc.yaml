@@ -72,7 +72,7 @@ header:
       filenames: ["doclint", "fuelscape-assets", "manifestlint", "readme", "testdoc", "workflowlint"]
       comment_style_id: PythonStyle
     JavaScript:
-      extensions: [".js", ".mjs"]
+      extensions: [".js"]
       comment_style_id: DoubleSlash
     TypeScript:
       extensions: [".ts"]
@@ -80,9 +80,6 @@ header:
     Lean:
       extensions: [".lean"]
       comment_style_id: DoubleDash
-    Quint:
-      extensions: [".qnt"]
-      comment_style_id: DoubleSlash
     Typst:
       extensions: [".typ"]
       comment_style_id: DoubleSlash

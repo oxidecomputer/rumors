@@ -1,14 +1,13 @@
 /-
-Cross-pinning the Lean model to the Phase A Quint matrix
-(formal/quint/instances.qnt): the same skeletons, executed to
-completion by a deterministic greedy scheduler, must reach `terminal`
-with every channel within capacity. Negative-control instances get
-their stuck witnesses later, as explicit action lists converted from
-the checked-in ITF traces (they are schedule-dependent, so the greedy
-scheduler proves nothing about them either way).
+Executable pins of the model on the Phase A matrix, a fixed set of small
+skeletons: the deterministic greedy scheduler `drive` executes each
+positive skeleton under `AxMode.full`, and each must reach `terminal`
+with every channel drained. The negative controls live in Controls.lean
+as `decide`-checked stuck runs; the greedy scheduler proves nothing
+about a schedule-dependent deadlock either way.
 
-`#eval` gives the fast feedback; the `decide` theorems pin the facts in
-the kernel so `lake build` fails if the model drifts from the matrix.
+`#eval` gives the fast feedback; the `native_decide` theorems pin the
+facts so `lake build` fails if the model drifts from the matrix.
 -/
 import StreamingMirror.Model
 
@@ -20,31 +19,32 @@ open Model
 def sc (kind : Kind) (height : Nat) (kids : List Nat) (leafReqs : Nat := 0) : Scope :=
   ⟨kind, height, kids, leafReqs⟩
 
-/-- instances.qnt `smokeChain`: one dispute chain exercising every
-structurally distinct stage at ROOT_H = 4. -/
+/-- One dispute chain exercising every structurally distinct stage at
+ROOT_H = 4. -/
 def smokeChain : Skel :=
   { scopes :=
       [sc .D 4 [1], sc .D 3 [2], sc .D 2 [3], sc .D 1 [] (leafReqs := 1)]
     rootH := 4, fan := 2, capLevel := 2 }
 
-/-- instances.qnt `rMix`: R children at every legal height. -/
+/-- R children at every legal height. -/
 def rMix : Skel :=
   { scopes :=
       [sc .D 4 [1, 2], sc .D 3 [3, 4], sc .R 3 [], sc .D 2 [5, 6],
        sc .R 2 [], sc .D 1 [] (leafReqs := 2), sc .R 1 []]
     rootH := 4, fan := 3, capLevel := 3 }
 
-/-- instances.qnt `comb6`: dispute branching at every height at
-ROOT_H = 6 (internal→internal handoff on both parties). -/
+/-- Dispute branching at every height at ROOT_H = 6 (internal→internal
+handoff on both parties). -/
 def comb6 : Skel :=
   { scopes :=
       [sc .D 6 [1], sc .D 5 [2, 3], sc .D 4 [4, 5], sc .D 4 [],
        sc .D 3 [6], sc .R 3 [], sc .D 2 [7], sc .D 1 [] (leafReqs := 2)]
     rootH := 6, fan := 2, capLevel := 2 }
 
-/-- instances.qnt `pyramidFull` (and, with `capLevel` overridden, the
-`pyramidC2`/`pyramidC1` tightness twins): root fans to 2 parents, each
-disputing a full fan of 4 immediately-resolving children. -/
+/-- The pyramid at level capacity `capLevel`: root fans to 2 parents,
+each disputing a full fan of 4 immediately-resolving children.
+`pyramid 4` is the production stance C = F; `pyramid 2` and `pyramid 1`
+are the capacity-tightness pair (MODEL.md §8). -/
 def pyramid (capLevel : Nat) : Skel :=
   { scopes :=
       [sc .D 4 [1, 2],
@@ -62,9 +62,8 @@ def drive (sk : Skel) (ax : AxMode) : Nat → State → State
       | some s' => drive sk ax fuel s'
       | none => s
 
-/-- One pinning verdict: greedy execution reaches `terminal` with every
-channel drained (conservation) — the Lean twin of check.sh's positive
-expectation plus `drainedAtTerminal`. -/
+/-- One pinning verdict: the greedy scheduler `drive` reaches `terminal`
+under `AxMode.full` with every channel drained (conservation). -/
 def completes (sk : Skel) (fuel : Nat := 2000) : Bool :=
   let s := drive sk .full fuel (init sk)
   terminal sk s && (allActionsDrained sk s)

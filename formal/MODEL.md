@@ -6,10 +6,9 @@ not a specification of the current implementation, and the code does not
 rely on them.
 
 This is the design document for the formal deadlock-freedom artifact. It is
-the single specification that `quint/streamingMirror.qnt` (Phase A/B) and the
-Lean package (Phase C/D) both transcribe; when the three disagree, this file
-is wrong exactly until the disagreement is resolved, and the resolution lands
-here first.
+the single specification that the Lean package (Phase C/D) transcribes; when
+the two disagree, this file is wrong exactly until the disagreement is
+resolved, and the resolution lands here first.
 
 The modeled system is the connected-session core of
 `src/tree/mirror/streaming/` — the **in-memory driver** (`mirror_connected`,
@@ -76,8 +75,8 @@ the three checks that **this modeling effort surfaced as missing**:
 sibling contiguity (D3, 2026-07-15: the original three admitted a
 "publish all wires, then all resolutions, then all queries" implementation
 that passes `assert_valid` and deadlocks the cap-1 child-resolution queue
-at fan ≥ 3 — the `ledgerGap` instance), wire contiguity (D4, finding #6,
-2026-07-16), and parent placement (finding #7, 2026-07-17 — resolved
+at fan ≥ 3), wire contiguity (D4, finding #6, 2026-07-16), and parent
+placement (finding #7, 2026-07-17 — resolved
 2026-07-18 as a two-corner design space: D5 is the weave's parent-early
 discipline, D6 the shipping encoder's epilogue discipline; §6).
 `assert_valid` is tightened alongside each finding so that the checked
@@ -400,7 +399,7 @@ order (scope order = query order = BFS/radix order of the skeleton):
 
 Within step 2 there is **no fixed cross-channel program order** among the
 obligations of one scope: beyond the per-channel child order of step 3, the
-only intra-scope edges are the axiom guards of §6, switched by `AxiomMode`.
+only intra-scope edges are the axiom guards of §6, switched by `AxMode`.
 This is deliberately weaker than the Rust (whose reaction loop is totally
 ordered): the positive theorem then covers every publication linearization
 the trace validator accepts — e.g. wire(i+1) before res(i), or the parent
@@ -517,10 +516,10 @@ trivially ordered.)
   model surfaced it. The three ledgers above are per-scope and never order
   child i's queries before child i+1's resolution, so a "all wires, all
   resolutions, then all queries" implementation satisfied them and
-  deadlocked the cap-1 `lowerRes` channel at fan ≥ 3 (`ledgerGap`
-  instance — the one-slot floor of the child-resolution edge is
-  sufficient only under this axiom, which the queue docs' sufficiency
-  argument implicitly relied on). The Rust
+  deadlocked the cap-1 `lowerRes` channel at fan ≥ 3 (the one-slot
+  floor of the child-resolution edge is sufficient only under this
+  axiom, which the queue docs' sufficiency argument implicitly relied
+  on). The Rust
   enforces it syntactically (`yield_resolve_query!` + the sequential
   reaction loop), and `Trace::assert_valid` now checks it (the
   sibling-contiguity rule, added 2026-07-15 as a result of this finding).
@@ -581,21 +580,18 @@ trivially ordered.)
   together: at any scope with a send left after the final
   D-resolution, their guards contradict and the choice point wedges.
 
-`AxiomMode` switches: `W`, `D1root`, `D1internal`, `D2`, `D3`, `D4`, `D5`,
-`D6` — each independently droppable, giving the negative controls N1 (drop
-W), N2 (drop D1 at the root), N3 (drop D1 internally), N4 (drop D2),
-N5/`ledgerGap` (drop D3), and the Lean controls `Control.jam` (drop D4) and
-`Control.pdelay` (drop D5 with D6 unasserted; the Quint spec predates all
-three and has no `AX_D4`/`AX_D5`/`AX_D6` consts — only the Lean model
-carries them).
+`AxMode` switches: `w`, `d1root`, `d1int`, `d2`, `d3`, `d4`, `d5`, `d6` —
+each independently droppable, giving the negative controls N1 (drop W), N2
+(drop D1 at the root), N3 (drop D1 internally), N4 (drop D2), N5 (drop D3),
+and the kernel-checked controls `Control.jam` (drop D4) and
+`Control.pdelay` (drop D5 with D6 unasserted).
 Dropping a guard removes those poset edges and nothing else; the
 checker then searches the freed linearizations for a stuck state. One
-scaffolding const, `WIRE_FIRST`, is **not an axiom**: because the wire
+scaffolding switch, `wireFirst`, is **not an axiom**: because the wire
 ledger never constrains `DependentWork`, a bare D1 drop frees queries
-before the wire reply and deadlocks already at fan 2 (`n2unrestricted`) —
-`WIRE_FIRST` pins queries after their child's wire send so the N2/N3
-controls isolate the resolution-vs-query reorder their predictions are
-about. Every mode change is a `const` of one parameterized spec — no
+before the wire reply and deadlocks already at fan 2 — `wireFirst` pins
+queries after their child's wire send so the N2/N3 controls isolate the
+resolution-vs-query reorder their predictions are about. Every mode change is a value of the one `AxMode` parameter — no
 forked copies.
 
 ## 7. Predicates, theorems, and why bounded checking is complete
@@ -684,7 +680,3 @@ proof.
 | `capacity_stress_witness_requires_inter_level_fan` (`streaming/tests/capacity.rs`) | tightness instances (§8) |
 | `capacity_stress_matrix` shapes (`streaming/tests/capacity.rs`) | positive instance skeletons |
 | session completion (the terminal `try_join`, `streaming/driver.rs`) | `Terminal` |
-
-Instance-to-witness mapping, expected outcomes, and the N1–N4 control
-predictions live in `formal/quint/README.md` next to the runner that
-checks them.

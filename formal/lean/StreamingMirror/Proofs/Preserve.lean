@@ -1,9 +1,9 @@
 /-
 The induction, assembled: every action preserves the invariant, hence
-the invariant holds at every reachable state. This is the parametric
-counterpart of Apalache's per-family consecution — for EVERY well-formed
-skeleton, not a fixed small one — and the platform for `deadlock_free`
-(the progress lemma consumes `inv_reachable`).
+the invariant holds at every reachable state. This is per-family
+consecution for EVERY well-formed skeleton, not a fixed small one, and
+the platform for `deadlock_free` (the progress lemma consumes
+`inv_reachable`).
 
 Chain (shared foundation): assembles `inv_reachable` from Init.lean and
 the per-family preservation files (Preserve/); consumed by Progress.lean

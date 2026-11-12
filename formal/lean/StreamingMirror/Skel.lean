@@ -1,21 +1,17 @@
 /-
-Dispute skeletons and their derived structure (MODEL.md §2), transcribed
-from `formal/quint/streamingMirror.qnt` (the split-variable Phase B
-revision). Every definition here is a `def` computing over lists, so the
-whole layer is executable; theorems assume `wf : sk.wellFormed = true`.
-
-Correspondence: Quint's stringly `(kindTag, party, height)` tuples become
-the `Party`/`Kind` inductives; `NSC` disappears (Lean folds lengths);
-everything else is name-for-name.
+Dispute skeletons (MODEL.md §2) and their derived structure,
+transcribed from formal/MODEL.md. Every definition here is a `def`
+computing over lists, so the whole layer is executable; theorems assume
+`wf : sk.wellFormed = true`.
 -/
 
 namespace StreamingMirror
 
-/-- The two endpoints. Quint: `"I"` / `"R"`. -/
+/-- The two endpoints. -/
 inductive Party | I | R
   deriving DecidableEq, Repr
 
-/-- The other endpoint. Quint: `other`. -/
+/-- The other endpoint. -/
 def Party.other : Party → Party
   | .I => .R
   | .R => .I
@@ -46,7 +42,7 @@ structure Skel where
   deriving Repr
 
 /-- Does party `p` ask (pair reply with query) for scopes at height `j`?
-Initiator asks even heights, responder odd (MODEL.md §3). Quint: `asks`.
+Initiator asks even heights, responder odd (MODEL.md §3).
 Skeleton-independent, hence outside `Skel`. -/
 def asks (p : Party) (j : Nat) : Bool :=
   match p with
@@ -58,18 +54,16 @@ namespace Skel
 variable (sk : Skel)
 
 /-- Total scope access: out-of-range ids read as a degenerate scope.
-Guards keep real accesses in range; the default only keeps `def`s total
-(the Quint spec's `scAt` device). -/
+Guards keep real accesses in range; the default only keeps `def`s
+total. -/
 def scope (i : Nat) : Scope :=
   sk.scopes.getD i ⟨Kind.R, 0, [], 0⟩
 
-/-- Scope ids at height `h`, in processing order (= id order; BFS).
-Quint: `scopesAt`. -/
+/-- Scope ids at height `h`, in processing order (= id order; BFS). -/
 def scopesAt (h : Nat) : List Nat :=
   (List.range sk.scopes.length).filter (fun i => (sk.scope i).height == h)
 
-/-- Skeleton well-formedness (MODEL.md §2). Quint: `wellFormed`, minus
-`NSC` (unneeded) plus the same `capLevel ≥ 1`. -/
+/-- Skeleton well-formedness (MODEL.md §2), plus `capLevel ≥ 1`. -/
 def wellFormed : Bool :=
   let n := sk.scopes.length
   let perScope := (List.range n).all fun i =>
@@ -108,36 +102,35 @@ def wellFormed : Bool :=
 
 /-- Walk stage keys: (party, consumed message index). Initiator stages
 consume odd indices `rootH-1, rootH-3, …, 1`; responder even
-`rootH-2, …, 0`. Quint: `walkKeys` (as a list — order is fixed for
-enumeration; treat as a set in proofs). -/
+`rootH-2, …, 0`. A list, so the order is fixed for enumeration; treat it
+as a set in proofs. -/
 def walkKeys : List (Party × Nat) :=
   ((List.range (sk.rootH / 2)).map fun k => (Party.I, sk.rootH - 1 - 2 * k)) ++
   ((List.range (sk.rootH / 2)).map fun k => (Party.R, sk.rootH - 2 - 2 * k))
 
-/-- Assembler keys: (party, assembled scope height). Quint: `asmKeys`. -/
+/-- Assembler keys: (party, assembled scope height). -/
 def asmKeys : List (Party × Nat) :=
   ((List.range sk.rootH).map fun j => (Party.I, j + 1)) ++
   ((List.range (sk.rootH - 1)).map fun j => (Party.R, j + 1))
 
-/-- The scopes a stage at consume-height `h` processes: those at `h + 1`.
-Quint: `stageScopes`. -/
+/-- The scopes a stage at consume-height `h` processes: those at `h + 1`. -/
 def stageScopes (h : Nat) : List Nat := sk.scopesAt (h + 1)
 
-/-- Stage length. Quint: `stageLen`. -/
+/-- Stage length. -/
 def stageLen (h : Nat) : Nat := (sk.stageScopes h).length
 
 /-- The id of the k-th scope of stage `h`, total (root as dummy past the
-end — the Quint `scAt` device; invariants keep real reads in range). -/
+end; invariants keep real reads in range). -/
 def stageScope (h k : Nat) : Nat := (sk.stageScopes h).getD k 0
 
 /-- Children of scope `s` as seen at stage `h`: at the leaf stage
 (`h = 0`) the "children" are the scope's leaf requests (wire-send-only,
-like R children). Quint: `nChildren`. -/
+like R children). -/
 def nChildren (h s : Nat) : Nat :=
   if h == 0 then (sk.scope s).leafReqs else (sk.scope s).kids.length
 
 /-- Is child `i` of scope `s` at stage `h` a two-sided dispute? Hard
-false at the leaf stage and out of range. Quint: `childIsD`. -/
+false at the leaf stage and out of range. -/
 def childIsD (h s i : Nat) : Bool :=
   if h == 0 then false
   else match (sk.scope s).kids[i]? with
@@ -145,7 +138,7 @@ def childIsD (h s i : Nat) : Bool :=
     | none => false
 
 /-- Queries launched for D child `i` of scope `s` at stage `h`: one per
-kid of the child scope, or its `leafReqs` at height 1. Quint: `qCount`. -/
+kid of the child scope, or its `leafReqs` at height 1. -/
 def qCount (h s i : Nat) : Nat :=
   if !sk.childIsD h s i then 0
   else match (sk.scope s).kids[i]? with
@@ -154,21 +147,18 @@ def qCount (h s i : Nat) : Nat :=
         if child.height == 1 then child.leafReqs else child.kids.length
     | none => 0
 
-/-- D children of scope `s` (the answerer recursion count). Quint:
-`dCount`. -/
+/-- D children of scope `s` (the answerer recursion count). -/
 def dCount (s : Nat) : Nat :=
   ((sk.scope s).kids.filter (fun k => (sk.scope k).kind == Kind.D)).length
 
-/-- D children of `s` as counted at stage `h` (leaf stage has none).
-Quint: `dOf`. -/
+/-- D children of `s` as counted at stage `h` (leaf stage has none). -/
 def dOf (h s : Nat) : Nat := if h == 0 then 0 else sk.dCount s
 
-/-- Queries scope `s` owes at stage `h`, summed over all children.
-Quint: `qOf`. -/
+/-- Queries scope `s` owes at stage `h`, summed over all children. -/
 def qOf (h s : Nat) : Nat :=
   (List.range (sk.nChildren h s)).foldl (fun acc i => acc + sk.qCount h s i) 0
 
-/-- Total leaf requests below height-1 D scopes. Quint: `totalLeafReqs`. -/
+/-- Total leaf requests below height-1 D scopes. -/
 def totalLeafReqs : Nat :=
   ((sk.scopesAt 1).filter (fun s => (sk.scope s).kind == Kind.D)).foldl
     (fun acc s => acc + (sk.scope s).leafReqs) 0
@@ -176,7 +166,7 @@ def totalLeafReqs : Nat :=
 /-- Pending counts of the resolutions `Asm (p, j)` consumes, in arrival
 order. Asker side: one per scope at `j`, pending = #D kids. Answerer
 side: one per D scope at `j`, pending = #kids (or `leafReqs` at height
-1). Quint: `asmResList`. -/
+1). -/
 def asmResList (p : Party) (j : Nat) : List Nat :=
   if asks p j then
     (sk.scopesAt j).map fun s => sk.dCount s
@@ -185,12 +175,11 @@ def asmResList (p : Party) (j : Nat) : List Nat :=
       let sc := sk.scope s
       if sc.height == 1 then sc.leafReqs else sc.kids.length
 
-/-- The responder-side root resolution's pending count. Quint:
-`rootPending`. -/
+/-- The responder-side root resolution's pending count. -/
 def rootPending : Nat := (sk.scope 0).kids.length
 
 -- Prefix sums over a stage's first `k` scopes: cumulative sends of a
--- walk that has completed `k` scopes. Quint: `wiresBefore` etc.
+-- walk that has completed `k` scopes.
 
 /-- Σ nChildren over the first `k` scopes of stage `h`. -/
 def wiresBefore (h k : Nat) : Nat :=
@@ -204,13 +193,11 @@ def dsBefore (h k : Nat) : Nat :=
 def qsBefore (h k : Nat) : Nat :=
   ((sk.stageScopes h).take k).foldl (fun acc s => acc + sk.qOf h s) 0
 
-/-- Σ of the first `k` pending counts of an assembler's resolution list.
-Quint: `pendsBefore`. -/
+/-- Σ of the first `k` pending counts of an assembler's resolution list. -/
 def pendsBefore (p : Party) (j k : Nat) : Nat :=
   ((sk.asmResList p j).take k).foldl (· + ·) 0
 
-/-- Pending count of resolution `i` for `Asm (p, j)`; 0 past the end.
-Quint: `pendAt`. -/
+/-- Pending count of resolution `i` for `Asm (p, j)`; 0 past the end. -/
 def pendAt (p : Party) (j i : Nat) : Nat := (sk.asmResList p j).getD i 0
 
 /-- Fan/back-pressure compatibility: no scope disputes more than
@@ -237,10 +224,8 @@ def schedulable : Bool :=
 end Skel
 
 /-- The axiom mode: which `Trace::assert_valid` ledgers guard the
-committed-choice publisher. Quint: the six `AX_*`/`WIRE_FIRST` consts
-(`d4`, `d5`, and `d6` postdate the frozen Quint spec). `d5` and `d6`
-are the two corners of the parent-placement design space and are never
-asserted together: their
+committed-choice publisher. `d5` and `d6` are the two corners of the
+parent-placement design space and are never asserted together: their
 guards contradict at any scope with a send left after the final
 D-resolution, so a mode carrying both can wedge at the choice point. -/
 structure AxMode where
@@ -263,7 +248,7 @@ structure AxMode where
                   -- full query quota). The shipping encoder's order;
                   -- liveness additionally needs the capacity margin
                   -- (capLevel ≥ per-scope dCount).
-  wireFirst : Bool -- control scaffolding, not an axiom (see Quint doc)
+  wireFirst : Bool -- control scaffolding, not an axiom (MODEL.md §6)
   deriving DecidableEq, Repr
 
 /-- All axioms of the parent-EARLY corner on, scaffolding off: the

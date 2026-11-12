@@ -1,31 +1,27 @@
 /-
 The abstract model of the streaming mirror protocol (MODEL.md §§3–5),
-transcribed action-for-action from `formal/quint/streamingMirror.qnt`
-(the split-variable Phase B revision).
+transcribed from formal/MODEL.md.
 
 Executable-first: every guard is a `Bool`, every transition is
 `apply : Action → State → Option State` (`none` = guard failed), and the
-step relation is the image of `apply`. `#eval`/`decide` re-pin this model
-to the Quint validation matrix, and the negative-control witnesses are
-`decide`-checked replays of concrete action lists.
+step relation is the image of `apply`. The `#eval`s and `native_decide`
+theorems of Instances.lean pin this model's behavior on the positive
+instance skeletons, and the negative-control witnesses of Controls.lean
+are `decide`-checked stuck runs.
 
-Correspondences with the Quint spec (the Rust↔axiom mapping both sides
-transcribe is formal/MODEL.md §10's cross-reference table):
-`chKind`/`chChild` become `Option Oblig`; the stringly channel tuples
-become the `Chan` inductive (`("asked","I",-1)` becomes
-`Chan.leafRequests`); the committed-choice semantics — commit to an
+The Rust↔axiom mapping this model transcribes is formal/MODEL.md §10's
+cross-reference table. The committed-choice semantics — commit to an
 axiom-consistent obligation, then fire it before choosing again — is
-carried by the `walkCommit`/`walkFire` action split exactly as in Quint,
-and remains load-bearing (may-fire semantics would let a scheduler dodge
-every jam).
+carried by the `walkCommit`/`walkFire` action split, and is load-bearing
+(may-fire semantics would let a scheduler dodge every jam).
 -/
 import StreamingMirror.Skel
 
 namespace StreamingMirror
 
-/-- One channel of the pipeline (MODEL.md §4). Quint: the
-`(kindTag, party, height)` tuples of `allChans`; `leafRequests` is
-Quint's `("asked", "I", -1)`. -/
+/-- One channel of the pipeline (MODEL.md §4). `leafRequests` is the
+`asked` edge from the lowest initiator stage into `Absorb` (MODEL.md §4's
+`LeafRequests`). -/
 inductive Chan
   | wire (p : Party) (h : Nat)
   | asked (p : Party) (h : Nat)
@@ -42,8 +38,7 @@ def Skel.cap (sk : Skel) : Chan → Nat
   | .level _ _ => sk.capLevel
   | _ => 1
 
--- Per-walk channel wiring. Quint: `wireIn`/`askedIn`/`wireOut`/
--- `lowerOut`/`upperOut`/`askedOut`.
+-- Per-walk channel wiring.
 
 def wireIn (pk : Party × Nat) : Chan := .wire pk.1.other (pk.2 + 1)
 def askedIn (pk : Party × Nat) : Chan := .asked pk.1 pk.2
@@ -53,12 +48,11 @@ def upperOut (pk : Party × Nat) : Chan := .upper pk.1 pk.2
 
 /-- Where a walk's child queries go: two stages down, or the leaf-request
 channel from the lowest initiator stage. (`askedOut (R, 0)` cannot fire —
-`childIsD` is hard-false at the leaf stage — so its value is moot; see
-the Quint spec's miswire note.) -/
+`childIsD` is hard-false at the leaf stage — so its value is moot.) -/
 def askedOut (pk : Party × Nat) : Chan :=
   if pk.2 < 2 then .leafRequests else .asked pk.1 (pk.2 - 2)
 
--- Per-assembler wiring. Quint: `asmResChan`/`asmLevelChan`/`asmOutChan`.
+-- Per-assembler wiring.
 
 def asmResChan (pk : Party × Nat) : Chan :=
   if asks pk.1 pk.2 then .upper pk.1 (pk.2 - 1) else .lower pk.1 pk.2
@@ -70,8 +64,7 @@ def Skel.asmOutChan (sk : Skel) (pk : Party × Nat) : Chan :=
   else if pk.1 == Party.R && pk.2 == sk.rootH - 1 then .rootrets
   else .level pk.1 pk.2
 
-/-- A walk's publication obligation for the current scope. Quint:
-`chKind`/`chChild` (`Option Oblig` replaces the `"none"`/`-1` encoding). -/
+/-- A walk's publication obligation for the current scope. -/
 inductive Oblig
   | wire (i : Nat)
   | res (i : Nat)
@@ -80,8 +73,7 @@ inductive Oblig
   deriving DecidableEq, Repr
 
 /-- One walk stage's state. Phases: 0 recvWire, 1 recvAsked,
-2 publishing, 3 closeWire, 4 closeAsked, 5 done. Quint: the eight
-`wk*` map variables, regathered. -/
+2 publishing, 3 closeWire, 4 closeAsked, 5 done. -/
 structure WalkSt where
   scope : Nat
   phase : Nat
@@ -92,14 +84,14 @@ structure WalkSt where
   committed : Option Oblig
 
 /-- One assembler's state. Phases: 0 recvRes, 1 recvLevels, 2 send,
-3 closeRes, 4 done. Quint: the three `asm*` map variables. -/
+3 closeRes, 4 done. -/
 structure AsmSt where
   idx : Nat
   phase : Nat
   got : Nat
   deriving DecidableEq, Repr
 
-/-- The opening obligations. Quint: `iopenCh` / `ropenCh` strings. -/
+/-- The opening obligations. -/
 inductive IOblig | wire | query
   deriving DecidableEq, Repr
 inductive ROblig | wire | res | query
@@ -129,8 +121,7 @@ namespace Model
 
 variable (sk : Skel) (ax : AxMode)
 
-/-- A fresh walk state at scope index `k` of stage `h`. Quint:
-`freshWalk`. -/
+/-- A fresh walk state at scope index `k` of stage `h`. -/
 def freshWalk (h k : Nat) : WalkSt :=
   { scope := k
     phase := if k < sk.stageLen h then 0 else 3
@@ -140,8 +131,7 @@ def freshWalk (h k : Nat) : WalkSt :=
     parentDone := false
     committed := none }
 
-/-- Every obligation of the walk's current scope has fired. Quint:
-`scopeComplete`. -/
+/-- Every obligation of the walk's current scope has fired. -/
 def scopeComplete (h : Nat) (ws : WalkSt) : Bool :=
   if ws.scope ≥ sk.stageLen h then true
   else
@@ -152,8 +142,7 @@ def scopeComplete (h : Nat) (ws : WalkSt) : Bool :=
       (!sk.childIsD h s i ||
         (ws.resDone i && (ws.qSent i == sk.qCount h s i)))
 
-/-- Advance past a completed scope after an obligation fires. Quint:
-`normWalk`. -/
+/-- Advance past a completed scope after an obligation fires. -/
 def normWalk (h : Nat) (ws : WalkSt) : WalkSt :=
   if ws.phase == 2 && scopeComplete sk h ws then freshWalk sk h (ws.scope + 1)
   else ws
@@ -167,8 +156,7 @@ def doneROpen (s : State) : Bool :=
   (s.ropenQ == (sk.scope 0).kids.length)
 
 /-- Is the producer of channel `c` finished, so a consumer's
-recv-on-empty takes the end branch? Quint: `producerDone`
-(MODEL.md §5 recvClose). -/
+recv-on-empty takes the end branch? (MODEL.md §5 recvClose.) -/
 def producerDone (s : State) : Chan → Bool
   | .wire p h =>
       if h == sk.rootH then
@@ -183,8 +171,8 @@ def producerDone (s : State) : Chan → Bool
   | .lower p h => doneWalk (s.walk (p, h))
   | _ => false -- level/root channels: never close-recv'd
 
-/-- The initial state. Quint: `init` (minus `wellFormed`, which theorems
-carry as a hypothesis). -/
+/-- The initial state. It does not check `wellFormed`; theorems carry
+that as a hypothesis. -/
 def init : State :=
   { walk := fun pk => freshWalk sk pk.2 0
     asm := fun pk =>
@@ -201,14 +189,16 @@ def init : State :=
 
 -- ====================================================== opener guards
 
-/-- Quint: `iopenChoosable`. -/
+/-- May the initiator opening commit to obligation `o`? Each obligation
+fires at most once, and under `ax.w` the root query follows the opening
+wire. -/
 def iopenChoosable (s : State) : IOblig → Bool
   | .wire => !s.iopenWire
   | .query => !s.iopenQuery && (!ax.w || s.iopenWire)
 
-/-- Quint: `ropenChoosable`. The query arm is deliberately NOT gated on
-`ax.w`: the wire ledger never constrains dependent work (the
-n2unrestricted finding; first Phase B CTI). -/
+/-- May the responder opening commit to obligation `o`? The query arm is
+deliberately NOT gated on `ax.w`: the wire ledger never constrains
+dependent work. -/
 def ropenChoosable (s : State) : ROblig → Bool
   | .wire => s.ropenGotWire && !s.ropenWire
   | .res => s.ropenGotWire && !s.ropenRes && (!ax.w || s.ropenWire)
@@ -219,9 +209,9 @@ def ropenChoosable (s : State) : ROblig → Bool
 -- ======================================================== walk guards
 
 /-- May walk `pk` (in phase 2, uncommitted) commit to obligation `o`?
-Quint: `wkChoosable`. The in-order (child-order) conjuncts are program
-structure, never relaxed: positional pairing is the protocol's identity
-carrier (work.rs:512-515; checked in Rust by `assert_valid`'s radix-order
+The in-order (child-order) conjuncts are program structure, never
+relaxed: positional pairing is the protocol's identity carrier
+(work.rs:512-515; checked in Rust by `assert_valid`'s radix-order
 rule). The `d5` conjunct on the wire and query arms is the parent
 ledger (finding #7): once every D child of the scope is resolved, the
 parent summary must depart before any further wire or query — exactly
@@ -285,8 +275,7 @@ def fireOblig (ws : WalkSt) (o : Oblig) : WalkSt :=
 -- ============================================================= actions
 
 /-- One atomic step of one process (MODEL.md §5: interleaving, one
-enabled channel operation or commit per step). Constructors mirror the
-Quint action branches one-for-one. -/
+enabled channel operation or commit per step). -/
 inductive Action
   | iopenChoose (o : IOblig)
   | iopenFire
@@ -325,8 +314,7 @@ def setWalk (s : State) (pk : Party × Nat) (ws : WalkSt) : State :=
 def setAsm (s : State) (pk : Party × Nat) (a : AsmSt) : State :=
   { s with asm := fun pk' => if pk' = pk then a else s.asm pk' }
 
-/-- Guarded transition function: `none` when the action's guard fails.
-Quint: the bodies of `iopenChoose … finStep`, branch-for-branch. -/
+/-- Guarded transition function: `none` when the action's guard fails. -/
 def apply (a : Action) (s : State) : Option State :=
   match a with
   | iopenChoose o =>
@@ -379,8 +367,7 @@ def apply (a : Action) (s : State) : Option State :=
       -- total function, so a "phantom" walk at a non-stage key would
       -- otherwise be live — and (R, rootH-1)'s wireIn aliases the real
       -- opening channel, letting a phantom steal the opening message and
-      -- deadlock a positive instance (transcription-review finding;
-      -- Quint scopes pk with `oneOf(walkKeys)` instead).
+      -- deadlock a positive instance (transcription-review finding).
       if sk.walkKeys.contains pk && ws.phase == 0 && s.chan c > 0 then
         some (setWalk { s with chan := bump s.chan c (-1) } pk
           { ws with phase := 1, committed := none })
@@ -505,13 +492,13 @@ def allActions : List Action :=
   sk.asmKeys.flatMap (fun pk =>
     [asmRecvRes pk, asmRecvLevel pk, asmSend pk, asmClose pk])
 
-/-- Some process can act. Quint: `canStep` (proved equal to the
-per-process disjunction there; here the enumeration IS the definition —
-`allActions` completeness is a lemma, not an axiom). -/
+/-- Some process can act: some action of `allActions` applies. The
+enumeration IS the definition — `allActions` completeness is a lemma, not
+an axiom. -/
 def canStep (s : State) : Bool :=
   (allActions sk).any fun a => (apply sk ax a s).isSome
 
-/-- The session is complete. Quint: `terminal`. -/
+/-- The session is complete. -/
 def terminal (s : State) : Bool :=
   (sk.walkKeys.all fun pk => doneWalk (s.walk pk)) &&
   (sk.asmKeys.all fun pk => doneAsm (s.asm pk)) &&
@@ -519,8 +506,7 @@ def terminal (s : State) : Bool :=
   (s.absorbPhase == 5) && s.ifin && s.rfinGotRes &&
   (s.rfinGot == sk.rootPending)
 
-/-- The deadlock predicate: the model twin of `Quiescence::Stalled`.
-Quint: `stuck`. -/
+/-- The deadlock predicate: the model twin of `Quiescence::Stalled`. -/
 def stuck (s : State) : Bool := !terminal sk s && !canStep sk ax s
 
 /-- Reachability from the initial state under the interleaving

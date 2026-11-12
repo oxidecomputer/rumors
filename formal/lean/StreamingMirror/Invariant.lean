@@ -1,18 +1,18 @@
 /-
-The inductive invariant, transcribed from the Phase B Quint `indInv`
-(`formal/quint/streamingMirror.qnt`): local per-process consistency plus
-per-channel flow equations. `Inv` is Bool-valued and executable, so the
-transcription is validated the same way Apalache's obligation 1 validated
-the Quint original — by checking it along whole executions — before any
-proof effort is spent on it. The proof stack (init, per-action
+The inductive invariant of the model: local per-process consistency plus
+per-channel flow equations. `Inv` is Bool-valued and executable, so
+`Pin.invAlong` checks it at every state of whole greedy executions, and
+a conjunct that is false along those executions fails executably before
+any proof effort is spent on it. The proof stack (init, per-action
 preservation, progress) builds on this definition.
 
-Transcription rules carried from the Phase B CTI — Apalache's first
-consecution counterexample, which falsified a "strengthened" W shadow:
-mirror the guards EXACTLY (W does not order queries after wires — the
-wire ledger never constrains dependent work), and every fired fact gets
-its own shadow lemma (`ax.w → resDone ⊆ wireDone`, at walks and at the
-responder opening alike).
+Two rules govern the guard shadows, both established by a model
+checker's consecution counterexample against an earlier invariant whose
+W shadow was strengthened beyond its guard: mirror the guards EXACTLY
+(W does not order queries after wires — the wire ledger never constrains
+dependent work), and every fired fact gets its own shadow lemma
+(`ax.w → resDone ⊆ wireDone`, at walks and at the responder opening
+alike).
 -/
 import StreamingMirror.Model
 import StreamingMirror.Instances
@@ -22,11 +22,11 @@ namespace StreamingMirror.Model
 variable (sk : Skel) (ax : AxMode)
 
 -- ============================================== derived channel counts
--- Cumulative operations, derived from process-local state. Quint:
--- wkWireRecvd … absorbLevelSent. Prologue recvs happen once per scope
--- (wire in phase 0→1, query in phase 1→2); past phase 2 every scope of
--- the stage is done. Sends: completed scopes contribute prefix-sum
--- totals, the current scope its live ledgers (empty outside phase 2).
+-- Cumulative operations, derived from process-local state. Prologue
+-- recvs happen once per scope (wire in phase 0→1, query in phase 1→2);
+-- past phase 2 every scope of the stage is done. Sends: completed scopes
+-- contribute prefix-sum totals, the current scope its live ledgers
+-- (empty outside phase 2).
 
 def wkWireRecvd (s : State) (pk : Party × Nat) : Nat :=
   let ws := s.walk pk
@@ -85,13 +85,12 @@ def absorbAskedRecvd (s : State) : Nat :=
 def b2n (b : Bool) : Nat := if b then 1 else 0
 
 /-- Does assembler `pk` send to a root singleton (so its `level` channel
-is dead)? Quint: `isRootOutKey`. -/
+is dead)? -/
 def isRootOutKey (sk : Skel) (pk : Party × Nat) : Bool :=
   (pk.1 == Party.I && pk.2 == sk.rootH) ||
   (pk.1 == Party.R && pk.2 == sk.rootH - 1)
 
-/-- Cumulative sends into channel `c` by its unique producer. Quint:
-`sentOf`. -/
+/-- Cumulative sends into channel `c` by its unique producer. -/
 def sentOf (s : State) : Chan → Nat
   | .wire p h =>
       if h == sk.rootH then
@@ -113,8 +112,7 @@ def sentOf (s : State) : Chan → Nat
   | .rootrets => asmOutSent s (Party.R, sk.rootH - 1)
   | .rootres => b2n s.ropenRes
 
-/-- Cumulative receives from channel `c` by its unique consumer. Quint:
-`recvdOf`. -/
+/-- Cumulative receives from channel `c` by its unique consumer. -/
 def recvdOf (s : State) : Chan → Nat
   | .wire p h =>
       if h == sk.rootH then
@@ -134,9 +132,8 @@ def recvdOf (s : State) : Chan → Nat
   | .rootrets => s.rfinGot
   | .rootres => b2n s.rfinGotRes
 
-/-- Every channel the model touches, for the flow quantifier. Quint:
-`allChans` (including the two dead `level` channels — the flow equations
-force them to zero). -/
+/-- Every channel the model touches, for the flow quantifier, including
+the two dead `level` channels (the flow equations force them to zero). -/
 def allChans : List Chan :=
   (sk.walkKeys.flatMap fun pk =>
     [wireOut pk, askedIn pk, upperOut pk, lowerOut pk]) ++
@@ -147,7 +144,7 @@ def allChans : List Chan :=
 
 -- ===================================================== local invariants
 
-/-- Per-walk structural consistency. Quint: `wkLocalOk`. -/
+/-- Per-walk structural consistency. -/
 def wkLocalOk (s : State) (pk : Party × Nat) : Bool :=
   let ws := s.walk pk
   let h := pk.2
@@ -215,7 +212,7 @@ def wkLocalOk (s : State) (pk : Party × Nat) : Bool :=
             (!sk.childIsD h sc j ||
               (ws.resDone j && ws.qSent j == sk.qCount h sc j))))))
 
-/-- Per-assembler structural consistency. Quint: `asmLocalOk`. -/
+/-- Per-assembler structural consistency. -/
 def asmLocalOk (s : State) (pk : Party × Nat) : Bool :=
   let a := s.asm pk
   let len := (sk.asmResList pk.1 pk.2).length
@@ -225,15 +222,16 @@ def asmLocalOk (s : State) (pk : Party × Nat) : Bool :=
   (a.phase != 2 || a.got == sk.pendAt pk.1 pk.2 a.idx) &&
   (!(a.phase == 0 || a.phase ≥ 3) || a.got == 0)
 
-/-- Openers, absorb, finishes. Quint: `topLocalOk`, including the
-fired-fact shadow the first CTI demanded. -/
+/-- Structural consistency of the openers, the absorber, and the finish
+processes, including the fired-fact shadow of the responder opening's
+`res` guard. -/
 def topLocalOk (s : State) : Bool :=
   (s.iopenCh != some .wire || !s.iopenWire) &&
   (s.iopenCh != some .query || (!s.iopenQuery && (!ax.w || s.iopenWire))) &&
   (s.ropenGotWire ||
     (!s.ropenWire && !s.ropenRes && s.ropenQ == 0 && s.ropenCh == none)) &&
   (s.ropenQ ≤ sk.rootPending) &&
-  -- fired-fact shadow of the res guard (first Phase B CTI)
+  -- fired-fact shadow of the res guard (see the module doc)
   (!ax.w || !s.ropenRes || s.ropenWire) &&
   (s.ropenCh != some .wire || !s.ropenWire) &&
   (s.ropenCh != some .res || (!s.ropenRes && (!ax.w || s.ropenWire))) &&
@@ -248,14 +246,13 @@ def topLocalOk (s : State) : Bool :=
   (s.rfinGot ≤ sk.rootPending)
 
 /-- Flow conservation plus occupancy: every channel holds exactly what
-its producer sent minus what its consumer received, within capacity.
-Quint: `indFlow` and `occupancyOk`. -/
+its producer sent minus what its consumer received, within capacity. -/
 def flowOk (s : State) : Bool :=
   (allChans sk).all fun c =>
     (s.chan c + recvdOf sk s c == sentOf sk s c) && (s.chan c ≤ sk.cap c)
 
-/-- The inductive invariant. Quint: `indInv` (typing is carried by the
-Lean types plus the bounds above). -/
+/-- The inductive invariant. It has no separate type-correctness
+conjunct: the Lean types plus the bounds above carry that. -/
 def Inv (s : State) : Bool :=
   (sk.walkKeys.all fun pk => wkLocalOk sk ax s pk) &&
   (sk.asmKeys.all fun pk => asmLocalOk sk s pk) &&
@@ -268,8 +265,9 @@ namespace StreamingMirror.Pin
 open Model
 
 /-- Drive `fuel` steps greedily, checking `Inv` at every state along the
-way — the executable transcription check (Apalache obligation 1, and a
-strong approximation of obligation 2, replayed in Lean). -/
+way: the result is `true` exactly when `Inv` holds at the starting
+state and after every greedy step, an executable sample of per-action
+preservation. -/
 def invAlong (sk : Skel) (ax : AxMode) : Nat → State → Bool
   | 0, s => Inv sk ax s
   | fuel + 1, s =>
@@ -285,8 +283,7 @@ def invAlong (sk : Skel) (ax : AxMode) : Nat → State → Bool
        invAlong (pyramid 2) .full 700 (init (pyramid 2))]
 
 /-- The invariant holds along entire greedy executions of the pinned
-positive matrix — the Lean twin of Apalache's obligation-1 pass plus a
-schedule's worth of obligation 2. -/
+positive matrix. -/
 theorem inv_along_positives :
     (invAlong smokeChain .full 300 (init smokeChain)) &&
     (invAlong rMix .full 500 (init rMix)) &&
