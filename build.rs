@@ -16,6 +16,12 @@ const MANIFEST: &str = "Cargo.toml";
 #[cfg(feature = "tutorial")]
 const MANIFEST_TEMPLATE: &str = "Cargo.toml.template";
 
+/// The file holding the one-file program's count of non-blank lines, as bare
+/// digits with no trailing newline, so the tutorial can include it mid-sentence.
+/// Its extension keeps it apart from the chunks' `.md` fragments.
+#[cfg(feature = "tutorial")]
+const LINE_COUNT: &str = "lines.txt";
+
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     #[cfg(feature = "tutorial")]
@@ -26,7 +32,8 @@ fn main() {
 }
 
 /// Write the manifest's fragment and each chunk's below `$OUT_DIR/tutorial/kv`,
-/// laid out as the example is, and check that `src/tutorial.rs` references the
+/// laid out as the example is, along with the one-file program's line count,
+/// and check that `src/tutorial.rs` references the
 /// manifest and then every chunk, in teaching order.
 #[cfg(feature = "tutorial")]
 fn generate() -> Result<(), String> {
@@ -57,6 +64,9 @@ fn generate() -> Result<(), String> {
         fs::write(&path, tutorial::fragment(&flattened, index)?)
             .map_err(|error| format!("writing {}: {error}", path.display()))?;
     }
+    let line_count = out.join(LINE_COUNT);
+    fs::write(&line_count, tutorial::line_count(&flattened).to_string())
+        .map_err(|error| format!("writing {}: {error}", line_count.display()))?;
 
     let template_path = example.join(MANIFEST_TEMPLATE);
     let template = fs::read_to_string(&template_path)

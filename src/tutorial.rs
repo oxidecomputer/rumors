@@ -2,8 +2,24 @@
 //! replicated KV store.
 //!
 //! In this tutorial, we will start from scratch and build up a complete running
-//! application, which implements a key-value store using `rumors` to
-//! synchronize its state.
+//! application: a replicated key-value store using `rumors` to synchronize
+//! state between its nodes.
+//!
+//! **We will do this in only
+#![doc = include_str!(concat!(env!("OUT_DIR"), "/tutorial/kv/lines.txt"))]
+//! lines of code.** Despite this brevity, our application will feature:
+//!
+//! - authentication and authorization via mutual TLS
+//! - a RESTful HTTP API
+//! - identity persistence
+//! - graceful shutdown
+//! - error handling
+//! - logging
+//! - ...and more!
+//!
+//! The intent of this tutorial is to present this application *as you might
+//! actually write it*: succinct, but idiomatic, making use of the third-party
+//! libraries you would actually want to use.
 //!
 //! # A sneak preview
 //!
