@@ -43,7 +43,7 @@
 //!
 //! ```bash
 //! $ cargo run --release --example kv -- --http 8000 --gossip 9000
-//! 2026-11-12T22:20:11.503269Z  INFO kv::credentials::store: created network credentials; copy this file to other machines to let them join path=kv-credentials/credentials.pem
+//! 2026-11-12T22:20:11.503269Z  INFO kv::credentials::store: created path=kv-credentials/credentials.pem
 //! 2026-11-12T22:20:11.543013Z  INFO kv: listening gossip=0.0.0.0:9000 http=127.0.0.1:8000
 //! ```
 //!

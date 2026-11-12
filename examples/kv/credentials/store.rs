@@ -25,10 +25,7 @@ impl Credentials {
         let path = dir.join(CREDENTIALS_FILE);
         match file.persist_noclobber(&path) {
             Err(error) if error.error.kind() == ErrorKind::AlreadyExists => {}
-            Ok(_) => info!(
-                path = %path.display(),
-                "created network credentials; copy this file to other machines to let them join"
-            ),
+            Ok(_) => info!(path = %path.display(), "created"),
             Err(error) => {
                 return Err(error.error).with_context(|| format!("creating {}", path.display()));
             }
