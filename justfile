@@ -124,13 +124,20 @@ clippy-default:
     cargo clippy -p rumors --lib --tests -- -D warnings
     cargo clippy -p rumors --lib -- -D warnings
 
+# cargo fmt follows `mod` declarations but not `include!`, so it never reaches
+# the kv example's topic files and their chunks, which its `main.rs` includes as
+# one tutorial. Those files go to rustfmt by name, with the edition cargo would
+# otherwise supply.
+
 # Format the whole workspace.
 fmt:
     cargo fmt --all
+    rustfmt --edition 2024 examples/kv/*.rs examples/kv/*/*.rs
 
 # Verify formatting without rewriting (the gate variant of `fmt`).
 fmt-check:
     cargo fmt --all --check
+    rustfmt --edition 2024 --check examples/kv/*.rs examples/kv/*/*.rs
 
 # ── commit gate: everything main's first-parent line must pass, fully clean ──
 # Each tools/ checker runs its self-test first, so a checker bug fails the

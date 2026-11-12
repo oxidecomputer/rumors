@@ -1,21 +1,12 @@
 //! An eventually consistent key-value store, replicated by causal gossip.
 
-mod api;
-mod cli;
-mod credentials;
-mod node;
-mod replica;
-mod table;
-mod tls;
-
-use anyhow::{Context, Result};
-use clap::Parser;
-use tokio::net::TcpListener;
-
-use crate::cli::Cli;
-use crate::credentials::Credentials;
-use crate::node::Node;
-use crate::tls::Tls;
+include!("table.rs");
+include!("replica.rs");
+include!("credentials.rs");
+include!("tls.rs");
+include!("node.rs");
+include!("api.rs");
+include!("cli.rs");
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -39,7 +30,7 @@ async fn main() -> Result<()> {
     let node = Node::new(tls, bookmarks_dir, peers);
     node.start(gossip).await?;
 
-    axum::serve(http, api::router(node.clone()))
+    axum::serve(http, router(node.clone()))
         .with_graceful_shutdown(async {
             if let Err(e) = tokio::signal::ctrl_c().await {
                 eprintln!("cannot wait for Ctrl-C, so shutting down: {e}");
