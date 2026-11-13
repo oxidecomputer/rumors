@@ -13,6 +13,7 @@ pub(crate) struct Update {
 
 impl Table {
     pub(crate) fn update(&mut self, version: Version, update: &Update) -> Option<Version> {
+        self.applied |= &version;
         let value = update.value.clone();
         match self.entries.entry(update.key.clone()) {
             Entry::Vacant(entry) => {

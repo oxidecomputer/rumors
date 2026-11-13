@@ -32,9 +32,10 @@ fn main() {
 }
 
 /// Write the manifest's fragment and each chunk's below `$OUT_DIR/tutorial/kv`,
-/// laid out as the example is, along with the one-file program's line count,
-/// and check that `src/tutorial.rs` references the
-/// manifest and then every chunk, in teaching order.
+/// laid out as the example is, along with the one-file program's line count.
+///
+/// Then check that `src/tutorial.rs` references the manifest and then every
+/// chunk, in teaching order.
 #[cfg(feature = "tutorial")]
 fn generate() -> Result<(), String> {
     use std::env;
@@ -64,9 +65,9 @@ fn generate() -> Result<(), String> {
         fs::write(&path, tutorial::fragment(&flattened, index)?)
             .map_err(|error| format!("writing {}: {error}", path.display()))?;
     }
-    let line_count = out.join(LINE_COUNT);
-    fs::write(&line_count, tutorial::line_count(&flattened).to_string())
-        .map_err(|error| format!("writing {}: {error}", line_count.display()))?;
+    let lines = out.join(LINE_COUNT);
+    fs::write(&lines, line_count(&flattened).to_string())
+        .map_err(|error| format!("writing {}: {error}", lines.display()))?;
 
     let template_path = example.join(MANIFEST_TEMPLATE);
     let template = fs::read_to_string(&template_path)
@@ -81,4 +82,16 @@ fn generate() -> Result<(), String> {
         .chain(chunks.into_iter().map(|chunk| chunk.name))
         .collect();
     tutorial::check_order(&names, &tutorial::references(&tutorial)?)
+}
+
+/// The number of non-blank lines in the one-file program, which is every
+/// flattened chunk in order: the `main.rs` a reader holds at the tutorial's
+/// end.
+#[cfg(feature = "tutorial")]
+fn line_count(flattened: &[String]) -> usize {
+    flattened
+        .iter()
+        .flat_map(|chunk| chunk.lines())
+        .filter(|line| !line.trim().is_empty())
+        .count()
 }

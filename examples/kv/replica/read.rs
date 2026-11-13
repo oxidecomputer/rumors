@@ -6,12 +6,12 @@ use super::Replica;
 
 impl Replica {
     pub(crate) fn get(&self, key: &Key) -> Option<Value> {
-        self.view.lock().unwrap().table.get(key).cloned()
+        self.table.borrow().get(key).cloned()
     }
 
     pub(crate) fn entries(&self) -> BTreeMap<Key, Value> {
-        let view = self.view.lock().unwrap();
-        view.table
+        self.table
+            .borrow()
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect()

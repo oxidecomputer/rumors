@@ -1,7 +1,6 @@
 //! An eventually consistent key-value store, replicated by causal gossip.
 
 mod table;
-mod view;
 mod replica;
 mod credentials;
 mod tls;

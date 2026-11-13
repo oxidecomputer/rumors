@@ -19,7 +19,8 @@ impl Node {
         let replica = current.borrow().clone();
         replica
             .context("not replicating any network right now")?
-            .update(updates)?;
+            .update(updates)
+            .await?;
 
         Ok(())
     }

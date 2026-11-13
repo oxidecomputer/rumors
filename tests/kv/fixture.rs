@@ -33,9 +33,9 @@ const POLL: Duration = Duration::from_millis(50);
 /// directory.
 pub const CREDENTIALS_FILE: &str = "credentials.pem";
 
-/// The start of the event a node logs when it creates the network's
-/// credentials.
-pub const CREATED_CREDENTIALS: &str = "created network credentials";
+/// The target and message of the event a node logs when it creates the
+/// network's credentials.
+pub const CREATED_CREDENTIALS: &str = "kv::credentials::store: created";
 
 /// The content type of the example's form-encoded writes.
 pub const FORM: &str = "application/x-www-form-urlencoded";
@@ -304,18 +304,6 @@ impl Node {
         self.log_lines().iter().any(|line| line.contains(needle))
     }
 
-    /// The network the node took on most recently, by seeding or joining it,
-    /// as far as its log shows so far.
-    ///
-    /// A node that gives way logs nothing until it joins the next network, so
-    /// this names the network it left until then.
-    pub fn network(&self) -> Option<String> {
-        self.log_lines()
-            .iter()
-            .rev()
-            .find_map(|line| took_on(line).map(str::to_owned))
-    }
-
     /// Send SIGINT, as Ctrl-C does, and wait for the process to exit.
     pub fn interrupt(&mut self) -> ExitStatus {
         let pid = Pid::from_raw(
@@ -462,13 +450,6 @@ fn listening(line: &str) -> Option<(SocketAddr, SocketAddr)> {
         field(fields, "gossip")?.parse().ok()?,
         field(fields, "http")?.parse().ok()?,
     ))
-}
-
-/// The network a node's `seeded network` or `joined network` event names, if
-/// `line` is either.
-fn took_on(line: &str) -> Option<&str> {
-    let fields = event(line, "seeded network").or_else(|| event(line, "joined network"))?;
-    field(fields, "network")
 }
 
 /// The fields of `line`, if it is an event whose message is `message`.

@@ -716,17 +716,6 @@ fn tidy(text: &str) -> String {
     out.join("\n")
 }
 
-/// The number of non-blank lines in the one-file program, which is every
-/// flattened chunk in order: the `main.rs` a reader holds at the tutorial's
-/// end.
-pub fn line_count(flattened: &[String]) -> usize {
-    flattened
-        .iter()
-        .flat_map(|chunk| chunk.lines())
-        .filter(|line| !line.trim().is_empty())
-        .count()
-}
-
 /// Render the fragment for chunk `index`: a `no_run` doctest showing that
 /// chunk, with every earlier chunk as hidden lines.
 ///

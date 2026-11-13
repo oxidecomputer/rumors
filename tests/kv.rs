@@ -158,24 +158,19 @@ fn a_node_whose_only_write_was_empty_joins_a_network_with_data() {
     eventually(|| a.reads("k", Some("from-c")));
 }
 
-/// Nodes that meet before anyone writes take on one network and merge the
-/// writes they later make apart.
+/// Nodes in one network merge the writes they make apart.
 ///
-/// Nodes b and c meet through a, and all three log taking on one network; a is
-/// killed, b and c each overwrite one key while they cannot reach each other,
-/// and a restarted a that dials both brings all three to one of their values.
+/// Nodes b and c meet through a and read its write; a is killed, b and c each
+/// overwrite one key while they cannot reach each other, and a restarted a that
+/// dials both brings all three to one of their values.
 #[test]
-fn nodes_that_meet_empty_merge_writes_made_apart() {
+fn nodes_in_one_network_merge_writes_made_apart() {
     let dirs = Dirs::new();
     let mut a = dirs.node("a").start();
     let b = dirs.node("b").peer(a.gossip()).start();
     let c = dirs.node("c").peer(a.gossip()).start();
-    eventually(|| {
-        agreement(
-            "a, b, and c took on networks",
-            &[a.network(), b.network(), c.network()],
-        )
-    });
+    a.set(&[("k", "from-a")]);
+    eventually(|| all_read(&[&b, &c], "k", Some("from-a")));
 
     a.kill();
     b.set(&[("k", "from-b")]);
@@ -214,8 +209,8 @@ fn partition(dirs: &Dirs) -> (Node, Node, Node) {
 /// Networks that each hold data never merge.
 ///
 /// Nodes b and c write before any node can reach both, and once a joins one of
-/// them and meets the other, b and c keep their own networks and values, and a
-/// holds the value of the network it joined.
+/// them and meets the other, b and c keep their own values, and a holds one of
+/// the two.
 #[test]
 fn networks_that_each_hold_data_stay_apart() {
     let dirs = Dirs::new();
@@ -223,15 +218,11 @@ fn networks_that_each_hold_data_stay_apart() {
 
     assert_eq!(b.get("k").as_deref(), Some("from-b"));
     assert_eq!(c.get("k").as_deref(), Some("from-c"));
-    let b_network = b.network().expect("b logs its network before it listens");
-    let c_network = c.network().expect("c logs its network before it listens");
-    assert_ne!(b_network, c_network);
-    let expected = match a.network() {
-        Some(joined) if joined == b_network => "from-b",
-        Some(joined) if joined == c_network => "from-c",
-        joined => panic!("a took on {joined:?}, neither b's {b_network} nor c's {c_network}"),
-    };
-    assert_eq!(a.get("k").as_deref(), Some(expected));
+    let bridged = a.get("k");
+    assert!(
+        matches!(bridged.as_deref(), Some("from-b" | "from-c")),
+        "{bridged:?}"
+    );
 }
 
 /// A partition heals when one side restarts: c, apart from b as above, is

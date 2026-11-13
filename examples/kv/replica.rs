@@ -1,15 +1,13 @@
-use std::sync::{Arc, Mutex};
-
 use rumors::{FileBookmark, Peer, Rumors, TokioBlocking};
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::table::{Table, Update};
-use crate::view::View;
 
 #[derive(Clone)]
 pub(crate) struct Replica {
     pub(crate) rumors: Rumors<Update, FileBookmark<TokioBlocking>>,
-    view: Arc<Mutex<View>>,
+    table: watch::Sender<Table>,
     pub(crate) stop: CancellationToken,
 }
 
@@ -22,19 +20,14 @@ impl Replica {
         let rumors = peer
             .gossip_until(stop.clone().cancelled_owned())
             .into_rumors();
-        let updates = rumors.unordered_messages();
         Self {
             rumors,
-            view: Arc::new(Mutex::new(View {
-                updates,
-                table: Table::default(),
-            })),
+            table: watch::Sender::new(Table::default()),
             stop,
         }
     }
 }
 
-mod catch_up;
-mod update;
 mod keep_updated;
+mod update;
 mod read;

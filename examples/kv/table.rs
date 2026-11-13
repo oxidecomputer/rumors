@@ -11,6 +11,7 @@ pub(crate) use value::Value;
 #[derive(Default)]
 pub(crate) struct Table {
     entries: BTreeMap<Key, (Version, Option<Value>)>,
+    pub(crate) applied: Version,
 }
 
 mod update;

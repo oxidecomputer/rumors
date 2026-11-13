@@ -148,23 +148,17 @@
 #![doc = tutorial!("table/read")]
 //!# A replicated table
 //!
-//!## A view is a table, plus a stream of updates
-//!
-#![doc = tutorial!("view")]
-//!## A replica is a view, plus a way to send updates
+//!## A replica is a table, plus a way to send updates
 //!
 #![doc = tutorial!("replica")]
 //!## Updating the replica, and keeping it up to date
 //!
-//!### Catching up on what we missed
-//!
-#![doc = tutorial!("replica/catch_up")]
-//!### Applying local updates
-//!
-#![doc = tutorial!("replica/update")]
-//!### Keeping up to date with remote updates
+//!### Keeping up to date with every update
 //!
 #![doc = tutorial!("replica/keep_updated")]
+//!### Sending local updates
+//!
+#![doc = tutorial!("replica/update")]
 //!### Reading the current state
 //!
 #![doc = tutorial!("replica/read")]
