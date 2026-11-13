@@ -42,7 +42,9 @@
 #    doc prose, on both sides. A blank line written as an attribute
 #    (`#[doc = ""]`, the form macro-generated docs use) counts; a blank
 #    *source* line does not, because it reaches rustdoc as nothing at all and
-#    the doc lines around it still join directly.
+#    the doc lines around it still join directly. An included `.txt` file is
+#    inline text, such as a number spliced into a sentence, so it renders as
+#    prose and needs no block of its own.
 #
 # Usage:
 #   doclint --self-test    # pin the layouts each rule accepts and rejects,
@@ -81,6 +83,7 @@ CRATE_ROOT_NAMES = {"lib.rs", "main.rs"}
 # which is how macro-generated docs spell their separators. Any other
 # `#[doc = …]` carries a string that renders as prose.
 INCLUDE_ATTR = re.compile(r"#!?\[\s*doc\s*=\s*include_str!")
+INLINE_INCLUDE_ATTR = re.compile(r'#!?\[\s*doc\s*=\s*include_str!.*\.txt"\)*\s*\]')
 EMPTY_DOC_ATTR = re.compile(r'#!?\[\s*doc\s*=\s*""\s*\]')
 DOC_ATTR = re.compile(r"#!?\[\s*doc\s*=")
 
@@ -175,6 +178,8 @@ def doc_stream_kind(stripped):
     all (an empty source line, an ordinary `//` comment, or a `////` rule);
     `"code"` is anything else, which ends the doc run.
     """
+    if INLINE_INCLUDE_ATTR.match(stripped):
+        return "text"
     if INCLUDE_ATTR.match(stripped):
         return "include"
     if EMPTY_DOC_ATTR.match(stripped):
