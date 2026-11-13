@@ -1441,19 +1441,25 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     {
         let mut batch = self.new_batch();
         let value = f(&mut batch)?;
-        let redacted = batch.commit().redacted;
-        Ok(Committed { value, redacted })
+        let commit = batch.commit();
+        Ok(Committed {
+            value,
+            sent: commit.sent,
+            redacted: commit.redacted,
+            latest: commit.latest,
+        })
     }
 
-    /// Commit every message from an iterator as one batch.
-    pub(crate) fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
+    /// Commit every message from an iterator as one batch, returning the
+    /// replica's frontier right after the commit if the batch sent anything.
+    pub(crate) fn send_all<I>(&self, messages: I) -> Result<Option<Version>, EncodeError>
     where
         I: IntoIterator<Item = T>,
     {
         let mut batch = self.new_batch();
         batch.send_all(messages)?;
-        batch.commit();
-        Ok(())
+        let commit = batch.commit();
+        Ok((commit.sent > 0).then_some(commit.latest))
     }
 
     /// Commit every redaction from an iterator as one batch, returning how many

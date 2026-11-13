@@ -238,7 +238,9 @@ proptest! {
 
         for op in ops {
             match op {
-                0 => a.send_all(std::iter::empty::<u64>()).unwrap(),
+                0 => {
+                    a.send_all(std::iter::empty::<u64>()).unwrap();
+                }
                 1 => assert!(!a.redact(&Version::new())),
                 _ => assert!(!a.redact(&removed)),
             }

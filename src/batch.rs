@@ -104,10 +104,15 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
         }
     }
 
-    /// Apply the queued actions; return the replica's resulting frontier and
-    /// how many messages the queued redactions removed.
+    /// Apply the queued actions; return the replica's resulting frontier, how
+    /// many messages the batch sent, and how many the queued redactions
+    /// removed.
     pub(crate) fn commit(self) -> Commit {
         let Batch { inner, actions, .. } = self;
+        let sent = actions
+            .iter()
+            .filter(|action| matches!(action, Action::Insert(_)))
+            .count();
         let mut commit = None;
         Inner::commit(inner, |party, tree| {
             // A later action may discard an earlier insert. Keep the queued
@@ -115,6 +120,7 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
             let acted = tree.act(party, actions.iter().cloned());
             commit = Some(Commit {
                 latest: tree.latest().clone(),
+                sent,
                 redacted: acted.removed,
             });
             acted.changed
@@ -127,24 +133,25 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
 pub(crate) struct Commit {
     /// The replica's frontier right after the commit.
     pub(crate) latest: Version,
+    /// How many messages the batch sent.
+    pub(crate) sent: usize,
     /// How many messages the batch's redactions removed.
     pub(crate) redacted: usize,
 }
 
 /// The result of a committed [`Rumors::batch`](crate::Rumors::batch): the
-/// closure's value, and what the batch's redactions removed.
+/// closure's value, what the batch sent and removed, and the replica's
+/// frontier right after it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Committed<R> {
     /// The value the batch closure returned.
     pub value: R,
+    /// How many messages the batch's [`send`](Batch::send)s sent.
+    pub sent: usize,
     /// How many messages the batch's [`redact`](Batch::redact)s removed.
-    ///
-    /// A redaction removes a message only if this replica held it, live, when
-    /// the batch committed. A version it never received, or had already
-    /// redacted, adds nothing, and nor does a second redaction of one version
-    /// in the same batch. A redaction that removes nothing changes nothing,
-    /// here or elsewhere: a message this replica never received is live if it
-    /// arrives later, and a message it already redacted stays redacted.
     pub redacted: usize,
+    /// The replica's causal frontier right after the commit, as
+    /// [`Snapshot::latest`](crate::Snapshot::latest) reports it.
+    pub latest: Version,
 }

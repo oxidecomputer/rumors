@@ -270,6 +270,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// **nothing** commits, not even the messages admitted before it. An empty
     /// iterator commits nothing and wakes no observer.
     ///
+    /// Returns the last message's [`Version`], which covers every message in
+    /// the commit, as [`send`](Self::send) returns its message's, or `None` for
+    /// an empty iterator, which sends nothing.
+    ///
     /// # Examples
     ///
     /// ```
@@ -287,7 +291,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// If any message fails to serialize: a violation of the payload contract
     /// ([choosing a payload type](crate#choosing-a-payload-type)), exactly as
     /// [`send`](Self::send) treats it.
-    pub fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
+    pub fn send_all<I>(&self, messages: I) -> Result<Option<Version>, EncodeError>
     where
         I: IntoIterator<Item = T>,
     {
@@ -342,9 +346,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// at most one observer wakeup. Any other exit — a returned `Err` (how a
     /// caller abandons a batch) or a panic — commits nothing.
     ///
-    /// On commit, returns [`Committed`]: the closure's value, and how many
-    /// messages the batch's redactions removed, counted as
-    /// [`redact_all`](Self::redact_all) counts them.
+    /// On commit, returns [`Committed`]: the closure's value, how many messages
+    /// the batch sent, how many its redactions removed, counted as
+    /// [`redact_all`](Self::redact_all) counts them, and the replica's frontier
+    /// right after the commit.
     ///
     /// The closure is synchronous and the scope handle cannot leave it (the
     /// examples below show both escape routes failing to compile), so async

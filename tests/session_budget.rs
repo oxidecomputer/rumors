@@ -398,8 +398,8 @@ fn fixture(
         a.redact_all(&shared);
     });
     let [a_messages, b_messages] = messages;
-    let (a_sends, ()) = measure(|| a.send_all(0..a_messages).expect("A's messages encode"));
-    let (b_sends, ()) = measure(|| {
+    let (a_sends, _) = measure(|| a.send_all(0..a_messages).expect("A's messages encode"));
+    let (b_sends, _) = measure(|| {
         b.send_all((0..b_messages).map(|value| B_VALUES + value))
             .expect("B's messages encode")
     });
@@ -2049,8 +2049,8 @@ fn payload_fixture(
             bytes
         })
     };
-    let (a_sends, ()) = measure(|| a.send_all(payloads(1)).expect("A's messages encode"));
-    let (b_sends, ()) = measure(|| b.send_all(payloads(2)).expect("B's messages encode"));
+    let (a_sends, _) = measure(|| a.send_all(payloads(1)).expect("A's messages encode"));
+    let (b_sends, _) = measure(|| b.send_all(payloads(2)).expect("B's messages encode"));
     let (join, joined) = measure(|| join_snapshots(&a.snapshot(), &b.snapshot()));
     drop(joined);
     let allocations = [built, a_sends, b_sends, join]
