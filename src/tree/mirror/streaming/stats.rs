@@ -19,8 +19,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::counter::widen;
 
-/// Local measurements from one completed session while joining, gossiping, or
-/// leaving a network.
+/// Local measurements from one completed gossip session.
 ///
 /// The two peers can report different values because each measures its own work
 /// and traffic. Field documentation identifies the boundaries needed to compare

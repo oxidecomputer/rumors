@@ -3,7 +3,7 @@ use proptest::prelude::*;
 use super::*;
 
 /// The library's minimum budget, in the report's unit.
-const MIN: u64 = MIN_SYNC_MEMORY_BUDGET as u64;
+const MIN: u64 = rumors::testing::MIN_SYNC_MEMORY_BUDGET as u64;
 
 /// A finished session of a point whose sides request `budget` and report
 /// running at `effective`, and whose larger side's heap rose `heap` bytes above
@@ -96,8 +96,8 @@ proptest! {
     /// and that minimum, and the budget column marks exactly the requests
     /// below it as running at the minimum.
     ///
-    /// Minimums are drawn at and away from
-    /// [`MIN_SYNC_MEMORY_BUDGET`], the minimum at the default target.
+    /// Minimums are drawn at and away from [`MIN`], the minimum at the
+    /// default target.
     #[test]
     fn requests_below_the_minimum_run_at_it(
         (minimum, requested) in prop_oneof![Just(MIN), 1..UNLIMITED_BUDGET / 2].prop_flat_map(

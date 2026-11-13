@@ -13,14 +13,13 @@ use before::Party;
 use proptest::prelude::*;
 use tokio::sync::watch;
 
-use super::{
-    Inner, MAX_BUDGETED_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, MIN_SYNC_MEMORY_BUDGET,
-    OPTIMISTIC_ATTEMPTS, Peer,
-};
+use super::{Inner, MIN_SYNC_MEMORY_BUDGET, OPTIMISTIC_ATTEMPTS, Peer};
 use crate::default;
 use crate::message::Message;
 use crate::testing::property::{LOCAL_DIVISOR, SESSION_DIVISOR, divided_proptest, network_seed};
-use crate::testing::{MEMORY_CAPACITY, memory_connection};
+use crate::testing::{
+    MAX_BUDGETED_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, MEMORY_CAPACITY, memory_connection,
+};
 use crate::tree::mirror::streaming::Local;
 use crate::tree::mirror::streaming::materialized::Allowances;
 use crate::tree::mirror::streaming::remote::{RunBudget, WRITE_BUFFER_BYTES};
@@ -402,6 +401,18 @@ fn the_message_room_is_the_documented_figure() {
     assert!(
         (MIB - MIB / 20..MIB + MIB / 20).contains(&pools),
         "the room for messages on their way is {pools} B, not about 1 MiB",
+    );
+}
+
+/// The wire's limit on a message-size target, to which a larger target
+/// saturates, is the "about 4 GiB" the target's documentation states.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn the_target_limit_is_the_documented_figure() {
+    const GIB: usize = 1 << 30;
+    assert!(
+        (4 * GIB - GIB / 100..=4 * GIB).contains(&MAX_RUN_BUDGET_BYTES),
+        "the target limit is {MAX_RUN_BUDGET_BYTES} B, not about 4 GiB",
     );
 }
 

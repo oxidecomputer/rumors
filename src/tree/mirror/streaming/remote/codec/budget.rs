@@ -62,10 +62,14 @@ pub(crate) const FULL_FAN_QUERY_FRAME_LEN: usize = {
 /// conservative.
 pub const SUPPLY_FRAME_OVERHEAD: usize = FRAME_OPENER_LEN + SUPPLY_HEAD_LEN;
 
-/// Largest whole-frame budget that keeps an in-budget run within the wire cap.
+/// The largest whole-frame budget that keeps an in-budget run within the wire
+/// cap.
 ///
 /// The wire represents the run-body length as a `u32`; subtracting the frame
 /// overhead ensures that every run accumulated within budget can be encoded.
+/// `RunBudget::from_bytes` saturates a peer's
+/// [`target_message_size`](crate::Peer::target_message_size) here, which the
+/// public docs call the wire's limit of about 4 GiB.
 pub const MAX_RUN_BUDGET_BYTES: usize = u32::MAX as usize - SUPPLY_FRAME_OVERHEAD;
 
 /// The byte budget one supply frame may grow to before the encoder flushes it.

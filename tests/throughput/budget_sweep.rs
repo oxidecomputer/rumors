@@ -89,7 +89,7 @@
 //! one through the public setter: `F + X` beside fractions of `N*`, below and
 //! above it, `M`, and half of `F`; and it checks the claims at each.
 
-use rumors::MIN_SYNC_MEMORY_BUDGET;
+use rumors::testing::MIN_SYNC_MEMORY_BUDGET;
 use rumors::testing::{FLOOR_ALLOWANCE, SESSION_ALLOWANCE, ledger_budget_within};
 use rumors_testkit::bench::link::{LinkConfig, Side};
 use rumors_testkit::bench::session::{

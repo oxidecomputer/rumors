@@ -219,7 +219,7 @@ divided_proptest! {
     ///
     /// The join completes, delivers the provider's whole set, and the joined
     /// peer, retaining the zero budget, which its sessions raise to
-    /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), still
+    /// [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET), still
     /// reconciles a fresh origination back into the provider.
     ///
     /// The budget's any-value safety therefore holds at the one entry point
@@ -259,7 +259,7 @@ divided_proptest! {
 
         assert_eq!(
             bootstrapped.synchronization_settings().sync_memory_budget,
-            rumors::MIN_SYNC_MEMORY_BUDGET,
+            rumors::testing::MIN_SYNC_MEMORY_BUDGET,
             "the joined peer retains the zero budget, effective at the minimum",
         );
         // The joined peer gossips under its retained minimum budget, and the

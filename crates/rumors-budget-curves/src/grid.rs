@@ -1,6 +1,6 @@
 //! The pairs and links the curves cover, and the budgets each runs at.
 
-use rumors::MIN_SYNC_MEMORY_BUDGET;
+use rumors::testing::MIN_SYNC_MEMORY_BUDGET;
 use rumors_testkit::bench::session::{LAN_BDP, LONG_HAUL_BDP, METRO_BDP, Shape, admitting};
 use serde::{Deserialize, Serialize};
 

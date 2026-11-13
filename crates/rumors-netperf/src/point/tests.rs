@@ -44,3 +44,14 @@ fn compact_counts() {
     assert_eq!(compact_count(9_900), "9900");
     assert_eq!(compact_count(10), "10");
 }
+
+/// The minimum the tool reads from a peer's reported budget is the library's
+/// minimum at the default message-size target, so the check and the report
+/// judge sides against the value the library raises budgets to.
+#[test]
+fn minimum_budget_is_the_library_minimum() {
+    assert_eq!(
+        minimum_budget(),
+        rumors::testing::MIN_SYNC_MEMORY_BUDGET as u64
+    );
+}

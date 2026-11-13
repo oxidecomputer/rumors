@@ -26,13 +26,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rumors::{MIN_SYNC_MEMORY_BUDGET, default};
+use rumors::default;
 use serde::{Deserialize, Serialize};
 
 use crate::calibrate::Calibration;
 use crate::env::{Build, Environment};
 use crate::plot::{Chart, Series, line_chart};
-use crate::point::{self, Model, Replicas, Transport, UNLIMITED_BUDGET};
+use crate::point::{self, Model, Replicas, Transport, UNLIMITED_BUDGET, minimum_budget};
 use crate::probe::ProbeResult;
 use crate::record::{Row, read};
 use crate::run::RunRecord;
@@ -237,8 +237,8 @@ impl PointSummary {
 /// default).
 ///
 /// The library raises a request below the minimum for the side's message-size
-/// target to that minimum, which is [`MIN_SYNC_MEMORY_BUDGET`] at the default
-/// target. It doesn't publish the minimum at other targets, so the report reads
+/// target to that minimum, which is [`minimum_budget`] at the default target.
+/// It doesn't publish the minimum at other targets, so the report reads
 /// the raised budget the library reports
 /// ([`SynchronizationSettings`](rumors::SynchronizationSettings)) rather than
 /// recomputing it.
@@ -943,7 +943,7 @@ fn write_memory(md: &mut String, summaries: &[(String, PointSummary)]) -> Result
          A budget below the minimum, {} in this build, runs at the minimum: the budget column then shows \
          the request and \"→ minimum\", and the ratio is against the minimum. An unlimited budget has \
          no ratio.\n",
-        human_bytes(MIN_SYNC_MEMORY_BUDGET as f64)
+        human_bytes(minimum_budget() as f64)
     )?;
     writeln!(
         md,

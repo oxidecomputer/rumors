@@ -7,7 +7,7 @@
 //! each kind and depth at a time, the configuration the liveness argument rests
 //! on at its most serial, and suites must keep it exercised. A session raises
 //! every public budget to
-//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so this choice
+//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET), so this choice
 //! is set through the test path
 //! ([`serial_budget`](rumors::testing::serial_budget)). The sweep adds explicit
 //! byte budgets and the production default on top. Every budget sets aside the
@@ -34,7 +34,7 @@ pub enum BudgetChoice {
     Serial,
     /// An explicit memory budget in bytes, through the public setter: the
     /// allowances and the bytes the ledgers admit work against beside them,
-    /// raised to [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET).
+    /// raised to [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET).
     Bytes(usize),
     /// An explicit ledger budget in bytes, set through the test path
     /// ([`ledger_budget`](rumors::testing::ledger_budget)), below the public
@@ -112,7 +112,7 @@ pub const MAX_BUDGET_EXPONENT: u32 = 24;
 /// beside them, for `e` across
 /// [`MIN_BUDGET_EXPONENT`]`..=`[`MAX_BUDGET_EXPONENT`] ([`admitting`]), through
 /// the public setter: the draws below
-/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) exercise its
+/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET) exercise its
 /// raise, and the rest reach budgets that suite-scale sessions do not fill.
 /// Shrinking heads toward [`BudgetChoice::Serial`], the baseline the liveness
 /// argument rests on.

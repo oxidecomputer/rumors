@@ -257,7 +257,7 @@ fn letter(side: Side) -> char {
 /// budget sets aside there ([`memory_budget_admitting`]).
 ///
 /// A session raises this, set through the public setter, to
-/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET) when `bytes` is
+/// [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET) when `bytes` is
 /// below the largest grant. A suite that states its budgets by what the ledgers
 /// admit, such as fractions of `Λ` or of the no-cost point, and must reach
 /// below that, sets the ledger budget directly instead

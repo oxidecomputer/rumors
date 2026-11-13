@@ -115,6 +115,7 @@ const fn pool_bytes(target: usize, runs: usize, node: usize) -> usize {
 /// larger than its message, so a run in a message of at most this many bytes
 /// takes at most its pool, in either direction; a larger one, which only a lone
 /// record makes, takes the whole pool and holds its excess beside it.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const fn budgeted_message_bytes(target: usize) -> usize {
     let sending = pool_bytes(target, WIRE_POOL_RUNS, queued::<Outbound>());
     let receiving = pool_bytes(target, WIRE_POOL_RUNS, queued::<Inbound>());

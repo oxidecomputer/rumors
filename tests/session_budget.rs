@@ -173,7 +173,7 @@
 //! ([`ledger_budget`](rumors::testing::ledger_budget)), so that the suite's
 //! fixtures admit work as their names say. Some of those budgets lie below the
 //! largest grant, which the public setter's minimum
-//! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET)) keeps every
+//! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET)) keeps every
 //! application's session above, so the suite sets each ledger budget directly
 //! ([`ledger_budget`](rumors::testing::ledger_budget)).
 //!
@@ -2000,7 +2000,7 @@ divided_proptest! {
 const LARGE_PAYLOADS: [(usize, u64, usize, bool); 2] = [
     ((1 << 20) + (1 << 16), 4, WITHIN_TARGET, false),
     (
-        rumors::MAX_BUDGETED_MESSAGE_SIZE + (1 << 20),
+        rumors::testing::MAX_BUDGETED_MESSAGE_SIZE + (1 << 20),
         2,
         rumors::default::TARGET_MESSAGE_SIZE,
         true,

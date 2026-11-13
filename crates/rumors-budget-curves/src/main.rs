@@ -18,7 +18,7 @@
 //!   unlimited budget, which reads the budget no smaller one beats (`Λ`, the
 //!   largest excess either side's ledger holds: what its kinds and depths of
 //!   unit hold beyond their bounds), then a ladder of budgets from `Λ` down to
-//!   [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), the least
+//!   [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET), the least
 //!   budget the public setter runs a session on, each run beside the floor and
 //!   session allowances every memory budget sets aside, since `Λ` and the rungs
 //!   below it are what a ledger admits work against. Explicit budgets run as

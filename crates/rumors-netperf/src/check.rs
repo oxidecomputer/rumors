@@ -27,7 +27,8 @@
 //! - **Every side runs at the budget it requested, raised to the minimum:**
 //!   every side at the default message-size target reports, from the library,
 //!   that it ran at exactly the larger of the budget it requested (the
-//!   library's default when it requested none) and [`MIN_SYNC_MEMORY_BUDGET`].
+//!   library's default when it requested none) and the library's minimum
+//!   ([`minimum_budget`]).
 //! - **The raised-limit path ran where the grid needs it:** when the host's
 //!   usable TCP window is smaller than what some planned point keeps in flight
 //!   ([`raised_buffer`]), at least one rerun with raised limits finished.
@@ -48,12 +49,12 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use rumors::{MIN_SYNC_MEMORY_BUDGET, default};
+use rumors::default;
 use serde::Deserialize;
 
 use crate::env::{Difference, Environment};
 use crate::grid::{Kind, Shard, raised_buffer};
-use crate::point::Link;
+use crate::point::{Link, minimum_budget};
 use crate::record::{self, Row};
 use crate::report;
 use crate::run::{Plan, Planned, RunRecord};
@@ -677,13 +678,12 @@ fn duplicates(results: &[Results], failures: &mut Vec<Failure>) {
 /// for its `requested` budget, `None` for the library's default.
 ///
 /// The run hands the library the request as a `usize`, saturating, and the
-/// library raises it to [`MIN_SYNC_MEMORY_BUDGET`], the minimum at the default
-/// target.
+/// library raises it to [`minimum_budget`], the minimum at the default target.
 pub(crate) fn expected_budget(requested: Option<u64>) -> u64 {
     let requested = requested.map_or(default::SYNC_MEMORY_BUDGET, |bytes| {
         usize::try_from(bytes).unwrap_or(usize::MAX)
     });
-    requested.max(MIN_SYNC_MEMORY_BUDGET) as u64
+    (requested as u64).max(minimum_budget())
 }
 
 /// Whether every finished side at the default message-size target reports

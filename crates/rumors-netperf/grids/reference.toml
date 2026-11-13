@@ -19,7 +19,7 @@
 #
 # The budgets run from the default down to `0`, which asks for the
 # smallest budget a session can run on: `Peer::sync_memory_budget` raises
-# any budget below `MIN_SYNC_MEMORY_BUDGET` to that minimum, so the `0`
+# any budget below the minimum, about 36.4 MiB, to that minimum, so the `0`
 # points measure a session at the minimum. The diagonal group also runs
 # `unlimited`, a budget no session reaches, as the reference the smaller
 # budgets are compared against, and to measure the memory a session uses

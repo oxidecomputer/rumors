@@ -58,9 +58,10 @@ pub use transport::{
     IoReport, IoReportHandle, Operation as IoOperation, Side as IoSide, wrap_io,
 };
 
+pub use crate::peer::MIN_SYNC_MEMORY_BUDGET;
 pub use crate::tree::mirror::streaming::remote::{
-    FrameShape, HookCapture, HookStream, MultiplexerHook, MultiplexerPoll, PipeCapture,
-    PreparedFrame, observe_multiplexers,
+    FrameShape, HookCapture, HookStream, MAX_RUN_BUDGET_BYTES, MultiplexerHook, MultiplexerPoll,
+    PipeCapture, PreparedFrame, observe_multiplexers,
 };
 
 /// The floor allowance of a session over the in-memory replica: the most its
@@ -98,14 +99,23 @@ pub const SESSION_ALLOWANCE: usize =
 
 /// The largest message of supplied records, framing included, that a session's
 /// wire pools cover at the message-size target `target`:
-/// [`MAX_BUDGETED_MESSAGE_SIZE`](crate::MAX_BUDGETED_MESSAGE_SIZE) at the
-/// default target.
+/// [`MAX_BUDGETED_MESSAGE_SIZE`] at the default target.
 ///
 /// Only a lone record larger than the target makes a larger message, which
 /// holds its excess over this beside the pools as it crosses.
 pub const fn budgeted_message_bytes(target: usize) -> usize {
     crate::tree::mirror::streaming::remote::budgeted_message_bytes(target)
 }
+
+/// The largest message of supplied records the wire pools cover at the default
+/// message-size target ([`budgeted_message_bytes`]): about 512 KiB on 64-bit
+/// targets.
+///
+/// `Peer::sync_memory_budget`'s docs state this figure in prose, and
+/// `the_message_room_is_the_documented_figure` checks it; suites size a lone
+/// record beyond it to exercise a message the budget leaves uncovered.
+pub const MAX_BUDGETED_MESSAGE_SIZE: usize =
+    budgeted_message_bytes(crate::default::TARGET_MESSAGE_SIZE);
 
 /// The most bytes one side's wire buffering holds at once at the message-size
 /// target `target`, a supply record larger than a pool aside: its two wire
@@ -148,11 +158,11 @@ pub const fn ledger_budget_within(budget: usize) -> usize {
 /// Unlike a budget set through
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which lowers
 /// a target it cannot afford and which a session raises to the minimum for its
-/// target ([`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) at the
-/// default target), this one sessions run on as given, at the peer's target as
-/// given. So it reaches ledger budgets below the largest grant, zero included,
-/// where sessions pipeline within each kind and depth's bound alone, which the
-/// budget analyses probe. The serial configuration, one unit of each kind and
+/// target ([`MIN_SYNC_MEMORY_BUDGET`] at the default target), this one
+/// sessions run on as given, at the peer's target as given. So it reaches
+/// ledger budgets below the largest grant, zero included, where sessions
+/// pipeline within each kind and depth's bound alone, which the budget
+/// analyses probe. The serial configuration, one unit of each kind and
 /// depth at a time, is [`serial_budget`]'s.
 pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
     mut peer: crate::Peer<T, B>,

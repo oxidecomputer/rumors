@@ -79,15 +79,17 @@ pub(crate) use codec::{prepare_frame, write_prepared_frame};
 #[cfg(test)]
 pub(crate) use adapter::{DecodeError, Replay, ReplyLevel, derive_questions};
 pub(crate) use adapter::{RecordedChild, Scope, decode_ahead_bytes};
+#[cfg(any(test, feature = "test-internals"))]
+pub use codec::MAX_RUN_BUDGET_BYTES;
+pub use codec::RunBudget;
 pub(crate) use codec::STREAM_COUNT;
-pub use codec::{MAX_RUN_BUDGET_BYTES, RunBudget};
 pub(crate) use error::streaming_error;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use pipe::LANE_CAPACITY;
 pub(crate) use pipe::WRITE_BUFFER_BYTES;
-pub(crate) use pipe::{
-    Inbound, Outbound, budgeted_message_bytes, fixed_wire_bytes, wire_pools_bytes,
-};
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use pipe::budgeted_message_bytes;
+pub(crate) use pipe::{Inbound, Outbound, fixed_wire_bytes, wire_pools_bytes};
 #[cfg(any(test, feature = "test-internals"))]
 pub use pipe::{MultiplexerHook, MultiplexerPoll, observe_multiplexers};
 pub use pipe::{PipeRead, WriteBatch};

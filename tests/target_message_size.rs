@@ -411,7 +411,7 @@ fn bootstrap_advertisement_binds_the_provider() {
     );
 }
 
-/// A budget above [`rumors::MIN_SYNC_MEMORY_BUDGET`] that affords a target
+/// A budget above [`rumors::testing::MIN_SYNC_MEMORY_BUDGET`] that affords a target
 /// above the default but far from the wire's cap, so a session on it lowers the
 /// largest target.
 const AFFORDING_BUDGET: usize = 64 * 1024 * 1024;
@@ -434,7 +434,7 @@ fn a_lowered_target_reaches_the_greeting() {
         .synchronization_settings()
         .target_message_size;
     assert!(
-        default::TARGET_MESSAGE_SIZE < lowered && lowered < rumors::MAX_RUN_BUDGET_BYTES,
+        default::TARGET_MESSAGE_SIZE < lowered && lowered < rumors::testing::MAX_RUN_BUDGET_BYTES,
         "the budget must lower the largest target, but not to the default: {lowered} B",
     );
     let newcomer = |budget: usize, target: usize| {

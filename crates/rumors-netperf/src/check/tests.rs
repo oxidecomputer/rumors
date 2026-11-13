@@ -8,7 +8,7 @@ use crate::grid::{Grid, Session, sessions};
 use crate::record::{Placement, Writer};
 
 /// The library's minimum budget, in the record's unit.
-const MIN: u64 = MIN_SYNC_MEMORY_BUDGET as u64;
+const MIN: u64 = rumors::testing::MIN_SYNC_MEMORY_BUDGET as u64;
 
 /// A grid with every feature the check judges: a point at a budget below the
 /// minimum, points the wire-time limit skips at 10 Mbit/s, and a pair whose
@@ -445,8 +445,8 @@ fn every_budget_not_raised_exactly_to_its_request_is_named() {
 /// A side at a target other than the default is not judged by the budget
 /// condition, whatever it reports.
 ///
-/// [`MIN_SYNC_MEMORY_BUDGET`] is the minimum only at the default target, and a
-/// side that states the default target explicitly is still judged.
+/// [`MIN`] is the minimum only at the default target, and a side that states
+/// the default target explicitly is still judged.
 #[test]
 fn sub_minimum_budget_at_another_target_is_not_judged() {
     let mut results = clean_run(0, SMALL_WINDOW);

@@ -7,7 +7,7 @@
 //! kind and depth's bound zero, that is the only grant there is, so a session
 //! admits one unit of each kind and depth at a time, and still finishes and
 //! converges. The public setter keeps every session far above that, at
-//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::MIN_SYNC_MEMORY_BUDGET), so these tests
+//! [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET), so these tests
 //! set the serial configuration through the test path
 //! ([`BudgetChoice::Serial`]) and probe the corners where the argument is
 //! easiest to break: asymmetric catch-up and wide mutual divergence, compounded

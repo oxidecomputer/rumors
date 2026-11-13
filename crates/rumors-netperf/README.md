@@ -236,9 +236,8 @@ timings, and exits non-zero, naming each failure, unless all of them hold:
   run that was cut short and resumed, and every point the grid skips is
   recorded with its reason;
 - no session failed;
-- every side that requested a budget below the library's minimum,
-  `MIN_SYNC_MEMORY_BUDGET`, reports that
-  it ran at that minimum;
+- every side that requested a budget below the library's minimum, about
+  36.4 MiB, reports that it ran at that minimum;
 - if the host's TCP limits leave a window smaller than some point keeps in
   flight, at least one rerun with raised limits finished;
 - every row records when its preparation and its timed session ran, no timed

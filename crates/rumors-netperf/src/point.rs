@@ -25,8 +25,10 @@
 //! documentation states its formula.
 
 use std::fmt;
+use std::sync::LazyLock;
 use std::time::Duration;
 
+use rumors::Peer;
 use serde::{Deserialize, Serialize};
 
 use crate::sizes::SizeDistribution;
@@ -110,6 +112,23 @@ pub fn compact_count(count: u64) -> String {
 /// `usize::MAX`, so the session's pipelining memory has no bound below what the
 /// host can allocate.
 pub const UNLIMITED_BUDGET: u64 = u64::MAX;
+
+/// The least budget the library runs a session on at the default message-size
+/// target, to which it raises any smaller request.
+///
+/// The library publishes the minimum only as the budget a peer reports
+/// ([`SynchronizationSettings`](rumors::SynchronizationSettings)), so this
+/// reads it, once, from a peer that requests a budget of zero.
+pub fn minimum_budget() -> u64 {
+    static MINIMUM: LazyLock<u64> = LazyLock::new(|| {
+        let budget = Peer::<()>::seed()
+            .sync_memory_budget(0)
+            .synchronization_settings()
+            .sync_memory_budget;
+        u64::try_from(budget).unwrap_or(u64::MAX)
+    });
+    *MINIMUM
+}
 
 /// A side's requested budget as text the grid parser reads back to the same
 /// request: `default`, `unlimited`, or a byte count.
