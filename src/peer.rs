@@ -21,7 +21,6 @@ use crate::default;
 use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
 use crate::network::{NetworkKeys, NetworkSecret};
 use crate::observe::{Attachment, Observer};
-pub use crate::tree::mirror::streaming::remote::MAX_RUN_BUDGET_BYTES;
 use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
 use crate::tree::mirror::streaming::{
     Local,
@@ -35,45 +34,17 @@ use crate::{
 
 use serde::{Serialize, de::DeserializeOwned};
 
-/// The smallest memory budget a synchronization session runs on at the default
-/// message-size target ([`default::TARGET_MESSAGE_SIZE`]) or a larger one:
-/// about 36.4 MiB on 64-bit targets.
+/// The minimum memory budget at the default message-size target
+/// ([`default::TARGET_MESSAGE_SIZE`]): about 36.4 MiB on 64-bit targets.
 ///
-/// A smaller budget, zero included, is raised to at most this, whatever the
-/// target, so a session counts at most the larger of its budget and this
-/// minimum. It covers the room every session keeps for the work in flight at
-/// each level of its comparison, up to a bound for each kind of work at each
-/// level, of which the first piece is always admitted, which is how a session
-/// always makes progress; room beside it for the largest single piece of work;
-/// the fixed state every session holds whatever its budget; and the room for
-/// messages on their way through the connection, which grows with the target
-/// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) lists each).
-/// That room never raises the budget: a session clamps a larger target to the
-/// largest one whose room fits the larger of its budget and this minimum
-/// ([`Peer::target_message_size`](crate::Peer::target_message_size)). A smaller
-/// target sets less room aside, and lowers the minimum by about twice the
-/// target's decrease in each direction. At or above this minimum, no measured
-/// session has run more than one round trip slower at a larger budget than at a
-/// smaller one; that is observed behavior, not a guarantee.
+/// `MemoryBudget::session` clamps the target to what the larger of the
+/// requested budget and this affords, so a session counts at most that larger
+/// value, whatever the target. The public docs state the figure in prose, and
+/// `the_minimum_budget_is_the_documented_figure` checks it; an application
+/// reads the exact minimum for its target from
+/// [`Peer::synchronization_settings`] at a budget of zero.
 pub const MIN_SYNC_MEMORY_BUDGET: usize =
     materialized::Allowances::of::<Local>(default::TARGET_MESSAGE_SIZE).minimum();
-
-/// The largest message of supplied records a session's memory budget covers at
-/// the default message-size target ([`default::TARGET_MESSAGE_SIZE`]): about
-/// 512 KiB on 64-bit targets.
-///
-/// A message is counted as
-/// [`Peer::target_message_size`](crate::Peer::target_message_size) counts it,
-/// by its whole encoded size, framing included. A session builds every message
-/// within the target, except one that carries a single record larger than the
-/// target, and a conforming peer does the same, so only such a record can make
-/// a message larger than this. While it crosses, a larger message is held
-/// beyond the budget by its excess over this size, and a session holds at most
-/// one such message in each direction at once. At another target the bound is
-/// about twice the target the session runs at, which its budget can clamp
-/// ([`Peer::target_message_size`](crate::Peer::target_message_size)).
-pub const MAX_BUDGETED_MESSAGE_SIZE: usize =
-    crate::tree::mirror::streaming::remote::budgeted_message_bytes(default::TARGET_MESSAGE_SIZE);
 
 /// A peer's memory budget setting, as stored until a session runs on it.
 ///
@@ -292,11 +263,14 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 ///
 /// Create a network with [`seed`](Self::seed), or join an established peer's
 /// network with [`bootstrap`](Self::bootstrap). Independently seeded networks
-/// cannot gossip with one another.
+/// cannot gossip with one another: their [`Network`](crate::Network)s mismatch,
+/// which will throw an error during attempts to gossip.
 ///
-/// Convert the peer into [`Rumors`] to use and share the replica. A `Peer`
-/// cannot be cloned and exists only while no `Rumors` handles to that replica
-/// remain, so [`retire`](Self::retire) cannot interrupt another handle's use.
+/// To use and clone the replica, convert the peer into a [`Rumors`]. A [`Peer`]
+/// cannot be cloned and exists only while no [`Rumors`] handles to that replica
+/// remain. This API design ensures that when a [`Peer`]
+/// [`retire`](Self::retire)s, it cannot interrupt another handle's gossip
+/// sessions.
 ///
 /// # Example
 ///
@@ -383,19 +357,18 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// observes one, it can use a deterministic metric to decide whether it or its
 /// peer should dominate.
 ///
-/// A reasonable such metric ships inside the error itself: compare its
+/// A reasonable such metric is provided by the error itself: compare its
 /// `local_min_events` against its `remote_min_events`. The greater minimal
 /// event count wins, with ties broken by comparing the two [`Network`]
-/// identifiers (their ordering is total). Each side declared its count in the
-/// session's handshake, so both apply the rule from the one error alone, with
-/// nothing further to fetch or race, and agree without coordination: the winner
-/// stays in its network, and the loser drops its replica and attempts to
-/// re-[`bootstrap`](Peer::bootstrap) into the winning [`Network`].
+/// identifiers (their ordering is total). The winner then stays in its network,
+/// and the loser drops its replica and attempts to
+/// re-[`bootstrap`](Peer::bootstrap) into the winning [`Network`] of which it
+/// just learned.
 ///
 /// If peers are reasonably well-connected as the network gets started, this
-/// quickly reaches a stable steady state, disrupted only if a group of new
-/// peers joins exclusively with one another and spends a long time partitioned
-/// before reuniting with the rest of the network.
+/// protocol quickly reaches a stable steady state, which is henceforth
+/// disrupted only if a group of new peers spends a long time partitioned before
+/// uniting with the rest of the network.
 pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The keys of the network this replica belongs to, derived from the secret
     /// drawn at seed or received at join. Its public identifier is
@@ -440,11 +413,13 @@ pub struct SynchronizationSettings {
     ///
     /// It is the budget set, raised to the minimum for
     /// [`target_message_size`](Self::target_message_size), so never more than
-    /// the larger of the budget set and [`MIN_SYNC_MEMORY_BUDGET`].
+    /// the larger of the budget set and the minimum at the default target,
+    /// about 36.4 MiB.
     pub sync_memory_budget: usize,
     /// The wire-message target this peer advertises
-    /// ([`Peer::target_message_size`]): the target set, saturated at
-    /// [`MAX_RUN_BUDGET_BYTES`] and clamped to what the memory budget affords.
+    /// ([`Peer::target_message_size`]): the target set, saturated at the
+    /// wire's limit of about 4 GiB and clamped to what the memory budget
+    /// affords.
     ///
     /// Passing it back to [`Peer::target_message_size`] selects the same
     /// target.
@@ -697,14 +672,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Peer<T, B> {
 impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Create a new gossip network containing only this peer.
     ///
-    /// Call once per network; other participants join through
-    /// [`bootstrap`](Self::bootstrap). Independently seeded peers cannot gossip
-    /// with each other. The payload type must follow the [payload
-    /// contract](crate#choosing-a-payload-type).
+    /// Call this function *once per network*. Other peers in a single network
+    /// should join through [`bootstrap`](Self::bootstrap). Independently seeded
+    /// peers cannot ever gossip with each other.
     ///
     /// # Panics
     ///
-    /// Panics if the operating system's random source fails.
+    /// Panics if the operating system's random number source fails.
     pub fn seed() -> Self {
         // The secret comes from the operating system on every call, never
         // from a generator whose state lives in this process: a forked
@@ -738,11 +712,13 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
 }
 
 impl<T: Send + Sync + 'static> Peer<T> {
-    /// Configure a join to an existing gossip network.
+    /// Set up joining an existing gossip network.
     ///
-    /// Call [`Bootstrap::join`] with a connection to an established member. The
-    /// returned peer retains the builder's settings. Failed sessions return the
-    /// builder for retry. See [`Joined`] for the possible outcomes.
+    /// After setting configuration, call [`Bootstrap::join`] with a connection
+    /// to an established member of the gossip network. On success, the [`Peer`]
+    /// returned will retain the settings configured by this builder. On
+    /// failure, the builder is returned so you can retry with another potential
+    /// peer.
     pub fn bootstrap() -> Bootstrap<T> {
         Bootstrap::new()
     }
@@ -776,23 +752,19 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     }
 }
 
-/// Retire an exclusively held replica.
+/// Retire an exclusively held [`Peer`].
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Leave the gossip network after synchronizing with a remote member.
+    /// Leave the gossip network after synchronizing one final time with another
+    /// peer.
     ///
-    /// Retiring helps keep message versions compact as peers come and go. The
-    /// remote member runs ordinary [`gossip`](Rumors::gossip); it needs no
-    /// special call to accept the retirement.
+    /// While it is possible to simply drop a [`Peer`] with no special ceremony,
+    /// explicitly retiring the peer helps keep the representation of
+    /// [`Version`]s efficient as peers come and go.
     ///
-    /// `read` and `write` are the two halves of one connection to the remote
-    /// member; see the [transport requirements](crate#transport). Pass `&mut`
-    /// halves to keep the connection after the session.
-    ///
-    /// [`Retire`] reports whether this peer left the network or remains to keep
-    /// gossiping or retry, including after
-    /// [`session_deadline`](Self::session_deadline) expires, and whether the
-    /// connection can carry another session. See the [lifecycle example](Peer)
-    /// and [what a session promises](crate#what-a-session-promises).
+    /// The outcome of this function, [`Retire`], reports whether this peer
+    /// successfully left the network, or whether it remains (i.e. due to a
+    /// failure which could be retried), and whether the connection can carry
+    /// another session.
     pub async fn retire<R, W>(self, read: R, write: W) -> Retire<T, R, W, B>
     where
         R: AsyncBufRead + Unpin + Send,
@@ -813,7 +785,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// The message-size target and the memory budget are returned as sessions
     /// run on them, whichever order the two were set in: the target saturated
-    /// at [`MAX_RUN_BUDGET_BYTES`] and clamped to what the budget affords,
+    /// at the wire's limit of about 4 GiB and clamped to what the budget affords,
     /// matching the value advertised to peers, and the budget raised to the
     /// minimum for that target.
     pub fn synchronization_settings(&self) -> SynchronizationSettings {
@@ -984,197 +956,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Set the memory budget for each synchronization session: an approximate
-    /// limit on the memory a session holds, its work in flight and its messages
-    /// on their way included.
-    ///
-    /// A session overlaps its round trips by keeping work in flight while
-    /// replies cross the link, and that work costs memory: what the session has
-    /// built, and room set aside for the replies on their way. The budget caps
-    /// that memory as the session counts it: a session on a budget of 512 MiB
-    /// counts at most 512 MiB of it at once, as [Accuracy](#accuracy)
-    /// describes. Within it, a session keeps in flight as much as it can put to
-    /// use.
-    ///
-    /// Part of every budget is set aside for the work in flight at each level
-    /// of the session's comparison, up to a bound for each kind of work at each
-    /// level, which a session can always keep, whatever else waits: the first
-    /// piece of work at each level is always admitted, which is how a session
-    /// always makes progress. The bounds together come to about 26.5 MiB, of
-    /// which a session realistically uses a few mebibytes: about 5 MiB between
-    /// replicas of millions of messages that differ throughout, and less
-    /// between replicas that mostly agree. Part is set aside for the session's
-    /// fixed state, which it holds whatever its budget and the sets' sizes:
-    /// about 7 MiB on the in-memory replica, as [the session's fixed
-    /// state](#the-sessions-fixed-state) lists. Part is set aside for the
-    /// messages on their way through the connection, about two messages' worth
-    /// at the peer's [`target_message_size`](Self::target_message_size) in each
-    /// direction: about 1 MiB at the default target, as [messages on their
-    /// way](#messages-on-their-way) describes. The rest of the budget pays for
-    /// pipelining beyond all three, and always has room for at least the
-    /// largest single piece of work. A session raises a budget below the
-    /// minimum, zero included, to that minimum: [`MIN_SYNC_MEMORY_BUDGET`] at
-    /// the default target or a larger one, and a little less at a smaller
-    /// target, whose messages need less room. The target never raises the
-    /// budget beyond that, since a session lowers a target whose room the
-    /// budget cannot afford ([`target_message_size`](Self::target_message_size)
-    /// says how). So a session counts at most the larger of `budget_bytes` and
-    /// [`MIN_SYNC_MEMORY_BUDGET`], whatever the target;
-    /// [`synchronization_settings`](Self::synchronization_settings) reports the
-    /// budget and the target it runs on. Both read the two settings when a
-    /// session starts, so the order in which you set them doesn't matter. A
-    /// smaller budget therefore makes a session slower, never failed: the first
-    /// piece of work at each level is still always admitted.
-    ///
-    /// More budget keeps more in flight, up to the point where nothing waits;
-    /// at or beyond it, a session runs exactly as it would with an unlimited
-    /// budget. That point can lie somewhat above the most memory the session
-    /// would use with no budget at all, since the budget counts room for work
-    /// before the session knows whether it needs it. Below that point, a larger
-    /// budget can still lengthen a session, because a different budget changes
-    /// the order in which the session admits its work. In every session
-    /// measured so far, no larger budget has made a session more than one round
-    /// trip slower than a smaller one; that is observed behavior, not a
-    /// guarantee. A session reports what waited in
-    /// [`SessionStats::budget_waits`](crate::SessionStats::budget_waits), zero
-    /// when the budget did not limit it. Most sessions come nowhere near the
-    /// budget: a session's need grows with how much of the two sets differs,
-    /// and is large only when two large replicas differ throughout, as when a
-    /// peer has fallen far behind on a large set or two peers accumulated many
-    /// messages apart. A peer joining with an empty replica receives the set as
-    /// a stream and needs little.
-    ///
-    /// The budget counts the room set aside for each reply on its way at that
-    /// room's full size, though the reply may fill less of it. A session also
-    /// keeps no more in flight than the budget would let it act on as the
-    /// replies arrive, since work beyond that would only wait its turn. So a
-    /// session can wait for budget before its memory use reaches the budget,
-    /// most of all between nearly identical replicas.
-    ///
-    /// Each peer's budget bounds its own side of a session: your peer's budget,
-    /// smaller or larger, does not change what your side holds, though a peer
-    /// with a smaller budget can slow the session. The budget applies to each
-    /// session separately and is not reserved up front: sessions running at
-    /// once, to one peer or to several, can each use up to it.
+    /// Constrain the memory budget for each synchronization session.
     ///
     /// The default is [`default::SYNC_MEMORY_BUDGET`] (512 MiB), and the least
-    /// is [`MIN_SYNC_MEMORY_BUDGET`] at the default target or a larger one. All
-    /// [`Rumors`] clones inherit this setting, and it is preserved when
-    /// returning to a `Peer`, attaching a bookmark, or retiring. [Choosing a
-    /// synchronization budget](crate::sizing) explains how to choose one.
+    /// is about 36.4 MiB.
     ///
-    /// # The session's fixed state
+    /// This setting is preserved indefinitely throughout the lifecycle of the
+    /// [`Peer`], and all [`Rumors`] clones inherit it.
     ///
-    /// Every budget sets aside room for what a session holds whatever its
-    /// budget and the sets' sizes, each part bounded by fixed capacities:
-    ///
-    /// - **Working buffers.** A session fills small buffers as it builds a
-    ///   question or answer, before it counts the result against the budget,
-    ///   and keeps a few briefly after.
-    /// - **Subtrees under construction.** The in-memory replica builds each
-    ///   subtree a session receives whole as its leaves arrive, keeping only
-    ///   the branches still open along the path of the latest leaf: at most one
-    ///   partly built branch per byte of a leaf's path, whatever the subtree's
-    ///   size. A session builds at most one such subtree per stream it receives
-    ///   on at a time, and queues a few finished ones between the levels it
-    ///   assembles.
-    /// - **Decoded leaves on their way to assembly.** A session decodes the
-    ///   leaves of each subtree it receives a little ahead of building it,
-    ///   holding at most one more decoded leaf per stream it receives on than
-    ///   the number of parts a round divides a part into. The messages those
-    ///   leaves carry join the replica, which the budget never covers.
-    /// - **Hashing.** The in-memory replica computes a node's hash over a
-    ///   record of each of its children, and frees the record once the hash is
-    ///   computed: at most one record per byte of a path at once.
-    /// - **The connection's own state.** Sending, a session copies each message
-    ///   smaller than about 63 KiB into a buffer of that size before writing it
-    ///   to your write half; receiving, it reads a comparison's listing through
-    ///   a small buffer. It also sets up a route for each of the streams its
-    ///   messages travel on.
-    ///
-    /// # Messages on their way
-    ///
-    /// A session holds each message it sends until your write half takes it,
-    /// and each message it receives until it has decoded it. A message that
-    /// carries one comparison is a few kilobytes at most, and is counted
-    /// against the budget with the work it belongs to. A message that carries
-    /// supplied records holds up to
-    /// [`target_message_size`](Self::target_message_size) bytes, unless one
-    /// record alone outgrows the target, and nothing bounds how many a session
-    /// sends, so every budget sets aside room for them by direction, however
-    /// many streams of the connection they travel on: about two messages' worth
-    /// at this peer's own target in each direction. A session builds such a
-    /// message only once its room is free, and reads one from your read half
-    /// only once its room is free; neither waits on anything but the
-    /// connection, since the room a message holds returns as soon as the
-    /// message is written or decoded. A message that one record makes larger
-    /// than the room takes the whole room in its direction.
-    ///
-    /// # What the budget does not cover
-    ///
-    /// - **Messages larger than [`MAX_BUDGETED_MESSAGE_SIZE`]** at the default
-    ///   target, about twice the target at others. While a session sends or
-    ///   receives such a message, which only a single record larger than the
-    ///   target makes, it holds the message's excess over that size beyond the
-    ///   budget, for at most one message in each direction at once.
-    /// - **Building a message of supplied records.** A session builds each such
-    ///   message in a buffer that grows by doubling as records join it, up to
-    ///   the message's room. Each time the buffer grows, the outgrown buffer
-    ///   stays live until its contents move to the new one, so a message being
-    ///   built can briefly hold up to just under its room again beyond the
-    ///   budget.
-    /// - **Reading the greeting and a hand-off.** A session reads the greeting
-    ///   its peer opens with, which carries the peer's version, and, when a
-    ///   peer joins or leaves the network through the session, the identity
-    ///   handed over, into buffers that grow by doubling from 64 KiB as bytes
-    ///   arrive, the outgrown buffer and its replacement briefly both live. The
-    ///   greeting grows with the peer's version, which nothing caps.
-    /// - **Honoring redactions in an answer.** When a session prunes part of
-    ///   its replica to what the peer lacks, dropping what the peer has seen or
-    ///   redacted, each level the pruning descends holds lists of that level's
-    ///   children beyond the budget.
-    /// - **The replica's growth.** Messages a session receives become part of
-    ///   the replica, so after a session the replica can be larger than before
-    ///   by more than the budget.
-    /// - **Decoding received messages.** A session decodes each message it
-    ///   receives into your payload type, to check it, and the decoded value
-    ///   joins the replica with the message. What your type's deserialization
-    ///   allocates along the way and frees before it returns, such as the
-    ///   smaller buffers a large vector outgrows, is held beyond the budget,
-    ///   for one message at a time.
-    /// - **Data superseded during a session.** A session keeps the replica as
-    ///   it was when the session began until the session ends. If the replica
-    ///   changes meanwhile, through local sends or another session finishing,
-    ///   the data those changes replace stays in memory until this session
-    ///   ends. The same holds for the nodes the session itself rebuilds: the
-    ///   new copies join the replica, and the originals they replace stay in
-    ///   memory until the session ends.
-    /// - **The session's tasks.** Each session sets up its tasks before it
-    ///   compares anything: their own state, what your executor allocates to
-    ///   run them, and the description of its replica's root it sends the peer,
-    ///   which holds shared handles to the root's children rather than copies.
-    ///   That is a fixed amount, whatever the budget and the sets' sizes. So is
-    ///   what a session keeps for work waiting for room in the budget: a few
-    ///   hundred bytes for each waiting part, and at most one part waits per
-    ///   level of the tree, a few kilobytes in all.
-    /// - **Your transport's own buffers,** such as socket buffers, which are
-    ///   outside the library.
-    /// - **Observers.** Backlogs of observers such as [`CausalMessages`] grow
-    ///   with what you have not yet consumed, and while wire observers are
-    ///   attached ([`observe`](Self::observe)), a session holds one extra copy
-    ///   of each frame as it shows it to them.
-    ///
-    /// # Accuracy
-    ///
-    /// A session counts what it holds and sets aside for the budget by the
-    /// in-memory size of each item it builds, and the count is exact for what
-    /// it covers. The budget as a whole is approximate: it applies backpressure
-    /// as a session's counted memory nears the budget, and it does not bound
-    /// everything a session allocates, as [what the budget does not
-    /// cover](#what-the-budget-does-not-cover) lists. Allocator rounding falls
-    /// outside the count, and so does the state some platforms allocate for a
-    /// lock the first time it is used, which an item's in-memory size does not
-    /// include.
+    /// For more guidance on how to configure this parameter, read the [guide to
+    /// picking a memory budget](crate::sizing).
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.settings.sizing.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
@@ -1222,8 +1013,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// target in each direction, as the budget's section on messages on their
     /// way describes. That room never takes more than the budget affords: a
     /// session runs at the largest target, at most yours, whose room fits the
-    /// budget beside everything else it sets aside, a budget below
-    /// [`MIN_SYNC_MEMORY_BUDGET`] counting as that minimum. Every target at or
+    /// budget beside everything else it sets aside, a budget below the minimum
+    /// at the default target counting as that minimum. Every target at or
     /// below the default fits, so a session lowers only a larger one, and never
     /// below the default. It advertises the target it runs at, which
     /// [`synchronization_settings`](Self::synchronization_settings) reports. A
@@ -1232,8 +1023,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// keeps little in flight: raise the budget with the target. Each run holds
     /// at most the target's worth of bytes, framing aside, unless its one leaf
     /// alone outgrows the target; such a run takes its direction's whole room,
-    /// and one larger than [`MAX_BUDGETED_MESSAGE_SIZE`] at the default target
-    /// holds its excess beyond the budget while it crosses. A run whose frame
+    /// and one larger than about twice the target holds its excess beyond the
+    /// budget while it crosses. A run whose frame
     /// (the run and a few bytes of framing) is smaller than the sending side's
     /// write buffer, about 63 KiB, is copied into it as it is written. The
     /// receiver decodes each run's encoded bytes as it goes, handing each leaf
@@ -1253,8 +1044,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// which batching a supplied subtree's records saves no more processor time
     /// in the workloads measured; its documentation gives the measurements. Any
     /// value is safe: zero degrades to one leaf per message, and values above
-    /// the wire's run byte cap ([`MAX_RUN_BUDGET_BYTES`]) saturate to it, so a
-    /// run built within the target always fits the cap.
+    /// the wire's limit of about 4 GiB, set by its 32-bit length field,
+    /// saturate to it, so a run built within the target always fits the wire.
     ///
     /// The choice follows the peer through [`into_rumors`](Self::into_rumors),
     /// cloning and reunion, bookmarking, and retirement.

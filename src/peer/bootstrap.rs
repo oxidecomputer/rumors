@@ -174,10 +174,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// supply runs. As with [`Peer::sync_memory_budget`], a session lowers a
     /// [`target_message_size`](Self::target_message_size) the budget cannot
     /// afford, and raises a budget below the minimum for its target to that
-    /// minimum, at most
-    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), whichever
-    /// order the two are set in. See [`Peer::sync_memory_budget`] for the
-    /// contract and [the sizing guide](crate::sizing) for tuning guidance.
+    /// minimum, at most about 36.4 MiB, whichever order the two are set in.
+    /// See [`Peer::sync_memory_budget`] for the contract and [the sizing
+    /// guide](crate::sizing) for tuning guidance.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.settings.sizing.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
         self

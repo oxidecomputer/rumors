@@ -105,58 +105,56 @@ process on one machine; `rumors` shines for gossip between truly distinct
 peers.
 ```rust
 use rumors::Peer;
+use tokio::spawn;
+use tokio::io::{BufReader, duplex, split};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Gossip requires one duplex connection between the two peers.
-    // Here we create an in-memory pipe, for simplicity.
-    let (near, far) = tokio::io::duplex(64 * 1024);
+// Gossip requires one duplex connection between the two peers.
+// Here we create an in-memory pipe, for simplicity.
+let (near, far) = duplex(64 * 1024);
 
-    // To gossip, each peer needs to supply an `AsyncBufRead` and an `AsyncWrite`.
-    // Here, we do this by splitting the duplex channel into its halves.
-    let (alice_read, alice_write) = tokio::io::split(far);
-    let alice_read = tokio::io::BufReader::new(alice_read);
-    let (bob_read, bob_write) = tokio::io::split(near);
-    let bob_read = tokio::io::BufReader::new(bob_read);
+// To gossip, each peer needs to supply an `AsyncBufRead` and an `AsyncWrite`.
+// Here, we do this by splitting the duplex channel into its halves.
+let (alice_read, alice_write) = split(far);
+let alice_read = BufReader::new(alice_read);
+let (bob_read, bob_write) = split(near);
+let bob_read = BufReader::new(bob_read);
 
-    // Alice creates a new gossip network using `Peer::seed()`.
-    // For simplicity, we use `String` as the message type; in a real application,
-    // you would likely use an application-specific message type.
-    let alice: Peer<String> = Peer::seed();
+// Alice creates a new gossip network using `Peer::seed()`.
+// For simplicity, we use `String` as the message type; in a real application,
+// you would likely use an application-specific message type.
+let alice: Peer<String> = Peer::seed();
 
-    // At this point, she could configure the peer further, but in this example,
-    // she just converts the `Peer` into a `Rumors`, so she can use it for gossip.
-    let alice = alice.into_rumors();
+// At this point, she could configure the peer further, but in this example,
+// she just converts the `Peer` into a `Rumors`, so she can use it for gossip.
+let alice = alice.into_rumors();
 
-    // She sends a message, to be received by all future peers.
-    alice.send("the meeting is at noon".to_string())?;
+// She sends a message, to be received by all future peers.
+alice.send("the meeting is at noon".to_string())?;
 
-    // Alice clones the `Rumors` so that she can concurrently gossip,
-    // as well as interact with her clone of the set of messages.
-    let serve = alice.clone();
-    tokio::spawn(async move {
-        // In this example, we only gossip once; typically, she'd use
-        // `Rumors::gossip` to repeatedly gossip on changes, in a loop.
-        serve.gossip_once(alice_read, alice_write).await.unwrap();
-    });
+// Alice clones the `Rumors` so that she can concurrently gossip,
+// as well as interact with her clone of the set of messages.
+let serve = alice.clone();
+spawn(async move {
+    // In this example, we only gossip once; typically, we'd use
+    // `Rumors::gossip` to repeatedly gossip on changes, in a loop.
+    serve.gossip_once(alice_read, alice_write).await.unwrap();
+});
 
-    // Now, Bob joins the gossip network by *bootstrapping* from Alice.
-    let rumors::Joined::Joined { peer: bob, .. } =
-        Peer::<String>::bootstrap().join(bob_read, bob_write).await
-    else {
-        panic!("Alice must allow Bob to bootstrap");
-    };
+// Now, Bob joins the gossip network by *bootstrapping* from Alice.
+let rumors::Joined::Joined { peer: bob, .. } =
+    Peer::<String>::bootstrap().join(bob_read, bob_write).await
+else {
+    panic!("Alice must allow Bob to bootstrap");
+};
 
-    // This gives Bob a `Peer`, which he converts into a `Rumors`, just like Alice
-    // did when she seeded the initial network. But now Bob's rumor set is linked
-    // to Alice's, because he bootstrapped from her.
-    let bob = bob.into_rumors();
+// This gives Bob a `Peer`, which he converts into a `Rumors`, just like Alice
+// did when she seeded the initial network. But now Bob's rumor set is linked
+// to Alice's, because he bootstrapped from her.
+let bob = bob.into_rumors();
 
-    // Now, Bob immediately has the message Alice sent before they ever met.
-    let (_version, message) = bob.snapshot().iter().next().expect("one message");
-    assert_eq!(message.as_str(), "the meeting is at noon");
-    Ok(())
-}
+// Now, Bob immediately has the message Alice sent before they ever met.
+let (_version, message) = bob.snapshot().iter().next().expect("one message");
+assert_eq!(message.as_str(), "the meeting is at noon");
 ```
 
 ## How should you react to messages?
@@ -198,9 +196,11 @@ protocol itself*, attach a handler from the `observe` module via
 
 Messages sent via `rumors` need to be:
 
-- `serde::Serialize` and `serde::de::DeserializeOwned`, so they can be
-  serialized over the wire,
-- `Eq`, so they can be checked to ensure serialization round-trips,
+- `Serialize` and
+  `DeserializeOwned`, so they can be
+  transmitted over the wire,
+- `Eq`, so they can be checked before transmission to ensure that
+  serialization round-trips,
 - `Send`, `Sync`, and `'static`, so they can be used in an arbitrary
   `async` context, which may involve multiple threads.
 
@@ -298,7 +298,7 @@ use rumors::Rumors;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
-use tokio::io::{AsyncRead, AsyncWrite, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader, split};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
@@ -347,7 +347,7 @@ async fn gossip_over(
     rumors: &Rumors<String>,
     stream: impl AsyncRead + AsyncWrite + Send + Unpin,
 ) -> Result<(), Box<dyn Error>> {
-    let (read, write) = tokio::io::split(stream);
+    let (read, write) = split(stream);
     rumors.gossip(BufReader::new(read), write).await?;
     Ok(())
 }
@@ -365,10 +365,12 @@ All features are off by default.
   caller-provided bookmark storage. Import this via a dev-dependency into
   your own test suite to make sure your storage matches what's expected of
   it.
+- `tutorial`: renders the `tutorial` module in the documentation, and
+  enables its doctests.
 
 ## Stability
 
 Any breaking change to the wire format will come with an increment to the
-on-the-wire protocol version.
+on-the-wire `Protocol` version.
 
 <!-- cargo-rdme end -->

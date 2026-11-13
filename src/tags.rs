@@ -22,14 +22,13 @@
 //!   block, the constants here move in a deliberate, versioned format change;
 //!   nothing else in the crate hard-codes them.
 
-///   Tags a byte string holding a party atom's canonical encoding.
+///   Tags a byte string holding a [`Party`](before::Party)'s encoding.
 pub const PARTY_TAG: u64 = 0xD255;
 
-/// Tags a byte string holding a version atom's canonical encoding.
+/// Tags a byte string holding a [`Version`](before::Version)'s encoding.
 pub const VERSION_TAG: u64 = 0xD256;
 
-/// Tags a byte string holding a clock's canonical encoding: a party atom's
-/// bytes immediately followed by a version atom's bytes.
+/// Tags a byte string holding a [`Clock`](before::Clock)'s encoding.
 pub const CLOCK_TAG: u64 = 0xD257;
 
 /// Tags a byte string holding a network's secret sealed for a bootstrapping

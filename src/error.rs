@@ -1,4 +1,4 @@
-//! Session and bookmark failures, with the information needed to respond.
+//! What could possibly go wrong?
 //!
 //! Session methods return [`Error`]. Choose a response from its cause:
 //!

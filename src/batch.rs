@@ -139,9 +139,7 @@ pub(crate) struct Commit {
     pub(crate) redacted: usize,
 }
 
-/// The result of a committed [`Rumors::batch`](crate::Rumors::batch): the
-/// closure's value, what the batch sent and removed, and the replica's
-/// frontier right after it.
+/// The result of a committed [`Rumors::batch`](crate::Rumors::batch).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Committed<R> {

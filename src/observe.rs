@@ -1,4 +1,4 @@
-//! Bytes-level observation of live wire sessions.
+//! Instrument gossip sessions to observe the CBOR-encoded bytes on the wire.
 //!
 //! The hook a debugger, session recorder, or tracing adapter attaches to a
 //! [`Peer`](crate::Peer) ([`Peer::observe`](crate::Peer::observe)) or a

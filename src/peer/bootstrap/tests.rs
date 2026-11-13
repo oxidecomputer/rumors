@@ -172,12 +172,12 @@ proptest! {
     /// Both forms retain every setting, observer and storage across mixed retry sequences.
     ///
     /// Budgets are drawn on both sides of
-    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), and the
+    /// [`MIN_SYNC_MEMORY_BUDGET`](crate::peer::MIN_SYNC_MEMORY_BUDGET), and the
     /// retained budget is the requested one as given, below the minimum
     /// included.
     #[test]
     fn retries_preserve_configuration_and_storage(
-        budget in 0usize..2 * crate::MIN_SYNC_MEMORY_BUDGET,
+        budget in 0usize..2 * crate::peer::MIN_SYNC_MEMORY_BUDGET,
         target in 0usize..512,
         depth in 1u64..32,
         attempts in prop::collection::vec(any::<bool>(), 0..6),

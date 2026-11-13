@@ -11,7 +11,6 @@
 //!
 //! - authentication and authorization via mutual TLS
 //! - a RESTful HTTP API
-//! - identity persistence
 //! - graceful shutdown
 //! - error handling
 //! - logging
@@ -43,15 +42,15 @@
 //!
 //! ```bash
 //! $ cargo run --release --example kv -- --http 8000 --gossip 9000
-//! 2026-11-12T22:20:11.503269Z  INFO kv::credentials::store: created path=kv-credentials/credentials.pem
-//! 2026-11-12T22:20:11.543013Z  INFO kv: listening gossip=0.0.0.0:9000 http=127.0.0.1:8000
+//! INFO kv::credentials::store: created path=kv-credentials/credentials.pem
+//! INFO kv: listening gossip=0.0.0.0:9000 http=127.0.0.1:8000
 //! ```
 //!
 //! The second one should be told to peer with the first, so that they can talk.
 //!
 //! ```bash
 //! $ cargo run --release --example kv -- --http 8001 --gossip 9001 --peer 9000
-//! 2026-11-12T22:20:42.635466Z  INFO kv: listening gossip=0.0.0.0:9001 http=127.0.0.1:8001
+//! INFO kv: listening gossip=0.0.0.0:9001 http=127.0.0.1:8001
 //! ```
 //!
 //! Notice that when not otherwise specified, HTTP binds to `127.0.0.1`, so it's
@@ -80,8 +79,6 @@
 //! # ...then it's gone on the first node as well:
 //! $ curl -i localhost:8000/greeting
 //! HTTP/1.1 404 Not Found
-//! content-length: 0
-//! date: Thu, 12 Nov 2026 22:10:07 GMT
 //! ```
 //!
 //! ## What you might learn

@@ -1,4 +1,4 @@
-//! The library's tuning defaults, grouped by the deployment they suit.
+//! Default configuration parameters, grouped by deployment context.
 //!
 //! A *tuning default* is the value a peer uses for a setting you never set. A
 //! default that suits every deployment sits directly in this module. A default
@@ -6,10 +6,11 @@
 //! a submodule named for it, whose docs say what it assumes and how to adjust
 //! the setting for other deployments. Each setter's docs cite its default here.
 //!
-//! Limits and format versions are not tuning defaults, and live at the crate
-//! root: a limit, such as
-//! [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET), bounds what a
-//! setting can be, rather than standing in for a setting you leave alone.
+//! Limits and format versions are not tuning defaults. A limit, such as the
+//! least memory budget, bounds what a setting can be, rather than standing in
+//! for a setting you leave alone, and its setter documents it. A format
+//! version, such as [`BOOKMARK_FORMAT_VERSION`](crate::BOOKMARK_FORMAT_VERSION),
+//! lives at the crate root.
 
 pub mod tls;
 
@@ -26,9 +27,9 @@ pub const SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 /// The target bounds each message of supplied records a session builds, and
 /// sizes the room every memory budget sets aside for such messages on their way
 /// through the connection: about two messages' worth in each direction, about 1
-/// MiB at this target. So a larger default would raise
-/// [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET) by about four
-/// bytes per byte, and a smaller one would lower it.
+/// MiB at this target. So a larger default would raise the least memory budget
+/// ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)) by about
+/// four bytes per byte, and a smaller one would lower it.
 ///
 /// A supply message carries records of one subtree a session supplies whole,
 /// and batching them into fewer, larger messages saves processor time for each

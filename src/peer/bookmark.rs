@@ -34,29 +34,32 @@ impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
 
 /// Attach bookmark storage to an unbookmarked peer.
 impl<T: Send + Sync + 'static> Peer<T> {
-    /// Add durable restart bookkeeping to this peer.
+    /// Rumors uses a "bookmark" to record a peer's internal identity and local
+    /// write progress, then reclaims old "identity space" opportunistically.
+    /// This limits the growth of message [`Version`](crate::Version)s across
+    /// crashes and restarts.
     ///
-    /// Reuse the same storage whenever this peer restarts. Rumors records the
-    /// peer's identity and local write progress, then reclaims old identity
-    /// space once the restarted peer has caught up. This limits the growth of
-    /// message [`Version`](crate::Version)s across crashes and restarts.
+    /// Bookmarks do not store the contents of messages. Their use is a
+    /// (recommended!) optional optimization to prevent a space leak in the
+    /// event that a peer restarts without first [`retire`](Peer::retire)-ing
+    /// into another [`Peer`].
     ///
-    /// A bookmark does not store messages. Recover those by joining and
-    /// gossiping. The returned peer owns the storage and updates it as needed;
-    /// do not share it with another live peer. [`Bookmark`] gives the complete
-    /// storage and restart contract.
+    /// You should reuse the same underlying bookmark storage whenever this peer
+    /// restarts.
     ///
-    /// This method validates any existing record and checkpoints the current
-    /// peer before returning. An untouched seed postpones its first bookmark
-    /// I/O until its first session. To attach storage while joining, use
+    /// For a simple bookmark implementation that uses a single file to store
+    /// the bookmark, supply [`FileBookmark`](crate::FileBookmark).
+    ///
+    /// To attach a bookmark immediately while joining an existing network
+    /// (rather than after the peer bootstraps), use
     /// [`Bootstrap::bookmark`](super::Bootstrap::bookmark).
     ///
     /// # Errors
     ///
-    /// A load, validation, or store failure returns the peer without a bookmark
-    /// in [`Unbookmarked`]. Its live state is unchanged and attachment may be
-    /// retried. As required by [`Bookmark::store`], a failed store may already
-    /// have installed its complete replacement record.
+    /// A load, validation, or store failure returns the original peer,
+    /// unchanged and without a bookmark attached, in the [`Unbookmarked`]
+    /// error. It is safe to retry attaching the bookmark in case of transient
+    /// failures.
     pub async fn bookmark<B: Bookmark>(
         self,
         bookmark: B,

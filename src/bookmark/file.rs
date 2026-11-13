@@ -69,35 +69,20 @@ impl RunBlocking for TokioBlocking {
     }
 }
 
-/// A bookmark stored in one file, as a [redb](https://docs.rs/redb) database.
+/// A bookmark stored in one file on disk.
 ///
-/// [`new`](Self::new) takes a [`RunBlocking`] runner that moves each
+/// [`FileBookmark::new`] takes a [`RunBlocking`] runner that moves each
 /// synchronous filesystem job onto the application's blocking executor;
-/// [`TokioBlocking`] is the runner for Tokio applications. Each store commits
-/// the new record in one durable, two-phase transaction, so a crash leaves the
-/// file holding either the previous record or the new one. Opening verifies the
-/// checksum of every stored page, so a damaged file fails to open with an error
-/// instead of being trusted. The file starts at about 1 MiB, which redb
-/// allocates up front, and grows in power-of-two steps for a record too large
-/// to fit.
+/// [`TokioBlocking`] is the runner for Tokio applications.
 ///
-/// A `FileBookmark` holds an exclusive operating-system lock on its file for as
-/// long as it lives (`flock` on Unix, `LockFileEx` on Windows), so no two live
-/// `FileBookmark`s on one machine open the same bookmark, whatever name each
-/// opens it by: a symbolic link or a hard link names the same file, and so the
-/// same lock. Sharing a bookmark lets the peers reuse versions, which corrupts
-/// the set. The lock binds only processes that open the bookmark through
-/// `FileBookmark`, and no lock recognizes a copy: copying a bookmark duplicates
-/// it, which the [storage obligations](Bookmark#storage-obligations) forbid.
-/// Dropping the bookmark releases the lock. To give several peers on one
-/// machine bookmarks of their own, try paths in turn until `new` succeeds:
+/// To give several peers on one machine bookmarks of their own, try paths in
+/// turn until [`FileBookmark::new`] succeeds:
 ///
 /// ```
 /// # #[cfg(feature = "fs")]
 /// # #[expect(dead_code)]
 /// # async fn claim(directory: &std::path::Path) -> std::io::Result<()> {
 /// use std::fs::TryLockError;
-///
 /// use rumors::{FileBookmark, TokioBlocking};
 ///
 /// let mut slot = 0;
@@ -114,13 +99,9 @@ impl RunBlocking for TokioBlocking {
 /// # }
 /// ```
 ///
-/// Jobs run one at a time, in the order they were dispatched, even when the
-/// future awaiting a job is cancelled while the job still runs. An operation
-/// waits for its turn inside its future, so a future leaked (with
-/// `mem::forget`, say) while it waits keeps its turn forever, and every later
-/// operation on this bookmark waits behind it. Reclaiming the peer does not
-/// release that wait; see
-/// [`Rumors::try_into_peer`](crate::Rumors::try_into_peer).
+/// Internally, this is implemented as a [`redb`](https://docs.rs/redb) database
+/// with a single key-value pair, to take advantage of `redb`'s atomic
+/// transactions and locking.
 pub struct FileBookmark<R> {
     /// The path the bookmark was opened at, for diagnostics.
     path: PathBuf,
@@ -134,21 +115,21 @@ pub struct FileBookmark<R> {
 
 impl<R: RunBlocking> FileBookmark<R> {
     /// Open the bookmark at `path`, creating it if absent, and lock its file,
-    /// running filesystem jobs through `runner`.
+    /// running filesystem jobs through `runner`. The parent directory of `path`
+    /// must already exist.
     ///
-    /// The parent directory must already exist. Pass [`TokioBlocking`] from a
-    /// Tokio application, or a [`RunBlocking`] of your own for another
-    /// executor. Opening never waits for the lock: a bookmark another live
-    /// `FileBookmark` holds fails at once.
+    ///  [`RunBlocking`] is a trait abstracting the capability to dispatch a
+    /// blocking task from within an `async` context, required for interacting
+    /// with the file on disk. In [Tokio](https://tokio.rs), supply
+    /// [`TokioBlocking`]; for another executor, implement this trait yourself.
     ///
     /// # Errors
     ///
-    /// - [`TryLockError::WouldBlock`]: another live `FileBookmark`, in this
+    /// - [`TryLockError::WouldBlock`] if another live `FileBookmark`, in this
     ///   process or another, holds the file `path` names.
-    /// - [`TryLockError::Error`]: the file could not be opened or created (its
-    ///   parent directory is missing, say), holds something other than a
-    ///   bookmark, or fails its integrity check; or the runner failed to run
-    ///   the job.
+    /// - [`TryLockError::Error`] if the file could not be opened or created,
+    ///   holds something other than a `rumors` bookmark, or fails its integrity
+    ///   check; or the runner failed to run the job.
     pub async fn new(path: impl Into<PathBuf>, runner: R) -> Result<Self, TryLockError> {
         let path = path.into();
         let opening = path.clone();
@@ -235,7 +216,7 @@ impl<R> std::fmt::Debug for FileBookmark<R> {
     }
 }
 
-/// Read and atomically replace the record in the database.
+/// Read and atomically replace the bookmark record.
 impl<R: RunBlocking> Bookmark for FileBookmark<R> {
     /// Filesystem, database, or blocking-executor failure.
     type Error = io::Error;

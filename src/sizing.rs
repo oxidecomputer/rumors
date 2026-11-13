@@ -1,151 +1,182 @@
 // TODO-docs: Restate this guide's figures from measurements on physical
 // links. They come from the test kit's simulated link, which leaves out
 // loss, congestion control, and the time computation takes.
-//! Choosing a synchronization memory budget.
+//! Guidance on choosing a
+//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget).
 //!
-//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sets how much
-//! memory each synchronization session may hold. This guide helps you choose
-//! its value from what you know about your deployment: the bandwidth and
-//! round-trip time of your links, roughly how many messages your replicas hold,
-//! and how much they differ. The setter's documentation states the exact
-//! contract: what the budget counts, what it leaves out, and how closely a
-//! session keeps to it.
+//! # Why does this parameter exist?
 //!
-//! # What the budget does
+//! `rumors` uses internal pipelining to cover for network latency, keeping your
+//! network busy in both directions as much as possible, and therefore
+//! dramatically speeding up gossip.
+//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) constrains how
+//! much transient memory `rumors` is permitted to use for this pipeline during
+//! each gossip session. When actual memory usage approaches this bound,
+//! `rumors` will apply backpressure internally to slow the session down and
+//! keep memory usage lower. This will slow down gossip in some specific
+//! conditions, but ensure that `rumors` does not consume unexpected resources.
 //!
-//! A session finds what two replicas hold differently by asking its peer about
-//! parts of the set, and it keeps many questions in flight at once so that it
-//! does not wait out a round trip for each one. Everything in flight holds
-//! memory. The budget limits that memory: within it, a session keeps in flight
-//! as much as it can use, and at the budget, it waits for answers to free
-//! memory before it asks more.
+//! In many situations, you will never need to tune this parameter, but if
+//! you want to ensure memory usage is bounded more tightly (for example if you
+//! expect many concurrent gossip sessions), you may want to adjust it.
 //!
-//! The budget therefore trades memory for time. A session on a smaller budget
-//! reaches the same result as on a larger one; it only takes longer, because it
-//! waits out more round trips. The budget is a limit, not a reservation: a
-//! session holds only what its work in flight needs, so a budget larger than a
-//! session can use costs that session nothing.
+//! **Important:** [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)
+//! constrains the memory used by *one gossip session*. If `N` concurrent gossip
+//! sessions could be happening at once, the total possible memory used could be
+//! as much as `N` times the configured budget.
+//! # How to use this guide
 //!
-//! The budget applies to each session separately, and sessions running at once
-//! can each hold up to it. Each peer's budget limits only its own side of a
-//! session, though a remote peer with a smaller budget can slow the session for
-//! both sides.
+//! This guide helps you choose a memory budget from what you know about your
+//! deployment.
 //!
-//! # The default and the minimum
+//! There are two ways to make this decision:
 //!
-//! The default is
-//! [`default::SYNC_MEMORY_BUDGET`](crate::default::SYNC_MEMORY_BUDGET), 512
-//! MiB.
+//! 1. Start with the memory you can afford to spend in the pessimal case, and
+//!    find out how such a budget might affect latency; or
+//! 2. Start with the parameters of your deployment, and find out what memory
+//!    budget would be required to prevent backpressure.
 //!
-//! The minimum is [`MIN_SYNC_MEMORY_BUDGET`](crate::MIN_SYNC_MEMORY_BUDGET),
-//! about 36.4 MiB on 64-bit targets, and a session raises any smaller budget,
-//! zero included, to it. The minimum covers what every session sets aside
-//! whatever its budget, as the setter's documentation itemizes. A
-//! [`target_message_size`](crate::Peer::target_message_size) below the default
-//! lowers it a little.
+//! You will want to estimate these things about your intended deployment:
+//!
+//! - the bandwidth and latency of your anticipated network link, and their
+//!   resultant bandwidth-delay product (BDP),
+//! - roughly how many messages each replica will likely hold at any given time,
+//!   and
+//! - how much they will likely differ during a single gossip session.
+//!
+//! # What consumes transient memory?
+//!
+//! The biggest thing to take away is that the amount of transient memory
+//! *actually used* during gossip (notwithstanding the configured budget) will
+//! *increase* as:
+//!
+//! - the bandwidth-delay product (BDP) of your network link increases, or
+//! - the amount of mutual divergence between two replicas increases, or
+//! - the number of messages stored by each replica increases, or
+//! - the mean size of each message *decreases* (larger messages means *less*
+//!   gossip overhead!).
+//!
+//! The correlation is not linear in all these variables: in order to use a lot
+//! of memory during synchronization, you really need *all three* to be quite
+//! high. In particular, the following scenarios might *seem* like they could
+//! use a lot of memory, but *they will not*:
+//!
+//! - highly divergent peers with many small messages, but on a *low-latency*
+//!   network: **low memory cost**;
+//! - peers with many small messages on a high latency network, but *gossiping
+//!   frequently in small batches*: **low memory cost**;
+//! - highly divergent peers on a high latency network, but *with a small number
+//!   of small messages at any given time*: **low memory cost**.
+//! - highly divergent peers on a high latency network with many messages, but
+//!   *with large mean message size*: **low memory cost**.
+//!
+//! So, **high memory cost** occurs only with all of **high BDP** + **high
+//! divergence** + **high number of messages** + **small message size**.
 //!
 //! # Choosing a budget
 //!
-//! Keep the default unless memory is tight. In the simulations behind this
-//! guide ([described below](#how-far-to-trust-these-figures)), a budget of at
-//! most 422.1 MiB was enough for every session between replicas of up to
-//! 1,000,000 messages to run exactly as fast as with no limit, on every link
-//! and however much the replicas differed, so the default leaves room to spare.
+//! Most of the time, you are best served by the default. If you have tighter
+//! memory constraints for the pessimal scenario outlined above, continue
+//! reading.
 //!
-//! To size a deployment, count on each session holding up to its budget:
-//! synchronization can hold the budget times the number of sessions you run at
-//! once. Leave room besides for what the budget does not cover, such as the
-//! replica's growth, observers' backlogs, and your transport's buffers ([the
-//! setter lists each](crate::Peer#what-the-budget-does-not-cover)).
+//! ## The default and the minimum
 //!
-//! When memory is tight, start from your link's *bandwidth-delay product*: its
-//! bandwidth times its round-trip time, which is how many bytes the link
-//! carries in one round trip. The larger the product, the more work a session
-//! must keep in flight to keep the link busy, and the more budget it can use.
-//! The simulated links all ran at 1 Gb/s, with round trips of 1 ms (a LAN, with
-//! a product of 125 kB), 10 ms (a metro link, 1.25 MB), and 100 ms (a long-haul
-//! link, 12.5 MB). Each figure below is a budget that was enough for a session
-//! to run exactly as fast as with no limit:
+//! The default sync memory budget is
+//! [`default::SYNC_MEMORY_BUDGET`](crate::default::SYNC_MEMORY_BUDGET) = **512
+//! MiB**. This will not constrain the speed of gossip in most realistic
+//! situations.
 //!
-//! | Messages per replica, shared | 125 kB   | 1.25 MB   | 12.5 MB   |
-//! |------------------------------|----------|-----------|-----------|
-//! | 100,000, none                | 36.7 MiB | 78.5 MiB  | 117.3 MiB |
-//! | 100,000, 90%                 | 52.6 MiB | 67.8 MiB  | 67.8 MiB  |
-//! | 100,000, 99%                 | 41.7 MiB | 67.8 MiB  | 67.8 MiB  |
-//! | 1,000,000, none              | 36.8 MiB | 74.2 MiB  | 421.1 MiB |
-//! | 1,000,000, 90%               | 36.8 MiB | 72.9 MiB  | 422.1 MiB |
-//! | 1,000,000, 99%               | 38.6 MiB | 102.3 MiB | 214.3 MiB |
+//! The minimum is about **36.4 MiB**. Any specified budget below the minimum is
+//! implicitly rounded up to the minimum. This will constrain the speed of
+//! gossip in some situations, especially as latency, mutual divergence, and
+//! message set size increase, and as mean message size decreases.
 //!
-//! Read the table by your link's product:
+//! Read on to understand what happens in between these extremes.
 //!
-//! - **Near 125 kB, a short round trip,** the minimum costs almost nothing. At
-//!   the minimum, every simulated session on the LAN took less than one round
-//!   trip longer than with no limit, and at most 5% longer in all; between
-//!   replicas of 1,000,000 messages that share nothing, it took as long to
-//!   within a hundredth of a percent.
-//! - **Near 1.25 MB,** a moderate budget suffices: on the metro link, 102.3 MiB
-//!   was enough for every pair of replicas, at either size.
-//! - **Near 12.5 MB, a long round trip,** the budget a session can use grows
-//!   with the replicas. Beyond the minimum, budget a few hundred bytes for each
-//!   message a replica holds: about 400 B at 1,000,000 messages, or 190 B when
-//!   the replicas share 99%, and up to 850 B at 100,000 messages. At 1,000,000
-//!   messages, replicas that share 90% needed as much as replicas that share
-//!   nothing.
+//! # Estimating the effects of memory budget
 //!
-//! These figures cover replicas of up to 1,000,000 messages and products of up
-//! to 12.5 MB. For larger replicas or links, or whenever the choice matters,
-//! measure on your own link. Each session reports
-//! [`SessionStats::budget_waits`](crate::SessionStats::budget_waits) in the
-//! [`Gossiped`](crate::Gossiped) it returns, and a count of zero means the
-//! budget never held that session back. Raise the budget if sessions you care
-//! about report waits and take longer than you can accept.
+//! Running the real `rumors` gossip code on an in-memory deterministic
+//! simulation harness, we can measure estimates for the amount of memory
+//! consumed in different scenarios.
 //!
-//! # What a low or a high budget costs
+//! The simulated link leaves out loss, congestion control, and the wall-clock
+//! effect of computation time --- all of these slow down real gossip sessions
+//! and therefore should *decrease* memory pressure relative to this worst-case
+//! simulation.
 //!
-//! A budget below what a session can use makes the session slower, and more so
-//! the longer the round trip. At the minimum, the simulated sessions took this
-//! many times as long as with no limit:
+//! ### Parameters
 //!
-//! | Messages per replica, shared | 125 kB | 1.25 MB | 12.5 MB |
-//! |------------------------------|--------|---------|---------|
-//! | 100,000, none                | 1.00   | 1.97    | 5.18    |
-//! | 100,000, 90%                 | 1.00   | 2.40    | 2.93    |
-//! | 100,000, 99%                 | 1.05   | 2.27    | 2.69    |
-//! | 1,000,000, none              | 1.00   | 1.93    | 14.5    |
-//! | 1,000,000, 90%               | 1.00   | 5.56    | 26.7    |
-//! | 1,000,000, 99%               | 1.01   | 5.41    | 9.80    |
+//! The figures in the rest of this guide are
+//! based on the following simulation parameters:
 //!
-//! For example, between replicas of 1,000,000 messages that share nothing, a
-//! session on the long-haul link took 1.5 s with no limit and 22 s at the
-//! minimum. Between the minimum and the budgets in the first table, the
-//! slowdown shrinks as the budget grows: no simulated session ran more than
-//! about 0.002 round trips slower at a larger budget than at a smaller one.
+//! - Message size: fixed at 100 B (everything gets more favorable as this
+//!   *increases*);
+//! - Bandwidth: fixed at 1 Gb/s;
+//! - Round trip latency:
+//!   - 1 ms (BDP = 125 kB);
+//!   - 10 ms (BDP = 1.25 MB);
+//!   - 100 ms (BDP = 12.5 MB).
 //!
-//! A budget above what a session can use changes nothing for that session: it
-//! runs exactly as it would with no limit. The cost of a high budget is the
-//! memory it lets each session hold when the session can use it, times the
-//! number of sessions you run at once.
+//! **Note:** We only vary latency and not bandwidth in the figures below,
+//! because varying bandwidth has the same effect. You might find this
+//! surprising! Shouldn't constrained bandwidth slow us down differently than
+//! latency? Not so here: constraining bandwidth means there's less to pipeline,
+//! since less data can be in flight at the same time. This is a dual effect to
+//! the role of latency: decreasing latency *also* means there's less to
+//! pipeline, since it also means less data can be in flight at the same time.
 //!
-//! # How far to trust these figures
+//! ## The required budget to achieve zero slowdown
 //!
-//! The figures come from the library's own session code, run over a simulated
-//! link. Both peers ran on the same budget, with replicas of 100,000 or
-//! 1,000,000 messages of 100 bytes each, sharing none, 90%, or 99% of their
-//! messages, over the three links above. Each pair of replicas ran once with no
-//! limit and then at budgets from the minimum upward.
+//! In the table below, we can see the minimal memory budget which results in a
+//! 0% slowdown for gossip in simulation.
 //!
-//! - The simulated link leaves out loss, congestion control, and the time
-//!   computation takes. It is described entirely by its bandwidth-delay
-//!   product: a 1 Gb/s link with a 100 ms round trip behaves exactly as a 100
-//!   Gb/s link with a 1 ms round trip.
-//! - Other message sizes, other overlaps, and larger replicas were not
-//!   simulated.
-//! - Some figures in the first table are computed from the session with no
-//!   limit, as the smallest budget that could never have made it wait, rather
-//!   than measured at that budget.
-//! - The sessions ran on 64-bit Linux on x86-64, where they are exactly
-//!   repeatable. Rerunning a sample on illumos gave slightly different memory
-//!   counts, and durations that differed by at most about 0.002 round trips.
+//! | Messages per replica, % in common | 1 ms (BDP = 125 kB) | 10 ms (BDP = 1.25 MB) | 100 ms   (BDP = 12.5 MB) |
+//! |-----------------------------------|---------------------|-----------------------|--------------------------|
+//! | 100,000, none                     | 36.7 MiB            | 78.5 MiB              | 117.3 MiB                |
+//! | 100,000, 90%                      | 52.6 MiB            | 67.8 MiB              | 67.8 MiB                 |
+//! | 100,000, 99%                      | 41.7 MiB            | 67.8 MiB              | 67.8 MiB                 |
+//! | 1,000,000, none                   | 36.8 MiB            | 74.2 MiB              | 421.1 MiB                |
+//! | 1,000,000, 90%                    | 36.8 MiB            | 72.9 MiB              | 422.1 MiB                |
+//! | 1,000,000, 99%                    | 38.6 MiB            | 102.3 MiB             | 214.3 MiB                |
 //!
-//! Use the figures to choose a starting point, and measure on your own link
-//! where the choice matters.
+//!
+//!
+//! ### What does this tell us?
+//!
+//! - **Near BDP = 125 kB** (i.e. 1 ms latency at 1 Gb/s), gossip sessions use
+//!   very close to the minimum budget.
+//! - **Near 1.25 MB** (i.e. 10 ms latency at 1 Gb/s), a moderate budget
+//!   suffices, around 100 MiB.
+//! - **Near 12.5 MB** (i.e. 100 ms latency 1 Gb/s), the default budget is
+//!   required to prevent slowdown during gossip.
+//!
+//! ## The latency cost of a smaller budget
+//!
+//! When you set a budget that is lower than the amount of memory the gossip
+//! session would use, if unconstrained, `rumors` exerts backpressure.
+//!
+//! Based on the same simulation parameters as above, we compute the estimated
+//! slowdown for a gossip session running at the *minimum budget*, relative to
+//! the speed with which it would complete if unconstrained.
+//!
+//! Slowdown is measured
+//! in "×", where "1.00 ×" means zero slowdown, and "2.00 ×" would mean "twice
+//! as slow".
+//!
+//! | Messages per replica, % in common | 1 ms (BDP = 125 kB) | 10 ms (BDP = 1.25 MB) | 100 ms   (BDP = 12.5 MB) |
+//! |-----------------------------------|---------------------|-----------------------|--------------------------|
+//! | 100,000, none                     | 1.00 ×              | 1.97 ×                | 5.18 ×                   |
+//! | 100,000, 90%                      | 1.00 ×              | 2.40 ×                | 2.93 ×                   |
+//! | 100,000, 99%                      | 1.05 ×              | 2.27 ×                | 2.69 ×                   |
+//! | 1,000,000, none                   | 1.00 ×              | 1.93 ×                | 14.5 ×                   |
+//! | 1,000,000, 90%                    | 1.00 ×              | 5.56 ×                | 26.7 ×                   |
+//! | 1,000,000, 99%                    | 1.01 ×              | 5.41 ×                | 9.80 ×                   |
+//!
+//! ### What does this tell us?
+//!
+//! - **Near BDP = 125 kB** (i.e. 1 ms latency at 1 Gb/s), the minimum budget
+//!   will exert essentially no backpressure.
+//! - **Near 1.25 MB** (i.e. 10 ms latency at 1 Gb/s), large message sets will
+//!   see noticeable slowdown, especially when divergent.
+//! - **Near 12.5 MB** (i.e. 100 ms latency 1 Gb/s), medium and especially large
+//!   message sets will see significant slowdown.
