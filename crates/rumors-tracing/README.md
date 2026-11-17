@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     served?;
     let rumors::Join::Connected { peer: _bob, .. } = joined else {
-        panic!("Alice must serve the bootstrap");
+        panic!("Alice must serve the joining peer");
     };
     Ok(())
 }

@@ -110,10 +110,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Parked<T, B> {
     }
 }
 
-/// Share the replica, configuration, and storage while retaining a handle
-/// claim.
+/// Share the replica, configuration, and storage.
 impl<T: Send + Sync + 'static, B: Bookmark> Clone for Rumors<T, B> {
-    /// Create another handle to the same peer.
+    /// Create another handle referring to the same [`Peer`].
     fn clone(&self) -> Self {
         Self {
             peer: self.peer.share(),
@@ -122,15 +121,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Clone for Rumors<T, B> {
     }
 }
 
-/// A bounded replica summary, independent of `T: Debug`.
+/// A summary, independent of `T: Debug`.
 impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
-    /// Summarize the replica without printing payloads.
+    /// Debug the replica without printing payloads.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.peer.fmt_summary("Rumors", f)
     }
 }
 
-/// Manage the shared replica and the lifetime of its handle.
 impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Assemble the first handle of a fresh [`Rumors`] generation around
     /// `peer`. Every other handle is a [`Clone`] of this one, so the channel's
@@ -143,12 +141,6 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
                 parked: Parked::new(),
             },
         }
-    }
-
-    /// Return the local settings used to configure the underlying
-    /// [`Peer`].
-    pub fn settings(&self) -> Settings {
-        self.peer.settings()
     }
 
     /// Await quiescence and restore the unique [`Peer`] handle.
@@ -186,19 +178,28 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// gossip network and can be passed directly to [`redact`](Self::redact) in
     /// the future.
     ///
-    /// To send many messages in one commit, use [`send_all`](Self::send_all);
-    /// to mix sends and redactions in one commit, use [`batch`](Self::batch).
+    /// To send many messages all at once, use [`send_all`](Self::send_all); to
+    /// mix sends and redactions in one commit, use [`batch`](Self::batch).
     ///
     /// # Errors
     ///
-    /// Before this method returns, the message is serialized, then
-    /// deserialized, then compared against the original message. If this fails
-    /// to round-trip, or exceeds the configured [`Peer::message_depth_limit`],
-    /// an [`EncodeError`] results.
+    /// Before accepting the message, [`send`](Rumors::send) checks that every
+    /// receiver would decode exactly the message you sent, returning an
+    /// [`EncodeError`] if a check fails:
     ///
-    /// # Panics
+    /// - [`Serialize`](EncodeError::Serialize) if the message's
+    ///   [`Serialize`](serde::Serialize) implementation fails;
     ///
-    /// If `message` fails to serialize.
+    /// - [`Deserialize`](EncodeError::Deserialize) if its
+    ///   [`Deserialize`](serde::Deserialize) implementation rejects that
+    ///   serialization;
+    /// - [`Roundtrip`](EncodeError::Roundtrip) if the result of serializing and
+    ///   deserializing is something not equal to the original `message`;
+    ///
+    /// - [`TooDeep`](EncodeError::TooDeep) if serializing the message requires
+    ///   deeper recursion than [`Peer::message_depth_limit`].
+    ///
+    /// A rejected message is neither stored nor sent.
     pub fn send(&self, message: T) -> Result<Version, EncodeError> {
         self.peer.send(message)
     }
@@ -209,45 +210,16 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// This removes the message, if any exists, which is stamped with
     /// `version`. The removal propagates automatically during gossip.
     ///
-    /// To redact many versions in one commit, use
+    /// To redact many versions all at once, use
     /// [`redact_all`](Self::redact_all); to mix redactions and sends in one
     /// commit, use [`batch`](Self::batch).
     pub fn redact(&self, version: &Version) -> bool {
         self.peer.redact(version)
     }
 
-    /// Send every message `messages` yields, as one all-or-nothing commit.
+    /// Send everything in `messages`, in one all-or-nothing commit.
     ///
-    /// Equivalent to a [`batch`](Self::batch) whose whole body is one
-    /// [`Batch::send_all`]: observers and concurrent gossip sessions see all of
-    /// them land at once, in at most one observer wakeup, and every message is
-    /// in the causal past of the same commit. Admission runs per message,
-    /// exactly as [`send`](Self::send) states; the first message a receiver
-    /// would reject or misread is the returned [`EncodeError`], and then
-    /// **nothing** commits, not even the messages admitted before it. An empty
-    /// iterator commits nothing and wakes no observer.
-    ///
-    /// Returns the last message's [`Version`], which covers every message in
-    /// the commit, as [`send`](Self::send) returns its message's, or `None` for
-    /// an empty iterator, which sends nothing.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rumors::{Peer, error::EncodeError};
-    ///
-    /// let rumors = Peer::<u64>::seed().into_rumors();
-    /// rumors.send_all(0..10)?;
-    /// // All ten landed, in one commit.
-    /// assert_eq!(rumors.snapshot().len(), 10);
-    /// # Ok::<(), EncodeError>(())
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// If any message fails to serialize: a violation of the payload contract
-    /// ([choosing a payload type](crate#choosing-a-payload-type)), exactly as
-    /// [`send`](Self::send) treats it.
+    /// Returns the last message's [`Version`], or `None` for an empty iterator.
     pub fn send_all<I>(&self, messages: I) -> Result<Option<Version>, EncodeError>
     where
         I: IntoIterator<Item = T>,
@@ -255,37 +227,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.send_all(messages)
     }
 
-    /// Redact every version `versions` yields, as one commit.
+    /// Redact everything in `versions`, in one commit.
     ///
-    /// Equivalent to a [`batch`](Self::batch) whose whole body is one
-    /// [`Batch::redact_all`]: observers and concurrent gossip sessions see
-    /// every redaction land at once, in at most one observer wakeup. Like
-    /// [`redact`](Self::redact) it is infallible, and versions not currently
-    /// held are skipped. An empty iterator commits nothing and wakes no
-    /// observer.
-    ///
-    /// Returns how many messages it removed: the distinct versions this replica
-    /// held live. Each version it did not hold, or named twice, adds nothing,
-    /// exactly as [`redact`](Self::redact) returning `false` does.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use rumors::{Peer, Version, error::EncodeError};
-    ///
-    /// let rumors = Peer::<u64>::seed().into_rumors();
-    /// rumors.send_all(0..10)?;
-    /// // Observe the versions back out, then redact the even payloads.
-    /// let evens: Vec<Version> = rumors
-    ///     .snapshot()
-    ///     .iter()
-    ///     .filter(|(_, message)| **message % 2 == 0)
-    ///     .map(|(version, _)| version.clone())
-    ///     .collect();
-    /// assert_eq!(rumors.redact_all(evens), 5, "every even payload was held");
-    /// assert_eq!(rumors.snapshot().len(), 5);
-    /// # Ok::<(), EncodeError>(())
-    /// ```
+    /// Returns how many messages it removed.
     pub fn redact_all<I>(&self, versions: I) -> usize
     where
         I: IntoIterator,
@@ -297,15 +241,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Apply several changes to the set of messages, atomically.
     ///
     /// Runs `f` with a [`Batch`] handle for queueing [`send`](Batch::send)s and
-    /// [`redact`](Batch::redact)s, and commits everything queued **iff `f`
-    /// returns `Ok`**. Any observers and concurrent gossip sessions see it all
-    /// land in one commit, and at most one observer wakeup. Any other exit —
-    /// i.e. `Err` or panic — commits nothing.
+    /// [`redact`](Batch::redact)s, and commits everything only if `f` returns
+    /// `Ok`. Any other exit (i.e. `Err` or panic) does not commit anything.
     ///
-    /// On commit, this returns [`Committed`], which annotates the closure's
-    /// original value with information about how many messages the batch sent,
-    /// how many its redactions removed, and the [`Peer`]'s
-    /// [`Version`] right after the commit.
+    /// Returns [`Committed`], which annotates the closure's original value with
+    /// information about how many messages the batch sent and redacted, and the
+    /// [`Peer`]'s [`Version`] right after the commit.
     ///
     /// The closure is synchronous and the type system prevents the handle from
     /// leaving it, so async cancellation cannot observe a half-built batch. The
@@ -324,12 +265,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///     batch.send("b".to_string())?;
     ///     Ok::<(), EncodeError>(())
     /// })?;
-    /// // Both landed, in one commit.
+    /// // Both landed, in a single commit.
     /// assert_eq!(rumors.snapshot().len(), 2);
     /// # Ok::<(), EncodeError>(())
     /// ```
     ///
-    /// The scope handle cannot be stashed outside the closure...
+    /// The scope handle cannot be moved out of the closure...
     ///
     /// ```compile_fail
     /// let rumors = rumors::Peer::<String>::seed().into_rumors();
@@ -340,7 +281,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// });
     /// ```
     ///
-    /// ...and cannot be returned out of it:
+    /// ...and cannot be returned from it either:
     ///
     /// ```compile_fail
     /// let rumors = rumors::Peer::<String>::seed().into_rumors();
@@ -353,56 +294,65 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.batch(f)
     }
 
-    /// Return the gossip network this replica belongs to.
-    pub fn network(&self) -> Network {
-        self.peer.network()
-    }
-
-    /// Take a consistent point-in-time view of the live set: cheap
-    /// (structure-sharing, no copy), atomic, and isolated from every later
-    /// change. See [`Snapshot`] for what it can answer.
+    /// Take a consistent point-in-time snapshot of the set of messages.
     pub fn snapshot(&self) -> Snapshot<T> {
         self.peer.snapshot()
     }
 
-    /// Observe every message in this [`Rumors`], however it arrived, in
-    /// arbitrary (*non-causal*) order.
+    /// Iterate through a stream of every message in this [`Rumors`], however it
+    /// arrived, in arbitrary (*non-causal*) order.
     ///
     /// See [`UnorderedMessages`] for details.
     pub fn unordered_messages(&self) -> UnorderedMessages<T> {
         self.peer.unordered_messages()
     }
 
-    /// Observe every message not causally contained in `since`, then everything
-    /// learned afterwards, in arbitrary (*non-causal*) order.
+    /// Iterate through a stream of every message not causally contained in
+    /// `since`, then everything learned afterwards, in arbitrary (*non-causal*)
+    /// order.
+    ///
+    /// See [`UnorderedMessages`] for details.
     pub fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T> {
         self.peer.unordered_messages_since(since)
     }
 
-    /// Observe every message in this [`Rumors`], however it arrived, in *causal
-    /// order*.
+    /// Iterate through a stream of every message in this [`Rumors`], however it
+    /// arrived, in *causal order*.
     ///
     /// See [`CausalMessages`] for details.
     pub fn causal_messages(&self) -> CausalMessages<T> {
         self.peer.causal_messages()
     }
 
-    /// Observe every message not causally contained in `since`, then everything
-    /// learned afterwards, in *causal order*.
+    /// Iterate through a stream of every message not causally contained in
+    /// `since`, then everything learned afterwards, in *causal order*.
     ///
     /// See [`CausalMessages`] for details.
     pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T> {
         self.peer.causal_messages_since(since)
     }
 
-    /// Observe *that* this [`Rumors`] changes, without observing what changed.
+    /// Iterate through a stream of notifications *that* this [`Rumors`]
+    /// changed, without observing what changed.
     ///
     /// The result is a coalescing stream that yields `()` immediately on first
-    /// poll and then once per observed advance of the set's causal frontier.
+    /// poll, then again every time the set of messages changes.
     ///
     /// See [`Changes`] for details.
     pub fn changes(&self) -> Changes<T> {
         self.peer.changes()
+    }
+
+    /// Return the globally unique identifier of the gossip network to which
+    /// this replica belongs.
+    pub fn network(&self) -> Network {
+        self.peer.network()
+    }
+
+    /// Return the local settings used to configure the underlying
+    /// [`Peer`].
+    pub fn settings(&self) -> Settings {
+        self.peer.settings()
     }
 
     /// Alias this set's live party for invariant assertions in tests; see
@@ -414,96 +364,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     }
 }
 
-/// Drive replication and recover exclusive ownership of the peer.
+/// Gossip, and recover exclusive ownership of the peer.
 impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
-    /// Give up this handle and reclaim the [`Peer`]: resolves when no
-    /// [`Rumors`] for this set remains, handing the `Peer` to exactly one
-    /// caller.
+    /// Gossip over one connection until it ends.
     ///
-    /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
-    /// claim: the handle was already consumed, so dropping the future is no
-    /// different from having dropped the `Rumors`. If every handle goes away
-    /// with no [`try_into_peer`](Self::try_into_peer) pending, the `Peer` is
-    /// gone for good: observers drain the final state and stop.
-    ///
-    /// # Leaked sessions
-    ///
-    /// Leaking a session future (with [`mem::forget`](std::mem::forget), say)
-    /// instead of dropping it skips its cleanup. A session leaked while it
-    /// waits on this peer's [`Bookmark`] storage keeps that storage locked, and
-    /// every later session through this generation's handles waits forever.
-    /// Reclaiming the `Peer` releases that lock: the returned peer, and the
-    /// handles made from it, run sessions normally, as long as the storage
-    /// itself still serves them. Reclaiming cannot release a lock inside the
-    /// storage: a session leaked while a `FileBookmark` load or store waits
-    /// behind an earlier one, whose session was cancelled, leaves every later
-    /// operation on that bookmark waiting forever. A session leaked while
-    /// serving a joining peer also pauses this replica's reclamation of old
-    /// identity space, and reclaiming the `Peer` resumes it.
-    pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
-        self.try_into_peer_inner().await
-    }
-
-    /// Run one reconciliation session with one remote peer over one connection.
-    ///
-    /// `read` and `write` are the two halves of one reliable, ordered duplex
-    /// byte stream to the peer; see the [transport
-    /// requirements](crate#transport). The session takes them by value and
-    /// returns them on success, so pass `&mut read, &mut write` to keep a
-    /// connection you hold elsewhere.
-    ///
-    /// `Ok` carries the session's [`Gossiped`]: the converged version and the
-    /// session's [`SessionStats`](crate::SessionStats). Its `led` is always
-    /// [`Led::Local`](crate::Led::Local): calling `gossip_once` is this side's
-    /// initiation, and a remote initiation already in flight merges into the
-    /// same session, exactly as racing [`gossip_stream`](Self::gossip_stream)
-    /// triggers do.
-    ///
-    /// On `Ok`, both replicas hold every message either one held when the
-    /// session began **and neither had deleted**, and the peer has confirmed
-    /// that it completed and committed the session too. The returned halves
-    /// rest exactly at the session boundary, ready to host this pair's next
-    /// session.
-    ///
-    /// The configured [`Peer::gossip_timeout`] applies to this exchange. The
-    /// initiation policy does not: this call always starts a session.
-    ///
-    /// On failure or cancellation, the connection's position is unknown:
-    /// discard it and reconnect. A later session on it gets no typed warning.
-    /// No partial reconciliation is published, but a completed local commit is
-    /// not undone: a failure in
-    /// [`Phase::Completion`](crate::error::Phase::Completion) leaves the peer's
-    /// commit unconfirmed. Accepting a retirement can also commit content
-    /// before a bookmark write fails; [`Error::Bookmark`] explains how to
-    /// recover. See [what a session promises](crate#what-a-session-promises).
-    ///
-    /// An established peer automatically serves joining peers and accepts
-    /// retirements through this same call.
-    ///
-    /// Sessions may run concurrently on separate connections, through the same
-    /// or different handles. Each publishes its reconciled content atomically.
-    /// Ownership of the halves, or the `&mut` borrow of them, prevents
-    /// overlapping sessions on one connection. A bookmarked peer also
-    /// serializes storage access; see [`Bookmark`].
-    pub async fn gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error<B>>
-    where
-        R: AsyncBufRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
-    {
-        self.peer.gossip_once(read, write).await
-    }
-
-    /// Gossip over one connection until it ends, running the
-    /// [`gossip_stream`](Self::gossip_stream) driver and discarding each
-    /// session's [`Gossiped`].
-    ///
-    /// Resolves `Ok(())` when the driver ends cleanly: the remote hangs up
-    /// between sessions, or the local policy ends, as
-    /// [`Peer::gossip_until`] arranges. Resolves with the first error
-    /// otherwise; the connection's position is then unknown, so discard it and
-    /// reconnect. Dropping this future drops the driver, so everything
-    /// [`gossip_stream`](Self::gossip_stream) documents about deadlines,
-    /// cancellation, and concurrent connections applies.
+    /// To observe details about each completed round of gossip, use
+    /// [`gossip_stream`](Rumors::gossip_stream) and iterate over its returned
+    /// stream of [`Gossiped`](crate::Gossiped) status reports.
     ///
     /// # Example
     ///
@@ -512,7 +379,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # async fn example(rumors: &rumors::Rumors<String>, connection: tokio::net::TcpStream)
     /// # -> Result<(), rumors::Error> {
     /// let (read, write) = connection.into_split();
-    /// rumors.gossip(tokio::io::BufReader::new(read), write).await
+    /// let read = tokio::io::BufReader::new(read);
+    ///
+    /// rumors.gossip(read, write).await
     /// # }
     /// ```
     pub async fn gossip<R, W>(&self, read: R, write: W) -> Result<(), Error<B>>
@@ -527,71 +396,17 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         Ok(())
     }
 
-    /// Keep one connection synchronized, yielding an outcome after each gossip
-    /// session.
+    /// Gossip over one connection until it ends, yielding a report after each
+    /// round of gossip.
     ///
-    /// `read` and `write` are the two halves of one connection, as for
-    /// [`gossip_once`](Self::gossip_once). The driver owns them for its
-    /// lifetime; to reuse the connection after the policy ends, pass
-    /// `&mut read, &mut write`.
+    /// Each successful [`Gossiped`] reports the converged [`Version`], and
+    /// various statistics about the session. **You must keep polling the
+    /// resultant stream to drive the connection.**
     ///
-    /// The driver serves remote initiations and follows the local policy
-    /// selected by [`Peer::gossip_when`]. The default policy starts
-    /// immediately, then pushes local changes. Configure
-    /// [`Peer::gossip_timeout`] to bound active sessions without timing idle
-    /// waits.
-    ///
-    /// Each successful [`Gossiped`] reports the converged version, initiation
-    /// direction, and statistics. You can discard these if you don't care about
-    /// them, but **keep polling the resultant stream to drive the connection.**
-    ///
-    /// To force one exchange regardless of the initiation policy, use
-    /// [`gossip_once`](Self::gossip_once). To drive the connection without
-    /// inspecting each session, use [`gossip`](Self::gossip).
-    ///
-    /// # Ending the driver
-    ///
-    /// - An error, including deadline expiry, yields one final `Err` and ends
-    ///   the stream. Discard the connection and reconnect.
-    /// - The local policy ending stops the driver after any active session. The
-    ///   connection rests at a session boundary and can serve another driver. A
-    ///   shared signal can end the policies across all handles; see
-    ///   [`Peer::gossip_when`]'s graceful-shutdown example. Keep polling each
-    ///   driver until it ends.
-    /// - A remote hang-up between sessions ends the stream cleanly. Reconnect
-    ///   to reach that peer again.
-    ///
-    /// However it ends, the stream stays ended: it is a [`FusedStream`]. Once a
-    /// poll has returned `None`, [`is_terminated`](FusedStream::is_terminated)
-    /// returns `true` and every later poll returns `None`. After the final
-    /// `Err`, the next poll is the one that returns `None`; until then
-    /// `is_terminated` returns `false`.
-    ///
-    /// # Deadlines and cancellation
-    ///
-    /// A configured deadline starts when the local policy initiates a session
-    /// or the first remote bytes arrive. It covers the entire exchange through
-    /// confirmation of completion, without being reset by traffic. When both
-    /// the exchange and its deadline are ready, the exchange's result takes
-    /// precedence.
-    ///
-    /// Dropping a `next()` future preserves the active session and its deadline
-    /// inside the stream. Dropping the stream cancels any active session and
-    /// leaves the connection at an unknown position: discard it. Dropping it
-    /// between completed sessions is safe. To stop cleanly regardless of
-    /// timing, end the policy stream and drain the driver.
-    ///
-    /// Failure or cancellation publishes no partial reconciliation, but does
-    /// not undo a local commit already made. In particular, expiry while
-    /// awaiting completion can leave the remote's commit unconfirmed. Accepting
-    /// a retirement can also commit content before a bookmark write fails;
-    /// [`Error::Bookmark`] explains recovery. See [what a session
-    /// promises](crate#what-a-session-promises).
-    ///
-    /// Separate connections can run concurrently through the same or different
-    /// handles. Each publishes its reconciled content atomically. A driver owns
-    /// its connection, which prevents concurrent sessions on it; [`Bookmark`]
-    /// storage access is also serialized.
+    /// To force one immediate round of gossip regardless of the configured
+    /// policies on the [`Peer`], use [`gossip_once`](Self::gossip_once). To
+    /// drive the connection without inspecting each session, use
+    /// [`gossip`](Self::gossip).
     ///
     /// # Example
     ///
@@ -603,11 +418,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// let (read, write) = connection.into_split();
     /// let read = tokio::io::BufReader::new(read);
+    ///
     /// let mut sessions = rumors.gossip_stream(read, write);
     /// while let Some(session) = sessions.next().await {
-    ///     let completed = session?;
-    ///     // Inspect `completed` or continue driving the connection.
-    ///     # let _ = completed;
+    ///     let gossiped = session?;
+    ///     // Inspect `gossiped` or continue driving the connection.
+    ///     # let _ = gossiped;
     /// }
     /// # Ok(())
     /// # }
@@ -623,5 +439,31 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         W: AsyncWrite + Unpin + Send + 'a,
     {
         self.peer.gossip_driver(read, write)
+    }
+
+    /// Run a single round of gossip with a remote peer.
+    ///
+    /// The configured [`Peer::gossip_timeout`] applies to this exchange. The
+    /// initiation policy does not: this call always starts a round of gossip,
+    /// regardless of [`Peer::gossip_when`](crate::Peer::gossip_when) and
+    /// [`Peer::gossip_until`](crate::Peer::gossip_until).
+    pub async fn gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error<B>>
+    where
+        R: AsyncBufRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        self.peer.gossip_once(read, write).await
+    }
+
+    /// Give up this [`Rumors`] handle and reclaim the [`Peer`]: resolves when
+    /// no [`Rumors`] for this set remain, handing the `Peer` to exactly one
+    /// caller of this function.
+    ///
+    /// Cancelling a pending [`try_into_peer`](Self::try_into_peer) abandons its
+    /// claim. If every handle goes away with no
+    /// [`try_into_peer`](Self::try_into_peer) pending, the `Peer` is gone for
+    /// good, and streams of messages will all end.
+    pub async fn try_into_peer(self) -> Option<Peer<T, B>> {
+        self.try_into_peer_inner().await
     }
 }

@@ -23,10 +23,7 @@ use crate::default;
 ///
 /// # Panics
 ///
-/// Serializing constructors panic if the payload's [`Serialize`] implementation
-/// fails. Every payload value must serialize, as required by the crate's
-/// payload contract. A typed read with the wrong type also panics (see
-/// [`arc`](Self::arc)).
+/// A typed read with the wrong type panics (see [`arc`](Self::arc)).
 #[derive(Clone)]
 pub struct Message {
     /// The caller's payload allocation, unsized without copying.
@@ -35,7 +32,7 @@ pub struct Message {
     serialized: Bytes,
 }
 
-/// A peer's payload nesting-depth limit, counted in the CBOR decode engine's
+/// A peer's message nesting-depth limit, counted in the CBOR decode engine's
 /// recursion steps.
 ///
 /// Selected by [`Peer::message_depth_limit`](crate::Peer::message_depth_limit)
@@ -70,7 +67,7 @@ impl MessageDepthLimit {
     }
 }
 
-/// Use the crate's default payload depth limit.
+/// Use the crate's default message depth limit.
 impl Default for MessageDepthLimit {
     /// Return the default recursion limit.
     fn default() -> Self {
@@ -78,41 +75,54 @@ impl Default for MessageDepthLimit {
     }
 }
 
-/// A message rejected by [`Rumors::send`](crate::Rumors::send) before it is
-/// stored or sent.
+/// Why [`Rumors::send`](crate::Rumors::send) rejected a message, before any
+/// replica stored or gossiped it.
+///
+/// Before accepting a message, `send` checks that every receiver will decode
+/// exactly the value you sent. It serializes the message, decodes the bytes as
+/// a receiver would, and compares the decoded value with the original; each
+/// variant names the step that failed, in that order. The batch operations
+/// ([`Batch::send`](crate::Batch::send) and the `send_all` methods) run the same
+/// checks on each message.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EncodeError {
-    /// The payload value's CBOR encoding nests deeper than the
-    /// [`Peer`](crate::Peer)'s configured
-    /// [`message_depth_limit`](crate::Peer::message_depth_limit).
-    #[error("message payload nests deeper than the configured payload depth limit ({limit} steps)")]
+    /// The message type's [`Serialize`] implementation returned an error for
+    /// this value.
+    ///
+    /// The source carries the implementation's own error. A type whose
+    /// `Serialize` fails on some values, such as
+    /// [`PathBuf`](std::path::PathBuf) on a path that is not UTF-8, returns
+    /// this for those values.
+    #[error("message failed to serialize")]
+    Serialize(#[source] io::Error),
+    /// The message's encoding nests deeper than the [`Peer`](crate::Peer)'s
+    /// configured [`message_depth_limit`](crate::Peer::message_depth_limit).
+    ///
+    /// Every peer in a gossip network decodes under the same limit, so every
+    /// receiver would reject this message.
+    #[error("message nests deeper than the configured message depth limit ({limit} steps)")]
     TooDeep {
         /// The configured
         /// [`message_depth_limit`](crate::Peer::message_depth_limit) which the
         /// message would have exceeded.
         limit: u64,
     },
-    #[error("message failed to serialize")]
-    Serialize(#[source] io::Error),
-    /// The payload type's [`Deserialize`](serde::Deserialize) implementation
-    /// rejected the output of its own [`Serialize`]
-    /// implementation.
+    /// The message type's [`Deserialize`](serde::Deserialize) implementation
+    /// rejected the output of its own [`Serialize`] implementation.
     ///
-    /// This is stopped before [`send`](crate::Rumors::send)
-    /// succeeds, because otherwise this failure would propagate to every other
-    /// node.
-    #[error("message payload does not survive its own serde round-trip")]
+    /// Every receiver decodes with the same implementation, so every receiver
+    /// would reject this message.
+    #[error("message's encoding does not decode as its own type")]
     Deserialize(#[source] io::Error),
-    /// The message round-trips to a *different value* (as measured by the
-    /// message type's `Eq`).
+    /// The message's encoding decodes to a *different value*, as the message
+    /// type's [`Eq`] judges it.
     ///
-    /// One common example of such an "unfaithful" type is an
-    /// `Option<Option<T>>` holding `Some(None)`, which decodes back to `None`.
-    /// This issue is stopped before [`send`](crate::Rumors::send) succeeds,
-    /// because otherwise the value held at this [`Peer`](crate::Peer) might
-    /// diverge from the value held at another one.
-    #[error("message payload's encoding decodes to a different value")]
+    /// For example, CBOR encodes `Some(None)` of type `Option<Option<T>>`
+    /// exactly as it encodes `None`, so that value decodes back as `None`. If
+    /// `send` accepted such a value, this replica would hold a different value
+    /// than every replica that received it.
+    #[error("message's encoding decodes to a different value")]
     Roundtrip,
 }
 
@@ -143,9 +153,7 @@ impl PayloadDecodeError {
                 let limit = limit.get();
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!(
-                        "message payload nests deeper than the payload depth limit ({limit} steps)"
-                    ),
+                    format!("message nests deeper than the message depth limit ({limit} steps)"),
                 )
             }
             PayloadDecodeError::Io(error) => error,
@@ -230,8 +238,7 @@ impl PayloadCodec {
     ///
     /// If the value is not the payload type the codec was built for: a crate
     /// bug, never an input — every caller hands in the `T` its own typed
-    /// signature names. A `Serialize` failure keeps [`Message`]'s documented
-    /// panic contract.
+    /// signature names.
     pub(crate) fn message(
         &self,
         payload: Arc<dyn Any + Send + Sync>,
@@ -239,7 +246,7 @@ impl PayloadCodec {
         (self.serialize)(payload, self.limit)
     }
 
-    /// The configured payload depth limit this codec enforces: what the
+    /// The configured message depth limit this codec enforces: what the
     /// greeting declares and the handshake holds to equality.
     pub(crate) fn limit(&self) -> MessageDepthLimit {
         self.limit

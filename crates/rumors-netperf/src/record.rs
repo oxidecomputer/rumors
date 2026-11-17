@@ -68,7 +68,7 @@ pub struct Row {
     pub target_message_size_a_bytes: Option<u64>,
     /// Side B's target message size; empty for the default.
     pub target_message_size_b_bytes: Option<u64>,
-    /// The payload depth limit; empty for the default.
+    /// The message depth limit; empty for the default.
     pub message_depth_limit: Option<u64>,
     /// The session deadline; empty for none.
     pub session_deadline_seconds: Option<f64>,

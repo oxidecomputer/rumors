@@ -8,15 +8,15 @@ use crate::{Inner, Version};
 
 /// Sent and redacted messages queued up for one atomic commit.
 ///
-/// [`Rumors::batch`](crate::Rumors::batch) gives its closure a batch to fill
-/// using [`send`](Self::send) and [`redact`](Self::redact). If the closure
-/// returns `Ok`, all queued changes are committed atomically; if it returns
-/// `Err` or panics, nothing is committed.
+/// [`Rumors::batch`](crate::Rumors::batch) takes a closure and provides it with
+/// a [`Batch`] to manipulate using [`send`](Self::send) and
+/// [`redact`](Self::redact). If the closure returns `Ok`, all queued changes
+/// are committed atomically; if it returns `Err` or panics, nothing is
+/// committed.
 ///
-/// No lock is held while the batch is built. This means that other operations
-/// may commit to the peer while the provided closure runs. As a result, two
-/// concurrently prepared batches have no guaranteed ordering relative to one
-/// another unless the application synchronizes them.
+/// Other operations may commit to the peer while the provided closure runs. As
+/// a result, two concurrently prepared batches have no guaranteed ordering
+/// relative to one another unless the application synchronizes them.
 pub struct Batch<'a, T: Send + Sync + 'static> {
     /// The replica that receives the completed batch.
     inner: &'a watch::Sender<Inner<T>>,
@@ -48,7 +48,7 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
 
     /// Queue a message for this batch.
     ///
-    /// The message is validated immediately, following the admission rules of
+    /// The message is validated immediately, following the rules of
     /// [`Rumors::send`](crate::Rumors::send). A rejected message is not queued
     /// for the batch.
     ///
@@ -57,12 +57,8 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
     /// cancel the whole batch; handling it in place allows you to continue
     /// onwards within the same batch.
     ///
-    /// [`Committed::sent`] counts the queued redactions that removed a message.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `message` fails to serialize, as with
-    /// [`Rumors::send`](crate::Rumors::send).
+    /// [`Committed::sent`] counts the number of successful sent messages in the
+    /// batch.
     pub fn send(&mut self, message: T) -> Result<(), EncodeError> {
         let message = self.codec.message(Arc::new(message))?;
         self.actions.push(Action::Insert(message));
@@ -72,8 +68,8 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
     /// Queue the redaction of the message stamped with `version` for this
     /// batch.
     ///
-    /// [`Committed::redacted`] counts the queued redactions that removed a
-    /// message.
+    /// [`Committed::redacted`] counts the number of successful redacted
+    /// messages in the batch.
     pub fn redact(&mut self, version: &Version) {
         self.actions.push(Action::Forget(version.clone()));
     }
@@ -84,11 +80,6 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
     /// On any error, earlier messages remain queued in the batch, and later
     /// messages are not drawn from the iterator. Propagating the error out of
     /// the closure cancels the whole batch.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any message fails to serialize, as with
-    /// [`Rumors::send`](crate::Rumors::send).
     pub fn send_all<I>(&mut self, messages: I) -> Result<(), EncodeError>
     where
         I: IntoIterator<Item = T>,

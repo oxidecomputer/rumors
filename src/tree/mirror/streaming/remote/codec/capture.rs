@@ -19,8 +19,8 @@
 //! reason above its exact hex. The rendering is therefore injective on wire
 //! bytes. A NaN's sign and payload bits are what the notation cannot spell,
 //! which is why every NaN is rejected; none occurs on the wire, since the
-//! protocol emits no floats and the payload contract's `Eq` bound excludes
-//! float fields (see [choosing a payload type](crate#choosing-a-payload-type));
+//! protocol emits no floats and the message type's `Eq` bound excludes
+//! float fields (see [choosing a message type](crate#choosing-a-message-type));
 //! a hand-written `Eq` admitting NaN has declared its NaNs equal. A control
 //! item's or frame's byte count is the observed item's length, and a logical
 //! stream's is the sum of its frames'; the totality witness
@@ -73,7 +73,7 @@ use super::{Speaker, Stream, signal::WireSignal};
 /// structure a snapshot spells out. It also bounds the canonical walk's
 /// recursion and the printer's (see the module's depth section). At 256 it
 /// sits far above the committed snapshots' items, which nest a handful of
-/// levels; a payload nested near the payload depth limit can exceed it, and
+/// levels; a payload nested near the message depth limit can exceed it, and
 /// renders as hex.
 const DEPTH_LIMIT: usize = 256;
 

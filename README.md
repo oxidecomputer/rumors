@@ -139,16 +139,16 @@ spawn(async move {
     serve.gossip_once(alice_read, alice_write).await.unwrap();
 });
 
-// Now, Bob joins the gossip network by *bootstrapping* from Alice.
+// Now, Bob joins the gossip network by *joining* Alice.
 let rumors::Join::Connected { peer: bob, .. } =
     Peer::<String>::joining().join(bob_read, bob_write).await
 else {
-    panic!("Alice must allow Bob to bootstrap");
+    panic!("Alice must allow Bob to join");
 };
 
 // This gives Bob a `Peer`, which he converts into a `Rumors`, just like Alice
 // did when she seeded the initial network. But now Bob's rumor set is linked
-// to Alice's, because he bootstrapped from her.
+// to Alice's, because he joined from her.
 let bob = bob.into_rumors();
 
 // Now, Bob immediately has the message Alice sent before they ever met.
@@ -208,25 +208,27 @@ Your application's messages are serialized internally as [CBOR (RFC
 internal detail, since your application only needs to handle your own typed
 messages through the `rumors` API.
 
-That said, you must additionally ensure the following, which Rust
-can't check:
+That said, Rust's type system can't check the following properties, so
+`send` checks each one at runtime and returns an
+`EncodeError` for a value that violates it. A rejected
+value is never stored or gossiped, so a violation fails at your call to
+`send` rather than at another replica.
 
-- **Serialization must succeed on every value you send.** An error during
-  `Serialize` should be considered a bug in the payload type, and
-  `send` will panic if such an error occurs. Avoid all types
-  whose `Serialize` is fallible (for example `std::path::PathBuf`, which
-  errors on non-UTF-8 paths).
-- **Serialization must round-trip on every value.** Each invocation of
-  `send` deserializes the serialized message immediately,
-  before sending it, and compares it to the original message using `Eq`. A
-  lossy serializer (for example `Some(None)` in a nested `Option`, which
-  decodes as `None`) returns an `EncodeError`, failing
-  at `send`-time, rather than causing replicas to diverge
-  upon gossip.
-- **Nesting depth must be bounded.** Deserializing a message may recur at
-  most `Peer::message_depth_limit` steps (256 by default). An over-deep
-  value is rejected at `send`-time, rather than risking a
-  peer overflowing its stack upon receipt.
+- **Every value you send must serialize.** Prefer types whose `Serialize`
+  cannot fail: `std::path::PathBuf`, for example, fails on paths that are
+  not UTF-8, and `send` rejects such a path with
+  `EncodeError::Serialize`.
+- **Every value must decode back to itself.** `send` decodes each value's
+  encoding and compares the result with the original using `Eq`. An
+  encoding that fails to decode is rejected with
+  `EncodeError::Deserialize`, and a lossy
+  one (for example `Some(None)` in a nested `Option`, which decodes as
+  `None`) with `EncodeError::Roundtrip`,
+  rather than leaving replicas holding different values.
+- **Nesting depth must be bounded.** Decoding a message may recur at most
+  `Peer::message_depth_limit` steps (256 by default). `send` rejects an
+  over-deep value with `EncodeError::TooDeep`,
+  rather than letting it overflow a receiver's stack.
 
 Because CBOR carries field and variant *names*, reordering `struct` fields
 or `enum` variants does not break compatibility with prior versions of your

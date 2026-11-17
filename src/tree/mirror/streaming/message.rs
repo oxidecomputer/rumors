@@ -97,7 +97,7 @@ pub struct Greeting {
     /// the frames built for it, so the more memory-constrained end sets the
     /// pace.
     pub target_message_size: u64,
-    /// The sender's configured payload nesting-depth limit
+    /// The sender's configured message nesting-depth limit
     /// ([`Peer::message_depth_limit`](crate::Peer::message_depth_limit)), in
     /// decode recursion steps.
     ///

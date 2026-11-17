@@ -30,7 +30,7 @@ pub struct Joining<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The session settings used during the join and inherited whole by the
     /// joined peer.
     pub(crate) settings: SessionSettings<T>,
-    /// Payload nesting limit used during and after the join.
+    /// Message nesting limit used during and after the join.
     pub(crate) message_depth_limit: MessageDepthLimit,
     /// Storage owned by this attempt, returned if no peer arrives.
     bookmark: B,
@@ -242,50 +242,52 @@ impl<T: Send + Sync + 'static, B: Bookmark> Joining<T, B> {
 /// The outcome of [`Peer::join`] and [`Joining::join`].
 #[must_use = "a `Join` contains a peer or a builder needed for retry"]
 pub enum Join<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
-    /// This side joined the network, and any selected bookmark was attached and
+    /// The peer joined the network, and any selected bookmark was attached and
     /// persisted.
     Connected {
-        /// The new peer, carrying the selected configuration and storage.
+        /// The newly joined peer, carrying the selected configuration and
+        /// storage.
         peer: Peer<T, B>,
-        /// Whether the connection can carry another session.
+        /// Whether the connection can be reused to carry another session.
         connection: Connection<R, W>,
     },
-    /// This side joined the network, but attaching the selected bookmark
-    /// failed.
+    /// The peer joined the network, but attaching the selected bookmark failed.
     ///
     /// The returned peer is connected, but unbookmarked; retry its bookmark
     /// attachment.
     Unbookmarked {
-        /// The joined peer and the attachment's failure.
+        /// The joined peer, paired with the bookmark failure.
         unbookmarked: Unbookmarked<T, B>,
-        /// Whether the connection can carry another session.
+        /// Whether the connection can be reused to carry another session.
         connection: Connection<R, W>,
     },
     /// Both endpoints were attempting to join each other, so neither could
     /// provide a gossip network to the other.
     Bounced {
-        /// The complete builder, ready to try another provider.
+        /// The complete builder, ready to retry joining (probably from a
+        /// different peer).
         joining: Joining<T, B>,
-        /// The connection's read half, ready for another session.
+        /// The connection's read half, which could be used for another session.
         read: R,
-        /// The connection's write half, ready for another session.
+        /// The connection's write half, which could be used for another
+        /// session.
         write: W,
     },
     /// The session failed.
     ///
     /// Discard the connection and try again.
     Failed {
-        /// The session error.
+        /// The error which failed the session.
         error: Error,
-        /// The complete builder, ready to retry on another connection.
+        /// The complete builder, ready to retry joining on a fresh connection.
         joining: Joining<T, B>,
     },
 }
 
-/// Format join outcomes without requiring debuggable payload, bookmark, or
-/// transport types.
+/// Format the outcome of attempting to join a network without requiring
+/// debuggable message, bookmark, or transport types.
 impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Join<T, R, W, B> {
-    /// Formats the outcome and the peer or retry state it carries.
+    /// Formats the outcome and the peer/state it carries.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Connected { peer, connection } => f

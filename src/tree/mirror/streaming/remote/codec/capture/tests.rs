@@ -323,7 +323,7 @@ fn deep_embedded_chain_falls_back_explicitly() {
 /// The same nesting arriving as a supply record's payload (a captured frame
 /// rendered whole) falls back the same way.
 ///
-/// The payload depth limit bounds a payload's decode recursion, which never
+/// The message depth limit bounds a payload's decode recursion, which never
 /// enters embedded byte strings, so an admitted payload can carry embedded
 /// items nested arbitrarily; the frame walk must return, never overflow.
 #[test]

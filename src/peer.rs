@@ -200,7 +200,7 @@ impl SessionSizing {
 /// The settings a peer's sessions run under, which a [`Joining`] builder
 /// selects and the peer it joins inherits whole.
 ///
-/// The payload nesting limit is not among them: a peer holds it inside its
+/// The message nesting limit is not among them: a peer holds it inside its
 /// payload codec, which only a peer's construction can build, while a builder
 /// holds the limit alone.
 pub(crate) struct SessionSettings<T: Send + Sync + 'static> {
@@ -1045,7 +1045,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Bound the depth of the messages this peer sends and accepts.
     ///
     /// A message value is accepted only if decoding its CBOR encoding as the
-    /// peer's payload type recurs at most `limit` steps. The meaning of such a
+    /// peer's message type recurs at most `limit` steps. The meaning of such a
     /// "recursion step" is internal to `rumors`, but is guaranteed to remain
     /// stable within a single wire protocol.
     ///
@@ -1070,7 +1070,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// **This setting must be *exactly the same* for all peers in the gossip
     /// network.** Peers will refuse to gossip with one another if they are
-    /// configured with different payload depth limits, *even if they have
+    /// configured with different message depth limits, *even if they have
     /// ostensibly compatible sets of messages.*
     ///
     /// </div>

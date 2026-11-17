@@ -31,11 +31,11 @@ pub enum Error<E> {
     /// The peer's greeting listing violated canonical ascending radix order.
     #[error("peer greeting carried a non-canonical root-fan listing")]
     GreetingListing(#[source] codec::QueryOrderError),
-    /// The peer's configured payload depth limit differs from ours.
+    /// The peer's configured message depth limit differs from ours.
     ///
     /// Detected symmetrically, after the greetings and before anything else, so
     /// a mixed fleet is caught even on a converged session.
-    #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
+    #[error("peer's message depth limit ({remote} steps) differs from ours ({local} steps)")]
     MessageDepthMismatch {
         /// This side's configured limit.
         local: u64,

@@ -55,7 +55,7 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// Persistent bookkeeping to limit the growth of message
 /// [`Version`]s.
 ///
-/// Every [`Peer`](crate::Peer) created by [`joining`](Peer::joining) another
+/// Every [`Peer`](crate::Peer) created by [`joining`](crate::Peer::joining) another
 /// obtains a unique donated fragment of the other peer's "identity space",
 /// which it then can use to stamp its own messages with [`Version`]s. When that
 /// peer finally [`retire`](crate::Peer::retire)s into another peer, this unique

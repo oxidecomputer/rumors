@@ -172,7 +172,7 @@ pub struct Outcome {
     /// The live messages this side holds after the session.
     pub live_after: u64,
     /// The memory budget this side's peer runs its sessions at, as reported in
-    /// [`PeerSettings`](rumors::PeerSettings).
+    /// [`Settings`](rumors::Settings).
     pub effective_budget: u64,
     /// Why the session failed, if it did.
     pub error: Option<String>,

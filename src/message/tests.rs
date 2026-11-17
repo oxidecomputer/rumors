@@ -172,8 +172,9 @@ fn mismatched_downcast_panics() {
     let _ = m.arc::<String>();
 }
 
-/// Pure CBOR array nesting from a type satisfying the payload contract: each
-/// layer serializes as a one-element array, the innermost empty.
+/// Pure CBOR array nesting from a type meeting every message type
+/// requirement: each layer serializes as a one-element array, the innermost
+/// empty.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Arr(Vec<Arr>);
 
@@ -287,9 +288,11 @@ impl Serialize for Unserializable {
 }
 
 /// A value whose `Serialize` fails is the typed `EncodeError::Serialize` at the
-/// author, not a panic, and the error's source carries exactly the message the
-/// `Serialize` implementation gave, not ciborium's `Debug`-style rendering of
-/// its own error.
+/// author, not a panic.
+///
+/// The error's source carries exactly the message the `Serialize`
+/// implementation gave, not ciborium's `Debug`-style rendering of its own
+/// error.
 #[test]
 fn a_value_that_cannot_serialize_fails_admission() {
     let codec = PayloadCodec::new::<Unserializable>(MessageDepthLimit::default());

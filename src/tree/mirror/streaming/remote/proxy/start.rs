@@ -285,7 +285,7 @@ where
     }
 }
 
-/// Require the peer's declared payload depth limit to equal ours.
+/// Require the peer's declared message depth limit to equal ours.
 ///
 /// The limit is a property of the shared set — every replica must be able to
 /// hold and forward all content — so it is exchanged for equality, never

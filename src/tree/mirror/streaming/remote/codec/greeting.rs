@@ -98,7 +98,7 @@ pub enum GreetingField {
     Grandchildren,
     /// The sender's largest version encoding.
     MaxVersionBytes,
-    /// The sender's payload nesting limit.
+    /// The sender's message nesting limit.
     MessageDepthLimit,
     /// The sender's supply-run byte target.
     TargetMessageSize,

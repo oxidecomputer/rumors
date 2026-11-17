@@ -74,7 +74,7 @@
 //! redrawn rather than clamped, and the results count them.
 //!
 //! Every setting `Peer` offers that can change a session is a parameter too:
-//! each side's memory budget and target message size, the payload depth limit,
+//! each side's memory budget and target message size, the message depth limit,
 //! and a session deadline. So is the transport: by default TLS 1.3 over TCP, as
 //! deployments run it, and plain TCP with `tls = off`, each set up as the
 //! library advises. Every session's row records the values it ran with, and

@@ -240,7 +240,7 @@ impl PointSummary {
 /// target to that minimum, which is [`minimum_budget`] at the default target.
 /// It doesn't publish the minimum at other targets, so the report reads
 /// the raised budget the library reports
-/// ([`PeerSettings`](rumors::PeerSettings)) rather than
+/// ([`Settings`](rumors::Settings)) rather than
 /// recomputing it.
 fn effective_budget(requested: Option<u64>, reported: Option<u64>) -> u64 {
     reported.unwrap_or_else(|| requested.unwrap_or(default::SYNC_MEMORY_BUDGET as u64))

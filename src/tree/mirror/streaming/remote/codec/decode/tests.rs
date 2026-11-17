@@ -1501,7 +1501,7 @@ fn over_budget_lone_record_read_stays_within_its_frame() {
     }
 }
 
-/// Record iteration enforces the payload depth limit: exactly the limit
+/// Record iteration enforces the message depth limit: exactly the limit
 /// decodes, while one level deeper returns a payload error. Frame decoding
 /// accepts the record's structure before its content is examined.
 #[test]

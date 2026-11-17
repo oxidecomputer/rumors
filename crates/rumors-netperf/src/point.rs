@@ -117,7 +117,7 @@ pub const UNLIMITED_BUDGET: u64 = u64::MAX;
 /// target, to which it raises any smaller request.
 ///
 /// The crate publishes the minimum only as the budget a peer reports
-/// ([`PeerSettings`](rumors::PeerSettings)), so this
+/// ([`Settings`](rumors::Settings)), so this
 /// reads it, once, from a peer that requests a budget of zero.
 pub fn minimum_budget() -> u64 {
     static MINIMUM: LazyLock<u64> = LazyLock::new(|| {
@@ -154,7 +154,7 @@ pub struct SideSettings {
 
 /// Every setting `Peer` offers that can change a session, for both sides.
 ///
-/// The payload depth limit and the session deadline apply to both sides: the
+/// The message depth limit and the session deadline apply to both sides: the
 /// library requires the depth limit to agree across a network, and the deadline
 /// is a property of the measurement, not of one side.
 /// [`Peer::bookmark_size_limit`](rumors::Peer::bookmark_size_limit) is not here

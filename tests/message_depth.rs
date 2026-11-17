@@ -23,8 +23,9 @@ use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
 
-/// Pure CBOR array nesting from a type satisfying the payload contract: each
-/// layer serializes as a one-element array, the innermost empty.
+/// Pure CBOR array nesting from a type meeting every message type
+/// requirement: each layer serializes as a one-element array, the innermost
+/// empty.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Arr(Vec<Arr>);
 
@@ -286,7 +287,7 @@ impl rumors::observe::SessionObserver for ShapeSession {
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// Peers with different payload depth limits abort on both sides with
+    /// Peers with different message depth limits abort on both sides with
     /// the typed mismatch, each error naming both limits from its own
     /// vantage.
     ///

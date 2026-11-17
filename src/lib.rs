@@ -208,25 +208,28 @@
 //! internal detail, since your application only needs to handle your own typed
 //! messages through the `rumors` API.
 //!
-//! That said, you must additionally ensure the following, which Rust
-//! can't check:
+//! That said, Rust's type system can't check the following properties, so
+//! [`send`](Rumors::send) checks each one at runtime and returns an
+//! [`EncodeError`](error::EncodeError) for any message that violates it. A
+//! rejected message is never stored or gossiped, so that violations fail early
+//! at the time of [`send`](Rumors::send) rather than too-late upon arrival at
+//! another peer.
 //!
-//! - **Serialization must succeed on every value you send.** An error during
-//!   `Serialize` should be considered a bug in the payload type, and
-//!   [`send`](Rumors::send) will panic if such an error occurs. Avoid all types
-//!   whose `Serialize` is fallible (for example [`std::path::PathBuf`], which
-//!   errors on non-UTF-8 paths).
-//! - **Serialization must round-trip on every value.** Each invocation of
-//!   [`send`](Rumors::send) deserializes the serialized message immediately,
-//!   before sending it, and compares it to the original message using `Eq`. A
-//!   lossy serializer (for example `Some(None)` in a nested `Option`, which
-//!   decodes as `None`) returns an [`EncodeError`](error::EncodeError), failing
-//!   at [`send`](Rumors::send)-time, rather than causing replicas to diverge
-//!   upon gossip.
-//! - **Nesting depth must be bounded.** Deserializing a message may recur at
-//!   most [`Peer::message_depth_limit`] steps (256 by default). An over-deep
-//!   value is rejected at [`send`](Rumors::send)-time, rather than risking a
-//!   peer overflowing its stack upon receipt.
+//! - **Every message must serialize.** Prefer types whose `Serialize`
+//!   cannot fail. [`std::path::PathBuf`], for example, fails on paths that are
+//!   not UTF-8, and [`send`](Rumors::send) would reject such a path with
+//!   [`EncodeError::Serialize`](error::EncodeError::Serialize).
+//! - **Every message must successfully deserialize back to itself.**
+//!   [`send`](Rumors::send) checks that the deserialization of the serialization
+//!   of each message is equal to the original message, according to its own `Eq`
+//!   implementation. If not, it returns
+//!   [`EncodeError::Deserialize`](error::EncodeError::Deserialize) or
+//!   [`EncodeError::Roundtrip`](error::EncodeError::Roundtrip).
+//! - **Nesting depth must be bounded.** Decoding a message may recur at most
+//!   [`Peer::message_depth_limit`] steps (256 by default). [`send`](Rumors::send)
+//!   rejects an over-deep value with
+//!   [`EncodeError::TooDeep`](error::EncodeError::TooDeep),
+//!   rather than letting it (potentially) overflow the recipient's stack.
 //!
 //! Because CBOR carries field and variant *names*, reordering `struct` fields
 //! or `enum` variants does not break compatibility with prior versions of your

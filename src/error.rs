@@ -78,17 +78,17 @@ pub enum Mismatch {
         remote_min_events: Count,
     },
 
-    /// The peers have different configured payload depth limits, and are thus
+    /// The peers have different configured message depth limits, and are thus
     /// incompatible.
     ///
     /// Align [`Peer::message_depth_limit`](crate::Peer::message_depth_limit)
     /// across all peers in the gossip network, then reconnect.
-    #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
+    #[error("peer's message depth limit ({remote} steps) differs from ours ({local} steps)")]
     #[non_exhaustive]
     MessageDepth {
-        /// The local peer's configured payload depth limit.
+        /// The local peer's configured message depth limit.
         local: u64,
-        /// The remote peer's advertised payload depth limit.
+        /// The remote peer's advertised message depth limit.
         remote: u64,
     },
 }

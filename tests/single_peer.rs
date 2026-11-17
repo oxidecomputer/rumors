@@ -304,12 +304,11 @@ divided_proptest! {
         );
     }
 
-    /// [`Rumors::send_all`](rumors::Rumors::send_all) is one all-or-nothing
-    /// commit when a message fails to serialize: wherever the failing message
-    /// sits in the iterator, it is the returned
-    /// [`EncodeError::Serialize`](rumors::error::EncodeError::Serialize), and
-    /// nothing lands.
+    /// [`Rumors::send_all`](rumors::Rumors::send_all) commits nothing when a
+    /// message fails to serialize.
     ///
+    /// Wherever the failing message sits in the iterator, it is the returned
+    /// [`EncodeError::Serialize`](rumors::error::EncodeError::Serialize).
     /// The messages admitted before the failing one are cancelled with it,
     /// and admission stops at the failing message rather than draining the
     /// iterator.
@@ -375,9 +374,9 @@ divided_proptest! {
     }
 }
 
-/// Pure CBOR array nesting from a type satisfying the payload contract: each
-/// layer is a one-element array, the innermost empty. `nested(n)` is `n` layers
-/// deep.
+/// Pure CBOR array nesting from a type meeting every message type
+/// requirement: each layer is a one-element array, the innermost empty.
+/// `nested(n)` is `n` layers deep.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Arr(Vec<Arr>);
 
