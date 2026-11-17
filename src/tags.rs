@@ -2,10 +2,10 @@
 //!
 //! The wire protocol and stored bookmark format represent the crate's internal
 //! [`Version`](crate::Version)s, [`Party`](before::Party)s, and
-//! [`Clock`](before::Clock)s as CBOR byte strings wrapping their canonical
-//! byte-level encodings. Each such byte string is serialized using the tags
-//! defined herein, so the atom's type can be inspected by a generic CBOR tool
-//! using nothing but this table.
+//! [`Clock`](before::Clock)s as CBOR byte strings wrapping their encodings.
+//! Each such byte string is tagged using this module's tag numbers, so any
+//! generic CBOR tool can merely refer to this table to understand the full
+//! structure of the protocol.
 //!
 //! - **These tags are internal protocol encoding, written and read only by the
 //!   transport and bookmark codecs.** The [`serde`] implementations of the
@@ -16,7 +16,7 @@
 //!   §9.2](https://www.rfc-editor.org/info/rfc8949/#section-9.2)) and based at
 //!   `0xD255`, i.e. the ASCII bytes `RU` (for **`ru`**`mors`), with the range's
 //!   high bit set. Should future IANA registration assign a different block,
-//!   the constants here would move in a versioned format change.
+//!   these constants will be altered in a breaking change to this crate.
 
 ///   Tags a byte string holding a [`Party`](before::Party)'s encoding.
 pub const PARTY_TAG: u64 = 0xD255;

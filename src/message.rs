@@ -78,12 +78,11 @@ impl Default for MessageDepthLimit {
 /// Why [`Rumors::send`](crate::Rumors::send) rejected a message, before any
 /// replica stored or gossiped it.
 ///
-/// Before accepting a message, `send` checks that every receiver will decode
-/// exactly the value you sent. It serializes the message, decodes the bytes as
-/// a receiver would, and compares the decoded value with the original; each
-/// variant names the step that failed, in that order. The batch operations
-/// ([`Batch::send`](crate::Batch::send) and the `send_all` methods) run the same
-/// checks on each message.
+/// Before accepting a message, `send` checks that every receiver would decode
+/// exactly the message sent. It serializes the message, deserializes it back
+/// again, and compares the decoded value with the original. The batch
+/// operations ([`Batch::send`](crate::Batch::send) and the `send_all` methods)
+/// run the same checks on each message.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EncodeError {
