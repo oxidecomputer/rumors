@@ -2,32 +2,33 @@
 
 <!-- cargo-rdme start -->
 
-Lightspeed causal gossip.
+Lightspeed causal gossip with implicit redaction.
 
 `rumors` is a protocol for replicating a set of causally versioned messages
 within a fleet of peers, requiring no central coordination. A group of peers
 which gossip amongst themselves will eventually converge on the same set of
 messages; `rumors` works hard to turn *"eventually"* into *"ASAP"*.
 
-Each peer in a gossip network acts as a full replica storing every message;
-each may make arbitrary changes to it locally (by inserting *or* removing
-messages); and each reconciles its messages pairwise with whichever peer(s)
-it can reach. When a message is removed, its absence propagates through
-gossip alongside newly inserted messages, leaving no trace. For this reason,
-we call removing a message *redacting* it. Because redacted messages occupy
-no storage, this mechanism can be used to perform garbage collection of old
-messages without strong consensus.
+Each peer in a gossip network acts as a full replica storing every message,
+and each may make arbitrary changes to it locally (by inserting *or*
+removing messages). When any peer removes a message, its absence propagates
+implicitly to other peers through gossip, leaving no standing record
+anywhere of its former presence. For this reason, we call removing a message
+*redacting* it. Because redacted messages occupy no further storage (in
+contrast to other approaches which require tombstone values to mark
+deletions), this mechanism can be used to perform garbage collection of
+unnecessary messages with no need for global consensus.
 
 The `rumors` crate is a *building block* for constructing eventually
 consistent applications, especially those which can be expressed in terms of
-a state machine driven by a causally ordered stream of messages. You, the
-application developer, bring your own wire transport, your own async
-executor, your own mechanism to discover and connect peers --- and of
-course, your own application logic. But, if you can discover peers and
-connect with them over an (*authenticated!*)
+a state machine driven by a causally ordered stream of messages. If you can
+discover peers and connect with them over an (*authenticated*)
 `AsyncBufRead`/`AsyncWrite`,
 `rumors` can do the rest to provide *very fast* synchronization for your
-application's messages.
+application's messages, and by the same token, its state.
+
+Read on to learn more, or **jump into the tutorial to get
+hands-on by building a replicated KV store with `rumors`**.
 
 ## When *should* you use it?
 
@@ -60,8 +61,8 @@ means:
 - **Memory stays bounded by a budget you can set.** In order to pipeline
   messages during gossip, peers store some information about messages in
   flight in memory. However, *you* can control the budget for the maximum
-  permissible amount of memory to spend on such pipelining
-  (`Peer::sync_memory_budget`). Most gossip sessions will be unaffected by
+  permissible amount of memory to spend on such pipelining by tuning
+  `Peer::sync_memory_budget`. Most gossip sessions will be unaffected by
   even the minimum budget, but reconciliations between widely divergent
   peers will exert backpressure internally to make sure they don't balloon
   beyond your budget.
@@ -103,24 +104,25 @@ different machines. Outside of Example Land, there are much more efficient
 ways than `rumors` to synchronize state within a single process on one
 machine; `rumors` shines for gossip between truly distinct peers.
 ```rust
-use rumors::Peer;
+use rumors::{Join, Peer};
 use tokio::spawn;
 use tokio::io::{BufReader, duplex, split};
 
-// Gossip requires one duplex connection between the two peers.
+// Gossip requires one connection between the two peers.
 // Here we create an in-memory pipe, for simplicity.
-let (near, far) = duplex(64 * 1024);
+let (alice_end, bob_end) = duplex(64 * 1024);
 
 // To gossip, each peer needs to supply an `AsyncBufRead` and an `AsyncWrite`.
-// Here, we do this by splitting the duplex channel into its halves.
-let (alice_read, alice_write) = split(far);
+// Here, we do this by splitting each end of the duplex channel into its halves.
+let (alice_read, alice_write) = split(alice_end);
 let alice_read = BufReader::new(alice_read);
-let (bob_read, bob_write) = split(near);
+
+let (bob_read, bob_write) = split(bob_end);
 let bob_read = BufReader::new(bob_read);
 
 // Alice creates a new gossip network using `Peer::seed()`.
-// For simplicity, we use `String` as the message type; in a real application,
-// you would likely use an application-specific message type.
+// For simplicity, we use `String` as the message type.
+// In a real application, you'd likely use an application-specific message.
 let alice: Peer<String> = Peer::seed();
 
 // At this point, she could configure the peer further, but in this example,
@@ -140,9 +142,7 @@ spawn(async move {
 });
 
 // Now, Bob joins the gossip network by *joining* Alice.
-let rumors::Join::Connected { peer: bob, .. } =
-    Peer::<String>::joining().join(bob_read, bob_write).await
-else {
+let Join::Connected { peer: bob, .. } = Peer::<String>::join(bob_read, bob_write).await else {
     panic!("Alice must allow Bob to join");
 };
 
@@ -191,7 +191,7 @@ All of the above observe the *set of messages*. For instrumenting the *wire
 protocol itself*, attach a handler from the `observe` module via
 `Peer::observe`.
 
-## Choosing a message type
+## What types can be messages?
 
 Messages sent via `rumors` need to be:
 
@@ -238,7 +238,7 @@ It's worth designing around this from the get-go: consider an outer `enum`
 indicating the version of your application-level message type, even if it
 starts out only having one variant like `V1`.
 
-## Transport between peers
+## How should peers talk to one another?
 
 The `rumors` protocol does not specify a particular transport between peers;
 that's up to your application.

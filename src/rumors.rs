@@ -370,7 +370,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// To observe details about each completed round of gossip, use
     /// [`gossip_stream`](Rumors::gossip_stream) and iterate over its returned
-    /// stream of [`Gossiped`](crate::Gossiped) status reports.
+    /// stream of [`Gossiped`] status reports.
     ///
     /// # Example
     ///
