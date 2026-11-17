@@ -5,4 +5,4 @@ use nutype::nutype;
     validate(not_empty),
     derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, TryFrom, Into, Serialize, Deserialize)
 )]
-pub(crate) struct Key(String);
+pub struct Key(String);

@@ -10,7 +10,7 @@ use crate::table::{Key, Update, Value};
 
 use super::update::update;
 
-pub(super) async fn set(
+pub async fn set(
     State(node): State<Arc<Node>>,
     Form(pairs): Form<BTreeMap<Key, Value>>,
 ) -> Result<StatusCode, (StatusCode, String)> {

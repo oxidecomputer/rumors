@@ -1,12 +1,12 @@
 use rumors::error::Mismatch;
 use rumors::{Count, FileBookmark, TokioBlocking};
 
-pub(super) enum GiveWay {
+pub enum GiveWay {
     Us,
     Them,
 }
 
-pub(super) fn give_way(error: &rumors::Error<FileBookmark<TokioBlocking>>) -> Option<GiveWay> {
+pub fn give_way(error: &rumors::Error<FileBookmark<TokioBlocking>>) -> Option<GiveWay> {
     let rumors::Error::Mismatch(Mismatch::Network {
         local_network,
         local_min_events,

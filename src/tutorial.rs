@@ -5,7 +5,7 @@
 //! application: a replicated key-value store using `rumors` to synchronize
 //! state between its nodes.
 //!
-//! **We will do this in only
+//! **We will do this in exactly
 #![doc = include_str!(concat!(env!("OUT_DIR"), "/tutorial/kv/lines.txt"))]
 //! lines of code.** Despite this brevity, our application will feature:
 //!
@@ -13,7 +13,7 @@
 //! - a RESTful HTTP API
 //! - graceful shutdown
 //! - error handling
-//! - logging
+//! - tracing
 //! - ...and more!
 //!
 //! The intent of this tutorial is to present this application *as you might
@@ -252,7 +252,7 @@
 //!# A command-line interface for the node
 //!
 #![doc = tutorial!("cli")]
-//!# Logging
+//!# Configuring `tracing`
 //!
 #![doc = tutorial!("log_to_stderr")]
 //!# And finally... `main()`

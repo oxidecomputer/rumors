@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use crate::node::Node;
 use crate::table::{Key, Value};
 
-pub(super) async fn read(
+pub async fn read(
     State(node): State<Arc<Node>>,
     extract::Path(key): extract::Path<Key>,
 ) -> Result<String, StatusCode> {

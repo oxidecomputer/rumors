@@ -9,10 +9,10 @@ use tracing::info;
 
 use super::Credentials;
 
-pub(super) const CREDENTIALS_FILE: &str = "credentials.pem";
+pub const CREDENTIALS_FILE: &str = "credentials.pem";
 
 impl Credentials {
-    pub(super) fn store(&self, dir: &Path) -> Result<()> {
+    pub fn store(&self, dir: &Path) -> Result<()> {
         let pem = pem::encode_many(&[
             Pem::new("CERTIFICATE", self.cert.to_vec()),
             Pem::new("PRIVATE KEY", self.key.secret_der()),

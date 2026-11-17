@@ -11,25 +11,25 @@ use crate::tls::DEFAULT_GOSSIP_PORT;
 const DEFAULT_HTTP_PORT: u16 = 8000;
 
 #[derive(Parser)]
-pub(crate) struct Cli {
+pub struct Cli {
     #[arg(long, default_value = "kv-credentials")]
-    pub(crate) credentials: PathBuf,
+    pub credentials: PathBuf,
     #[arg(long = "bookmarks", default_value = "kv-bookmarks")]
-    pub(crate) bookmarks_dir: PathBuf,
+    pub bookmarks_dir: PathBuf,
     #[arg(
         long,
         value_parser = parse_gossip,
         default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, DEFAULT_GOSSIP_PORT)),
     )]
-    pub(crate) gossip: SocketAddr,
+    pub gossip: SocketAddr,
     #[arg(
         long,
         value_parser = parse_http,
         default_value_t = SocketAddr::from((Ipv4Addr::LOCALHOST, DEFAULT_HTTP_PORT)),
     )]
-    pub(crate) http: SocketAddr,
+    pub http: SocketAddr,
     #[arg(long = "peer", value_parser = parse_peer)]
-    pub(crate) peers: Vec<Authority>,
+    pub peers: Vec<Authority>,
 }
 
 fn with_host(address: &str, host: impl Display) -> String {

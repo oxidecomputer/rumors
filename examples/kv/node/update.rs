@@ -10,7 +10,7 @@ use super::Node;
 const REJOIN_WAIT: Duration = Duration::from_secs(5);
 
 impl Node {
-    pub(crate) async fn update(&self, updates: &[Update]) -> Result<()> {
+    pub async fn update(&self, updates: &[Update]) -> Result<()> {
         if timeout(REJOIN_WAIT, self.wait_for_replica()).await.is_err() {
             self.seed().await?;
         }

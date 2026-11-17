@@ -7,6 +7,6 @@ use axum::extract::State;
 use crate::node::Node;
 use crate::table::{Key, Value};
 
-pub(super) async fn list(State(node): State<Arc<Node>>) -> Json<BTreeMap<Key, Value>> {
+pub async fn list(State(node): State<Arc<Node>>) -> Json<BTreeMap<Key, Value>> {
     Json(node.entries())
 }

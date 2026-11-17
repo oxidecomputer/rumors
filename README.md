@@ -210,25 +210,26 @@ messages through the `rumors` API.
 
 That said, Rust's type system can't check the following properties, so
 `send` checks each one at runtime and returns an
-`EncodeError` for a value that violates it. A rejected
-value is never stored or gossiped, so a violation fails at your call to
-`send` rather than at another replica.
+`EncodeError` for any message that violates it. A
+rejected message is never stored or gossiped, so that violations fail early
+at the time of `send` rather than too-late upon arrival at
+another peer.
 
-- **Every value you send must serialize.** Prefer types whose `Serialize`
-  cannot fail: `std::path::PathBuf`, for example, fails on paths that are
-  not UTF-8, and `send` rejects such a path with
+- **Every message must serialize.** Prefer types whose `Serialize`
+  cannot fail. `std::path::PathBuf`, for example, fails on paths that are
+  not UTF-8, and `send` would reject such a path with
   `EncodeError::Serialize`.
-- **Every value must decode back to itself.** `send` decodes each value's
-  encoding and compares the result with the original using `Eq`. An
-  encoding that fails to decode is rejected with
-  `EncodeError::Deserialize`, and a lossy
-  one (for example `Some(None)` in a nested `Option`, which decodes as
-  `None`) with `EncodeError::Roundtrip`,
-  rather than leaving replicas holding different values.
+- **Every message must successfully deserialize back to itself.**
+  `send` checks that the deserialization of the serialization
+  of each message is equal to the original message, according to its own `Eq`
+  implementation. If not, it returns
+  `EncodeError::Deserialize` or
+  `EncodeError::Roundtrip`.
 - **Nesting depth must be bounded.** Decoding a message may recur at most
-  `Peer::message_depth_limit` steps (256 by default). `send` rejects an
-  over-deep value with `EncodeError::TooDeep`,
-  rather than letting it overflow a receiver's stack.
+  `Peer::message_depth_limit` steps (256 by default). `send`
+  rejects an over-deep value with
+  `EncodeError::TooDeep`,
+  rather than letting it (potentially) overflow the recipient's stack.
 
 Because CBOR carries field and variant *names*, reordering `struct` fields
 or `enum` variants does not break compatibility with prior versions of your

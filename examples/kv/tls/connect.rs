@@ -11,12 +11,12 @@ use crate::credentials::NETWORK_NAME;
 
 use super::Tls;
 
-pub(crate) const DEFAULT_GOSSIP_PORT: u16 = 9000;
+pub const DEFAULT_GOSSIP_PORT: u16 = 9000;
 
-pub(super) const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
+pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(10);
 
 impl Tls {
-    pub(crate) async fn connect(
+    pub async fn connect(
         &self,
         address: &Authority,
     ) -> Result<(

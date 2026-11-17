@@ -3,7 +3,7 @@ use tokio::io::AsyncWriteExt;
 use super::Node;
 
 impl Node {
-    pub(super) async fn retire(&self) {
+    pub async fn retire(&self) {
         let replica = self.current.lock().await.send_replace(None);
         if let Some(replica) = replica
             && let Some(mut peer) = replica.rumors.try_into_peer().await

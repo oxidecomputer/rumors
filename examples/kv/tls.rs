@@ -8,13 +8,13 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 use crate::credentials::Credentials;
 
 #[derive(Clone)]
-pub(crate) struct Tls {
+pub struct Tls {
     connector: TlsConnector,
     acceptor: TlsAcceptor,
 }
 
 impl Tls {
-    pub(crate) fn new(credentials: Credentials) -> Result<Self> {
+    pub fn new(credentials: Credentials) -> Result<Self> {
         let Credentials { cert, key } = credentials;
 
         let mut roots = RootCertStore::empty();
@@ -40,4 +40,4 @@ impl Tls {
 mod connect;
 mod accept;
 
-pub(crate) use connect::DEFAULT_GOSSIP_PORT;
+pub use connect::DEFAULT_GOSSIP_PORT;

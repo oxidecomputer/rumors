@@ -10,7 +10,7 @@ use super::Node;
 use super::seed::GOSSIP_TIMEOUT;
 
 impl Node {
-    pub(super) async fn join(
+    pub async fn join(
         &self,
         read: impl AsyncBufRead + Unpin + Send,
         write: impl AsyncWrite + Unpin + Send,

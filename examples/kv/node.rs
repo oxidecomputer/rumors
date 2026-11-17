@@ -9,7 +9,7 @@ use tokio_util::task::TaskTracker;
 use crate::replica::Replica;
 use crate::tls::Tls;
 
-pub(crate) struct Node {
+pub struct Node {
     replica: watch::Receiver<Option<Replica>>,
     current: tokio::sync::Mutex<watch::Sender<Option<Replica>>>,
     bookmarks_dir: PathBuf,
@@ -20,7 +20,7 @@ pub(crate) struct Node {
 }
 
 impl Node {
-    pub(crate) fn new(tls: Tls, bookmarks_dir: PathBuf, peers: Vec<Authority>) -> Arc<Self> {
+    pub fn new(tls: Tls, bookmarks_dir: PathBuf, peers: Vec<Authority>) -> Arc<Self> {
         let (current, replica) = watch::channel(None);
         Arc::new(Self {
             replica,

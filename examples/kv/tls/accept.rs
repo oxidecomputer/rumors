@@ -7,7 +7,7 @@ use super::Tls;
 use super::connect::HANDSHAKE_DEADLINE;
 
 impl Tls {
-    pub(crate) async fn accept(
+    pub async fn accept(
         &self,
         tcp: TcpStream,
     ) -> Result<(

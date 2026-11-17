@@ -4,7 +4,7 @@ use std::io::{self, IsTerminal};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::filter::LevelFilter;
 
-pub(crate) fn log_to_stderr() {
+pub fn log_to_stderr() {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::builder()

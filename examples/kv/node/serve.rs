@@ -26,7 +26,7 @@ impl Node {
         }
     }
 
-    pub(super) async fn serve(self: Arc<Self>, listener: TcpListener) {
+    pub async fn serve(self: Arc<Self>, listener: TcpListener) {
         while let Some(accepted) = self.stop.run_until_cancelled(listener.accept()).await {
             let (tcp, address) = match accepted {
                 Ok(accepted) => accepted,

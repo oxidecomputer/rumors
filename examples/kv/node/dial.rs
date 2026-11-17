@@ -21,7 +21,7 @@ impl Node {
         self.gossip_over(read, write).await
     }
 
-    pub(super) async fn dial(self: Arc<Self>, address: Authority) {
+    pub async fn dial(self: Arc<Self>, address: Authority) {
         let mut retry = Duration::ZERO;
         while self.stop.run_until_cancelled(sleep(retry)).await.is_some() {
             retry = match self.connect(&address).await {

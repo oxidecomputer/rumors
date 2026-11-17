@@ -16,7 +16,7 @@ use list::list;
 use read::read;
 use set::set;
 
-pub(crate) fn router(node: Arc<Node>) -> Router {
+pub fn router(node: Arc<Node>) -> Router {
     Router::new()
         .route("/", get(list).post(set))
         .route("/{key}", get(read).delete(delete))

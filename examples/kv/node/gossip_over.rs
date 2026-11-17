@@ -7,7 +7,7 @@ use super::Node;
 use super::give_way::{GiveWay, give_way};
 
 impl Node {
-    pub(super) async fn gossip_over(
+    pub async fn gossip_over(
         &self,
         mut read: impl AsyncBufRead + Unpin + Send,
         mut write: impl AsyncWrite + Unpin + Send,

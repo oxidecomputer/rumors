@@ -5,17 +5,14 @@ use tokio_util::sync::CancellationToken;
 use crate::table::{Table, Update};
 
 #[derive(Clone)]
-pub(crate) struct Replica {
-    pub(crate) rumors: Rumors<Update, FileBookmark<TokioBlocking>>,
+pub struct Replica {
+    pub rumors: Rumors<Update, FileBookmark<TokioBlocking>>,
     table: watch::Sender<Table>,
-    pub(crate) stop: CancellationToken,
+    pub stop: CancellationToken,
 }
 
 impl Replica {
-    pub(crate) fn new(
-        peer: Peer<Update, FileBookmark<TokioBlocking>>,
-        stop: &CancellationToken,
-    ) -> Self {
+    pub fn new(peer: Peer<Update, FileBookmark<TokioBlocking>>, stop: &CancellationToken) -> Self {
         let stop = stop.child_token();
         let rumors = peer
             .gossip_until(stop.clone().cancelled_owned())

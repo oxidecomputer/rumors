@@ -9,10 +9,10 @@ use crate::replica::Replica;
 
 use super::Node;
 
-pub(super) const GOSSIP_TIMEOUT: Duration = Duration::from_secs(30);
+pub const GOSSIP_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl Node {
-    pub(super) async fn seed(&self) -> Result<()> {
+    pub async fn seed(&self) -> Result<()> {
         let current = self.current.lock().await;
         if current.borrow().is_some() {
             return Ok(());

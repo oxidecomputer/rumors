@@ -4,10 +4,10 @@ use rustls::pki_types::PrivatePkcs8KeyDer;
 
 use super::Credentials;
 
-pub(crate) const NETWORK_NAME: &str = "kv.example.rumors.invalid";
+pub const NETWORK_NAME: &str = "kv.example.rumors.invalid";
 
 impl Credentials {
-    pub(super) fn generate() -> Result<Self> {
+    pub fn generate() -> Result<Self> {
         let mut params = CertificateParams::new([NETWORK_NAME.to_owned()])?;
         params.extended_key_usages = vec![
             ExtendedKeyUsagePurpose::ServerAuth,

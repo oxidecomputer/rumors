@@ -7,7 +7,7 @@ use super::Credentials;
 use super::store::CREDENTIALS_FILE;
 
 impl Credentials {
-    pub(crate) fn load_or_create(dir: &Path) -> Result<Self> {
+    pub fn load_or_create(dir: &Path) -> Result<Self> {
         fn read_pem<T: PemObject>(path: &Path) -> Result<T> {
             T::from_pem_file(path).with_context(|| format!("reading {}", path.display()))
         }
