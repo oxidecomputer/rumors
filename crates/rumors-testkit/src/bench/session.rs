@@ -47,7 +47,7 @@ use crate::bench::link::{Link, LinkConfig, Report, SEGMENT_BYTES, Side, drive};
 use crate::common::seed::NetworkSeed;
 use crate::common::{
     budget::BudgetChoice,
-    wire::{block_on, bootstrap_fork_with_budget_async},
+    wire::{block_on, join_fork_with_budget_async},
 };
 
 /// The seed of every fixture's network, unless its shape names another.
@@ -293,8 +293,8 @@ pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<St
         let received = shape.shared + shape.redacted_a + shape.redacted_b;
         root.send_all((0..received).map(|index| message('s', index, shape.message_bytes)))
             .expect("fixture messages encode");
-        let a = bootstrap_fork_with_budget_async(&root, budget).await;
-        let b = bootstrap_fork_with_budget_async(&root, budget).await;
+        let a = join_fork_with_budget_async(&root, budget).await;
+        let b = join_fork_with_budget_async(&root, budget).await;
         let redacted_by_a = shape.shared..shape.shared + shape.redacted_a;
         let redacted_by_b = redacted_by_a.end..received;
         redact(&a, redacted_by_b.clone(), redacted_by_a.clone(), shape);

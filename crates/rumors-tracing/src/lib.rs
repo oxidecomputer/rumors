@@ -38,11 +38,11 @@
 //!     let (near_read, far_read) = (BufReader::new(near_read), BufReader::new(far_read));
 //!     let (served, joined) = tokio::join!(
 //!         alice.gossip_once(far_read, far_write),
-//!         Peer::<String>::bootstrap().join(near_read, near_write),
+//!         Peer::<String>::joining().join(near_read, near_write),
 //!     );
 //!     served?;
-//!     let rumors::Joined::Joined { peer: _bob, .. } = joined else {
-//!         panic!("Alice must serve the bootstrap");
+//!     let rumors::Join::Connected { peer: _bob, .. } = joined else {
+//!         panic!("Alice must serve the joining peer");
 //!     };
 //!     Ok(())
 //! }
@@ -56,7 +56,7 @@
 //! recorded in their debug form.
 //!
 //! - **One `session` span per observed session** (level `INFO`): fields `kind`
-//!   (`Gossip`, `Bootstrap`, `Retire`), `protocol`, `ordinal`, and the terminal
+//!   (`Gossip`, `Join`, `Retire`), `protocol`, `ordinal`, and the terminal
 //!   `outcome` and optional `failure` category. `ordinal` is the adapter's own
 //!   count of the sessions it has observed, so concurrent sessions stay
 //!   distinguishable. (The hook deliberately carries no session number;
@@ -127,7 +127,7 @@ mod render;
 /// The bridge from [`rumors::observe`] to [`tracing`]: attach one to a peer and
 /// every session it enters is emitted as spans and events.
 ///
-/// Attach with [`rumors::Peer::observe`] (or [`rumors::Bootstrap::observe`], to
+/// Attach with [`rumors::Peer::observe`] (or [`rumors::Joining::observe`], to
 /// watch the joining session itself):
 ///
 /// ```

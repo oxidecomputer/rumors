@@ -36,7 +36,7 @@ pub enum Error<E> {
     /// Detected symmetrically, after the greetings and before anything else, so
     /// a mixed fleet is caught even on a converged session.
     #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
-    PayloadDepthMismatch {
+    MessageDepthMismatch {
         /// This side's configured limit.
         local: u64,
         /// The limit the peer's greeting declared.

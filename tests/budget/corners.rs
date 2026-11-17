@@ -46,7 +46,7 @@ const EXTRA: usize = 2_000;
 /// runs one case.
 const CORNER_DIVISOR: u32 = 256;
 
-/// Build a bootstrapped pair of the network `network` names, then commit
+/// Build a joined pair of the network `network` names, then commit
 /// `left_extra`/`right_extra` further messages on the respective sides, both
 /// under `budget`.
 fn pair(
@@ -65,12 +65,12 @@ fn pair(
         let (mut provider, mut newcomer) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip_once(&mut provider.read, &mut provider.write),
-            Peer::<u64>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
+            Peer::<u64>::join(&mut newcomer.read, &mut newcomer.write),
         );
-        served.expect("serve bootstrap");
+        served.expect("serve join");
         budget
             .apply(match joined {
-                rumors::Joined::Joined {
+                rumors::Join::Connected {
                     peer,
                     connection: rumors::Connection::Reusable { .. },
                 } => peer,

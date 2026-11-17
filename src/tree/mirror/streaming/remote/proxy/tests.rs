@@ -35,7 +35,7 @@ use crate::tree::{
 };
 use crate::{
     Network, Version, default,
-    message::{Message, PayloadCodec, PayloadDepthLimit},
+    message::{Message, MessageDepthLimit, PayloadCodec},
     tree::mirror::Error as MirrorError,
 };
 
@@ -279,14 +279,14 @@ async fn reconcile_with_failing_walk(
         whole(),
         a_end.read,
         a_end.write,
-        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(MessageDepthLimit::default()),
         Some(crate::network::NetworkKeys::fixture()),
     );
     let remote_a = RemoteHandshaking::start(
         whole(),
         b_end.read,
         b_end.write,
-        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(MessageDepthLimit::default()),
         Some(crate::network::NetworkKeys::fixture()),
     );
 

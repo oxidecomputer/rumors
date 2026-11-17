@@ -1,8 +1,8 @@
-//! The wire-session drivers for [`Peer`]: [`bootstrap`](Bootstrap::join),
+//! The wire-session drivers for [`Peer`]: [`join`](crate::Joining::join),
 //! [`gossip_stream`](crate::Rumors::gossip_stream), and
 //! [`retire`](Peer::retire).
 //!
-//! A [`ForkGuard`] restores bootstrap forks abandoned before transmission.
+//! A [`ForkGuard`] restores donation forks abandoned before transmission.
 //! Retirement owns its consumed `Peer` until the outcome determines whether the
 //! identity can be returned to the caller.
 
@@ -37,7 +37,7 @@ use crate::{
     },
 };
 
-use super::{Inner, Peer, SessionSizing, bootstrap::Bootstrap, connection::Connection};
+use super::{Inner, Peer, SessionSizing, connection::Connection, join::Joining};
 
 /// The completion marker each side writes after all of its session work, in the
 /// closing exchange: the CBOR text item `"."`.
@@ -244,17 +244,17 @@ struct Received {
 
 /// Create joined peers and attach bookmark storage.
 impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
-    /// Run bootstrap over any connection, returning the new peer, if this side
-    /// received its whole identity, beside the session's result.
+    /// Run a join session over any connection, returning the new peer, if this
+    /// side received its whole identity, beside the session's result.
     ///
     /// The peer is independent of the result: once the whole identity has
     /// arrived, this side keeps it however the session ends. No peer with `Ok`
-    /// means the counterparty was bootstrapping too.
+    /// means the counterparty was joining too.
     ///
     /// A thin generic funnel: the only monomorphized-per-transport code is the
     /// erasure of the two halves here.
-    pub(crate) fn bootstrap_inner<'a, R, W>(
-        config: Bootstrap<T>,
+    pub(crate) fn join_inner<'a, R, W>(
+        config: Joining<T>,
         read: &'a mut R,
         write: &'a mut W,
     ) -> BoxFuture<'a, (Option<Self>, Result<(), Error>)>
@@ -267,19 +267,19 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             let policy = config.settings.gossip_policy.clone();
             let started = Instant::now();
             let completion =
-                SessionCompletion::new(config.settings.observe.begin(SessionKind::Bootstrap));
+                SessionCompletion::new(config.settings.observe.begin(SessionKind::Join));
             let observe = completion.handle();
             let stats = Recorder::default();
             // The peer-to-be's payload codec, built before it exists:
-            // the bootstrap session's ingress decodes through it, and the
+            // the join session's ingress decodes through it, and the
             // constructed peer inherits it.
-            let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
+            let codec = PayloadCodec::new::<T>(config.message_depth_limit);
             // The received party lives here, outside the session future, so
             // it survives that future's failure or its cancellation by the
             // deadline.
             let mut received = None;
             let result = policy
-                .run(Self::bootstrap_erased(
+                .run(Self::join_erased(
                     config.settings.sizing,
                     codec,
                     &mut received,
@@ -294,11 +294,11 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // Once the whole party has arrived, the joiner keeps it however
             // the session ends: the provider removed it before sending it and
             // never restores it, so exactly one side holds it (see
-            // `bootstrap_erased`).
+            // `join_erased`).
             let peer = received.map(|received| Self::joined(config, codec, received));
             match &result {
                 Ok(()) => {
-                    // Two bootstrappers converge on nothing.
+                    // Two joining peers converge on nothing.
                     let nothing = Version::new();
                     let replica = peer.as_ref().map(|peer| peer.inner.borrow());
                     completion.finish(SessionOutcome::Completed {
@@ -314,9 +314,9 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         })
     }
 
-    /// The peer a bootstrap that received its whole party becomes, carrying the
+    /// The peer a join that received its whole party becomes, carrying the
     /// builder's settings.
-    fn joined(config: Bootstrap<T>, codec: PayloadCodec, received: Received) -> Self {
+    fn joined(config: Joining<T>, codec: PayloadCodec, received: Received) -> Self {
         let Received { keys, party, root } = received;
         Self {
             keys: Arc::clone(&keys),
@@ -327,14 +327,14 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         }
     }
 
-    /// The transport-erased bootstrap body behind [`bootstrap_inner`].
+    /// The transport-erased join body behind [`join_inner`].
     ///
     /// Leaves the joiner's network keys, party, and content in `received` once
     /// the whole party has arrived, then confirms completion. `Ok` with nothing
-    /// received means the counterparty was bootstrapping too.
+    /// received means the counterparty was joining too.
     ///
-    /// [`bootstrap_inner`]: Self::bootstrap_inner
-    fn bootstrap_erased<'a>(
+    /// [`join_inner`]: Self::join_inner
+    fn join_erased<'a>(
         sizing: SessionSizing,
         codec: PayloadCodec,
         received: &'a mut Option<Received>,
@@ -352,7 +352,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             let joining = secret::Joining::new();
             let mut staged = preamble::Staged::new();
             let counterparty = preamble::preamble(
-                Network::BOOTSTRAP,
+                Network::JOINING,
                 Intent::Remain,
                 &joining.item(),
                 &mut staged,
@@ -365,13 +365,13 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
 
             // A provider sends its network's secret next, sealed for our
             // key, ahead of its greeting, so that this side can place the
-            // leaves it supplies. Another bootstrapper has no secret
+            // leaves it supplies. Another joining peer has no secret
             // and supplies nothing; its key item, sent as ours was, is read
             // and discarded.
             let (received_keys, remote_role) = match counterparty {
-                Counterparty::Bootstrapping(item) => {
+                Counterparty::Joining(item) => {
                     secret::decode_key(&item)?;
-                    (None, RemoteRole::Bootstrapping)
+                    (None, RemoteRole::Joining)
                 }
                 Counterparty::Established { network, .. } => {
                     let secret = joining.receive(&mut *read, network, &observe).await?;
@@ -384,7 +384,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
 
             // Reconcile from an empty tree. On arrival, the returned root
             // holds the provider's content and the next item carries the
-            // donated identity. Two bootstrappers instead finish without one.
+            // donated identity. Two joining peers instead finish without one.
             // The received keys place each supplied leaf; without them, the
             // session admits no supply.
             let reconciliation = Reconciliation {
@@ -399,7 +399,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 observe: observe.clone(),
             };
             let (root, mut read, mut write) = reconciliation.reconcile().await?;
-            // Two bootstrappers have no identity to exchange.
+            // Two joining peers have no identity to exchange.
             let Some(keys) = received_keys else {
                 return finish_session(&mut read, &mut write, &observe).await;
             };
@@ -583,7 +583,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             preamble::preamble(self.network(), intent, &[], staged, read, write, &observe)
                 .await
                 .map_err(|error| Error::from(error).widen())?;
-        let peer_bootstrapping = counterparty.bootstrapping();
+        let peer_joining = counterparty.joining();
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = counterparty.retiring();
 
@@ -598,11 +598,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             return Ok((unchanged, stats.snapshot()));
         }
 
-        // A bootstrapping counterparty needs the network's secret before the
+        // A joining counterparty needs the network's secret before the
         // first supply arrives, to place each leaf it receives, and leaves
         // the session holding it. Its key item followed its preamble; seal
         // the secret for that key, ahead of the greeting.
-        if let Counterparty::Bootstrapping(item) = &counterparty {
+        if let Counterparty::Joining(item) = &counterparty {
             let joiner = secret::decode_key(item).map_err(Error::widen)?;
             secret::send(self.keys.secret(), &joiner, self.network(), write, &observe)
                 .await
@@ -635,7 +635,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     &inner.reservations,
                 );
                 prior_tree = Some(inner.tree.clone());
-                if peer_bootstrapping && !self_retiring {
+                if peer_joining && !self_retiring {
                     guarded.fork = Some(inner.reserve());
                 }
             });
@@ -661,7 +661,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             stats: stats.clone(),
             observe: observe.clone(),
             remote_role: match counterparty {
-                Counterparty::Bootstrapping(_) => RemoteRole::Bootstrapping,
+                Counterparty::Joining(_) => RemoteRole::Joining,
                 Counterparty::Established { network, .. } => RemoteRole::Gossiping {
                     remote_network: network,
                     local_network: self.network(),
@@ -677,7 +677,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut absorbed = None;
         if peer_retiring {
             // We now hold the retiree's history and can safely inherit its
-            // identity. Neither side can also be donating a bootstrap fork,
+            // identity. Neither side can also be holding a donation fork,
             // and the mutual-retirement case returned before reconciliation.
             absorbed = Some(
                 party::receive(&mut read, &observe)
@@ -688,7 +688,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             // Remove the donated party before sending: we make the donation's
             // removal durable before any byte of it can reach the recipient. A
             // failure hands the recipient nothing: a retiring peer still owns
-            // its Peer and a bootstrap's guard still owns its fork, which the
+            // its Peer and a join's guard still owns its fork, which the
             // next checkpoint records even if the removal reached storage.
             {
                 let mut bookmark = self.bookmark.lock().await;
@@ -696,7 +696,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 let store = if self_retiring {
                     loaded.donate(self.network(), &self.inner.borrow().party)
                 } else {
-                    let (fork, _) = guarded.fork.as_ref().expect("bootstrap fork");
+                    let (fork, _) = guarded.fork.as_ref().expect("donation fork");
                     loaded.donate(self.network(), fork)
                 };
                 store.await.map_err(Error::Bookmark)?;
@@ -714,7 +714,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 // fork's first byte is written, so an outstanding reservation
                 // always belongs to a fork never sent, which is what lets
                 // reunion forget a leaked session's reservation.
-                let (donated, _reservation) = guarded.fork.take().expect("bootstrap fork");
+                let (donated, _reservation) = guarded.fork.take().expect("donation fork");
                 party::send(&donated, write, &observe)
             };
             if self_retiring {
@@ -887,7 +887,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
 /// One reconciliation's fully erased inputs.
 ///
-/// Gossip and bootstrap both assemble this bundle and consume it through
+/// Gossip and join sessions both assemble this bundle and consume it through
 /// [`reconcile`](Self::reconcile). That non-generic, non-inlined boundary keeps
 /// the protocol state machine in this crate rather than instantiating it for
 /// each downstream peer and transport type.
@@ -907,11 +907,11 @@ struct Reconciliation<'a> {
     /// must match.
     codec: PayloadCodec,
     /// The keys of the network whose tree `root` is, or `None` for a
-    /// bootstrapper meeting another bootstrapper.
+    /// joining peer meeting another joining peer.
     ///
     /// Their path key places supplied leaves, and their hash key is the one
     /// `root`'s nodes cache their digests under, which this side lists and
-    /// compares. A bootstrapper meeting a bootstrapper holds no network secret,
+    /// compares. A joining peer meeting another holds no network secret,
     /// lists nothing, and can be supplied nothing.
     keys: Option<Arc<NetworkKeys>>,
     /// The peer's sizing as set, from which the session starts its local
@@ -934,7 +934,7 @@ enum RemoteRole {
     /// The remote provides membership and content to a joining peer.
     Providing,
     /// The remote is joining and must have no causal history.
-    Bootstrapping,
+    Joining,
     /// The remote is an established peer and must be in the same network.
     Gossiping {
         /// The network declared by the remote preamble.
@@ -952,7 +952,7 @@ impl RemoteRole {
     fn validate(self, remote_version: &Version) -> Result<(), Error> {
         match self {
             RemoteRole::Providing => Ok(()),
-            RemoteRole::Bootstrapping => bootstrap_claimant_is_newborn(remote_version),
+            RemoteRole::Joining => joiner_is_newborn(remote_version),
             RemoteRole::Gossiping {
                 remote_network,
                 local_network,
@@ -1013,14 +1013,14 @@ impl<'a> Reconciliation<'a> {
 }
 
 /// Reject a newcomer claiming causal history before reconciliation uses that
-/// history to infer deletions. A valid bootstrap claimant has an empty version.
-fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
+/// history to infer deletions. A valid joiner claims an empty version.
+fn joiner_is_newborn(claimed: &Version) -> Result<(), Error> {
     if claimed.is_empty() {
         Ok(())
     } else {
         Err(Error::violation(
             Phase::Greeting,
-            SessionDefect::BootstrapHistory {
+            SessionDefect::JoinerHistory {
                 claimed_min_events: claimed.min_ticks(),
             },
         ))
@@ -1034,8 +1034,8 @@ enum SessionDefect {
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
     /// A newcomer claims events despite having no identity or history.
-    #[error("bootstrap claimant declared history (at least {claimed_min_events} events)")]
-    BootstrapHistory {
+    #[error("a newly-joining peer declared extant history (at least {claimed_min_events} events)")]
+    JoinerHistory {
         /// Lower bound derived from the claimant's version.
         claimed_min_events: crate::Count,
     },
@@ -1132,7 +1132,7 @@ struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
     done: bool,
 }
 
-/// Restore a bootstrap fork unless its transmission has started.
+/// Restore a donation fork unless its transmission has started.
 ///
 /// A fork restored after its removal reached storage stays unrecorded until the
 /// peer's next checkpoint, so a crash before then would drop it forever.
@@ -1159,7 +1159,7 @@ impl<T: Send + Sync + 'static> Drop for ForkGuard<'_, T> {
                 // custody bug; it must not silently discard identity space.
                 assert!(
                     inner.party.join(party).is_ok(),
-                    "bootstrap fork overlaps its owner"
+                    "donation fork overlaps its owner"
                 );
             });
         }

@@ -19,8 +19,8 @@ use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{CaptureEnd, capture_sides};
 use crate::common::oracle::readout;
 use crate::common::wire::{
-    assert_connection_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_budget_async,
-    gossip_pair_async,
+    assert_connection_drained, block_on, gossip_pair_async, join_fork_async,
+    join_fork_with_budget_async,
 };
 use rumors::testing::MEMORY_CAPACITY;
 use rumors_testkit::common::property::SESSION_DIVISOR;
@@ -85,7 +85,7 @@ divided_proptest! {
         block_on(async {
             let provider: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
             // Join before any sends so the next session transfers the whole set.
-            let empty = bootstrap_fork_async(&provider).await;
+            let empty = join_fork_async(&provider).await;
             provider.send_all([1, 2, 3]).unwrap();
 
             let (p, e) = gossip_pair_async(&provider, &empty).await;
@@ -116,7 +116,7 @@ divided_proptest! {
     fn converged_replicas_report_zero_stats(network in network_seed()) {
         block_on(async {
             let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let b = bootstrap_fork_async(&a).await;
+            let b = join_fork_async(&a).await;
             a.send_all([7]).unwrap();
             let _ = gossip_pair_async(&a, &b).await;
 
@@ -134,7 +134,7 @@ divided_proptest! {
         block_on(async {
             let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             a.send_all([10, 20]).unwrap();
-            let b = bootstrap_fork_async(&a).await;
+            let b = join_fork_async(&a).await;
             let version = a.snapshot().versions().next().unwrap().clone();
             a.redact(&version);
 
@@ -156,7 +156,7 @@ divided_proptest! {
     fn gossip_stream_reports_session_stats(network in network_seed()) {
         block_on(async {
             let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let b = bootstrap_fork_async(&a).await;
+            let b = join_fork_async(&a).await;
             a.send_all([42]).unwrap();
 
             let (mut a_end, mut b_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
@@ -216,7 +216,7 @@ proptest! {
         network in network_seed(),
     ) {
         let a = network.peer().sync_memory_budget(0).into_rumors();
-        let b = block_on(bootstrap_fork_async(&a));
+        let b = block_on(join_fork_async(&a));
         let (mut a_stats, mut b_stats) = (Vec::new(), Vec::new());
         let (a_capture, b_capture) = capture_sides(
             |end| record_sessions(&a, end, &a_sends, &mut a_stats),
@@ -257,7 +257,7 @@ proptest! {
             let unlimited = BudgetChoice::Bytes(usize::MAX);
             let a = unlimited.apply(network.peer()).into_rumors();
             a.send_all(shared).unwrap();
-            let b = bootstrap_fork_with_budget_async(&a, unlimited).await;
+            let b = join_fork_with_budget_async(&a, unlimited).await;
             a.send_all(a_sends).unwrap();
             b.send_all(b_sends).unwrap();
             let (a_g, b_g) = gossip_pair_async(&a, &b).await;
@@ -283,7 +283,7 @@ proptest! {
         block_on(async {
             let a = network.peer().sync_memory_budget(0).into_rumors();
             a.send_all(shared).unwrap();
-            let b = bootstrap_fork_async(&a).await;
+            let b = join_fork_async(&a).await;
             let shared_versions: Vec<_> = a.snapshot().versions().cloned().collect();
             let mut expected = readout(&a.snapshot());
 

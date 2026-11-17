@@ -94,15 +94,15 @@ fn fragmented_exchange_is_symmetric() {
     );
 }
 
-/// A bootstrapping peer's preamble carries its key item after it: the exchange
+/// A joining peer's preamble carries its key item after it: the exchange
 /// returns the item whole, and a stream that ends anywhere inside it is a read
 /// failure for a truncated stream, never a hang.
 #[test]
-fn a_bootstrap_preamble_brings_its_key_item() {
+fn a_join_preamble_brings_its_key_item() {
     let joining = crate::tree::mirror::secret::Joining::new();
     let item = joining.item();
     let mut stream = Preamble {
-        network: Network::BOOTSTRAP,
+        network: Network::JOINING,
         intent: Intent::Remain,
     }
     .encode();
@@ -121,7 +121,7 @@ fn a_bootstrap_preamble_brings_its_key_item() {
         ))
     };
     let seen = exchange(&stream).expect("a whole opening exchanges");
-    assert_eq!(seen, Counterparty::Bootstrapping(item));
+    assert_eq!(seen, Counterparty::Joining(item));
     for cut in V2_PREAMBLE_LEN..stream.len() {
         assert!(
             matches!(
@@ -286,7 +286,7 @@ proptest! {
         } else if intent > 1 {
             matches!(&result, Err(Error::IntentInvalid { byte }) if *byte == intent)
         } else if network == [0; NETWORK_BYTES] && intent == 1 {
-            matches!(&result, Err(Error::BootstrapRetireConflict))
+            matches!(&result, Err(Error::JoinRetireConflict))
         } else {
             let expected = Preamble {
                 network: Network::from_bytes(network),
@@ -333,20 +333,20 @@ proptest! {
     }
 }
 
-/// The bootstrap placeholder composes only with remain intent; retirement would
+/// The joining placeholder composes only with remain intent; retirement would
 /// promise both receiving and donating an identity in one session.
 #[test]
-fn bootstrap_intent_matrix_is_exhaustive() {
+fn join_intent_matrix_is_exhaustive() {
     assert_eq!(
-        staged(Network::BOOTSTRAP, 0).validate().unwrap(),
+        staged(Network::JOINING, 0).validate().unwrap(),
         Preamble {
-            network: Network::BOOTSTRAP,
+            network: Network::JOINING,
             intent: Intent::Remain,
         }
     );
     assert!(matches!(
-        staged(Network::BOOTSTRAP, 1).validate(),
-        Err(Error::BootstrapRetireConflict)
+        staged(Network::JOINING, 1).validate(),
+        Err(Error::JoinRetireConflict)
     ));
 }
 

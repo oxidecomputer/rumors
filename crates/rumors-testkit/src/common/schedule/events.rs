@@ -35,14 +35,14 @@ pub enum Event<T> {
         /// The other endpoint's fleet index.
         b: usize,
     },
-    /// Create a new peer mid-schedule by serving it a bootstrap from `parent`.
+    /// Create a new peer mid-schedule by serving it a join from `parent`.
     ///
     /// The newcomer takes index `newcomer` — always the next unused index,
     /// carried explicitly so counterexamples read without replaying the
     /// schedule. Emitted only by the membership strategy; the strategy
     /// guarantees `parent` is alive at this point.
-    Bootstrap {
-        /// Fleet index of the peer serving the bootstrap.
+    Join {
+        /// Fleet index of the peer serving the join.
         parent: usize,
         /// Fleet index assigned to the new peer.
         newcomer: usize,

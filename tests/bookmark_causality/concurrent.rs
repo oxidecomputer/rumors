@@ -1,4 +1,4 @@
-//! Generated fleet operations run while bootstrap sessions hold reserved forks.
+//! Generated fleet operations run while join sessions hold reserved forks.
 
 use futures::{FutureExt, future::LocalBoxFuture};
 use tokio::io::{BufReader, DuplexStream};
@@ -6,11 +6,11 @@ use tokio::io::{BufReader, DuplexStream};
 use super::*;
 use rumors_testkit::common::seed::network_seed;
 
-/// A bootstrap paused after the provider reserves its donation.
+/// A join paused after the provider reserves its donation.
 struct Attempt {
     /// The newcomer owns its connection end until joining completes or is
     /// cancelled.
-    joining: LocalBoxFuture<'static, rumors::Joined<Msg, BufReader<DuplexStream>, DuplexStream>>,
+    joining: LocalBoxFuture<'static, rumors::Join<Msg, BufReader<DuplexStream>, DuplexStream>>,
     /// The provider owns its connection end and the pending donation guard.
     serving: LocalBoxFuture<'static, Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>>,
     /// The reserved region, used only to check that live peers cannot reclaim
@@ -27,7 +27,7 @@ impl Attempt {
         let serving = server.clone();
         let (near, far) = rumors::testing::memory_connection(MEMORY_CAPACITY);
         let mut joining =
-            async move { Peer::<Msg>::bootstrap().join(near.read, near.write).await }.boxed_local();
+            async move { Peer::<Msg>::join(near.read, near.write).await }.boxed_local();
         let mut serving = async move {
             serving
                 .gossip_once(far.read, far.write)
@@ -40,7 +40,7 @@ impl Attempt {
             assert!(futures::poll!(serving.as_mut()).is_pending());
         });
         let after = server.dangerously_alias_party();
-        assert_ne!(before, after, "the bootstrap must actually reserve a fork");
+        assert_ne!(before, after, "the join must actually reserve a fork");
         let reserved = before.without(&after).expect("a nonempty donation");
         Self {
             joining,
@@ -54,14 +54,11 @@ impl Attempt {
         let may_fail = world.bookmark_may_fail(server);
         let (joined, served) = block_on(async { futures::join!(self.joining, self.serving) });
         if let Err(error) = served {
-            assert!(
-                may_fail,
-                "a reliable pending bootstrap must complete: {error:?}"
-            );
-            assert_not_codec_bug("interleaved bootstrap provider", &error);
+            assert!(may_fail, "a reliable pending join must complete: {error:?}");
+            assert_not_codec_bug("interleaved join provider", &error);
         }
         match joined {
-            rumors::Joined::Joined {
+            rumors::Join::Connected {
                 peer,
                 connection: rumors::Connection::Reusable { .. },
             } => {
@@ -81,9 +78,9 @@ impl Attempt {
                 });
                 world.secure(label);
             }
-            rumors::Joined::Failed { error, .. } => {
+            rumors::Join::Failed { error, .. } => {
                 assert!(may_fail, "a reliable newcomer must join: {error:?}");
-                assert_not_codec_bug("interleaved bootstrap newcomer", &error);
+                assert_not_codec_bug("interleaved join newcomer", &error);
             }
             other => panic!("unexpected join outcome: {other:?}"),
         }
@@ -124,7 +121,7 @@ fn apply(world: &mut World, pending: &mut Vec<Attempt>, step: Step) {
                     attempt
                         .reserved
                         .is_disjoint(&peer.dangerously_alias_party()),
-                    "a live peer reclaimed a fork still held by a bootstrap"
+                    "a live peer reclaimed a fork still held by a join"
                 );
             }
         }
@@ -135,7 +132,7 @@ proptest! {
     /// Concurrent checkpoints, absorption, storage failures, and cancellation
     /// cannot make reserved forks reusable or let a restart outrun durable writes.
     #[test]
-    fn interleaved_bootstraps_preserve_recovery(
+    fn interleaved_joins_preserve_recovery(
         finish in proptest::collection::vec(any::<bool>(), 1..4),
         steps in proptest::collection::vec(arb_step(4, true), 0..18),
         write_faults in arb_fault_bits(true),
@@ -169,7 +166,7 @@ proptest! {
         for node in &world.nodes { node.faults.lock().unwrap().disable(); }
         world.revive(0);
         world.crash(2);
-        assert!(world.bootstrap_into(2, 0));
+        assert!(world.join_into(2, 0));
         world.gossip(2, 0, FaultPlan::NONE, FaultPlan::NONE);
         world.assert_ownership();
         world.send(2);

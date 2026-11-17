@@ -6,7 +6,7 @@
 //! frames by the logical stream index each names. The handler set must match
 //! the streams actually used.
 //!
-//! Generated gossip, bootstrap, and retirement sessions check this contract
+//! Generated gossip, join, and retirement sessions check this contract
 //! alongside session kinds and role elections. A separate property compares
 //! observed and unobserved sessions to ensure attachment leaves the wire
 //! intact.
@@ -28,7 +28,7 @@ use rumors::{Connection, Peer, Retire, Rumors, SessionStats, Version};
 
 use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{capture_sides, corpora, payloads};
-use crate::common::wire::{block_on, bootstrap_fork_configured};
+use crate::common::wire::{block_on, join_fork_configured};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -389,17 +389,13 @@ fn seeded(
     peer
 }
 
-/// Join the parent's network, attaching the observer before bootstrap begins.
+/// Join the parent's network, attaching the observer before join begins.
 fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors<Vec<u8>> {
-    let mut bootstrap = Peer::bootstrap();
+    let mut joining = Peer::joining();
     if let Some(observer) = observer {
-        bootstrap = bootstrap.observe(observer.clone());
+        joining = joining.observe(observer.clone());
     }
-    block_on(bootstrap_fork_configured(
-        parent,
-        bootstrap,
-        BudgetChoice::Serial,
-    ))
+    block_on(join_fork_configured(parent, joining, BudgetChoice::Serial))
 }
 
 proptest! {
@@ -416,7 +412,7 @@ proptest! {
         let a = seeded(network, Some(&rec_a), &shared);
         let b = forked(Some(&rec_b), &a);
         rec_a.take_session(SessionKind::Gossip);
-        rec_b.take_session(SessionKind::Bootstrap);
+        rec_b.take_session(SessionKind::Join);
         if add_messages {
             a.send_all(only_a).unwrap();
             b.send_all(only_b).unwrap();
@@ -459,25 +455,25 @@ proptest! {
         prop_assert_eq!(b_observed.sent, b_plain.sent);
     }
 
-    /// Joining observes the full bootstrap and serving sessions, including
+    /// Joining observes the full join and serving sessions, including
     /// stream metadata and elections for empty and populated networks.
     #[test]
-    fn bootstrap_sessions_are_observed(payloads in payloads(), network in network_seed()) {
+    fn join_sessions_are_observed(payloads in payloads(), network in network_seed()) {
         let rec_provider = Arc::new(Recording::default());
         let rec_newcomer = Arc::new(Recording::default());
         let provider = seeded(network, Some(&rec_provider), &payloads);
-        let bootstrap = Peer::<Vec<u8>>::bootstrap().observe(rec_newcomer.clone());
+        let joining = Peer::<Vec<u8>>::joining().observe(rec_newcomer.clone());
         let (provider_capture, newcomer_capture) = capture_sides(
             |mut end| async move {
                 provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
             },
             |mut end| async move {
-                assert!(matches!(bootstrap.join(&mut end.read, &mut end.write).await, rumors::Joined::Joined { connection: rumors::Connection::Reusable { .. }, .. }));
+                assert!(matches!(joining.join(&mut end.read, &mut end.write).await, rumors::Join::Connected { connection: rumors::Connection::Reusable { .. }, .. }));
             },
         );
         assert_pair(
             &rec_provider.take_session(SessionKind::Gossip),
-            &rec_newcomer.take_session(SessionKind::Bootstrap),
+            &rec_newcomer.take_session(SessionKind::Join),
             &provider_capture,
             &newcomer_capture,
         );
@@ -496,7 +492,7 @@ proptest! {
         let absorber = seeded(network, Some(&rec_absorber), &shared);
         let retiree = forked(Some(&rec_retiree), &absorber);
         rec_absorber.take_session(SessionKind::Gossip);
-        rec_retiree.take_session(SessionKind::Bootstrap);
+        rec_retiree.take_session(SessionKind::Join);
         if add_messages {
             absorber.send_all(only_a).unwrap();
             retiree.send_all(only_b).unwrap();

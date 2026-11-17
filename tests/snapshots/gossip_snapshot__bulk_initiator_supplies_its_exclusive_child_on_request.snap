@@ -18,7 +18,7 @@ control item 1 (142 bytes) / greeting /
     "version": 53846_1(h'40ff01f9'),
     "grandchildren": 2,
     "max_version_bytes": 3,
-    "payload_depth_limit": 256_1,
+    "message_depth_limit": 256_1,
     "target_message_size": 262144_2,
 }>>)
 control item 2 (2 bytes) / epilogue /
@@ -51,7 +51,7 @@ control item 1 (182 bytes) / greeting /
     "version": 53846_1(h'7077'),
     "grandchildren": 3,
     "max_version_bytes": 2,
-    "payload_depth_limit": 256_1,
+    "message_depth_limit": 256_1,
     "target_message_size": 262144_2,
 }>>)
 control item 2 (2 bytes) / epilogue /

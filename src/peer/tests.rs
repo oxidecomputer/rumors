@@ -24,7 +24,7 @@ use crate::tree::mirror::streaming::Local;
 use crate::tree::mirror::streaming::materialized::Allowances;
 use crate::tree::mirror::streaming::remote::{RunBudget, WRITE_BUFFER_BYTES};
 use crate::tree::{Action, Tree};
-use crate::{Connection, Joined, Version};
+use crate::{Connection, Join, Version};
 
 /// Add one event to a tree using its owner's current identity.
 fn insert(tree: &mut Tree<u64>, party: &Party, value: u64) {
@@ -86,7 +86,7 @@ divided_proptest! {
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn synchronization_settings_report_effective_values(network in network_seed()) {
+    fn peer_settings_report_effective_values(network in network_seed()) {
         let depth = 17;
         // Just above the minimum for the target it sets, so the session
         // runs on it as given.
@@ -95,28 +95,28 @@ divided_proptest! {
             .sync_memory_budget(budget)
             .target_message_size(usize::MAX)
             .write_batch_range(5..=usize::MAX)
-            .payload_depth_limit(depth);
-        let expected = super::SynchronizationSettings {
+            .message_depth_limit(depth);
+        let expected = super::Settings {
             sync_memory_budget: budget,
             target_message_size: MAX_RUN_BUDGET_BYTES,
             write_batch_range: (Bound::Included(5), Bound::Included(WRITE_BUFFER_BYTES)),
-            payload_depth_limit: depth,
+            message_depth_limit: depth,
         };
 
-        assert_eq!(peer.synchronization_settings(), expected);
+        assert_eq!(peer.settings(), expected);
         let peer_debug = format!("{peer:?}");
         assert!(peer_debug.contains(&format!("sync_memory_budget: {budget}")));
         assert!(peer_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
         assert!(peer_debug.contains(&format!("write_batch_range: (Included(5), Included({WRITE_BUFFER_BYTES}))")));
-        assert!(peer_debug.contains("payload_depth_limit: 17"));
+        assert!(peer_debug.contains("message_depth_limit: 17"));
 
         let rumors = peer.into_rumors();
-        assert_eq!(rumors.synchronization_settings(), expected);
+        assert_eq!(rumors.settings(), expected);
         let rumors_debug = format!("{rumors:?}");
         assert!(rumors_debug.contains(&format!("sync_memory_budget: {budget}")));
         assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
         assert!(rumors_debug.contains(&format!("write_batch_range: (Included(5), Included({WRITE_BUFFER_BYTES}))")));
-        assert!(rumors_debug.contains("payload_depth_limit: 17"));
+        assert!(rumors_debug.contains("message_depth_limit: 17"));
     }
 }
 
@@ -174,7 +174,7 @@ fn the_default_write_batch_range_applies_as_given() {
     let default = crate::default::tls::WRITE_BATCH_RANGE;
     let peer = Peer::<u64>::seed();
     assert_eq!(
-        peer.synchronization_settings().write_batch_range,
+        peer.settings().write_batch_range,
         (
             Bound::Included(*default.start()),
             Bound::Included(*default.end())
@@ -200,21 +200,21 @@ proptest! {
         end in batch_bound(),
     ) {
         let expected = applied_range(start, end);
-        let read = |settings: super::SynchronizationSettings| settings.write_batch_range;
+        let read = |settings: super::Settings| settings.write_batch_range;
         let peer = network.peer::<u64>().write_batch_range((start, end));
-        prop_assert_eq!(read(peer.synchronization_settings()), expected);
+        prop_assert_eq!(read(peer.settings()), expected);
         let again = network.peer::<u64>().write_batch_range(expected);
-        prop_assert_eq!(read(again.synchronization_settings()), expected);
+        prop_assert_eq!(read(again.settings()), expected);
         let rumors = peer.into_rumors();
         let clone = rumors.clone();
-        prop_assert_eq!(read(clone.synchronization_settings()), expected);
+        prop_assert_eq!(read(clone.settings()), expected);
         drop(clone);
         let peer = pollster::block_on(rumors.try_into_peer())
             .expect("the last handle reunites into a peer");
-        prop_assert_eq!(read(peer.synchronization_settings()), expected);
+        prop_assert_eq!(read(peer.settings()), expected);
         let peer = pollster::block_on(peer.bookmark(crate::bookmark::NoBookmark))
             .unwrap_or_else(|_| panic!("attaching an inert bookmark succeeds"));
-        prop_assert_eq!(read(peer.synchronization_settings()), expected);
+        prop_assert_eq!(read(peer.settings()), expected);
     }
 }
 
@@ -268,7 +268,7 @@ proptest! {
     /// Every sequence of calls, both setters interleaved and repeated,
     /// gives on a `Peer` what setting the two last values once gives in
     /// either order, and the same through `into_rumors` and on a
-    /// `Bootstrap` builder. A setter the sequence never calls holds its
+    /// `Join` builder. A setter the sequence never calls holds its
     /// default. Budgets lie on both sides of the minimum and across the
     /// range where the target is lowered, and targets on both sides of the
     /// default and of the wire's cap. What the two values are is
@@ -295,29 +295,29 @@ proptest! {
             })
             .unwrap_or(default::TARGET_MESSAGE_SIZE);
 
-        let read = |settings: super::SynchronizationSettings| {
+        let read = |settings: super::Settings| {
             (settings.sync_memory_budget, settings.target_message_size)
         };
         let budget_first = network.peer::<u64>()
             .sync_memory_budget(budget)
             .target_message_size(target);
-        let expected = read(budget_first.synchronization_settings());
+        let expected = read(budget_first.settings());
         let target_first = network.peer::<u64>()
             .target_message_size(target)
             .sync_memory_budget(budget);
-        prop_assert_eq!(read(target_first.synchronization_settings()), expected);
+        prop_assert_eq!(read(target_first.settings()), expected);
         let sequenced = calls.iter().fold(network.peer::<u64>(), |peer, call| match *call {
             Setting::Budget(bytes) => peer.sync_memory_budget(bytes),
             Setting::Target(bytes) => peer.target_message_size(bytes),
         });
-        prop_assert_eq!(read(sequenced.synchronization_settings()), expected);
-        prop_assert_eq!(read(sequenced.into_rumors().synchronization_settings()), expected);
+        prop_assert_eq!(read(sequenced.settings()), expected);
+        prop_assert_eq!(read(sequenced.into_rumors().settings()), expected);
 
-        let bootstrap = calls.iter().fold(Peer::<u64>::bootstrap(), |builder, call| match *call {
+        let joining = calls.iter().fold(Peer::<u64>::joining(), |builder, call| match *call {
             Setting::Budget(bytes) => builder.sync_memory_budget(bytes),
             Setting::Target(bytes) => builder.target_message_size(bytes),
         });
-        let limits = bootstrap.settings.sizing.limits();
+        let limits = joining.settings.sizing.limits();
         prop_assert_eq!((limits.budget.memory, limits.target.bytes()), expected);
     }
 
@@ -345,7 +345,7 @@ proptest! {
         let settings = network.peer::<u64>()
             .sync_memory_budget(budget)
             .target_message_size(target)
-            .synchronization_settings();
+            .settings();
         let (memory, lowered) = (settings.sync_memory_budget, settings.target_message_size);
         let minimum = |target: usize| Allowances::of::<Local>(target).minimum();
         let affords = budget.max(MIN_SYNC_MEMORY_BUDGET);
@@ -364,7 +364,7 @@ proptest! {
         let again = network.peer::<u64>()
             .sync_memory_budget(budget)
             .target_message_size(lowered)
-            .synchronization_settings();
+            .settings();
         prop_assert_eq!(again, settings);
     }
 }
@@ -838,15 +838,15 @@ fn joined(provider: &Peer<u64>) -> Peer<u64> {
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         let (served, joined) = futures::join!(
             provider.gossip_once(&mut a_end.read, &mut a_end.write),
-            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+            Peer::<u64>::join(&mut b_end.read, &mut b_end.write),
         );
-        served.expect("the provider serves the bootstrap");
+        served.expect("the provider serves the join");
         match joined {
-            Joined::Joined {
+            Join::Connected {
                 peer,
                 connection: Connection::Reusable { .. },
             } => peer,
-            _ => panic!("the provider serves the bootstrap"),
+            _ => panic!("the provider serves the join"),
         }
     })
 }

@@ -60,22 +60,22 @@ fn retire_future_fits_budget() {
     );
 }
 
-/// `Bootstrap::join` runs the same mirror descent from an empty tree; its
-/// erasure is `bootstrap_reconcile`'s boxed future, the same discipline as
+/// `Join::join` runs the same mirror descent from an empty tree; its
+/// erasure is `join_reconcile`'s boxed future, the same discipline as
 /// `Reconciliation::reconcile`.
 #[test]
-fn bootstrap_future_fits_budget() {
+fn join_future_fits_budget() {
     let (mut end, peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(peer);
 
-    let fut = Peer::<()>::bootstrap().join(&mut end.read, &mut end.write);
+    let fut = Peer::<()>::join(&mut end.read, &mut end.write);
     let size = size_of_val(&fut);
 
     assert!(
         size <= PUBLIC_FUTURE_BUDGET,
-        "bootstrap future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+        "join future is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
          if a recent change removed the `Pin<Box<dyn Future>>` returned by \
-         `bootstrap_reconcile`, restore it; see gossip_future_fits_budget",
+         `join_reconcile`, restore it; see gossip_future_fits_budget",
     );
 }
 

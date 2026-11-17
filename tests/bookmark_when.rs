@@ -88,38 +88,38 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
 }
 
 /// Join a new helper through the subject, donating a fork of its identity.
-async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
+async fn serve_join(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
     let (mut s_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, n) = tokio::join!(
         subject.gossip_once(&mut s_end.read, &mut s_end.write),
-        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
+        Peer::<u64>::join(&mut n_end.read, &mut n_end.write),
     );
-    s.expect("subject serve bootstrap");
+    s.expect("subject serve join");
     (match n {
-        rumors::Joined::Joined {
+        rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
-        _ => panic!("subject served the bootstrap"),
+        _ => panic!("subject served the join"),
     })
     .sync_memory_budget(0)
     .into_rumors()
 }
 
 /// Join through `origin`, returning a peer ready for bookmark attachment.
-async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
+async fn join_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     let (mut o_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (o, n) = tokio::join!(
         origin.gossip_once(&mut o_end.read, &mut o_end.write),
-        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
+        Peer::<u64>::join(&mut n_end.read, &mut n_end.write),
     );
-    o.expect("origin serves the bootstrap");
+    o.expect("origin serves the join");
     (match n {
-        rumors::Joined::Joined {
+        rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
-        _ => panic!("origin served the bootstrap"),
+        _ => panic!("origin served the join"),
     })
     .sync_memory_budget(0)
 }
@@ -209,7 +209,7 @@ impl Model {
     ///
     /// The donation invalidates the previous party's checkpoint. The next
     /// session records the retained party once, even with no intervening send.
-    fn serve_bootstrap(&mut self) -> Delta {
+    fn serve_join(&mut self) -> Delta {
         let reads = usize::from(!self.loaded);
         let writes = 1 + usize::from(self.pending);
         self.loaded = true;
@@ -242,8 +242,8 @@ impl Model {
 enum Origin {
     /// A pristine seed defers storage until its first session.
     Seed,
-    /// A bootstrapped peer immediately reads and persists its identity.
-    Bootstrap,
+    /// A joined peer immediately reads and persists its identity.
+    Join,
 }
 
 /// One operation in a peer's lifetime; unavailable helpers or messages are
@@ -262,7 +262,7 @@ enum Op {
     HelperRedact(usize),
     /// Reconcile with a helper.
     Gossip(usize),
-    /// Serve a bootstrap, gaining a helper.
+    /// Serve a join, gaining a helper.
     Serve,
     /// Absorb a helper's retirement.
     Absorb(usize),
@@ -312,9 +312,9 @@ impl World {
                 Vec::new(),
                 false,
             ),
-            Origin::Bootstrap => {
+            Origin::Join => {
                 let origin = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-                (bootstrap_fork_peer(&origin).await, vec![origin], true)
+                (join_fork_peer(&origin).await, vec![origin], true)
             }
         };
         let subject = peer.bookmark(probe).await.expect("attach healthy storage");
@@ -424,8 +424,8 @@ impl World {
                 }
             }
             Op::Serve => {
-                self.helpers.push(serve_bootstrap(&self.subject).await);
-                return self.model.serve_bootstrap();
+                self.helpers.push(serve_join(&self.subject).await);
+                return self.model.serve_join();
             }
             Op::Absorb(i) => {
                 if !self.helpers.is_empty() {
@@ -449,7 +449,7 @@ divided_proptest! {
     fn read_is_deferred_to_first_use(network in network_seed()) {
         block_on(async {
             let world = World::new(network, Origin::Seed).await;
-            let _helper = serve_bootstrap(&world.subject).await;
+            let _helper = serve_join(&world.subject).await;
             let history = world.history();
             assert_eq!(
                 history.first(),
@@ -467,7 +467,7 @@ divided_proptest! {
     fn incorporating_remote_content_writes_nothing(network in network_seed()) {
         block_on(async {
             let world = World::new(network, Origin::Seed).await;
-            let helper = serve_bootstrap(&world.subject).await;
+            let helper = serve_join(&world.subject).await;
             // Finish the checkpoint due after donation, so the send is the only
             // reason for the next store.
             plain_gossip(&world.subject, &helper).await;
@@ -492,7 +492,7 @@ divided_proptest! {
     fn read_happens_exactly_once_across_a_long_life(network in network_seed()) {
         block_on(async {
             let world = World::new(network, Origin::Seed).await;
-            let helper = serve_bootstrap(&world.subject).await;
+            let helper = serve_join(&world.subject).await;
             for round in 0..16u64 {
                 world.subject.send(round).unwrap();
                 plain_gossip(&world.subject, &helper).await;
@@ -509,7 +509,7 @@ divided_proptest! {
     #[test]
     fn attaching_to_a_fork_eagerly_persists_then_never_re_reads(network in network_seed()) {
         block_on(async {
-            let world = World::new(network, Origin::Bootstrap).await;
+            let world = World::new(network, Origin::Join).await;
             let before = world.cursor();
             plain_gossip(&world.subject, &world.helpers[0]).await;
             assert_eq!(&world.history()[before..], &[Io::Write]);
@@ -526,14 +526,14 @@ proptest! {
         network in network_seed(),
     ) {
         block_on(async {
-            let world = World::new(network, Origin::Bootstrap).await;
+            let world = World::new(network, Origin::Join).await;
             plain_gossip(&world.subject, &world.helpers[0]).await;
             for message in 0..local_sends {
                 world.subject.send(message).unwrap();
             }
 
             let before = world.cursor();
-            let helper = serve_bootstrap(&world.subject).await;
+            let helper = serve_join(&world.subject).await;
             assert_eq!(
                 Delta::count(&world.history()[before..]),
                 Delta { reads: 0, writes: 1 + usize::from(local_sends > 0) },
@@ -559,7 +559,7 @@ proptest! {
         network in network_seed(),
     ) {
         block_on(async {
-            let world = World::new(network, Origin::Bootstrap).await;
+            let world = World::new(network, Origin::Join).await;
             let helper = &world.helpers[0];
             for message in 0..messages {
                 world.subject.send(message).unwrap();
@@ -591,7 +591,7 @@ proptest! {
         network in network_seed(),
     ) {
         block_on(async {
-            let world = World::new(network, Origin::Bootstrap).await;
+            let world = World::new(network, Origin::Join).await;
             let helper = &world.helpers[0];
             for message in 0..retained {
                 helper.send(message).unwrap();
@@ -635,7 +635,7 @@ proptest! {
     /// Every operation drives the predicted I/O; the sole load precedes every store.
     #[test]
     fn bookmark_io_schedule_matches_the_model(
-        origin in prop_oneof![Just(Origin::Seed), Just(Origin::Bootstrap)],
+        origin in prop_oneof![Just(Origin::Seed), Just(Origin::Join)],
         script in prop::collection::vec(op_strategy(), 0..40),
         retire_at_end: bool,
         network in network_seed(),

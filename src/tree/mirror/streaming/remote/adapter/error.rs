@@ -105,9 +105,9 @@ pub enum DecodeError<E> {
     #[error("a stream-end control reached the protocol reply decoder")]
     UnexpectedStreamEnd,
     /// A leaf was supplied to a side that holds no network secret: a
-    /// bootstrapper meeting another bootstrapper, which can be supplied
+    /// joining peer meeting another joining peer, which can be supplied
     /// nothing, and cannot place a leaf without its network's key.
-    #[error("a leaf was supplied to a bootstrapper holding no network secret")]
+    #[error("a leaf was supplied to a joining peer holding no network secret")]
     UnkeyedSupply,
     /// A supplied leaf's keyed path lies outside the scope its run was supplied
     /// under.

@@ -513,7 +513,7 @@ pub fn prepare_record_run(len: usize) -> PreparedRecordRun {
     let version = crate::Version::new();
     let message = crate::message::Message::try_from_arc(
         std::sync::Arc::new(0_u64),
-        crate::message::PayloadDepthLimit::default(),
+        crate::message::MessageDepthLimit::default(),
     )
     .expect("the integer fixture is an admissible payload");
     for _ in 0..len {
@@ -529,7 +529,7 @@ pub fn prepare_record_run(len: usize) -> PreparedRecordRun {
 /// after the run buffer and its canonical records are built.
 pub fn decode_record_run(run: &PreparedRecordRun) -> Result<usize, DecodeLeafError> {
     let codec =
-        crate::message::PayloadCodec::new::<u64>(crate::message::PayloadDepthLimit::default());
+        crate::message::PayloadCodec::new::<u64>(crate::message::MessageDepthLimit::default());
     run.0
         .records(codec)
         .try_fold(0, |count, record| record.map(|_| count + 1))
@@ -846,7 +846,7 @@ mod tests;
 fn unit_message() -> crate::message::Message {
     crate::message::Message::try_from_arc(
         Arc::new(()),
-        crate::message::PayloadDepthLimit::default(),
+        crate::message::MessageDepthLimit::default(),
     )
     .expect("the unit payload encodes within any depth limit")
 }

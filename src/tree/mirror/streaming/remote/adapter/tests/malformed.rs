@@ -969,8 +969,8 @@ proptest! {
     }
 }
 
-/// A side holding no network secret, a bootstrapper meeting another
-/// bootstrapper, rejects any supplied leaf as `UnkeyedSupply` before placing
+/// A side holding no network secret, a joiner meeting another
+/// joiner, rejects any supplied leaf as `UnkeyedSupply` before placing
 /// it, while the same supply decodes under a key.
 #[test]
 fn a_supply_without_a_key_is_rejected() {

@@ -34,7 +34,7 @@ const FIELDS: [GreetingField; 7] = [
     GreetingField::Version,
     GreetingField::Grandchildren,
     GreetingField::MaxVersionBytes,
-    GreetingField::PayloadDepthLimit,
+    GreetingField::MessageDepthLimit,
     GreetingField::TargetMessageSize,
 ];
 
@@ -71,8 +71,8 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     cbor::write_head(&mut map, MAJOR_UINT, greeting.grandchildren);
     write_key(&mut map, GreetingField::MaxVersionBytes);
     cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
-    write_key(&mut map, GreetingField::PayloadDepthLimit);
-    cbor::write_head(&mut map, MAJOR_UINT, greeting.payload_depth_limit);
+    write_key(&mut map, GreetingField::MessageDepthLimit);
+    cbor::write_head(&mut map, MAJOR_UINT, greeting.message_depth_limit);
     write_key(&mut map, GreetingField::TargetMessageSize);
     cbor::write_head(&mut map, MAJOR_UINT, greeting.target_message_size);
     map
@@ -99,7 +99,7 @@ pub enum GreetingField {
     /// The sender's largest version encoding.
     MaxVersionBytes,
     /// The sender's payload nesting limit.
-    PayloadDepthLimit,
+    MessageDepthLimit,
     /// The sender's supply-run byte target.
     TargetMessageSize,
 }
@@ -113,7 +113,7 @@ impl GreetingField {
             Self::Version => "version",
             Self::Grandchildren => "grandchildren",
             Self::MaxVersionBytes => "max_version_bytes",
-            Self::PayloadDepthLimit => "payload_depth_limit",
+            Self::MessageDepthLimit => "message_depth_limit",
             Self::TargetMessageSize => "target_message_size",
         }
     }
@@ -311,8 +311,8 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     }
     expect_key(&mut input, GreetingField::MaxVersionBytes)?;
     let max_version_bytes = uint(&mut input, GreetingField::MaxVersionBytes)?;
-    expect_key(&mut input, GreetingField::PayloadDepthLimit)?;
-    let payload_depth_limit = uint(&mut input, GreetingField::PayloadDepthLimit)?;
+    expect_key(&mut input, GreetingField::MessageDepthLimit)?;
+    let message_depth_limit = uint(&mut input, GreetingField::MessageDepthLimit)?;
     expect_key(&mut input, GreetingField::TargetMessageSize)?;
     let target_message_size = uint(&mut input, GreetingField::TargetMessageSize)?;
     if !input.is_empty() {
@@ -325,7 +325,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
         set_len,
         grandchildren,
         max_version_bytes,
-        payload_depth_limit,
+        message_depth_limit,
         target_message_size,
         listing,
     })

@@ -167,7 +167,7 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
         )
         .unwrap();
         if is_ephemeral(item) {
-            // The bootstrap's key exchange draws fresh keys every session, so
+            // The join's key exchange draws fresh keys every session, so
             // these items' bytes differ from run to run; the header pins
             // their tag and width, and the totality check holds their bytes.
             writeln!(out, "/ contents drawn fresh each session; not rendered /").unwrap();
@@ -199,14 +199,14 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
     }
 }
 
-/// Whether a control item carries the bootstrap key exchange's fresh,
+/// Whether a control item carries the joining key exchange's fresh,
 /// per-session bytes: the joiner's public key, or the encapsulated key and the
 /// secret sealed to the joiner's key.
 fn is_ephemeral(item: &[u8]) -> bool {
     let mut probe = item;
     cbor::read_head(&mut probe).is_ok_and(|head| {
         head.major == MAJOR_TAG
-            && (head.value == crate::tags::BOOTSTRAP_KEY_TAG
+            && (head.value == crate::tags::JOINING_KEY_TAG
                 || head.value == crate::tags::NETWORK_SECRET_TAG)
     })
 }
@@ -214,7 +214,7 @@ fn is_ephemeral(item: &[u8]) -> bool {
 /// Name one control item by its shape.
 ///
 /// The control items are position- and shape-determined: the self-described tag
-/// opens the preamble, the bootstrap-key tag is the ephemeral key a joining
+/// opens the preamble, the joining-key tag is the ephemeral key a joining
 /// peer sends after its preamble, the network-secret tag is the secret its
 /// provider seals for it, the embedded-item tag wraps the greeting, a tagged
 /// party atom is the identity hand-off, and the dot text item is the epilogue.
@@ -225,7 +225,7 @@ fn control_item_name(item: &[u8]) -> &'static str {
     };
     match (head.major, head.value) {
         (MAJOR_TAG, cbor::TAG_SELF_DESCRIBED) => "preamble",
-        (MAJOR_TAG, crate::tags::BOOTSTRAP_KEY_TAG) => "bootstrap key",
+        (MAJOR_TAG, crate::tags::JOINING_KEY_TAG) => "joining key",
         (MAJOR_TAG, crate::tags::NETWORK_SECRET_TAG) => "sealed network secret",
         (MAJOR_TAG, TAG_EMBEDDED_ITEM) => "greeting",
         (MAJOR_TAG, crate::tags::PARTY_TAG) => "party hand-off",

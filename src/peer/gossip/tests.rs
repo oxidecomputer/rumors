@@ -1,16 +1,16 @@
 //! Session ingress checks: invalid completion markers are protocol violations,
-//! premature closes are transport failures, and bootstrap claimants must have
+//! premature closes are transport failures, and joiners must have
 //! no causal history.
 //!
 //! A rejection leaves the connection at an unknown position. Existing-replica
-//! completion failures happen after commit; bootstrap constructs no peer.
+//! completion failures happen after commit; join constructs no peer.
 
 mod notifications;
 // The session futures hold pointers; their baselines are 64-bit sizes.
 #[cfg(target_pointer_width = "64")]
 mod session_size;
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::{MessageDepthLimit, PayloadCodec};
 use crate::testing::run_to_quiescence;
 use before::Party;
 use futures::future::BoxFuture;
@@ -108,7 +108,7 @@ fn bytes_after_the_marker_stay_untouched() {
     assert_eq!(reader, b"RU", "the next session's bytes were consumed");
 }
 
-// ---- the greeting version of a bootstrap claimant --------------------------
+// ---- the greeting version of a joiner ---------------------------------
 
 /// An empty tree root whose ceiling records `events` committed-then-redacted
 /// events: what a misdeclaring claimant presents, nothing to provide plus a
@@ -134,14 +134,14 @@ fn redacted_history_root(network: NetworkSeed, events: u64) -> tree::Root {
     donor.inner.borrow().tree.clone().root
 }
 
-/// Drive one session as a bootstrap claimant whose greeting version comes from
+/// Drive one session as a joiner whose greeting version comes from
 /// `root` instead of a newborn's empty version.
 ///
-/// This is the bootstrap join's wire flow with the one deviation under test:
-/// the preamble declares [`Network::BOOTSTRAP`] while the greeting declares
+/// This is the join's wire flow with the one deviation under test:
+/// the preamble declares [`Network::JOINING`] while the greeting declares
 /// `root`'s causal frontier. Returns the donated party and the reconciled tree
 /// if the counterparty serves the session to completion.
-async fn claim_bootstrap_with_root(
+async fn claim_join_with_root(
     end: &mut MemoryEnd,
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
@@ -149,7 +149,7 @@ async fn claim_bootstrap_with_root(
     let joining = secret::Joining::new();
     let mut staged = preamble::Staged::new();
     let counterparty = preamble::preamble(
-        Network::BOOTSTRAP,
+        Network::JOINING,
         Intent::Remain,
         &joining.item(),
         &mut staged,
@@ -159,10 +159,10 @@ async fn claim_bootstrap_with_root(
     )
     .await
     .map_err(Error::from)?;
-    // A provider seals its network's secret for our key; a bootstrapping
+    // A provider seals its network's secret for our key; a joining
     // counterparty sends its own key item instead, which we discard.
     let keys = match counterparty {
-        preamble::Counterparty::Bootstrapping(item) => {
+        preamble::Counterparty::Joining(item) => {
             secret::decode_key(&item)?;
             None
         }
@@ -186,7 +186,7 @@ async fn claim_bootstrap_with_root(
         Local,
         &mut end.read,
         &mut end.write,
-        PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<u64>(MessageDepthLimit::default()),
         keys.clone(),
     );
     let handshaken = streaming::handshake(local, proxy)
@@ -219,7 +219,7 @@ fn party_of(provider: &Peer<u64>) -> Party {
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// A provider serving a bootstrap rejects a claimant whose greeting declares
+    /// A provider serving a join rejects a claimant whose greeting declares
     /// causal history: [`Error::Protocol`], nothing moved.
     ///
     /// The declared version would otherwise drive the deletion-honoring filter
@@ -227,12 +227,12 @@ divided_proptest! {
     /// read as deleted-there — a claimant providing nothing while declaring a
     /// dominating version would empty the provider's replica. The rejection
     /// runs after the greeting and before the descent: the provider's content,
-    /// version, and party are unchanged, the speculative bootstrap fork is
+    /// version, and party are unchanged, the speculative donation fork is
     /// re-joined, and the error names the claimed history's event floor.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn bootstrap_claimant_declaring_history_is_rejected(network in network_seed()) {
+    fn join_claimant_declaring_history_is_rejected(network in network_seed()) {
         let provider = provider_with(network, &[1, 2, 3]);
         let hash_before = provider.snapshot().hash();
         let party_before = party_of(&provider);
@@ -247,14 +247,14 @@ divided_proptest! {
         let (claim_out, first) = pollster::block_on(async {
             let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
             tokio::join!(
-                async move { claim_bootstrap_with_root(&mut a_end, claimant_tree.root).await },
+                async move { claim_join_with_root(&mut a_end, claimant_tree.root).await },
                 async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
             )
         });
 
         match first {
             Err(Error::Protocol(error)) => {
-                let Some(SessionDefect::BootstrapHistory {
+                let Some(SessionDefect::JoinerHistory {
                     claimed_min_events: reported,
                 }) = error.source.downcast_ref::<SessionDefect>()
                 else {
@@ -276,35 +276,35 @@ divided_proptest! {
         assert_eq!(
             party_of(&provider),
             party_before,
-            "the speculative bootstrap fork snapped back in place",
+            "the speculative donation fork snapped back in place",
         );
     }
 
-    /// A joining peer rejects a mutual-bootstrap counterparty whose greeting
+    /// A joining peer rejects a mutual-join counterparty whose greeting
     /// declares causal history, instead of bailing as if the encounter were two
     /// newborns.
     ///
-    /// The newborn requirement binds every bootstrap claimant, and in a
-    /// mutual-bootstrap encounter the joining side is the side facing one: it
+    /// The newborn requirement binds every joiner, and in a
+    /// mutual-join encounter the joining side is the side facing one: it
     /// surfaces the same [`Error::Protocol`] a serving provider would, rather than
     /// certifying a clean mutual bail against a counterparty that is neither
     /// newborn nor a provider.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn mutual_bootstrap_counterparty_with_history_is_rejected(network in network_seed()) {
+    fn mutual_join_counterparty_with_history_is_rejected(network in network_seed()) {
         let (join_out, claim_out) = pollster::block_on(async {
             let (a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
             tokio::join!(
-                async move { Peer::<u64>::bootstrap().join(a_end.read, a_end.write).await },
-                async move { claim_bootstrap_with_root(&mut b_end, redacted_history_root(network, 8)).await },
+                async move { Peer::<u64>::join(a_end.read, a_end.write).await },
+                async move { claim_join_with_root(&mut b_end, redacted_history_root(network, 8)).await },
             )
         });
 
         assert!(
             matches!(
                 join_out,
-                crate::Joined::Failed {
+                crate::Join::Failed {
                     error: Error::Protocol(_),
                     ..
                 }
@@ -334,7 +334,7 @@ divided_proptest! {
         pollster::block_on(async {
             let (mut a_end, b_end) = memory_connection(MEMORY_CAPACITY);
             let (claim_out, provider_out) = tokio::join!(
-                async move { claim_bootstrap_with_root(&mut a_end, redacted_history_root(network, 8)).await },
+                async move { claim_join_with_root(&mut a_end, redacted_history_root(network, 8)).await },
                 async move { provider_ref.gossip_once(b_end.read, b_end.write).await },
             );
             assert!(
@@ -347,12 +347,12 @@ divided_proptest! {
         let witness = pollster::block_on(async {
             let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
             let (witness_out, provider_out) = tokio::join!(
-                Peer::<u64>::bootstrap().join(&mut a_end.read, &mut a_end.write),
+                Peer::<u64>::join(&mut a_end.read, &mut a_end.write),
                 provider.gossip_once(&mut b_end.read, &mut b_end.write),
             );
             provider_out.expect("the provider serves the newborn claimant");
             match witness_out {
-                crate::Joined::Joined { peer, connection: crate::Connection::Reusable { .. } } => peer,
+                crate::Join::Connected { peer, connection: crate::Connection::Reusable { .. } } => peer,
                 _ => panic!("the provider donates"),
             }
         });
@@ -556,13 +556,13 @@ divided_proptest! {
         let (served, joined) = run_to_quiescence(async {
             futures::join!(
                 a.gossip_once(&mut near.read, &mut near.write),
-                Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)
+                Peer::<u64>::join(&mut far.read, &mut far.write)
             )
         })
         .unwrap();
         served.unwrap();
-        let crate::Joined::Joined { peer, connection: crate::Connection::Reusable { .. } } = joined else {
-            panic!("bootstrap succeeds")
+        let crate::Join::Connected { peer, connection: crate::Connection::Reusable { .. } } = joined else {
+            panic!("join succeeds")
         };
         let b = peer.into_rumors();
         a.send(1).unwrap();

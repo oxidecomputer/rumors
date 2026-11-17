@@ -10,7 +10,7 @@
 //! derives the secret from a ChaCha stream whose output for a given seed is the
 //! same on every platform.
 //!
-//! One draw stays outside every seed: a bootstrap, in tests as everywhere,
+//! One draw stays outside every seed: a join, in tests as everywhere,
 //! draws the ephemeral P-256 key of its key exchange from the operating system.
 //! A failure that depends on the value of that key cannot be replayed from a
 //! seed, and the tests accept that.
@@ -65,7 +65,7 @@ pub use crate::divided_proptest;
 /// The seed of one test network's secret.
 ///
 /// Create each network once from its seed, and let other members join it by
-/// bootstrapping. Two peers created from one seed share the network's identity
+/// joining. Two peers created from one seed share the network's identity
 /// *and* its whole party, so letting them gossip breaks the linearity of
 /// parties. A test that needs two independent networks draws two seeds.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -129,7 +129,7 @@ pub fn distinct_network_seeds() -> impl Strategy<Value = (NetworkSeed, NetworkSe
 pub const LOCAL_DIVISOR: u32 = 4;
 
 /// The divisor for a case that runs a few gossip sessions over in-memory
-/// connections, or one bootstrap or retirement.
+/// connections, or one join or retirement.
 pub const SESSION_DIVISOR: u32 = 16;
 
 /// The divisor for a case that builds a fleet, runs many sessions, or drives

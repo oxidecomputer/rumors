@@ -70,7 +70,7 @@ where
     ///
     /// `codec` reconstructs every supplied message received in this session,
     /// and the path key of `keys` places each one at its path. A session
-    /// without keys, a bootstrapper's meeting another bootstrapper, rejects
+    /// without keys, a joining peer's meeting another joining peer, rejects
     /// every supply.
     pub fn start(
         backend: B,
@@ -167,7 +167,7 @@ where
     ) -> Result<Connected<B, R, W>, Error<B::Error>> {
         // Check configuration before the driver can take the equal-version
         // shortcut, so agreement on content cannot hide incompatible peers.
-        payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
+        message_depth_limits_match::<B::Error>(&self.codec, &remote)?;
         let budget = run_budget(&local, &remote);
         // The pools are sized at this side's own target, which bounds every
         // run of the session in either direction, as the memory budget set
@@ -256,7 +256,7 @@ where
     async fn complete_connect(mut self, mut local: Greeting) -> Result<Self::Next, Self::Error> {
         // The wire value of the local limit is the codec's: the one
         // configuration every parse of this session already runs under.
-        local.payload_depth_limit = self.codec.limit().get();
+        local.message_depth_limit = self.codec.limit().get();
         send::<B::Error, _>(&local, &mut self.write, &self.observe).await?;
         let remote = self.versions.remote.clone();
         self.connected(local, remote)
@@ -275,7 +275,7 @@ where
     async fn accept(mut self, mut local: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         // The wire value of the local limit is the codec's: the one
         // configuration every parse of this session already runs under.
-        local.payload_depth_limit = self.codec.limit().get();
+        local.message_depth_limit = self.codec.limit().get();
         let send = send::<B::Error, _>(&local, &mut self.write, &self.observe);
         let receive = receive::<B::Error, _>(&mut self.read, &self.observe);
         let (_, remote) = futures::future::try_join(send, receive).await?;
@@ -294,11 +294,11 @@ where
 /// gossip), so any negotiation scheme merely relocates the failure to
 /// mid-session, conditional on which leaves differ. Both sides detect the
 /// mismatch symmetrically, like a network mismatch.
-fn payload_depth_limits_match<E>(codec: &PayloadCodec, remote: &Greeting) -> Result<(), Error<E>> {
+fn message_depth_limits_match<E>(codec: &PayloadCodec, remote: &Greeting) -> Result<(), Error<E>> {
     let local = codec.limit().get();
-    let declared = remote.payload_depth_limit;
+    let declared = remote.message_depth_limit;
     if declared != local {
-        return Err(Error::PayloadDepthMismatch {
+        return Err(Error::MessageDepthMismatch {
             local,
             remote: declared,
         });

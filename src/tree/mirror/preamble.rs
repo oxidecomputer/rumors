@@ -6,13 +6,13 @@
 //! greeting, which front-loads the session parameters the protocol negotiates,
 //! inventoried where they are defined — the [`streaming`](super::streaming)
 //! module's `Greeting` message. Keeping these phases separate permits a
-//! provider to learn that its peer is bootstrapping before it atomically
+//! provider to learn that its peer is joining before it atomically
 //! snapshots the tree and forks its party, and to send that peer the network's
 //! secret (the [`secret`](super::secret) item) before the greeting.
 //!
-//! A bootstrapping peer sends its key item right after its preamble, in the
+//! A joining peer sends its key item right after its preamble, in the
 //! same write, and the exchange reads the key item of any counterparty whose
-//! preamble declares bootstrapping, returning it with who the counterparty is
+//! preamble declares it is joining, returning it with who the counterparty is
 //! ([`Counterparty`]).
 //!
 //! The preamble is one self-described CBOR item, so each direction of a
@@ -61,7 +61,7 @@ pub(crate) const V2_PREAMBLE_LEN: usize = V2_PREFIX.len() + 1 + (1 + NETWORK_BYT
 /// A peer's declared purpose for one reconciliation session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Intent {
-    /// Participate and retain (or, bootstrapping, receive) an identity.
+    /// Participate and retain (or, joining, receive) an identity.
     Remain,
     /// Reconcile, then donate the peer's identity in a trailing hand-off.
     Retire,
@@ -94,7 +94,7 @@ impl Intent {
 /// The validated network and intent carried ahead of the greeting exchange.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Preamble {
-    /// The peer's network's public identifier, or the bootstrap placeholder.
+    /// The peer's network's public identifier, or the joining placeholder.
     pub(crate) network: Network,
     /// Whether the peer remains or retires after reconciliation.
     pub(crate) intent: Intent,
@@ -156,8 +156,8 @@ impl Preamble {
 
     /// Enforce the semantic network/intent combination.
     fn admit(network: Network, intent: Intent) -> Result<Self, Error> {
-        if network.is_bootstrap() && intent.retiring() {
-            return Err(Error::BootstrapRetireConflict);
+        if network.is_joining() && intent.retiring() {
+            return Err(Error::JoinRetireConflict);
         }
         Ok(Self { network, intent })
     }
@@ -214,8 +214,8 @@ pub(crate) enum Error {
         byte: u8,
     },
     /// A peer cannot simultaneously receive and donate an identity.
-    #[error("peer claimed to bootstrap and retire in the same session")]
-    BootstrapRetireConflict,
+    #[error("peer claimed to join and retire in the same session")]
+    JoinRetireConflict,
 }
 
 /// The invalid field in a fully received preamble.
@@ -321,7 +321,7 @@ impl Staged {
     }
 }
 
-/// A bootstrapping peer's key item, which follows its preamble.
+/// A joining peer's key item, which follows its preamble.
 pub(crate) type KeyItem = [u8; crate::tree::mirror::secret::KEY_ITEM_LEN];
 
 /// Who the counterparty is, read from its validated preamble: what every
@@ -330,13 +330,13 @@ pub(crate) type KeyItem = [u8; crate::tree::mirror::secret::KEY_ITEM_LEN];
 /// A peer is either joining, and then has no network, no intent but to remain,
 /// and a key item following its preamble, or a member of a network remaining or
 /// retiring after reconciliation. One value carries each case whole, so a
-/// session never checks the bootstrap placeholder and the key item's presence
+/// session never checks the joining placeholder and the key item's presence
 /// separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Counterparty {
     /// A peer joining a network, with the key item that followed its preamble:
     /// a provider seals the network's secret for that key.
-    Bootstrapping(KeyItem),
+    Joining(KeyItem),
     /// A member of a network.
     Established {
         /// The member's network's public identifier.
@@ -348,8 +348,8 @@ pub(crate) enum Counterparty {
 
 impl Counterparty {
     /// Whether the counterparty is joining a network.
-    pub(crate) fn bootstrapping(&self) -> bool {
-        matches!(self, Counterparty::Bootstrapping(_))
+    pub(crate) fn joining(&self) -> bool {
+        matches!(self, Counterparty::Joining(_))
     }
 
     /// Whether the counterparty retires into this side after reconciliation.
@@ -368,12 +368,12 @@ impl Counterparty {
 ///
 /// `follow` is one whole item this side sends right after its preamble, in the
 /// same write and flush, before it has read the peer's preamble: a
-/// bootstrapping peer's key item, so that its key costs no round trip. Empty
+/// joining peer's key item, so that its key costs no round trip. Empty
 /// for every other session.
 ///
-/// Returns who the peer is, with the key item that follows a bootstrapping
+/// Returns who the peer is, with the key item that follows a joining
 /// peer's preamble ([`Counterparty`]). The key item is read while this side's
-/// own write is still in flight: two bootstrapping peers each write a preamble
+/// own write is still in flight: two joining peers each write a preamble
 /// and a key item before reading anything past the other's preamble, so if
 /// either waited for its write to finish before draining the other's key item,
 /// a transport that buffers less than both could leave them waiting on each
@@ -426,9 +426,9 @@ where
             }
         }
         // A validation failure is reported once both directions are done;
-        // only a valid bootstrapping preamble promises a key item to read.
+        // only a valid joining preamble promises a key item to read.
         let counterparty = match staged.validate() {
-            Ok(preamble) if preamble.network.is_bootstrap() => {
+            Ok(preamble) if preamble.network.is_joining() => {
                 let mut item = [0; crate::tree::mirror::secret::KEY_ITEM_LEN];
                 reader
                     .read_exact(&mut item)
@@ -437,7 +437,7 @@ where
                         operation: TransportOperation::Read,
                         source,
                     })?;
-                Ok(Counterparty::Bootstrapping(item))
+                Ok(Counterparty::Joining(item))
             }
             Ok(Preamble { network, intent }) => Ok(Counterparty::Established { network, intent }),
             Err(error) => Err(error),
@@ -450,7 +450,7 @@ where
     // conforming exchanges, and a malformed preamble aborts the session
     // instead of feeding observers a non-item.
     observe.control_received(staged.received());
-    if let Counterparty::Bootstrapping(item) = &counterparty {
+    if let Counterparty::Joining(item) = &counterparty {
         observe.control_received(item);
     }
     Ok(counterparty)

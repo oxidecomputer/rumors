@@ -13,7 +13,7 @@ use proptest::prelude::*;
 use super::super::{Ingress, Outstanding, queues};
 use super::reject_extra;
 use crate::Version;
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::{MessageDepthLimit, PayloadCodec};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::{
     FAN, Local,
@@ -199,7 +199,7 @@ proptest! {
             SupplyBounds::new(Version::new(), u64::MAX, Version::new()),
             u64::MAX,
             Grandchildren::MAX,
-            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(MessageDepthLimit::default()),
             Some(crate::network::NetworkKeys::fixture()),
         );
         let height = UnderRoot::HEIGHT;

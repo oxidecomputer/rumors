@@ -16,8 +16,8 @@ pub const SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 /// The default [`Peer::target_message_size`](crate::Peer::target_message_size).
 pub const TARGET_MESSAGE_SIZE: usize = 256 * 1024;
 
-/// The default [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit).
-pub const PAYLOAD_DEPTH_LIMIT: u64 = 256;
+/// The default [`Peer::message_depth_limit`](crate::Peer::message_depth_limit).
+pub const MESSAGE_DEPTH_LIMIT: u64 = 256;
 
 /// The default [`Peer::bookmark_size_limit`](crate::Peer::bookmark_size_limit).
 pub const BOOKMARK_SIZE_LIMIT: usize = 16 * 1024 * 1024;

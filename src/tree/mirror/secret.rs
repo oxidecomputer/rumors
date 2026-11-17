@@ -1,4 +1,4 @@
-//! The sealed exchange by which a provider hands a bootstrapping peer its
+//! The sealed exchange by which a provider hands a joining peer its
 //! network's secret.
 //!
 //! A peer that joins a network must come away holding the network's secret
@@ -9,12 +9,12 @@
 //! IETF's standard public-key encryption:
 //!
 //! 1. The joiner draws an HPKE key pair and sends its public key in the *key
-//!    item*, `BOOTSTRAP_KEY_TAG(bstr(public key))`, in the same write as its
+//!    item*, `JOINING_KEY_TAG(bstr(public key))`, in the same write as its
 //!    preamble, so the exchange adds no round trip. It sends the item before it
 //!    knows whether its counterparty provides; the preamble exchange reads the
-//!    key item of any counterparty whose preamble declares bootstrapping, and
-//!    one that is bootstrapping too discards it.
-//! 2. The provider, once the preambles show its counterparty is bootstrapping,
+//!    key item of any counterparty whose preamble declares it is joining, and
+//!    a reader that is joining too discards it.
+//! 2. The provider, once the preambles show its counterparty is joining,
 //!    reads and validates that key, and seals the secret to it with HPKE's
 //!    single-shot encryption in base mode. It sends the *sealed item*,
 //!    `NETWORK_SECRET_TAG(bstr(encapsulated key ‖ ciphertext ‖
@@ -28,10 +28,10 @@
 //! HKDF-SHA256), the KDF HKDF-SHA256, and the AEAD AES-256-GCM. Public keys and
 //! the encapsulated key are uncompressed SEC1 points, as RFC 9180 encodes them.
 //!
-//! HPKE's `info` input holds the domain label `"rumors bootstrap network
+//! HPKE's `info` input holds the domain label `"rumors join network
 //! secret"` and the protocol version, and its associated data holds the network
 //! identifier the provider's preamble declared. A seal therefore opens only in
-//! a bootstrap of this protocol version that declares the same network.
+//! a join of this protocol version that declares the same network.
 //!
 //! # What HPKE guarantees here
 //!
@@ -80,7 +80,7 @@ use crate::{
     error::{Phase, TransportOperation as Op},
     network::{NETWORK_BYTES, NetworkSecret},
     observe::SessionHandle,
-    tags::{BOOTSTRAP_KEY_TAG, NETWORK_SECRET_TAG},
+    tags::{JOINING_KEY_TAG, NETWORK_SECRET_TAG},
     tree::mirror::cbor::{self, MAJOR_BSTR},
 };
 
@@ -144,7 +144,7 @@ const fn item_prefix(tag: u64, len: usize) -> [u8; PREFIX_LEN] {
 const SEALED_LEN: usize = ENCAPPED_KEY_LEN + NETWORK_BYTES + TAG_LEN;
 
 /// The key item's opening.
-const KEY_ITEM_PREFIX: [u8; PREFIX_LEN] = item_prefix(BOOTSTRAP_KEY_TAG, PUBLIC_KEY_LEN);
+const KEY_ITEM_PREFIX: [u8; PREFIX_LEN] = item_prefix(JOINING_KEY_TAG, PUBLIC_KEY_LEN);
 
 /// The sealed item's opening.
 const SEALED_ITEM_PREFIX: [u8; PREFIX_LEN] = item_prefix(NETWORK_SECRET_TAG, SEALED_LEN);
@@ -156,7 +156,7 @@ pub(crate) const KEY_ITEM_LEN: usize = PREFIX_LEN + PUBLIC_KEY_LEN;
 pub(crate) const SEALED_ITEM_LEN: usize = PREFIX_LEN + SEALED_LEN;
 
 /// The domain label opening HPKE's `info`, ahead of the protocol version.
-const INFO_LABEL: &[u8] = b"rumors bootstrap network secret";
+const INFO_LABEL: &[u8] = b"rumors join network secret";
 
 /// Bytes of HPKE's `info`: the domain label, then the protocol version.
 const INFO_LEN: usize = INFO_LABEL.len() + size_of::<u64>();
@@ -208,12 +208,12 @@ pub(crate) enum SecretDefect {
 }
 
 /// The name of the key item, in defects.
-const KEY_ITEM: &str = "bootstrap key item";
+const KEY_ITEM: &str = "joining key item";
 
 /// The name of the sealed item, in defects.
 const SEALED_ITEM: &str = "sealed network secret item";
 
-/// A bootstrapping peer's half of the exchange: the HPKE key pair it draws for
+/// A joiner's half of the exchange: the HPKE key pair it draws for
 /// this one session.
 ///
 /// The private key zeroizes when it drops, through `p256`'s own support.
@@ -225,7 +225,7 @@ pub(crate) struct Joining {
 }
 
 impl Joining {
-    /// Draw this bootstrap's key pair.
+    /// Draw this join's key pair.
     ///
     /// # Panics
     ///
@@ -300,12 +300,12 @@ impl Joining {
     }
 }
 
-/// A bootstrapping counterparty's validated public key, from its key item.
+/// A joining counterparty's validated public key, from its key item.
 pub(crate) struct JoinerKey(PublicKey);
 
-/// Validate a bootstrapping counterparty's key item, which the preamble
+/// Validate a joining counterparty's key item, which the preamble
 /// exchange read after its preamble: by a provider, to seal the secret for it,
-/// and by a bootstrapping peer, before discarding it.
+/// and by a joiner, before discarding it.
 ///
 /// The `hpke` crate's deserialization makes the public-key validation RFC 9180
 /// requires (section 7.1.4, by SP 800-56A): the key must be the uncompressed
@@ -322,7 +322,7 @@ pub(crate) fn decode_key(item: &[u8; KEY_ITEM_LEN]) -> Result<JoinerKey, Error> 
         .map_err(|_| violation(SecretDefect::InvalidKey { item: KEY_ITEM }))
 }
 
-/// Seal `secret` to the bootstrapping counterparty whose key is `joiner`, bound
+/// Seal `secret` to the joining counterparty whose key is `joiner`, bound
 /// to the network identifier `declared` this side's preamble sent.
 ///
 /// # Panics
@@ -349,7 +349,7 @@ fn seal(secret: &NetworkSecret, joiner: &JoinerKey, declared: Network) -> [u8; S
     item
 }
 
-/// Write the network's secret, sealed, to a bootstrapping counterparty.
+/// Write the network's secret, sealed, to a joining counterparty.
 ///
 /// The item is not flushed here: the greeting follows it on the same write half
 /// before this side waits for anything from the joiner, and that greeting's

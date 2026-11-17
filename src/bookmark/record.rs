@@ -35,7 +35,7 @@
 //! frontier, `written`, shared by all of them.
 //!
 //! - An identity is a region the owner held when it recorded it and has not
-//!   since given away. A donation to a bootstrapping peer is removed from every
+//!   since given away. A donation to a joining peer is removed from every
 //!   identity, durably, before it can leave the process. So an identity is
 //!   owned by no live peer: condition 1.
 //! - `written`, projected on an identity, dominates every version the network
@@ -48,11 +48,11 @@
 //! The reclaim rule is then one line: join an identity into the live party
 //! exactly when the live frontier dominates `written` on it.
 //!
-//! Identities may overlap. A fork reserved for a bootstrap leaves the live
-//! party while an identity recorded earlier still contains it, and a checkpoint
-//! taken meanwhile records the smaller party beside the larger one. The shared
-//! frontier keeps overlap harmless for condition 2. For condition 1, a
-//! checkpoint reclaims only while no fork is reserved, and reserving needs the
+//! Identities may overlap. A donation fork reserved for a joining peer leaves
+//! the live party while an identity recorded earlier still contains it, and a
+//! checkpoint taken meanwhile records the smaller party beside the larger one.
+//! The shared frontier keeps overlap harmless for condition 2. For condition 1,
+//! a checkpoint reclaims only while no fork is reserved, and reserving needs the
 //! same exclusive access to the replica that a checkpoint runs under, so
 //! neither can begin during the other. A reservation held by a leaked session
 //! future is forgotten when the peer is reclaimed from its handles; its fork

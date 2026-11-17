@@ -9,7 +9,7 @@
 //! lockstep with the choices it emits — a shadow simulator that mirrors what
 //! each `Peer<T>` would observe under the protocol (including the
 //! deletion-honoring propagation of redactions during gossip, the content copy
-//! a bootstrap hands a newcomer, and the absorption a retirement performs). A
+//! a join hands a newcomer, and the absorption a retirement performs). A
 //! choice that resolves to nothing an application could do (redacting with
 //! nothing observed, retiring with one peer alive) is simply dropped, so the
 //! executor never has to filter "impossible" events at runtime.
@@ -48,7 +48,7 @@ where
 /// meta-tests.
 ///
 /// Vectors are indexed by peer over the *total* population — the initial fleet
-/// plus every mid-schedule bootstrap. A retired peer's entries freeze at its
+/// plus every mid-schedule join. A retired peer's entries freeze at its
 /// retirement: `observed_log` is its complete lifetime log, and its `live` set
 /// is meaningless once `alive` is false (the content moved into its absorber).
 #[derive(Debug, Clone)]
@@ -82,7 +82,7 @@ where
 }
 
 /// [`arb_schedule`] with membership events in the alphabet: mid-schedule
-/// bootstraps grow the fleet and retires shrink it, every emitted event valid
+/// joins grow the fleet and retires shrink it, every emitted event valid
 /// by construction against the shadow's alive set.
 ///
 /// Peer references draw raw entropy resolved against the population alive at
@@ -187,8 +187,8 @@ enum Choice<T> {
         a: usize,
         b: usize,
     },
-    /// Bootstrap a new peer from the resolved parent. Membership strategy only.
-    Bootstrap {
+    /// Join a new peer from the resolved parent. Membership strategy only.
+    Join {
         parent: usize,
     },
     /// Retire the resolved retiree into a distinct alive absorber (`absorber`
@@ -230,7 +230,7 @@ where
             .prop_map(|(peer, idx)| Choice::RedactObservation { peer, idx }),
         3 => (any::<usize>(), any::<usize>())
             .prop_map(|(a, b)| Choice::Gossip { a, b }),
-        1 => any::<usize>().prop_map(|parent| Choice::Bootstrap { parent }),
+        1 => any::<usize>().prop_map(|parent| Choice::Join { parent }),
         1 => (any::<usize>(), any::<usize>())
             .prop_map(|(retiree, absorber)| Choice::Retire { retiree, absorber }),
     ]
@@ -275,13 +275,13 @@ impl SimState {
         (0..self.alive.len()).filter(|&p| self.alive[p]).collect()
     }
 
-    /// Create a new peer as a bootstrap copy of `parent`.
+    /// Create a new peer as a joined copy of `parent`.
     ///
     /// The newcomer holds everything the parent holds (including the version
     /// frontier that carries the parent's redactions), but its observation log
     /// starts empty — content already present at birth is never observed,
     /// matching the executor's `Peer::new` checkpoint semantics.
-    fn record_bootstrap(&mut self, parent: usize) -> usize {
+    fn record_join(&mut self, parent: usize) -> usize {
         let newcomer = self.alive.len();
         self.ever_known.push(self.ever_known[parent].clone());
         self.live.push(self.live[parent].clone());
@@ -409,10 +409,10 @@ fn build_schedule<T>(
                 sim.gossip(a, b);
                 events.push(Event::Gossip { a, b });
             }
-            Choice::Bootstrap { parent } => {
+            Choice::Join { parent } => {
                 let parent = resolve(parent);
-                let newcomer = sim.record_bootstrap(parent);
-                events.push(Event::Bootstrap { parent, newcomer });
+                let newcomer = sim.record_join(parent);
+                events.push(Event::Join { parent, newcomer });
             }
             Choice::Retire { retiree, absorber } => {
                 // Retirement needs a distinct absorber: with fewer than

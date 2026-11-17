@@ -1,6 +1,6 @@
 //! The sizes of the futures every session boxes.
 //!
-//! Every gossip and bootstrap session boxes two futures: the session's own
+//! Every gossip and join session boxes two futures: the session's own
 //! ([`Reconciliation::session`]), and inside it the reconciliation after the
 //! greeting exchange ([`Handshaken::descent`]). Boxing moves a future from the
 //! stack into its allocation, so every session builds each of these values on

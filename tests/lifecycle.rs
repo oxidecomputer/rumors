@@ -35,7 +35,7 @@ use rumors::{Error, Rumors, Snapshot};
 use tokio::io::AsyncWrite;
 
 use crate::common::fault::{self, FaultPlan};
-use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip};
+use crate::common::wire::{block_on, join_fork_async, wire_gossip};
 use rumors_testkit::common::property::{FLEET_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -59,13 +59,13 @@ const MAX_MID_FLIGHT_POLLS: usize = 100_000;
 /// [`DIVERGENT_MESSAGES`] unshared messages committed on each side.
 ///
 /// Construction is deterministic for one seed: the seed fixes the network's
-/// secret, versions derive from the bootstrap order, and message identity from
+/// secret, versions derive from the join order, and message identity from
 /// the version alone, so two calls with one seed build pairs whose gossip
 /// sessions are byte-for-byte the same size. The epilogue-residue test's
 /// measure-then-replay rests on this.
 async fn divergent_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-    let b = bootstrap_fork_async(&a).await;
+    let b = join_fork_async(&a).await;
     for v in 0..DIVERGENT_MESSAGES {
         a.send(v).unwrap();
         b.send(1_000 + v).unwrap();
@@ -152,7 +152,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for FlushLog<W> {
 fn handshake_flushes(network: NetworkSeed) -> usize {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         (a, b)
     });
     let (a_end, b_end) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -387,7 +387,7 @@ divided_proptest! {
 enum Side {
     /// The pair's seed replica.
     A,
-    /// The replica bootstrapped from it.
+    /// The replica joined from it.
     B,
 }
 

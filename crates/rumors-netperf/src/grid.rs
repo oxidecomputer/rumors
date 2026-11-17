@@ -78,8 +78,8 @@ pub const AXES: &[(&str, &str)] = &[
     ("target_message_size_a", "side A's target_message_size"),
     ("target_message_size_b", "side B's target_message_size"),
     (
-        "payload_depth_limit",
-        "Peer::payload_depth_limit, or `default`",
+        "message_depth_limit",
+        "Peer::message_depth_limit, or `default`",
     ),
     (
         "session_deadline",
@@ -195,8 +195,8 @@ impl Draft {
             }
             "target_message_size_a" => p.settings.a.target_message_size = optional_bytes(text)?,
             "target_message_size_b" => p.settings.b.target_message_size = optional_bytes(text)?,
-            "payload_depth_limit" => {
-                p.settings.payload_depth_limit = if text.trim().eq_ignore_ascii_case("default") {
+            "message_depth_limit" => {
+                p.settings.message_depth_limit = if text.trim().eq_ignore_ascii_case("default") {
                     None
                 } else {
                     Some(parse_count(text)?)

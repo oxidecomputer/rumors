@@ -8,7 +8,7 @@
 use super::*;
 
 use crate::Version;
-use crate::message::{Message, PayloadDepthLimit};
+use crate::message::{Message, MessageDepthLimit};
 use crate::tree::mirror::cbor::MAJOR_BSTR;
 
 use super::super::budget::RunBudget;
@@ -330,7 +330,7 @@ fn deep_embedded_chain_falls_back_explicitly() {
 fn deep_payload_through_the_frame_path_falls_back() {
     let payload = Message::from_slice::<ciborium::Value>(
         &embedded_chain(10 * DEPTH_LIMIT),
-        PayloadDepthLimit::default(),
+        MessageDepthLimit::default(),
     )
     .expect("the chain is exactly one CBOR item");
     let (stream, bytes) = supply_frame(&payload);

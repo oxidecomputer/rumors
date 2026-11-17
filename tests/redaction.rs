@@ -15,7 +15,7 @@ use rumors::{TryTick, Version, error::EncodeError};
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
-use crate::common::wire::bootstrap_fork;
+use crate::common::wire::join_fork;
 use rumors_testkit::common::property::{FLEET_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -40,7 +40,7 @@ divided_proptest! {
     ) {
         let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
-            .map(|_| Peer::new(bootstrap_fork(&seed)))
+            .map(|_| Peer::new(join_fork(&seed)))
             .collect();
 
         let version = peers[0].insert_one(value);
@@ -79,8 +79,8 @@ divided_proptest! {
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
             let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-            let mut a = Peer::new(bootstrap_fork(&seed));
-            let mut b = Peer::new(bootstrap_fork(&seed));
+            let mut a = Peer::new(join_fork(&seed));
+            let mut b = Peer::new(join_fork(&seed));
             let mut a_versions: Vec<rumors::Version> = Vec::new();
             let mut b_versions: Vec<rumors::Version> = Vec::new();
             for v in &a_values { a_versions.push(a.insert_one(*v)); }
@@ -114,7 +114,7 @@ divided_proptest! {
         for already_redacted in [false, true] {
             for retain_unrelated in [false, true] {
                 let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-                let subject = bootstrap_fork(&seed);
+                let subject = join_fork(&seed);
                 let absent = if already_redacted {
                     let version = subject.send(value).unwrap();
                     subject.redact(&version);
@@ -179,7 +179,7 @@ divided_proptest! {
         network in network_seed(),
     ) {
         let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let subject = bootstrap_fork(&seed);
+        let subject = join_fork(&seed);
         let held: Vec<Version> = (0..held as u64).map(|i| subject.send(i).unwrap()).collect();
         let already_redacted: Vec<Version> = (0..already_redacted as u64)
             .map(|i| {

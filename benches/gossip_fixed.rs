@@ -224,7 +224,7 @@ fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert_eq!(total_insertions % 2, 0);
 
     let left = seeded_with_messages(N - total_insertions, 0x1189_2d1a_c54f_a94d);
-    let right = grid::wire::bootstrap_fork(&left);
+    let right = grid::wire::join_fork(&left);
     let per_side = total_insertions / 2;
 
     left.send_all(random_bytes(
@@ -247,7 +247,7 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u
     assert!(total_insertions <= N);
 
     let left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
-    let right = grid::wire::bootstrap_fork(&left);
+    let right = grid::wire::join_fork(&left);
 
     left.send_all(random_bytes(
         total_insertions,
@@ -264,7 +264,7 @@ fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert_eq!(total_redactions % 2, 0);
 
     let (left, versions) = seeded_with_versions(N, 0xc786_a046_6b7d_c9d3);
-    let right = grid::wire::bootstrap_fork(&left);
+    let right = grid::wire::join_fork(&left);
     let shuffled = shuffled_versions(versions, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
     let per_side = total_redactions / 2;
 
@@ -279,7 +279,7 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u
     assert!(total_redactions <= N / 2);
 
     let (left, versions) = seeded_with_versions(N, 0x2526_34f4_918f_e1c7);
-    let right = grid::wire::bootstrap_fork(&left);
+    let right = grid::wire::join_fork(&left);
     let shuffled = shuffled_versions(versions, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
 
     left.redact_all(&shuffled[..total_redactions]);

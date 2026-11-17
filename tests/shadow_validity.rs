@@ -117,12 +117,12 @@ proptest! {
 
     /// The membership-alphabet twin of `shadow_predicts_live_state`.
     ///
-    /// Under mid-schedule bootstraps and retirements, the shadow's
+    /// Under mid-schedule joins and retirements, the shadow's
     /// `alive` map matches which slots survived, every live peer's
     /// observation set and readout match the shadow's prediction, and
     /// every retired peer's complete lifetime observation log matches
     /// what the shadow predicted it observed before absorption. If the
-    /// shadow's membership model drifted from the real bootstrap copy or
+    /// shadow's membership model drifted from the real joined copy or
     /// retirement absorption, the generator's validity guarantee (and
     /// every membership property built on it) would silently rot.
     #[test]

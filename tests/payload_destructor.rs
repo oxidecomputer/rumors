@@ -9,7 +9,7 @@ use std::time::Duration;
 use rumors::Rumors;
 use serde::{Deserialize, Serialize};
 
-use common::wire::{bootstrap_fork, wire_gossip};
+use common::wire::{join_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -126,7 +126,7 @@ divided_proptest! {
         completes(move || {
             let replica = network.peer().into_rumors();
             let version = replica.send(replaces_itself(&replica)).unwrap();
-            let other = bootstrap_fork(&replica);
+            let other = join_fork(&replica);
             other.redact(&version);
             wire_gossip(&replica, &other);
             assert_replaced(&replica);

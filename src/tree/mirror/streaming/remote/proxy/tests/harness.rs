@@ -20,7 +20,7 @@ use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, DuplexStream, Re
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::message::{Message, PayloadCodec, PayloadDepthLimit};
+use crate::message::{Message, MessageDepthLimit, PayloadCodec};
 use crate::testing::{
     IoFault, IoPlan, IoReportHandle, IoSide, MemoryEnd, memory_connection, wrap_io,
 };
@@ -151,7 +151,7 @@ pub fn codec<T>() -> PayloadCodec
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    PayloadCodec::new::<T>(PayloadDepthLimit::default())
+    PayloadCodec::new::<T>(MessageDepthLimit::default())
 }
 
 /// Return the complete root produced by the in-memory join oracle.

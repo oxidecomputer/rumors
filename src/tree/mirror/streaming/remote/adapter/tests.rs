@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, ops::Range};
 use before::{Party, Version};
 
 use crate::{
-    message::{Message, PayloadCodec, PayloadDepthLimit},
+    message::{Message, MessageDepthLimit, PayloadCodec},
     tree::{
         mirror::streaming::{
             convert::Convert,
@@ -76,7 +76,7 @@ fn fixture_bounds() -> SupplyBounds {
 
 /// Construct the payload codec shared by adapter fixtures.
 fn codec() -> PayloadCodec {
-    PayloadCodec::new::<u64>(PayloadDepthLimit::default())
+    PayloadCodec::new::<u64>(MessageDepthLimit::default())
 }
 
 /// Build a version with the same event count everywhere.

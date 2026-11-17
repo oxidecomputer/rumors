@@ -6,7 +6,7 @@
 //! exactly one embedded item. Every byte at each level must belong to a
 //! complete CBOR item.
 //!
-//! Generated gossip, bootstrap, and retirement sessions supply the captures.
+//! Generated gossip, join, and retirement sessions supply the captures.
 //! This complements wire snapshots: even an accepted snapshot change must still
 //! produce bytes that a CBOR library can read without the Rumors codec.
 
@@ -17,7 +17,7 @@ use proptest::prelude::*;
 use rumors::{Peer, Rumors};
 
 use crate::common::gossip_snapshot::{capture_sides, corpora};
-use crate::common::wire::{block_on, bootstrap_fork_async};
+use crate::common::wire::{block_on, join_fork_async};
 use rumors::testing::PipeCapture;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
@@ -84,9 +84,9 @@ fn founded(network: NetworkSeed, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
     loaded(network.peer().sync_memory_budget(0).into_rumors(), payloads)
 }
 
-/// A bootstrap fork of `parent`, in its universe, loaded with `payloads`.
+/// A join fork of `parent`, in its universe, loaded with `payloads`.
 fn forked(parent: &Rumors<Vec<u8>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
-    loaded(block_on(bootstrap_fork_async(parent)), payloads)
+    loaded(block_on(join_fork_async(parent)), payloads)
 }
 
 /// `peer`, once it has sent each of `payloads`.
@@ -128,11 +128,11 @@ proptest! {
         assert_legible("B", &b_capture);
     }
 
-    /// Each direction of an arbitrary V2 bootstrap session is a
+    /// Each direction of an arbitrary V2 join session is a
     /// pure CBOR sequence under the rumors-blind walk, the trailing party
     /// hand-off included.
     #[test]
-    fn arbitrary_bootstrap_sessions_are_cbor_sequences(
+    fn arbitrary_join_sessions_are_cbor_sequences(
         (shared, _, _) in corpora(),
         network in network_seed(),
     ) {
@@ -142,10 +142,10 @@ proptest! {
                 provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
             },
             move |mut end| async move {
-                let rumors::Joined::Joined { connection: rumors::Connection::Reusable { .. }, .. } =
-                    Peer::<Vec<u8>>::bootstrap().join(&mut end.read, &mut end.write).await
+                let rumors::Join::Connected { connection: rumors::Connection::Reusable { .. }, .. } =
+                    Peer::<Vec<u8>>::join(&mut end.read, &mut end.write).await
                 else {
-                    panic!("provider must serve the bootstrap");
+                    panic!("provider must serve the join");
                 };
             },
         );

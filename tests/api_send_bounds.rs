@@ -10,7 +10,7 @@
 
 use futures::StreamExt;
 use rumors::{
-    Batch, Bookmark, CausalMessages, Changes, Error, Gossip, Joined, Led, Peer, Protocol, Retire,
+    Batch, Bookmark, CausalMessages, Changes, Error, Gossip, Join, Led, Peer, Protocol, Retire,
     Rumors, Snapshot, TryTick, Unbookmarked, UnorderedMessages,
 };
 use rumors_testkit::common::seed::NetworkSeed;
@@ -95,7 +95,7 @@ fn wrapper_traits_do_not_inspect_payloads_bookmarks_or_halves() {
     require_clone_debug::<Snapshot<Opaque>>();
     require_debug::<Retire<Opaque, Opaque, Opaque, SilentBookmark>>();
     require_debug::<Unbookmarked<Opaque, SilentBookmark>>();
-    require_debug::<Joined<Opaque, Opaque, Opaque, SilentBookmark>>();
+    require_debug::<Join<Opaque, Opaque, Opaque, SilentBookmark>>();
     require_debug::<Batch<'static, Opaque>>();
     require_debug::<CausalMessages<Opaque>>();
     require_debug::<Changes<Opaque>>();
@@ -124,11 +124,11 @@ fn gossip_once_future_is_send() {
     drop(fut);
 }
 
-/// `Bootstrap::join`'s future is `Send`: joining can be `tokio::spawn`ed.
+/// `Join::join`'s future is `Send`: joining can be `tokio::spawn`ed.
 #[test]
-fn bootstrap_future_is_send() {
+fn join_future_is_send() {
     let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let fut = Peer::<String>::bootstrap().join(&mut end.read, &mut end.write);
+    let fut = Peer::<String>::join(&mut end.read, &mut end.write);
     require_send(&fut);
     drop(fut);
 }

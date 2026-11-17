@@ -117,7 +117,7 @@ hex = "0.4"
 hkdf = "0.13"
 hmac = "0.13"
 # HPKE (RFC 9180), rozbb/rust-hpke on RustCrypto's `p256`, `hkdf` and
-# `aes-gcm`: the bootstrap's sealed exchange.
+# `aes-gcm`: the join's sealed exchange.
 hpke = { version = "0.15", default-features = false }
 http = "1"
 indicatif = "0.18"
@@ -264,7 +264,7 @@ sha2 = { workspace = true, features = ["zeroize"] }
 hmac = { workspace = true, features = ["zeroize"] }
 sha3.workspace = true
 zeroize.workspace = true
-# The bootstrap's sealed secret: HPKE base mode with DHKEM(P-256,
+# The join's sealed secret: HPKE base mode with DHKEM(P-256,
 # HKDF-SHA256), HKDF-SHA256 and AES-256-GCM, drawing its keys from the
 # operating system.
 hpke = { workspace = true, features = ["nistp", "aes", "getrandom"] }

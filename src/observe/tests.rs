@@ -115,14 +115,14 @@ fn begin_creates_the_control_handlers() {
     let mut attachment = Attachment::default();
     attachment.attach(observer.clone());
 
-    let handle = attachment.begin(SessionKind::Bootstrap);
+    let handle = attachment.begin(SessionKind::Join);
     assert!(handle.attached());
     assert_eq!(observer.sessions.load(Ordering::Relaxed), 1);
     let infos = observer.infos.lock().unwrap();
     assert_eq!(
         *infos,
         vec![SessionInfo {
-            kind: SessionKind::Bootstrap,
+            kind: SessionKind::Join,
             protocol: Protocol::V2,
         }]
     );
@@ -142,12 +142,12 @@ fn begin_creates_the_control_handlers() {
     );
 }
 
-/// A bootstrap's debug summary reports how many observers it carries.
+/// A join's debug summary reports how many observers it carries.
 #[test]
-fn bootstrap_debug_reports_observer_count() {
+fn join_debug_reports_observer_count() {
     let observer = Arc::new(Counting::default());
-    let bootstrap = crate::Peer::<()>::bootstrap().observe(observer);
-    let debug = format!("{bootstrap:?}");
+    let joining = crate::Peer::<()>::joining().observe(observer);
+    let debug = format!("{joining:?}");
     assert!(
         debug.contains("observe: Attachment { observers: 1 }"),
         "{debug}"

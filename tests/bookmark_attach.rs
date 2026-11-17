@@ -10,7 +10,7 @@ use rumors_testkit::common;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{BookmarkIo, Peer, Rumors, Unbookmarked};
+use rumors::{Peer, Rumors, Unbookmarked, error::BookmarkIo};
 
 use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::wire::block_on;
@@ -20,22 +20,22 @@ use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
 
 /// Join the server's network without attaching storage to the new peer.
-async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) -> Peer<String> {
+async fn join_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) -> Peer<String> {
     let server = server.clone();
-    let (boot_end, serve_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
-    let (boot_out, serve_out) = tokio::join!(
+    let (joiner_end, serve_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+    let (join_out, serve_out) = tokio::join!(
         async move {
-            let end = boot_end;
-            Peer::<String>::bootstrap().join(end.read, end.write).await
+            let end = joiner_end;
+            Peer::<String>::join(end.read, end.write).await
         },
         async move {
             let end = serve_end;
             server.gossip_once(end.read, end.write).await
         },
     );
-    serve_out.expect("serve the bootstrap");
-    (match boot_out {
-        rumors::Joined::Joined {
+    serve_out.expect("serve the join");
+    (match join_out {
+        rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
@@ -214,10 +214,10 @@ divided_proptest! {
                 .expect("the seed attaches")
                 .into_rumors();
 
-            // B bootstraps a fork from A and records it durably, then "crashes":
+            // B joins a fork from A and records it durably, then "crashes":
             // its region survives only as a stranded entry in B's store.
             let store_b = Arc::new(Mutex::new(None));
-            let b = bootstrap_unbookmarked(&a)
+            let b = join_unbookmarked(&a)
                 .await
                 .bookmark(FlakyInMemoryBookmark::new(store_b.clone(), reliable(), 1))
                 .await
@@ -231,7 +231,7 @@ divided_proptest! {
             a.send("tick".to_string()).unwrap();
 
             // B' recovers: a *fresh* fork from A, disjoint from the stranded region.
-            let b_prime = bootstrap_unbookmarked(&a).await;
+            let b_prime = join_unbookmarked(&a).await;
             let fresh = b_prime.dangerously_alias_party();
             assert!(
                 fresh.is_disjoint(&stranded),

@@ -62,6 +62,7 @@
 //! plus the older blocks their bodies freed or reallocated.
 
 use std::alloc::{GlobalAlloc, Layout};
+#[cfg(target_arch = "wasm32")]
 use std::arch::wasm32;
 use std::ops::Range;
 use std::ptr;
@@ -170,8 +171,14 @@ fn page_of(address: usize) -> usize {
 }
 
 /// Returns the current size of linear memory, in pages.
+#[cfg(target_arch = "wasm32")]
 fn memory_pages() -> usize {
     wasm32::memory_size::<0>()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn memory_pages() -> usize {
+    const { panic!("this function is only available on wasm32") }
 }
 
 impl Window {

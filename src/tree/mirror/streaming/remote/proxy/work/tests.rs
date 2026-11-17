@@ -14,7 +14,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream,
 use tokio::sync::oneshot;
 
 use super::{Ingress, Outstanding, Physical, Work, progress::Progress};
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::{MessageDepthLimit, PayloadCodec};
 use crate::testing::{MemoryEnd, memory_connection, run_to_quiescence};
 use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::{
@@ -72,7 +72,7 @@ fn session_over<R, W>(read: R, write: W) -> Work<Failing<Local>, R, W> {
             SupplyBounds::new(Version::new(), u64::MAX, Version::new()),
             u64::MAX,
             Grandchildren::MAX,
-            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(MessageDepthLimit::default()),
             Some(crate::network::NetworkKeys::fixture()),
         ),
         RunBudget::default(),

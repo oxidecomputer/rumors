@@ -36,7 +36,7 @@ divided_proptest! {
     fn wide_join_allocation_is_bounded(network in network_seed()) {
         let ours = network.peer::<usize>().into_rumors();
         ours.send_all(0..SHARED).unwrap();
-        let theirs = common::wire::bootstrap_fork(&ours);
+        let theirs = common::wire::join_fork(&ours);
         let redactions: Vec<_> = ours
             .snapshot()
             .iter()

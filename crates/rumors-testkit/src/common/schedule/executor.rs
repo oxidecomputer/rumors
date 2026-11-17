@@ -17,7 +17,7 @@ use super::events::{Event, EventIdx, Schedule};
 use crate::common::budget::BudgetAssignment;
 use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce, quiesce_slots};
-use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork_with_budget};
+use crate::common::wire::{assert_connection_drained, block_on, join_fork_with_budget};
 use rumors::testing::MEMORY_CAPACITY;
 
 use serde::Serialize;
@@ -39,7 +39,7 @@ pub struct ExecutionResult<T: Send + Sync + 'static> {
 /// and the same oracle and version map as the membership-free result.
 pub struct MembershipExecutionResult<T: Send + Sync + 'static> {
     /// One slot per peer ever created — the initial fleet, then every
-    /// mid-schedule bootstrap in order. `None` marks a retired peer.
+    /// mid-schedule join in order. `None` marks a retired peer.
     pub slots: Vec<Option<Peer<T>>>,
     /// Each retired peer's observation log, complete as of the drain that
     /// preceded its retirement.
@@ -106,7 +106,7 @@ where
 /// Panics if the schedule carries membership events: this entry point promises
 /// a fleet with every peer present at its original index, so membership
 /// schedules must run through [`execute_membership`]. The alphabet is validated
-/// up front — a bootstrap-only schedule would otherwise return an oversized
+/// up front — a join-only schedule would otherwise return an oversized
 /// fleet instead of the promised panic.
 pub fn execute_with<T, F>(
     schedule: &Schedule<T>,
@@ -121,7 +121,7 @@ where
         !schedule
             .events
             .iter()
-            .any(|e| matches!(e, Event::Bootstrap { .. } | Event::Retire { .. })),
+            .any(|e| matches!(e, Event::Join { .. } | Event::Retire { .. })),
         "membership schedules run through execute_membership"
     );
     let result = execute_slots(schedule, budgets, allow_gossip);
@@ -168,7 +168,7 @@ where
 /// The fleet starts along the schedule's fork tree: peer 0 is the universe
 /// seed, and every other initial peer is a genuine party-disjoint fork of an
 /// already-built peer (`fork_parents[i] < i`), created by serving it a
-/// bootstrap. Mid-schedule `Bootstrap` events append newcomer slots the same
+/// join. Mid-schedule `Join` events append newcomer slots the same
 /// way; `Retire` events run a real retirement session over a clean in-memory
 /// connection (the absorber side is plain gossip) and vacate the retiree's
 /// slot, saving its observation log. All peers descend from one seed and live
@@ -193,7 +193,7 @@ where
             let parent = slots[schedule.fork_parents[i]]
                 .as_ref()
                 .expect("initial peers are all alive during fleet construction");
-            bootstrap_fork_with_budget(&parent.local, budgets.choice(i))
+            join_fork_with_budget(&parent.local, budgets.choice(i))
         };
         slots.push(Some(Peer::new(local)));
     }
@@ -235,16 +235,14 @@ where
                     right[0].as_mut().expect("gossip names alive peers"),
                 );
             }
-            Event::Bootstrap { parent, newcomer } => {
+            Event::Join { parent, newcomer } => {
                 assert_eq!(
                     *newcomer,
                     slots.len(),
-                    "bootstrap events assign indices in order"
+                    "join events assign indices in order"
                 );
-                let parent = slots[*parent]
-                    .as_ref()
-                    .expect("bootstrap names an alive parent");
-                let local = bootstrap_fork_with_budget(&parent.local, budgets.choice(*newcomer));
+                let parent = slots[*parent].as_ref().expect("join names an alive parent");
+                let local = join_fork_with_budget(&parent.local, budgets.choice(*newcomer));
                 slots.push(Some(Peer::new(local)));
             }
             Event::Retire { retiree, absorber } => {

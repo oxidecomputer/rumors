@@ -116,14 +116,14 @@ pub const UNLIMITED_BUDGET: u64 = u64::MAX;
 /// The least budget the library runs a session on at the default message-size
 /// target, to which it raises any smaller request.
 ///
-/// The library publishes the minimum only as the budget a peer reports
-/// ([`SynchronizationSettings`](rumors::SynchronizationSettings)), so this
+/// The crate publishes the minimum only as the budget a peer reports
+/// ([`PeerSettings`](rumors::PeerSettings)), so this
 /// reads it, once, from a peer that requests a budget of zero.
 pub fn minimum_budget() -> u64 {
     static MINIMUM: LazyLock<u64> = LazyLock::new(|| {
         let budget = Peer::<()>::seed()
             .sync_memory_budget(0)
-            .synchronization_settings()
+            .settings()
             .sync_memory_budget;
         u64::try_from(budget).unwrap_or(u64::MAX)
     });
@@ -167,8 +167,8 @@ pub struct Settings {
     pub a: SideSettings,
     /// Side B's settings.
     pub b: SideSettings,
-    /// [`Peer::payload_depth_limit`](rumors::Peer::payload_depth_limit).
-    pub payload_depth_limit: Option<u64>,
+    /// [`Peer::message_depth_limit`](rumors::Peer::message_depth_limit).
+    pub message_depth_limit: Option<u64>,
     /// [`Peer::gossip_timeout`](rumors::Peer::gossip_timeout): a session
     /// running longer fails and is recorded as failed.
     pub session_deadline: Option<Duration>,
@@ -334,7 +334,7 @@ impl Point {
             side(&self.settings.a),
             side(&self.settings.b),
             self.settings
-                .payload_depth_limit
+                .message_depth_limit
                 .map_or("default".into(), |d| d.to_string()),
             self.settings
                 .session_deadline

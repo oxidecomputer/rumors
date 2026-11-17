@@ -12,7 +12,7 @@
 //! where the assertion is "nothing changed at all".
 //!
 //! Every peer in a test is a genuine, party-disjoint fork, created by
-//! [`bootstrap_fork`], of the first peer of one network, which the test creates
+//! [`join_fork`], of the first peer of one network, which the test creates
 //! from a drawn network seed. They share a [`Network`](rumors::Network) but
 //! tick disjoint parties, so their concurrent inserts stay incomparable and
 //! gossip between them never fails.
@@ -31,7 +31,7 @@ use serde::de::DeserializeOwned;
 
 use crate::common::action::{LocalAction, arb_local_actions, arb_string_actions, build_local};
 use crate::common::oracle::{readout, readout_multiset};
-use crate::common::wire::{bootstrap_fork, wire_gossip};
+use crate::common::wire::{join_fork, wire_gossip};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// Maximum values generated for each side of the carrier-path property.
@@ -43,7 +43,7 @@ fn dup<T>(k: &Rumors<T>) -> Rumors<T>
 where
     T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    bootstrap_fork(k)
+    join_fork(k)
 }
 
 /// The state used for fixed-point checks: equal snapshots make gossip a no-op.

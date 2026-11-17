@@ -5,7 +5,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::{MessageDepthLimit, PayloadCodec};
 use proptest::prelude::*;
 use tokio::io::{AsyncRead, ReadBuf};
 
@@ -504,7 +504,7 @@ fn a_zero_length_record_is_structurally_valid() {
         };
         assert_eq!(run.record_count(), 1);
         let error = run
-            .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
+            .records(PayloadCodec::new::<u64>(MessageDepthLimit::default()))
             .next()
             .unwrap()
             .unwrap_err();
@@ -525,7 +525,7 @@ fn supplied_record_errors_are_typed() {
     content.extend_from_slice(&[0x42, 0x01]);
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let error = run
-        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(MessageDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -542,7 +542,7 @@ fn supplied_record_errors_are_typed() {
     ciborium::ser::into_writer(&Version::new(), &mut content).unwrap();
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let error = run
-        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(MessageDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -556,7 +556,7 @@ fn supplied_record_errors_are_typed() {
     let missing_message = &content[..content.len() - Message::new(0u64).as_slice().len()];
     let run = LeafRun::from_encoded(raw_record(missing_message)).unwrap();
     let error = run
-        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(MessageDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -572,7 +572,7 @@ fn supplied_record_errors_are_typed() {
     content.push(u8::MIN);
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let error = run
-        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(MessageDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -586,7 +586,7 @@ fn supplied_record_errors_are_typed() {
 fn assert_version_head_error(content: &[u8], expected: HeadError) {
     let run = LeafRun::from_encoded(raw_record(content)).unwrap();
     let error = run
-        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(MessageDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -653,7 +653,7 @@ fn indefinite_payload_spelling_is_not_spelling_judged() {
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let (version, message) = run
         .records(PayloadCodec::new::<std::collections::BTreeMap<u8, u8>>(
-            PayloadDepthLimit::default(),
+            MessageDepthLimit::default(),
         ))
         .next()
         .unwrap()
@@ -1505,12 +1505,12 @@ fn over_budget_lone_record_read_stays_within_its_frame() {
 /// decodes, while one level deeper returns a payload error. Frame decoding
 /// accepts the record's structure before its content is examined.
 #[test]
-fn record_iteration_enforces_payload_depth() {
+fn record_iteration_enforces_message_depth() {
     /// The receiving payload type: pure array nesting, the innermost array
     /// empty, matching the hand-crafted bytes below.
     #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     struct Arr(Vec<Arr>);
-    let limit = PayloadDepthLimit::default();
+    let limit = MessageDepthLimit::default();
     let deep_payload = |depth: usize| -> Vec<u8> {
         // `depth - 1` single-element array heads around one empty array:
         // nesting depth is exactly `depth` scopes.

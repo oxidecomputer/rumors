@@ -14,7 +14,7 @@ use alloc_meter::measure;
 use rumors::Rumors;
 use rumors_testkit::common::{
     gossip_snapshot::seeded,
-    wire::{bootstrap_fork, diverge, wire_gossip},
+    wire::{diverge, join_fork, wire_gossip},
 };
 
 /// Values each peer holds that the other lacks before the session.
@@ -38,8 +38,8 @@ const OVER_ALIGNED_ALLOCATIONS: usize = 0;
 /// [`VALUES_PER_SIDE`] values the other lacks.
 fn divergent_fixture() -> (Rumors<u64>, Rumors<u64>) {
     let seed = seeded::<u64>();
-    let a = bootstrap_fork(&seed);
-    let b = bootstrap_fork(&seed);
+    let a = join_fork(&seed);
+    let b = join_fork(&seed);
     diverge(&a, &b, VALUES_PER_SIDE);
     (a, b)
 }

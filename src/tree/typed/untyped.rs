@@ -223,7 +223,7 @@ struct NodeInner {
     /// node, and a node is reachable only from trees of one network: a tree's
     /// clones share its keys, [`Tree::join`] merges only trees with equal keys,
     /// a session lists and compares digests under the keys of the tree it
-    /// reconciles and returns its nodes into that tree, and a bootstrapper's
+    /// reconciles and returns its nodes into that tree, and a joining peer's
     /// tree holds nothing until the session that fills it under the keys it
     /// received. Independently seeded universes never interact, so no node is
     /// shared between two networks' trees.

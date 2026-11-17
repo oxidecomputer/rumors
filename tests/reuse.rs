@@ -18,7 +18,7 @@ use rumors::testing::{IoPlan, IoSide, wrap_io};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
-use crate::common::wire::{assert_connection_drained, bootstrap_fork_async, tokio_block_on};
+use crate::common::wire::{assert_connection_drained, join_fork_async, tokio_block_on};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -32,11 +32,11 @@ const DEADLINE: Duration = Duration::from_secs(10);
 const ROUNDS: u64 = 3;
 
 /// Create a connected, party-disjoint pair: the first peer of the network
-/// `network` names and a bootstrap fork of it. The two ends of one connection
+/// `network` names and a join fork of it. The two ends of one connection
 /// they will keep reusing are created per test.
 async fn pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-    let b = bootstrap_fork_async(&a).await;
+    let b = join_fork_async(&a).await;
     (a, b)
 }
 

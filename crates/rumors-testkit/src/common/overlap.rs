@@ -28,7 +28,7 @@ use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::schedule::EventIdx;
 use crate::common::seed::{NetworkSeed, network_seed};
-use crate::common::wire::{block_on, bootstrap_fork};
+use crate::common::wire::{block_on, join_fork};
 
 /// Small pipe buffers make greeting and data writes yield between fragments.
 const OVERLAP_BUF: usize = 48;
@@ -231,7 +231,7 @@ where
         let local = if i == 0 {
             schedule.network.peer().sync_memory_budget(0).into_rumors()
         } else {
-            bootstrap_fork(&peers[schedule.fork_parents[i]].local)
+            join_fork(&peers[schedule.fork_parents[i]].local)
         };
         peers.push(Peer::new(local));
     }

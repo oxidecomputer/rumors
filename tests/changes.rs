@@ -18,7 +18,7 @@ use futures::{FutureExt, Stream, StreamExt};
 use proptest::{collection::vec, prelude::*};
 use rumors::{Changes, Rumors, TryTick, Version};
 
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{block_on, join_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -50,7 +50,7 @@ divided_proptest! {
     #[test]
     fn gossip_frontier_only_advance_ticks_the_observer(network in network_seed()) {
         let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         // Register the wait before the update, as an idle gossip driver would.
         let mut b_changes = b.changes();
@@ -180,7 +180,7 @@ proptest! {
     #[test]
     fn changes_follow_history_under_interleaving(ops in arb_ops(), network in network_seed()) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
         let mut changes = a.changes();
         let mut reported = None;
         for op in ops {

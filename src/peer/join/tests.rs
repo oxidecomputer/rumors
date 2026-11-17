@@ -1,13 +1,12 @@
-//! Bootstrap configuration survives retries and reaches the joined peer.
+//! Join configuration survives retries and reaches the joined peer.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
 
-use super::{Bootstrap, Joined};
+use super::{Join, Joining};
 use crate::Connection;
-use crate::Peer;
 use crate::bookmark::Bookmark;
 use crate::default;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
@@ -70,48 +69,48 @@ impl Bookmark for Storage {
     }
 }
 
-/// Retry failed and mutually bootstrapping sessions, then join the network
+/// Retry failed and mutually joining sessions, then join the network
 /// `network` founds and gossip.
 fn retry_then_join<B: Bookmark>(
     network: NetworkSeed,
-    mut bootstrap: Bootstrap<u64, B>,
+    mut joining: Joining<u64, B>,
     fail: &[bool],
     sessions: &Sessions,
     stored: Option<&Stored>,
-    expected: (MemoryBudget, RunBudget, crate::message::PayloadDepthLimit),
+    expected: (MemoryBudget, RunBudget, crate::message::MessageDepthLimit),
 ) {
     let (budget, target, depth) = expected;
-    assert_eq!(bootstrap.settings.sizing.sync_memory_budget, budget);
-    assert_eq!(bootstrap.settings.sizing.run_budget, target);
-    assert_eq!(bootstrap.payload_depth_limit, depth);
+    assert_eq!(joining.settings.sizing.sync_memory_budget, budget);
+    assert_eq!(joining.settings.sizing.run_budget, target);
+    assert_eq!(joining.message_depth_limit, depth);
     run_to_quiescence(async {
         for (attempt, &fail) in fail.iter().enumerate() {
             let (mut near, mut far) =
                 crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
-            bootstrap = if fail {
+            joining = if fail {
                 drop(far);
-                let Joined::Failed { bootstrap, .. } =
-                    bootstrap.join(&mut near.read, &mut near.write).await
+                let Join::Failed { joining, .. } =
+                    joining.join(&mut near.read, &mut near.write).await
                 else {
                     panic!("a closed provider must fail the attempt");
                 };
-                bootstrap
+                joining
             } else {
                 let (ours, theirs) = tokio::join!(
-                    bootstrap.join(&mut near.read, &mut near.write),
-                    Peer::<u64>::bootstrap()
-                        .payload_depth_limit(depth.get())
+                    joining.join(&mut near.read, &mut near.write),
+                    Joining::<u64>::new()
+                        .message_depth_limit(depth.get())
                         .join(&mut far.read, &mut far.write),
                 );
-                assert!(matches!(theirs, Joined::Bailed { .. }));
-                let Joined::Bailed { bootstrap, .. } = ours else {
-                    panic!("two bootstrappers must both return their builders");
+                assert!(matches!(theirs, Join::Bounced { .. }));
+                let Join::Bounced { joining, .. } = ours else {
+                    panic!("two joiners must both return their builders");
                 };
-                bootstrap
+                joining
             };
-            assert_eq!(bootstrap.settings.sizing.sync_memory_budget, budget);
-            assert_eq!(bootstrap.settings.sizing.run_budget, target);
-            assert_eq!(bootstrap.payload_depth_limit, depth);
+            assert_eq!(joining.settings.sizing.sync_memory_budget, budget);
+            assert_eq!(joining.settings.sizing.run_budget, target);
+            assert_eq!(joining.message_depth_limit, depth);
             assert_eq!(sessions.0.load(Ordering::Relaxed), attempt + 1);
             if let Some(stored) = stored {
                 assert_eq!(stored.loads.load(Ordering::Relaxed), 0);
@@ -121,17 +120,17 @@ fn retry_then_join<B: Bookmark>(
 
         let provider = network
             .peer::<u64>()
-            .payload_depth_limit(depth.get())
+            .message_depth_limit(depth.get())
             .into_rumors();
         provider.send(42).unwrap();
         let (mut near, mut far) =
             crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
         let (joined, served) = tokio::join!(
-            bootstrap.join(&mut near.read, &mut near.write),
+            joining.join(&mut near.read, &mut near.write),
             provider.gossip_once(&mut far.read, &mut far.write)
         );
         served.unwrap();
-        let Joined::Joined {
+        let Join::Connected {
             peer,
             connection: Connection::Reusable { .. },
         } = joined
@@ -150,7 +149,7 @@ fn retry_then_join<B: Bookmark>(
             assert!(record.contains_network(provider.network()));
         }
 
-        // Exercise the retained observer and identity after the bootstrap,
+        // Exercise the retained observer and identity after the join,
         // including a write that must survive reconciliation in both directions.
         let joined = peer.into_rumors();
         assert_eq!(joined.snapshot(), provider.snapshot());
@@ -165,7 +164,7 @@ fn retry_then_join<B: Bookmark>(
         assert_eq!(joined.snapshot(), provider.snapshot());
         assert_eq!(provider.snapshot().len(), 2);
     })
-    .expect("bootstrap retries and later gossip must make progress");
+    .expect("join retries and later gossip must make progress");
 }
 
 proptest! {
@@ -187,12 +186,12 @@ proptest! {
         let expected = (
             MemoryBudget::Requested(budget),
             RunBudget::from_bytes(target),
-            crate::message::PayloadDepthLimit::new(depth),
+            crate::message::MessageDepthLimit::new(depth),
         );
-        let config = Peer::<u64>::bootstrap()
+        let config = Joining::<u64>::new()
             .sync_memory_budget(budget)
             .target_message_size(target)
-            .payload_depth_limit(depth);
+            .message_depth_limit(depth);
         let plain_sessions = Arc::new(Sessions::default());
         retry_then_join(
             network,
@@ -203,10 +202,10 @@ proptest! {
         let stored = Arc::new(Stored::default());
         let bookmarked_sessions = Arc::new(Sessions::default());
         let config = if configure_after_bookmark {
-            Peer::<u64>::bootstrap().bookmark(Storage(stored.clone()))
+            Joining::<u64>::new().bookmark(Storage(stored.clone()))
                 .sync_memory_budget(budget)
                 .target_message_size(target)
-                .payload_depth_limit(depth)
+                .message_depth_limit(depth)
                 .observe(bookmarked_sessions.clone())
         } else {
             config.observe(bookmarked_sessions.clone()).bookmark(Storage(stored.clone()))
@@ -227,15 +226,15 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn configuration_defaults_and_saturation(network in network_seed()) {
-        let config = Peer::<u64>::bootstrap();
+        let config = Joining::<u64>::new();
         assert_eq!(
             config.settings.sizing.sync_memory_budget,
             MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET)
         );
         assert_eq!(config.settings.sizing.run_budget, RunBudget::default());
         assert_eq!(
-            config.payload_depth_limit,
-            crate::message::PayloadDepthLimit::default()
+            config.message_depth_limit,
+            crate::message::MessageDepthLimit::default()
         );
         let sessions = Arc::new(Sessions::default());
         retry_then_join(
@@ -247,10 +246,10 @@ divided_proptest! {
             (
                 MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET),
                 RunBudget::default(),
-                crate::message::PayloadDepthLimit::default(),
+                crate::message::MessageDepthLimit::default(),
             ),
         );
-        let saturated = Peer::<u64>::bootstrap().target_message_size(usize::MAX);
+        let saturated = Joining::<u64>::new().target_message_size(usize::MAX);
         assert_eq!(saturated.settings.sizing.run_budget, RunBudget::from_bytes(usize::MAX));
         assert_ne!(saturated.settings.sizing.run_budget.bytes(), usize::MAX);
     }

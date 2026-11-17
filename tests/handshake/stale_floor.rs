@@ -1,38 +1,38 @@
 //! Regression pin for the stale-floor family of bugs.
 //!
 //! The hazard: any snapshot that shares its originator's live *party* while
-//! serving a *tree* frozen at snapshot time would hand a bootstrapping newcomer
+//! serving a *tree* frozen at snapshot time would hand a joining newcomer
 //! a fork of the live party paired with a stale version floor — and the
 //! newcomer's first sends, causally dominated by versions the originator had
 //! already published, would be indistinguishable from redacted messages and
 //! silently destroyed by the next gossip round.
 //!
 //! The shared-state rumor set makes that desynchronization unrepresentable:
-//! there is no snapshot type that can serve a bootstrap, and
+//! there is no snapshot type that can serve a join, and
 //! `Rumors::gossip_once` snapshots the served tree and forks the party in one
 //! critical section, so the newcomer's floor always matches its region.
 //! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Rumors`] clones share
 //! one synchronized state rather than freezing one.)
 //!
 //! This test pins the sound invariant positively, in the shape the hazard would
-//! break: messages sent by a newcomer bootstrapped from a peer that ticked
+//! break: messages sent by a newcomer joined from a peer that ticked
 //! heavily beforehand must survive reconciliation in both directions.
 
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
-use rumors_testkit::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
+use rumors_testkit::common::wire::{block_on, join_fork_async, wire_gossip_async};
 use rumors_testkit::divided_proptest;
 
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// A message sent by a freshly-bootstrapped peer survives gossip, no
-    /// matter how far the provider had ticked before serving the bootstrap:
+    /// A message sent by a freshly-joined peer survives gossip, no
+    /// matter how far the provider had ticked before serving the join:
     /// the served floor and the forked party region are paired atomically.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn message_sent_after_bootstrap_survives_gossip(network in network_seed()) {
+    fn message_sent_after_join_survives_gossip(network in network_seed()) {
         block_on(async {
             let f = network.peer::<u64>().sync_memory_budget(0).into_rumors();
             // F ticks well past genesis before serving anyone.
@@ -40,10 +40,10 @@ divided_proptest! {
                 f.send_all(0..16u64).unwrap();
             }
 
-            // B bootstraps from F and sends a brand-new message: its version
+            // B joins from F and sends a brand-new message: its version
             // must come out above (or concurrent to) everything F published
             // before the fork, never dominated.
-            let b = bootstrap_fork_async(&f).await;
+            let b = join_fork_async(&f).await;
             b.send(100).unwrap();
 
             // Sync the two: a dominated version would read as "already

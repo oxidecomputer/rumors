@@ -1,6 +1,6 @@
 //! The local rumor set: [`Peer`] and its synchronized state, plus the local API
 //! for sending, redacting, and observing messages. The wire-session drivers
-//! (bootstrap, gossip, retire) live in [`gossip`].
+//! (join, gossip, retire) live in [`gossip`].
 
 use std::{
     borrow::Borrow,
@@ -18,7 +18,7 @@ use tokio::sync::watch;
 use crate::bookmark::{BookmarkHandle, NoBookmark, Reservation, Reservations};
 use crate::counter::widen;
 use crate::default;
-use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
+use crate::message::{EncodeError, MessageDepthLimit, PayloadCodec};
 use crate::network::{NetworkKeys, NetworkSecret};
 use crate::observe::{Attachment, Observer};
 use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
@@ -41,8 +41,8 @@ use serde::{Serialize, de::DeserializeOwned};
 /// requested budget and this affords, so a session counts at most that larger
 /// value, whatever the target. The public docs state the figure in prose, and
 /// `the_minimum_budget_is_the_documented_figure` checks it; an application
-/// reads the exact minimum for its target from
-/// [`Peer::synchronization_settings`] at a budget of zero.
+/// reads the exact minimum for its target from [`Peer::settings`] at a budget
+/// of zero.
 pub const MIN_SYNC_MEMORY_BUDGET: usize =
     materialized::Allowances::of::<Local>(default::TARGET_MESSAGE_SIZE).minimum();
 
@@ -150,13 +150,13 @@ pub(crate) struct SessionLimits {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct SessionSizing {
     /// The memory budget selected by [`Peer::sync_memory_budget`] or
-    /// [`Bootstrap::sync_memory_budget`], as given.
+    /// [`Joining::sync_memory_budget`], as given.
     pub(crate) sync_memory_budget: MemoryBudget,
     /// The supply-run byte budget selected by [`Peer::target_message_size`] or
-    /// [`Bootstrap::target_message_size`], as given.
+    /// [`Joining::target_message_size`], as given.
     pub(crate) run_budget: RunBudget,
     /// The write batch range selected by [`Peer::write_batch_range`] or
-    /// [`Bootstrap::write_batch_range`].
+    /// [`Joining::write_batch_range`].
     pub(crate) write_batch: WriteBatch,
 }
 
@@ -197,7 +197,7 @@ impl SessionSizing {
     }
 }
 
-/// The settings a peer's sessions run under, which a [`Bootstrap`] builder
+/// The settings a peer's sessions run under, which a [`Joining`] builder
 /// selects and the peer it joins inherits whole.
 ///
 /// The payload nesting limit is not among them: a peer holds it inside its
@@ -209,7 +209,7 @@ pub(crate) struct SessionSettings<T: Send + Sync + 'static> {
     /// Initiation and deadline factories inherited by every gossip handle.
     pub(crate) gossip_policy: policy::Policy<T>,
     /// The wire observers added through [`Peer::observe`] or
-    /// [`Bootstrap::observe`].
+    /// [`Joining::observe`].
     pub(crate) observe: Attachment,
 }
 
@@ -247,22 +247,22 @@ impl Default for MemoryBudget {
 }
 
 mod bookmark;
-mod bootstrap;
 mod connection;
 mod gossip;
+mod join;
 mod policy;
 
 pub use bookmark::Unbookmarked;
-pub use bootstrap::{Bootstrap, Joined};
 pub use connection::Connection;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use gossip::COMPLETION_MARKER;
 pub use gossip::{Gossip, Gossiped, Led, Retire};
+pub use join::{Join, Joining};
 
 /// The start and end of the lifecycle for [`Rumors`].
 ///
 /// Create a new gossip network with [`Peer::seed`](Self::seed), or join an
-/// established peer's network with [`Peer::bootstrap`](Self::bootstrap) ---
+/// established peer's network with [`Peer::joining`](Self::joining) ---
 /// both result in a [`Peer`], which can be additionally configured before
 /// proceeding to using it.
 ///
@@ -285,7 +285,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// The lifecycle of a [`Peer`] usually looks something like this:
 ///
 /// ```
-/// use rumors::{Connection, Joined, Peer, Retire};
+/// use rumors::{Connection, Join, Peer, Retire};
 /// use tokio::io::{BufReader, duplex, split};
 ///
 /// # tokio::runtime::Builder::new_current_thread()
@@ -306,8 +306,8 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// # });
 ///
 /// // Join the network through an existing peer.
-/// let Joined::Joined { peer, .. } = Peer::<String>::bootstrap().join(read, write).await else {
-///     panic!("the established counterparty must serve the bootstrap");
+/// let Join::Connected { peer, .. } = Peer::<String>::joining().join(read, write).await else {
+///     panic!("the established counterparty must serve the joining party");
 /// };
 ///
 /// // `Peer: !Clone`, so we trade it for `Rumors` to send, listen, and gossip concurrently.
@@ -322,7 +322,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 ///     unreachable!("all other handles were dropped already");
 /// };
 ///
-/// // Leave the network by retiring into any peer; it need not be the one we bootstrapped from.
+/// // Leave the network by retiring into any peer; it need not be the one we joined.
 /// // Here, we pretend we have another connection to another peer already in hand.
 /// # let (connection, far) = duplex(64 * 1024);
 /// let (read, write) = split(connection);
@@ -350,7 +350,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// # });
 /// ```
 ///
-/// # Bootstrapping without consensus
+/// # Bootstrapping a network without consensus
 ///
 /// If your application admits a distinguished "first peer" (for example, via
 /// leader election), have that peer call [`Peer::seed`].
@@ -367,8 +367,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 /// itself: compare its `local_min_events` against the `remote_min_events`. Let
 /// the greater count win, with ties broken by comparing the two [`Network`]
 /// identifiers. The winner then stays in its network, and the loser drops its
-/// [`Peer`] and attempts to re-[`bootstrap`](Peer::bootstrap) from the winning
-/// peer.
+/// [`Peer`] and attempts to re-[`join`](Peer::join) from the winning peer.
 ///
 /// If peers are reasonably well-connected as the network gets started, this
 /// protocol quickly reaches a stable steady state, which is henceforth
@@ -407,21 +406,22 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The payload codec built at construction: the typed ingress every gossip
     /// session's supplied leaf records decode through.
     ///
-    /// Carries the [`payload_depth_limit`](Self::payload_depth_limit) beside
+    /// Carries the [`message_depth_limit`](Self::message_depth_limit) beside
     /// the codec's fn pointers (see [`PayloadCodec`]).
     pub(crate) codec: PayloadCodec,
 }
 
-/// The settings configured on a [`Peer`] for gossip synchronization.
+/// The settings configured on a [`Peer`].
 ///
-/// These are queryable via [`Peer::synchronization_settings`] or
-/// [`Rumors::synchronization_settings`](crate::Rumors::synchronization_settings).
+/// These are queryable via [`Peer::settings`] or
+/// [`Rumors::settings`](crate::Rumors::settings).
 ///
 /// Non-inspectable gossip policies set via [`gossip_when`](Peer::gossip_when)
-/// and [`gossip_until`](Peer::gossip_until) are not represented here.
+/// and [`gossip_until`](Peer::gossip_until), and
+/// [`gossip_timeout`](Peer::gossip_timeout) are not represented here.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SynchronizationSettings {
+pub struct Settings {
     /// The configured [`Peer::sync_memory_budget`], adjusted for what is
     /// possible to achieve based on internal constraints.
     pub sync_memory_budget: usize,
@@ -430,9 +430,9 @@ pub struct SynchronizationSettings {
     /// The configured [`Peer::write_batch_range`]), normalized to a pair of
     /// non-crossed bounds.
     pub write_batch_range: (Bound<usize>, Bound<usize>),
-    /// The configured [`Peer::payload_depth_limit`], required to match between
+    /// The configured [`Peer::message_depth_limit`], required to match between
     /// any two peers which gossip.
-    pub payload_depth_limit: u64,
+    pub message_depth_limit: u64,
 }
 
 /// The replica's identity and content, shared through a watch channel.
@@ -441,7 +441,7 @@ pub struct SynchronizationSettings {
 pub(crate) struct Inner<T: Send + Sync + 'static> {
     /// Identity used to stamp local events.
     pub(crate) party: Party,
-    /// Forks reserved for donations to bootstrapping counterparties, not yet
+    /// Forks reserved for donations to joining counterparties, not yet
     /// sent.
     ///
     /// Bookmark reclamation pauses for safety while any of these are
@@ -525,7 +525,7 @@ impl<T: Send + Sync + 'static> Inner<T> {
         });
     }
 
-    /// Split off a fork to donate to a bootstrapping counterparty; reclamation
+    /// Split off a fork to donate to a joining counterparty; reclamation
     /// pauses until the returned reservation drops, or until reunion forgets it
     /// ([`Reservations::release_abandoned`]).
     fn reserve(&mut self) -> (Party, Reservation) {
@@ -675,8 +675,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     ///
     /// Independently seeded peers cannot ever gossip with each other, so you
     /// must call this function *once per network*. Subsequently, other peers
-    /// should join the same gossip network through
-    /// [`bootstrap`](Self::bootstrap).
+    /// should join the same gossip network through [`Peer::join`].
     ///
     /// # Panics
     ///
@@ -688,6 +687,25 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
         // draw would seed networks with one secret, one identifier and one
         // seed party, and gossip as one network.
         Self::seed_from_rng(&mut UnwrapErr(SysRng))
+    }
+
+    /// Create a new peer belonging to an existing gossip network by connecting
+    /// to a peer who is already in it.
+    ///
+    /// To configure options prior to joining the network, use
+    /// [`Peer::joining`].
+    pub async fn join<R, W>(read: R, write: W) -> Join<T, R, W>
+    where
+        R: AsyncBufRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        Joining::new().join(read, write).await
+    }
+
+    /// Configure options for joining an existing gossip network before
+    /// connecting to a peer who is already in it.
+    pub fn joining() -> Joining<T> {
+        Joining::new()
     }
 
     /// Create a network with a caller-supplied random source.
@@ -708,21 +726,8 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
             settings: SessionSettings::default(),
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(keys))),
             bookmark: BookmarkHandle::new(NoBookmark),
-            codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+            codec: PayloadCodec::new::<T>(MessageDepthLimit::default()),
         }
-    }
-}
-
-impl<T: Send + Sync + 'static> Peer<T> {
-    /// Set up joining an existing gossip network.
-    ///
-    /// After setting configuration, call [`Bootstrap::join`] with a connection
-    /// to an established member of the gossip network. On success, the [`Peer`]
-    /// returned will retain the settings configured by this builder. On
-    /// failure, the builder is returned so you can retry with another potential
-    /// peer.
-    pub fn bootstrap() -> Bootstrap<T> {
-        Bootstrap::new()
     }
 }
 
@@ -786,17 +791,17 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Return the local settings used to configure gossip sessions.
     ///
     /// This excludes the gossip initiation and termination policies defined by
-    /// [`gossip_when`](Peer::gossip_when) and
-    /// [`gossip_until`](Peer::gossip_until), which are specified as async
-    /// closures and therefore cannot be meaningfully inspected.
-    pub fn synchronization_settings(&self) -> SynchronizationSettings {
+    /// [`gossip_when`](Peer::gossip_when) [`gossip_until`](Peer::gossip_until),
+    /// and [`gossip_timeout`](Peer::gossip_timeout), which are specified as
+    /// async closures and therefore cannot be meaningfully inspected.
+    pub fn settings(&self) -> Settings {
         let sizing = self.settings.sizing;
         let limits = sizing.limits();
-        SynchronizationSettings {
+        Settings {
             sync_memory_budget: limits.budget.memory,
             target_message_size: limits.target.bytes(),
             write_batch_range: sizing.write_batch.range(),
-            payload_depth_limit: self.codec.limit().get(),
+            message_depth_limit: self.codec.limit().get(),
         }
     }
 
@@ -807,7 +812,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         let inner = self.inner.borrow();
-        let settings = self.synchronization_settings();
+        let settings = self.settings();
         f.debug_struct(name)
             .field("network", &self.network())
             .field("latest", inner.tree.latest())
@@ -815,7 +820,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             .field("sync_memory_budget", &settings.sync_memory_budget)
             .field("target_message_size", &settings.target_message_size)
             .field("write_batch_range", &settings.write_batch_range)
-            .field("payload_depth_limit", &settings.payload_depth_limit)
+            .field("message_depth_limit", &settings.message_depth_limit)
             .finish_non_exhaustive()
     }
 
@@ -870,35 +875,6 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Graceful shutdown: end every gossip driver's initiation policy once
     /// `stop` resolves.
     ///
-    /// This future is shared by every [`Rumors`] handle, and its
-    /// output is discarded. The `stop` future bounds whichever policy
-    /// [`gossip_when`](Self::gossip_when) specifies, including the default.
-    ///
-    /// ```
-    /// # pollster::block_on(async {
-    /// use futures::channel::oneshot;
-    /// use rumors::Peer;
-    ///
-    /// let (stop, stopped) = oneshot::channel::<()>();
-    /// let rumors = Peer::<String>::seed().gossip_until(stopped).into_rumors();
-    ///
-    /// let (connection, _remote) = tokio::io::duplex(64 * 1024);
-    /// let (read, write) = tokio::io::split(connection);
-    /// let read = tokio::io::BufReader::new(read);
-    /// let handle = rumors.clone();
-    /// let drive = async move { handle.gossip(read, write).await };
-    /// // Finishing `drive` drops its `handle`.
-    ///
-    /// // Request graceful shutdown, then continue driving gossip while trying to reclaim the peer.
-    /// stop.send(()).unwrap();
-    /// let (finished, peer) = futures::join!(drive, rumors.try_into_peer());
-    /// finished.unwrap();
-    /// let peer = peer.expect("this is the only caller reclaiming the peer");
-    /// // The peer can now be reconfigured or retired.
-    /// # let _ = peer;
-    /// # });
-    /// ```
-    ///
     /// [`Rumors::try_into_peer`] waits for every other handle to be dropped, so
     /// invoking `stop` allows it to resolve and collect all the disparate
     /// gossiping clones back into a single [`Peer`].
@@ -924,8 +900,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// passing the gossip timeout of:`||
     /// tokio::time::sleep(Duration::from_secs(1))`.
     ///
-    /// Before joining via [`bootstrap`](Peer::bootstrap), configure
-    /// [`Bootstrap::gossip_timeout`]; it will apply to the initial bootstrap
+    /// Before [`joining`](Peer::joining), configure
+    /// [`Joining::gossip_timeout`]; it will apply to the initial joining
     /// session, and the returned [`Peer`] will inherit it henceforth.
     pub fn gossip_timeout<D, F>(mut self, timeout: D) -> Self
     where
@@ -944,7 +920,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// information once the size of the bookmark hits this capacity.
     ///
     ///
-    /// Use [`Bootstrap::bookmark_size_limit`] to configure this setting
+    /// Use [`Joining::bookmark_size_limit`] to configure this setting
     /// explicitly before joining a gossip network.
     pub fn bookmark_size_limit(mut self, bytes: usize) -> Self {
         self.bookmark.set_size_limit(bytes);
@@ -976,8 +952,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// protocol itself.
     ///
     /// Calling `observe` again adds another, and observers are invoked in
-    /// registration order. To observe a joining peer's own bootstrap session,
-    /// attach it instead using [`Bootstrap::observe`].
+    /// registration order. To observe the session in which a peer joins,
+    /// attach it instead using [`Joining::observe`].
     #[must_use]
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.settings.observe.attach(observer);
@@ -1084,7 +1060,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// at isolating itself from gossip, since everyone else will reject its bad
     /// message.
     ///
-    /// The default is [`default::PAYLOAD_DEPTH_LIMIT`], which should be ample
+    /// The default is [`default::MESSAGE_DEPTH_LIMIT`], which should be ample
     /// for almost any type.
     ///
     /// This setting is preserved indefinitely throughout the lifecycle of the
@@ -1099,8 +1075,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// </div>
     #[must_use]
-    pub fn payload_depth_limit(mut self, limit: u64) -> Self {
-        self.codec = self.codec.with_limit(PayloadDepthLimit::new(limit));
+    pub fn message_depth_limit(mut self, limit: u64) -> Self {
+        self.codec = self.codec.with_limit(MessageDepthLimit::new(limit));
         self
     }
 

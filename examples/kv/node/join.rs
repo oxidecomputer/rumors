@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use rumors::{Joined, Peer};
+use rumors::{Join, Peer};
 use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::time::sleep;
 use tracing::debug;
@@ -21,13 +21,13 @@ impl Node {
             return Ok(replica);
         }
 
-        match Peer::bootstrap()
+        match Peer::joining()
             .gossip_timeout(|| sleep(GOSSIP_TIMEOUT))
             .bookmark(self.claim_bookmark().await?)
             .join(read, write)
             .await
         {
-            Joined::Joined { peer, connection } => {
+            Join::Connected { peer, connection } => {
                 debug!(network = %peer.network(), "joined network");
                 let replica = Replica::new(peer, &self.stop);
                 current.send_replace(Some(replica.clone()));
@@ -35,9 +35,9 @@ impl Node {
                 connection.into_halves()?;
                 Ok(replica)
             }
-            Joined::Bailed { .. } => bail!("both ends were waiting to join a network"),
-            Joined::Unbookmarked { unbookmarked, .. } => Err(unbookmarked.error.into()),
-            Joined::Failed { error, .. } => Err(error.into()),
+            Join::Unbookmarked { unbookmarked, .. } => Err(unbookmarked.error.into()),
+            Join::Bounced { .. } => bail!("both ends were waiting to join a network"),
+            Join::Failed { error, .. } => Err(error.into()),
         }
     }
 }

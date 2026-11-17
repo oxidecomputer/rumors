@@ -11,7 +11,7 @@ use tokio::io::{BufReader, DuplexStream};
 use tokio::sync::watch;
 
 use crate::bookmark::{Bookmark, BookmarkHandle, NoBookmark};
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::{MessageDepthLimit, PayloadCodec};
 use crate::network::NetworkSecret;
 use crate::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
@@ -63,24 +63,24 @@ fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
     })
 }
 
-/// Drive `provider.gossip` against a fresh `bootstrap`, returning the
-/// post-serve provider and the bootstrapped peer.
-fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
+/// Drive `provider.gossip` against a fresh `join`, returning the
+/// post-serve provider and the joined peer.
+fn join_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
     pollster::block_on(async {
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
-        let (provider_out, boot_out) = tokio::join!(
+        let (provider_out, join_out) = tokio::join!(
             provider.gossip_once(&mut a_end.read, &mut a_end.write),
-            Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+            Peer::<u64>::join(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("provider gossip");
         (
             provider,
-            (match boot_out {
-                crate::Joined::Joined {
+            (match join_out {
+                crate::Join::Connected {
                     peer,
                     connection: crate::Connection::Reusable { .. },
                 } => peer,
-                _ => panic!("provider served the bootstrap"),
+                _ => panic!("provider served the join"),
             }),
         )
     })
@@ -105,7 +105,7 @@ divided_proptest! {
         // region (not a disjoint fork), with an empty tree so its version equals the
         // survivor's and the survivor takes the absorb branch.
         let forged = Peer::<u64> {
-            codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            codec: PayloadCodec::new::<u64>(MessageDepthLimit::default()),
             keys: survivor.keys.clone(),
             settings: SessionSettings {
                 sizing: survivor.settings.sizing,
@@ -151,7 +151,7 @@ divided_proptest! {
     /// id-space with no leak: the survivor's party normalizes back to exactly
     /// [`Party::seed`] (`"1"`, the whole interval).
     ///
-    /// Each bootstrap hands a child a disjoint slice of the seed's region; each
+    /// Each join hands a child a disjoint slice of the seed's region; each
     /// `retire` hands a slice back, and a leak anywhere would leave the reunited
     /// party short of the whole.
     ///
@@ -159,12 +159,12 @@ divided_proptest! {
     #[test]
     fn retiring_all_forks_reconstitutes_the_seed_party(network in network_seed()) {
         let survivor = network.peer::<u64>();
-        // Each child is a party-disjoint fork created by serving a bootstrap.
+        // Each child is a party-disjoint fork created by serving a join.
         // All are empty, so they share the seed's version, are reflexively dominated,
         // and retire with no prior gossip.
-        let (survivor, c1) = bootstrap_from(survivor);
-        let (survivor, c2) = bootstrap_from(survivor);
-        let (survivor, c3) = bootstrap_from(survivor);
+        let (survivor, c1) = join_from(survivor);
+        let (survivor, c2) = join_from(survivor);
+        let (survivor, c3) = join_from(survivor);
 
         let survivor = retire_child_into(survivor, c3);
         let survivor = retire_child_into(survivor, c2);
@@ -177,19 +177,19 @@ divided_proptest! {
         );
     }
 
-    /// Bootstrap creates a fresh party by forking the provider's; retiring that
+    /// Join creates a fresh party by forking the provider's; retiring that
     /// peer back must reclaim exactly that forked region.
     ///
-    /// Provider with real content, bootstrap (a wire fork), then retire the
+    /// Provider with real content, join (a wire fork), then retire the
     /// newcomer home: the provider's party normalizes back to [`Party::seed`],
-    /// proving the bootstrap hand-off and the retire commit are jointly leak-free.
+    /// proving the join hand-off and the retire commit are jointly leak-free.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn bootstrap_then_retire_reconstitutes_the_seed_party(network in network_seed()) {
+    fn join_then_retire_reconstitutes_the_seed_party(network in network_seed()) {
         let provider = with_messages(network.peer::<u64>(), &[1, 2, 3]);
 
-        let (provider, newcomer) = bootstrap_from(provider);
+        let (provider, newcomer) = join_from(provider);
         // The newcomer pulled all content and is a causal fork (equal version), so
         // the provider reflexively dominates it and absorbs it on retire.
         let provider = retire_child_into(provider, newcomer);
@@ -197,7 +197,7 @@ divided_proptest! {
         assert_eq!(
             party_of(&provider),
             Party::seed(),
-            "retiring a bootstrapped peer back must reconstitute the whole id-space",
+            "retiring a joined peer back must reconstitute the whole id-space",
         );
     }
 
@@ -211,7 +211,7 @@ divided_proptest! {
     #[test]
     fn mutual_retire_declines_both(network in network_seed()) {
         let survivor = network.peer::<u64>();
-        let (survivor, child) = bootstrap_from(survivor);
+        let (survivor, child) = join_from(survivor);
 
         let (a_out, b_out) = pollster::block_on(async {
             let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
@@ -256,7 +256,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
             .as_ref()
             .map_or(0, |node| node.grandchild_count() as u64),
         max_version_bytes: root.max_version_bytes(),
-        payload_depth_limit: retiree.codec.limit().get(),
+        message_depth_limit: retiree.codec.limit().get(),
         target_message_size: retiree.settings.sizing.run_budget.bytes() as u64,
         listing: materialized::fan_listing(
             Prefix::new().erase(),
@@ -336,7 +336,7 @@ divided_proptest! {
     #[test]
     fn severed_descent_recovers_the_retiree(network in network_seed()) {
         let survivor = network.peer::<u64>();
-        let (mut survivor, child) = bootstrap_from(survivor);
+        let (mut survivor, child) = join_from(survivor);
         // Diverge: the child holds content the survivor lacks, so the retire
         // session must descend, and its frames overflow the budget's slack.
         let child = with_messages(child, &(0..32).collect::<Vec<u64>>());
@@ -388,7 +388,7 @@ divided_proptest! {
     #[test]
     fn severed_completion_marker_consumes_the_retiree(network in network_seed()) {
         let survivor = network.peer::<u64>();
-        let (mut survivor, child) = bootstrap_from(survivor);
+        let (mut survivor, child) = join_from(survivor);
 
         // Both peers are empty and converged. This budget admits the preamble,
         // greeting, and party item, then fails the write of the completion marker.
@@ -426,7 +426,7 @@ divided_proptest! {
     #[test]
     fn severed_party_frame_consumes_the_retiree(network in network_seed()) {
         let survivor = network.peer::<u64>();
-        let (mut survivor, child) = bootstrap_from(survivor);
+        let (mut survivor, child) = join_from(survivor);
 
         // Both empty and converged, so the retiree's outgoing bytes are exactly
         // preamble + greeting + party frame + completion marker. The budget admits
@@ -452,24 +452,24 @@ divided_proptest! {
     }
 }
 
-// ---- fault injection: cutting the wire across a bootstrap hand-off -------
+// ---- fault injection: cutting the wire across a join hand-off -------
 
-/// The joiner's party, if a bootstrap returned a peer.
-fn joined_party<R, W>(joined: crate::Joined<u64, R, W>) -> Option<Party> {
+/// The joiner's party, if a join returned a peer.
+fn joined_party<R, W>(joined: crate::Join<u64, R, W>) -> Option<Party> {
     match joined {
-        crate::Joined::Joined { peer, .. } => Some(party_of(&peer)),
-        crate::Joined::Failed { .. } => None,
-        other => panic!("a provider serves the bootstrap or the session fails, got {other:?}"),
+        crate::Join::Connected { peer, .. } => Some(party_of(&peer)),
+        crate::Join::Failed { .. } => None,
+        other => panic!("a provider serves the join or the session fails, got {other:?}"),
     }
 }
 
-/// One bootstrap from a fresh peer of `network` holding three messages, over a
+/// One join from a fresh peer of `network` holding three messages, over a
 /// connection whose joiner-side halves fail as `fault` says.
 ///
 /// Returns the provider after its session, the joiner's party if the join
 /// returned a peer, and the joiner's transport report: how many of the
 /// provider's bytes it read, and how many of its own it wrote.
-fn cut_bootstrap(
+fn cut_join(
     network: NetworkSeed,
     fault: Option<IoFault>,
 ) -> (Peer<u64>, Option<Party>, crate::testing::IoReport) {
@@ -486,7 +486,7 @@ fn cut_bootstrap(
         // provider as end of stream rather than leaving it waiting.
         let (_, joined) = tokio::join!(
             provider.gossip_once(&mut a_end.read, &mut a_end.write),
-            Peer::<u64>::bootstrap().join(read, write),
+            Peer::<u64>::join(read, write),
         );
         (provider, joined_party(joined), report.snapshot())
     })
@@ -495,7 +495,7 @@ fn cut_bootstrap(
 divided_proptest! {
     #![divisor(FLEET_DIVISOR)]
 
-    /// Cutting the wire at any point of a bootstrap never gives one identity to
+    /// Cutting the wire at any point of a join never gives one identity to
     /// both sides, and a joiner that has received its whole party keeps it.
     ///
     /// The cut falls after every prefix of the provider's bytes as the joiner
@@ -508,12 +508,12 @@ divided_proptest! {
     /// sending the party and before the joiner holds all of it, can strand the
     /// fork, but never duplicates it.
     ///
-    /// The claim holds for every network seed. Each case runs one bootstrap
+    /// The claim holds for every network seed. Each case runs one join
     /// for every byte the two sides exchange, so it takes the fleet divisor.
     #[test]
-    fn cut_bootstrap_never_duplicates_and_keeps_a_received_party(network in network_seed()) {
-        let (_, clean, report) = cut_bootstrap(network, None);
-        assert!(clean.is_some(), "an uncut bootstrap joins");
+    fn cut_join_never_duplicates_and_keeps_a_received_party(network in network_seed()) {
+        let (_, clean, report) = cut_join(network, None);
+        assert!(clean.is_some(), "an uncut join succeeds");
         let party_end = report.read_bytes - crate::peer::COMPLETION_MARKER.len();
         let cuts = (0..=report.read_bytes)
             .map(|after| (IoOperation::Read, after))
@@ -525,7 +525,7 @@ divided_proptest! {
                 after,
                 unit: IoFaultUnit::Bytes,
             };
-            let (provider, joiner, cut) = cut_bootstrap(network, Some(fault));
+            let (provider, joiner, cut) = cut_join(network, Some(fault));
             let mut whole = party_of(&provider);
             match joiner {
                 Some(joiner) => {
@@ -600,7 +600,7 @@ fn expire_at_poll(
     }
 }
 
-/// What one cancelled bootstrap left on each side, and how often each side's
+/// What one cancelled join left on each side, and how often each side's
 /// session suspended.
 struct Cancelled {
     /// The provider's party after its session.
@@ -617,13 +617,13 @@ struct Cancelled {
     suspensions: [usize; 2],
 }
 
-/// One bootstrap from a fresh peer of `network` holding three messages, whose
+/// One join from a fresh peer of `network` holding three messages, whose
 /// joiner's session is cancelled at its `joiner_at`-th suspension and whose
 /// provider's at its `provider_at`-th (`usize::MAX` for never).
 ///
 /// Each side owns its halves, so a cancelled side's drop reaches the other as
 /// end of stream rather than leaving it waiting.
-fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usize) -> Cancelled {
+fn cancelled_join(network: NetworkSeed, joiner_at: usize, provider_at: usize) -> Cancelled {
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
     let provider = with_messages(
         network
@@ -635,7 +635,7 @@ fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usiz
         let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
         let (served, joined) = tokio::join!(
             provider.gossip_once(a_end.read, a_end.write),
-            Peer::<u64>::bootstrap()
+            Peer::<u64>::joining()
                 .gossip_timeout(expire_at_poll(&polls[0], joiner_at))
                 .join(b_end.read, b_end.write),
         );
@@ -643,7 +643,7 @@ fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usiz
     });
     let connection_lost = matches!(
         joined,
-        crate::Joined::Joined {
+        crate::Join::Connected {
             connection: crate::Connection::Lost { .. },
             ..
         }
@@ -664,12 +664,12 @@ fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usiz
 divided_proptest! {
     #![divisor(FLEET_DIVISOR)]
 
-    /// Cancelling either side of a bootstrap at any suspension, or both at
+    /// Cancelling either side of a join at any suspension, or both at
     /// any pair of them, never gives one identity to both sides, and a joiner
     /// that returns a peer holds exactly what the provider gave up.
     ///
     /// A gossip timeout that expires on its `k`-th poll cancels its session
-    /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled bootstrap
+    /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled join
     /// counts each side's suspensions; the joiner's cancellation then ranges
     /// over each of its suspensions, one past its last, and never, and so does
     /// the provider's, in every combination. At every combination the two
@@ -689,17 +689,17 @@ divided_proptest! {
     /// provider to give the fork up into a closed connection. That loses an
     /// identity but never duplicates one, so it is permitted here.
     ///
-    /// The claim holds for every network seed. Each case runs a bootstrap per
+    /// The claim holds for every network seed. Each case runs a join per
     /// pair of suspensions, so it takes the fleet divisor.
     #[test]
-    fn cancelled_bootstrap_never_duplicates_and_keeps_a_received_party(network in network_seed()) {
-        let clean = cancelled_bootstrap(network, usize::MAX, usize::MAX);
-        assert!(clean.joiner.is_some(), "an uncancelled bootstrap joins");
+    fn cancelled_join_never_duplicates_and_keeps_a_received_party(network in network_seed()) {
+        let clean = cancelled_join(network, usize::MAX, usize::MAX);
+        assert!(clean.joiner.is_some(), "an uncancelled join succeeds");
         let points = |suspensions: usize| (1..=suspensions + 1).chain([usize::MAX]);
         let (mut restored, mut lost) = (0, 0);
         for joiner_at in points(clean.suspensions[0]) {
             for provider_at in points(clean.suspensions[1]) {
-                let cancelled = cancelled_bootstrap(network, joiner_at, provider_at);
+                let cancelled = cancelled_join(network, joiner_at, provider_at);
                 let at = format!("joiner at {joiner_at}, provider at {provider_at}");
                 let mut whole = cancelled.provider;
                 match cancelled.joiner {
@@ -762,7 +762,7 @@ fn cancelled_retire(
     absorber_at: usize,
 ) -> CancelledRetire {
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
-    let (absorber, retiree) = bootstrap_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
+    let (absorber, retiree) = join_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
     let retiree =
         with_messages(retiree, &[4, 5]).gossip_timeout(expire_at_poll(&polls[0], retiree_at));
     let absorber =
@@ -897,7 +897,7 @@ fn cancelled_gossip(
     b_at: usize,
 ) -> ([GossipSide; 2], [usize; 2]) {
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
-    let (a, b) = bootstrap_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
+    let (a, b) = join_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
     let a = with_messages(a, &[6]);
     let one = a
         .snapshot()
@@ -1083,11 +1083,11 @@ divided_proptest! {
     /// The deadline expires while the joiner waits for the provider's completion
     /// marker, and the join returns a peer with the provider's content beside
     /// a [`Connection::Lost`](crate::Connection::Lost) carrying the deadline's
-    /// error. The peer comes back in [`Joined::Joined`](crate::Joined::Joined),
-    /// which carries a peer only once its bookmark is attached, and the
+    /// error. The peer comes back in
+    /// [`Join::Connected`](crate::Join::Connected), which carries a peer only once its bookmark is attached, and the
     /// bookmark holds a persisted record.
     ///
-    /// A clean bootstrap measures how many bytes the provider writes. A second
+    /// A clean join measures how many bytes the provider writes. A second
     /// provider, built identically from the same network seed, then serves
     /// through a writer that passes every byte before its completion marker
     /// and stalls on the marker. Under a paused clock the joiner's deadline
@@ -1108,12 +1108,12 @@ divided_proptest! {
             );
             let (served, joined) = tokio::join!(
                 clean.gossip_once(&mut read, &mut write),
-                Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+                Peer::<u64>::join(&mut b_end.read, &mut b_end.write),
             );
-            served.expect("the measured bootstrap completes");
+            served.expect("the measured join completes");
             assert!(
                 joined_party(joined).is_some(),
-                "the measured bootstrap joins"
+                "the measured join succeeds"
             );
             report.snapshot().write_bytes
         });
@@ -1132,7 +1132,7 @@ divided_proptest! {
                     budget: provider_bytes - crate::peer::COMPLETION_MARKER.len(),
                 };
                 let serve = provider.gossip_once(&mut a_end.read, &mut stalled);
-                let join = Peer::<u64>::bootstrap()
+                let join = Peer::<u64>::joining()
                     .gossip_timeout(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
                     .bookmark(record.clone())
                     .join(&mut b_end.read, &mut b_end.write);
@@ -1141,7 +1141,7 @@ divided_proptest! {
                     _ = serve => panic!("the stalled provider cannot finish"),
                 };
                 match joined {
-                    crate::Joined::Joined {
+                    crate::Join::Connected {
                         peer,
                         connection: crate::Connection::Lost { error },
                     } => (peer, error),
@@ -1238,7 +1238,7 @@ fn contains_run(haystack: &[u8], needle: &[u8]) -> bool {
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// A bootstrap delivers the network's secret, sealed, before any supply,
+    /// A join delivers the network's secret, sealed, before any supply,
     /// and no observation, on either side, carries it in the clear.
     ///
     /// The joiner ends up holding the provider's secret. The provider's second
@@ -1249,7 +1249,7 @@ divided_proptest! {
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn bootstrap_delivers_the_secret_first_and_observers_never_see_it(network in network_seed()) {
+    fn join_delivers_the_secret_first_and_observers_never_see_it(network in network_seed()) {
         let provider_items = Arc::new(ObservedItems::default());
         let joiner_items = Arc::new(ObservedItems::default());
         let provider = with_messages(
@@ -1260,14 +1260,14 @@ divided_proptest! {
             let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
             let (served, joined) = tokio::join!(
                 provider.gossip_once(&mut a_end.read, &mut a_end.write),
-                Peer::<u64>::bootstrap()
+                Peer::<u64>::joining()
                     .observe(Arc::new(RecordItems(joiner_items.clone())))
                     .join(&mut b_end.read, &mut b_end.write),
             );
-            served.expect("the provider serves the bootstrap");
+            served.expect("the provider serves the join");
             match joined {
-                crate::Joined::Joined { peer, connection: crate::Connection::Reusable { .. } } => peer,
-                other => panic!("the bootstrap joins, got {other:?}"),
+                crate::Join::Connected { peer, connection: crate::Connection::Reusable { .. } } => peer,
+                other => panic!("the join succeeds, got {other:?}"),
             }
         });
         assert!(
@@ -1311,7 +1311,7 @@ divided_proptest! {
             .collect();
         assert_eq!(
             tag_of(&provider_control[1]),
-            crate::tags::BOOTSTRAP_KEY_TAG,
+            crate::tags::JOINING_KEY_TAG,
             "the provider's second control item is the joiner's key item"
         );
         let first_data = received
@@ -1412,7 +1412,7 @@ divided_proptest! {
         use crate::tree::typed::Path;
 
         let survivor = network.peer::<u64>();
-        let (survivor, child) = bootstrap_from(survivor);
+        let (survivor, child) = join_from(survivor);
 
         // Causally concurrent divergence on both sides makes the session
         // descends instead of short-circuiting on equal declared versions.
@@ -1546,7 +1546,7 @@ divided_proptest! {
     #[test]
     fn gossip_session_root_hash_reads(network in network_seed()) {
         let provider = with_messages(network.peer::<u64>(), &[1, 2, 3]);
-        let (provider, joiner) = bootstrap_from(provider);
+        let (provider, joiner) = join_from(provider);
 
         // Divergence on both sides gives the session real work: each
         // side both provides and absorbs content.

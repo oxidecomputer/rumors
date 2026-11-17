@@ -40,7 +40,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail, ensure};
 use rand::{Rng, RngExt};
-use rumors::{Joined, Peer, Rumors, Snapshot, Version};
+use rumors::{Join, Peer, Rumors, Snapshot, Version};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use sha3::{Digest, Sha3_256};
@@ -149,13 +149,13 @@ async fn build_from(point: &Point, root: Peer<Payload>, rng: &mut impl Rng) -> R
     let offset_versions: Vec<Version> = root.snapshot().versions().cloned().collect();
     root.redact_all(&offset_versions);
 
-    let a = bootstrap_in_memory(&root)
+    let a = join_in_memory(&root)
         .await
         .context("joining A from the root")?;
     drop(root);
     send_drawn(&a, replicas.common(), &mut sampler, rng, &mut report)
         .context("sending the common messages")?;
-    let b = bootstrap_in_memory(&a).await.context("joining B from A")?;
+    let b = join_in_memory(&a).await.context("joining B from A")?;
 
     let ranked = ranked_versions(&a.snapshot());
     let (redacted_by_a, rest) = ranked.split_at(to_index(replicas.redact_a)?);
@@ -255,7 +255,7 @@ pub fn fingerprint(snapshot: &Snapshot<Payload>) -> [u8; 32] {
 }
 
 /// Joins a new peer from `server` over an in-memory pipe.
-async fn bootstrap_in_memory(server: &Rumors<Payload>) -> Result<Rumors<Payload>> {
+async fn join_in_memory(server: &Rumors<Payload>) -> Result<Rumors<Payload>> {
     let (near, far) = duplex(PIPE_BYTES);
     let (far_read, far_write) = split(far);
     let (near_read, near_write) = split(near);
@@ -273,17 +273,17 @@ where
     R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
-    match Peer::<Payload>::bootstrap().join(read, write).await {
+    match Peer::<Payload>::join(read, write).await {
         // The fixture's own connection failed after the identity arrived;
         // a measurement never runs on a session that did not complete.
-        Joined::Joined {
+        Join::Connected {
             connection: rumors::Connection::Lost { error },
             ..
         } => Err(error).context("a join's completion was not confirmed"),
-        Joined::Joined { peer, .. } => Ok(peer.into_rumors()),
-        Joined::Failed { error, .. } => Err(error).context("a join failed"),
-        Joined::Bailed { .. } => bail!("a join ended without joining: the server bailed"),
-        Joined::Unbookmarked { .. } => {
+        Join::Connected { peer, .. } => Ok(peer.into_rumors()),
+        Join::Failed { error, .. } => Err(error).context("a join failed"),
+        Join::Bounced { .. } => bail!("a join ended without joining: the server bailed"),
+        Join::Unbookmarked { .. } => {
             bail!("a join without a bookmark reported a bookmark failure")
         }
     }
@@ -320,8 +320,8 @@ pub async fn configure(
     if let Some(bytes) = side.target_message_size {
         peer = peer.target_message_size(usize::try_from(bytes).unwrap_or(usize::MAX));
     }
-    if let Some(limit) = point.settings.payload_depth_limit {
-        peer = peer.payload_depth_limit(limit);
+    if let Some(limit) = point.settings.message_depth_limit {
+        peer = peer.message_depth_limit(limit);
     }
     if let Some(deadline) = point.settings.session_deadline {
         peer = peer.gossip_timeout(move || tokio::time::sleep(deadline));

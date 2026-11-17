@@ -17,8 +17,8 @@
 //! Party convention: **A is the absorber** — the counterparty that survives the
 //! session and takes the retiree's party — and **B is the retiree**, running
 //! [`Peer::retire`]. The absorber's role varies by scenario: plain `gossip` in
-//! [`empty_retire`] and [`divergent_retire`], a [`Peer::bootstrap`] that
-//! inherits the identity in [`retire_into_bootstrapper`]. The exception is
+//! [`empty_retire`] and [`divergent_retire`], a [`Peer::join`] that
+//! inherits the identity in [`retire_into_joiner`]. The exception is
 //! [`mutual_retire_declines`], where both sides retire and neither absorbs.
 //!
 //! As in `gossip_snapshot.rs` the payload is `u64`: a fixed 8 bytes, easy to
@@ -29,7 +29,7 @@ use rumors_testkit::common;
 use rumors::{Connection, Peer, Retire, Rumors};
 
 use crate::common::gossip_snapshot::{capture_session, observed, seeded};
-use crate::common::wire::bootstrap_fork;
+use crate::common::wire::join_fork;
 
 /// Capture one successful retire: `retiree` runs [`Peer::retire`] (party B)
 /// while `absorber` drives `gossip` (party A), reconciling content and then
@@ -74,7 +74,7 @@ fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
 #[test]
 fn empty_retire() {
     let seed = seeded();
-    let retiree = bootstrap_fork(&seed);
+    let retiree = join_fork(&seed);
     insta::assert_snapshot!(capture_retire(seed, retiree));
 }
 
@@ -86,7 +86,7 @@ fn empty_retire() {
 #[test]
 fn divergent_retire() {
     let seed = seeded();
-    let retiree = bootstrap_fork(&seed);
+    let retiree = join_fork(&seed);
     retiree.send(1).unwrap();
     seed.send(2).unwrap();
     insta::assert_snapshot!(capture_retire(seed, retiree));
@@ -102,7 +102,7 @@ fn divergent_retire() {
 #[test]
 fn mutual_retire_declines() {
     let seed = seeded();
-    let a = bootstrap_fork(&seed);
+    let a = join_fork(&seed);
     let b = seed;
     a.send_all([1, 2]).unwrap();
     b.send_all([3, 4]).unwrap();
@@ -136,32 +136,32 @@ fn mutual_retire_declines() {
     insta::assert_snapshot!(capture);
 }
 
-/// Retire into a *bootstrapping* counterparty: the newcomer (party A) pulls the
+/// Retire into a *joining* counterparty: the newcomer (party A) pulls the
 /// retiree's whole tree through the descent and then receives its whole party
 /// as the trailing frame.
 ///
 /// The newcomer *becomes* the retiree's successor in the same universe. The
-/// cross of the bootstrap and retire legs: one side bootstraps, the other
+/// cross of the join and retire legs: one side joins, the other
 /// retires, and the identity is handed off rather than reclaimed by an
 /// established peer.
 #[test]
-fn retire_into_bootstrapper() {
+fn retire_into_joiner() {
     let seed = seeded();
-    let retiree = bootstrap_fork(&seed);
+    let retiree = join_fork(&seed);
     retiree.send_all([1, 2]).unwrap();
 
     let capture = capture_session(
         |mut end, hook| async move {
-            match Peer::<u64>::bootstrap()
+            match Peer::<u64>::joining()
                 .observe(hook)
                 .join(&mut end.read, &mut end.write)
                 .await
             {
-                rumors::Joined::Joined {
+                rumors::Join::Connected {
                     peer,
                     connection: rumors::Connection::Reusable { .. },
                 } => peer,
-                _ => panic!("the retiree served the bootstrap"),
+                _ => panic!("the retiree served the join"),
             };
         },
         move |mut end, hook| async move {
@@ -178,7 +178,7 @@ fn retire_into_bootstrapper() {
                         connection: Connection::Reusable { .. }
                     }
                 ),
-                "a bootstrapper absorbs the retiree; got {outcome:?}",
+                "a joiner absorbs the retiree; got {outcome:?}",
             );
         },
     );

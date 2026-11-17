@@ -47,9 +47,9 @@ impl Wire {
     }
 }
 
-/// Create one disjoint replica by serving a bootstrap over an ephemeral
+/// Create one disjoint replica by serving a join over an ephemeral
 /// connection.
-pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
+pub fn join_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -57,11 +57,11 @@ where
         let (mut parent_end, mut newcomer_end) = rumors::testing::memory_connection(CAPACITY);
         let (served, newcomer) = tokio::join!(
             parent.gossip_once(&mut parent_end.read, &mut parent_end.write),
-            Peer::<T>::bootstrap().join(&mut newcomer_end.read, &mut newcomer_end.write),
+            Peer::<T>::join(&mut newcomer_end.read, &mut newcomer_end.write),
         );
-        served.expect("serve bootstrap");
+        served.expect("serve join");
         (match newcomer {
-            rumors::Joined::Joined {
+            rumors::Join::Connected {
                 peer,
                 connection: rumors::Connection::Reusable { .. },
             } => peer,

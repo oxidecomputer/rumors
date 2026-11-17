@@ -3,7 +3,7 @@
 //!
 //! Motivation: an identity-touching change can pass every functional test while
 //! regressing the party *size/shape* algebra — speculative pre-forks, for
-//! example, fragment a bootstrap provider's id tree into non-contiguous shards
+//! example, fragment a join provider's id tree into non-contiguous shards
 //! under contention. These tests pin the conservation algebra and that shape
 //! bound on mainline, so such a change fails the gate instead of relying on a
 //! reviewer to spot the hazard.
@@ -20,11 +20,11 @@
 //!    is moved and split, never created or destroyed; because each step is one
 //!    clean session driven to completion, nothing is in flight between steps,
 //!    and the fold covering the whole interval proves it.
-//! 3. **Donated exactly once**: a bootstrap moves one fork (the newcomer's
+//! 3. **Donated exactly once**: a join moves one fork (the newcomer's
 //!    party rejoins the provider's remainder to exactly the provider's
 //!    pre-session party), and a retirement moves one whole party (the
 //!    absorber's post-party is exactly the join of the two pre-parties).
-//! 4. **The fragmentation bound**: bootstrap-then-retire cycles return the
+//! 4. **The fragmentation bound**: join-then-retire cycles return the
 //!    provider's party bit-for-bit to its baseline — sequential and interleaved
 //!    alike — so the ITC id tree's encoded size is bounded independent of
 //!    lifecycle churn.
@@ -45,7 +45,7 @@ use rumors::{Connection, Retire, Rumors};
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::wire::{assert_connection_drained, block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{assert_connection_drained, block_on, join_fork, wire_gossip};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// The largest fleet [`fleet_scale_retirement_preserves_content_and_party`]
@@ -145,9 +145,9 @@ enum Op {
     Send { peer: usize, value: u64 },
     /// Plain gossip between two distinct live peers: no identity moves.
     Gossip { a: usize, off: usize },
-    /// A brand-new peer bootstraps off a live provider, which donates a fork of
+    /// A brand-new peer joins off a live provider, which donates a fork of
     /// its party; the newcomer joins the fleet.
-    Bootstrap { provider: usize },
+    Join { provider: usize },
     /// A live peer retires into another (distinct) live peer, donating its
     /// whole party; the retiree leaves the fleet.
     Retire { retiree: usize, off: usize },
@@ -157,7 +157,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
     prop_oneof![
         3 => (any::<usize>(), any::<u64>()).prop_map(|(peer, value)| Op::Send { peer, value }),
         3 => (any::<usize>(), any::<usize>()).prop_map(|(a, off)| Op::Gossip { a, off }),
-        2 => any::<usize>().prop_map(|provider| Op::Bootstrap { provider }),
+        2 => any::<usize>().prop_map(|provider| Op::Join { provider }),
         2 => (any::<usize>(), any::<usize>()).prop_map(|(retiree, off)| Op::Retire { retiree, off }),
     ]
 }
@@ -178,8 +178,8 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
             let b = (a + 1 + off % (n - 1)) % n;
             wire_gossip(&fleet[a], &fleet[b]);
         }
-        Op::Bootstrap { provider } => {
-            let newcomer = bootstrap_fork(&fleet[provider % n]);
+        Op::Join { provider } => {
+            let newcomer = join_fork(&fleet[provider % n]);
             fleet.push(newcomer);
         }
         Op::Retire { retiree, off } if n >= 2 => {
@@ -211,7 +211,7 @@ proptest! {
     /// The Law of Disjointness survives arbitrary lifecycle schedules:
     /// all live parties are pairwise disjoint after every step.
     ///
-    /// The schedules mix sends, plain gossip, bootstraps of
+    /// The schedules mix sends, plain gossip, joins of
     /// new peers off arbitrary members, and retirements of arbitrary
     /// members into others.
     #[test]
@@ -226,7 +226,7 @@ proptest! {
     /// of all live parties equals the baseline established at seed — the
     /// whole `[0, 1)` interval — after every step.
     ///
-    /// Bootstrap and retirement
+    /// Join and retirement
     /// move and split identity but never create or destroy it, and clean
     /// sessions leave no donation in flight between steps.
     #[test]
@@ -239,20 +239,20 @@ proptest! {
 }
 
 proptest! {
-    /// A bootstrap donates exactly one fork: the newcomer's party is
+    /// A join donates exactly one fork: the newcomer's party is
     /// disjoint from the provider's remainder, and joining the two
     /// reconstitutes exactly the provider's pre-session party.
     ///
     /// No other identity moved, none was created, none was lost.
     #[test]
-    fn bootstrap_donates_exactly_once(actions in arb_local_actions(), network in network_seed()) {
+    fn join_donates_exactly_once(actions in arb_local_actions(), network in network_seed()) {
         let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         // A provider holding a proper sub-share (not the whole seed), with
         // arbitrary content: the general donation case.
-        let provider = build_local(bootstrap_fork(&seed), &actions);
+        let provider = build_local(join_fork(&seed), &actions);
 
         let pre = alias(&provider);
-        let newcomer = bootstrap_fork(&provider);
+        let newcomer = join_fork(&provider);
         let remainder = alias(&provider);
         let donated = alias(&newcomer);
 
@@ -283,8 +283,8 @@ proptest! {
         network in network_seed(),
     ) {
         let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let absorber = build_local(bootstrap_fork(&seed), &absorber_actions);
-        let retiree = build_local(bootstrap_fork(&seed), &retiree_actions);
+        let absorber = build_local(join_fork(&seed), &absorber_actions);
+        let retiree = build_local(join_fork(&seed), &retiree_actions);
 
         let absorber_pre = alias(&absorber);
         let retiree_pre = alias(&retiree);
@@ -293,7 +293,7 @@ proptest! {
         let mut expected = absorber_pre;
         expected
             .join(retiree_pre)
-            .expect("distinct bootstrap forks are disjoint");
+            .expect("distinct donation forks are disjoint");
         let absorber_post = alias(&absorber);
         prop_assert!(
             absorber_post == expected,
@@ -304,8 +304,8 @@ proptest! {
 }
 
 proptest! {
-    /// Sequential bootstrap/retire cycles cannot fragment the provider's id
-    /// tree: after each of `k` cycles of (bootstrap a newcomer off `P`,
+    /// Sequential join/retire cycles cannot fragment the provider's id
+    /// tree: after each of `k` cycles of (join a newcomer off `P`,
     /// retire it back into `P`), `P`'s party is bit-for-bit its pre-cycle
     /// baseline.
     ///
@@ -322,12 +322,12 @@ proptest! {
         let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         // The provider under test holds a proper sub-share, the general
         // case; the seed handle stays live holding the complement.
-        let p = bootstrap_fork(&seed);
+        let p = join_fork(&seed);
         let baseline = alias(&p);
         let baseline_bits = baseline.encoded_bits();
 
         for cycle in 0..k {
-            let newcomer = bootstrap_fork(&p);
+            let newcomer = join_fork(&p);
             // Both sides originate mid-cycle: versions advance under the
             // forked and remainder parties, which must not disturb the
             // identity algebra.
@@ -349,8 +349,8 @@ proptest! {
         }
     }
 
-    /// Out-of-order (interleaved) bootstrap/retire cycles renormalize too:
-    /// bootstrap `m` newcomers off `P`, then retire them back into `P` in
+    /// Out-of-order (interleaved) join/retire cycles renormalize too:
+    /// join `m` newcomers off `P`, then retire them back into `P` in
     /// an arbitrary order.
     ///
     /// The ITC join still collapses the id tree, and
@@ -364,15 +364,15 @@ proptest! {
         network in network_seed(),
     ) {
         let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let p = bootstrap_fork(&seed);
+        let p = join_fork(&seed);
         let baseline = alias(&p);
 
-        // Bootstrap all newcomers first (in creation order), then retire
+        // Join all newcomers first (in creation order), then retire
         // them in the shuffled order: reabsorption never matches the order
         // the forks were split off in.
         let mut newcomers: Vec<Option<Rumors<u64>>> = (0..order.len())
             .map(|i| {
-                let newcomer = bootstrap_fork(&p);
+                let newcomer = join_fork(&p);
                 newcomer.send(i as u64).unwrap();
                 Some(newcomer)
             })
@@ -415,7 +415,7 @@ proptest! {
         let mut expected = BTreeMap::new();
         let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
         for (i, &provider) in providers.iter().enumerate() {
-            apply(&mut fleet, Op::Bootstrap { provider });
+            apply(&mut fleet, Op::Join { provider });
             let newest = fleet.len() - 1;
             let version = fleet[newest].send(i as u64).unwrap();
             expected.insert(version.as_bytes().to_vec(), i as u64);

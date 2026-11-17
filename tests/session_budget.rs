@@ -293,7 +293,7 @@ use rumors::{Peer, Rumors, SessionStats, Version};
 use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::divided_cases;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
-use rumors_testkit::common::wire::{block_on, bootstrap_fork_then};
+use rumors_testkit::common::wire::{block_on, join_fork_then};
 use rumors_testkit::divided_proptest;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -388,8 +388,8 @@ fn fixture(
             seed.send_all((0..redacted).map(|value| 2_000_000 + value))
                 .expect("the shared messages encode");
             [
-                bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
-                bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
+                join_fork_then(&seed, Peer::joining(), configure).await,
+                join_fork_then(&seed, Peer::joining(), configure).await,
             ]
         })
     });
@@ -2037,8 +2037,8 @@ fn payload_fixture(
         block_on(async {
             let seed = network.peer::<Vec<u8>>().into_rumors();
             [
-                bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
-                bootstrap_fork_then(&seed, Peer::bootstrap(), configure).await,
+                join_fork_then(&seed, Peer::joining(), configure).await,
+                join_fork_then(&seed, Peer::joining(), configure).await,
             ]
         })
     });

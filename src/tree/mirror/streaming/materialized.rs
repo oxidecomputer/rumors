@@ -106,7 +106,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::counter::widen;
-use crate::message::PayloadDepthLimit;
+use crate::message::MessageDepthLimit;
 use crate::network::NetworkKeys;
 use crate::tree::{
     mirror::streaming::{
@@ -471,7 +471,7 @@ pub struct Handshaking<B: Backend<Node<Z>: Leaf>, State> {
     ledger: Ledger,
     /// The keys of the network whose tree this session reconciles, whose hash
     /// key the digests this side lists and compares are cached under; `None`
-    /// only for a bootstrapper meeting another bootstrapper ([`hash_key`]).
+    /// only for a joining peer meeting another joining peer ([`hash_key`]).
     keys: Option<Arc<NetworkKeys>>,
 }
 
@@ -604,7 +604,7 @@ impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     ///
     /// `keys` must be the keys of the network whose tree `root` is, since every
     /// node caches its digest under that network's hash key. They may be `None`
-    /// only when `root` is empty and its counterparty is bootstrapping too
+    /// only when `root` is empty and its counterparty is joining too
     /// ([`hash_key`]).
     ///
     /// Its ledger admits what the library's default memory budget gives it at
@@ -748,7 +748,7 @@ pub(crate) fn fan_listing<E: ErasedNode>(
 ///
 /// # Panics
 ///
-/// Panics if `keys` is `None`. Only a bootstrapper meeting another bootstrapper
+/// Panics if `keys` is `None`. Only a joining peer meeting another joining peer
 /// runs a session without keys, since neither holds a network secret, and its
 /// tree is empty: such a session never calls this.
 pub(crate) fn hash_key(keys: Option<&NetworkKeys>) -> &HashKey {
@@ -782,7 +782,7 @@ impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
             // The walk is not the wire: on a wire session the proxy
             // stamps its codec's configured limit over this field at
             // send, so an in-process participant carries the default.
-            payload_depth_limit: PayloadDepthLimit::default().get(),
+            message_depth_limit: MessageDepthLimit::default().get(),
             target_message_size: self.target_message_size,
             listing: fan_listing(Prefix::new().erase(), &fan, self.keys.as_deref())
                 .map_err(Error::Count)?,

@@ -12,7 +12,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use rumors::testing::{MEMORY_CAPACITY, MemoryEnd, memory_connection};
-use rumors::{Bootstrap, Peer, Rumors, testing::run_to_quiescence};
+use rumors::{Joining, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
@@ -179,88 +179,85 @@ pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
 /// Join the parent's network with an independent peer holding its messages.
 ///
 /// The new peer runs in the serial configuration ([`BudgetChoice::Serial`]) to
-/// exercise backpressure. The shared driver checks that bootstrap completes and
+/// exercise backpressure. The shared driver checks that join completes and
 /// drains the connection.
 #[track_caller]
-pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
+pub fn join_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    block_on(bootstrap_fork_async(parent))
+    block_on(join_fork_async(parent))
 }
 
-/// Awaitable [`bootstrap_fork`], for composing bootstrap with other work.
-pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
+/// Awaitable [`join_fork`], for composing join with other work.
+pub async fn join_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, Peer::bootstrap(), BudgetChoice::Serial).await
+    join_fork_configured(parent, Peer::joining(), BudgetChoice::Serial).await
 }
 
 /// Join the parent's network, then configure the new peer's budget.
 #[track_caller]
-pub fn bootstrap_fork_with_budget<T>(parent: &Rumors<T>, budget: BudgetChoice) -> Rumors<T>
+pub fn join_fork_with_budget<T>(parent: &Rumors<T>, budget: BudgetChoice) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    block_on(bootstrap_fork_with_budget_async(parent, budget))
+    block_on(join_fork_with_budget_async(parent, budget))
 }
 
-/// Awaitable [`bootstrap_fork_with_budget`].
-pub async fn bootstrap_fork_with_budget_async<T>(
-    parent: &Rumors<T>,
-    budget: BudgetChoice,
-) -> Rumors<T>
+/// Awaitable [`join_fork_with_budget`].
+pub async fn join_fork_with_budget_async<T>(parent: &Rumors<T>, budget: BudgetChoice) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, Peer::bootstrap(), budget).await
+    join_fork_configured(parent, Peer::joining(), budget).await
 }
 
 /// Join through a configured builder, check the connection drained, and set the
 /// budget.
 ///
-/// Accepting a builder lets suites observe bootstrap itself. The budget governs
-/// later sessions; bootstrap has no disputed subtrees to pipeline.
-pub async fn bootstrap_fork_configured<T>(
+/// Accepting a builder lets suites observe join itself. The budget governs
+/// later sessions; join has no disputed subtrees to pipeline.
+pub async fn join_fork_configured<T>(
     parent: &Rumors<T>,
-    bootstrap: Bootstrap<T>,
+    joining: Joining<T>,
     budget: BudgetChoice,
 ) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_then(parent, bootstrap, |peer| budget.apply(peer)).await
+    join_fork_then(parent, joining, |peer| budget.apply(peer)).await
 }
 
 /// Join through a configured builder, check the connection drained, and
 /// configure the new peer with `configure` before it starts gossiping.
 ///
-/// The general form of [`bootstrap_fork_configured`], for a suite that sets
+/// The general form of [`join_fork_configured`], for a suite that sets
 /// more of the peer than its budget.
-pub async fn bootstrap_fork_then<T>(
+pub async fn join_fork_then<T>(
     parent: &Rumors<T>,
-    bootstrap: Bootstrap<T>,
+    joining: Joining<T>,
     configure: impl FnOnce(Peer<T>) -> Peer<T>,
 ) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (mut parent_end, mut boot_end) = memory_connection(MEMORY_CAPACITY);
+    let (mut parent_end, mut joiner_end) = memory_connection(MEMORY_CAPACITY);
 
-    let (server_out, boot_out) = tokio::join!(
+    let (server_out, join_out) = tokio::join!(
         parent.gossip_once(&mut parent_end.read, &mut parent_end.write),
-        bootstrap.join(&mut boot_end.read, &mut boot_end.write),
+        joining.join(&mut joiner_end.read, &mut joiner_end.write),
     );
-    server_out.expect("bootstrap server gossip");
-    let forked = configure(match boot_out {
-        rumors::Joined::Joined {
+    server_out.expect("join server gossip");
+    let forked = configure(match join_out {
+        rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
-        _ => panic!("parent served the bootstrap"),
+        _ => panic!("parent served the join"),
     })
     .into_rumors();
-    assert_connection_drained(parent_end, boot_end);
+    assert_connection_drained(parent_end, joiner_end);
     forked
 }

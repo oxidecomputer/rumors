@@ -137,16 +137,16 @@
 //!     serve.gossip_once(alice_read, alice_write).await.unwrap();
 //! });
 //!
-//! // Now, Bob joins the gossip network by *bootstrapping* from Alice.
-//! let rumors::Joined::Joined { peer: bob, .. } =
-//!     Peer::<String>::bootstrap().join(bob_read, bob_write).await
+//! // Now, Bob joins the gossip network by *joining* Alice.
+//! let rumors::Join::Connected { peer: bob, .. } =
+//!     Peer::<String>::joining().join(bob_read, bob_write).await
 //! else {
-//!     panic!("Alice must allow Bob to bootstrap");
+//!     panic!("Alice must allow Bob to join");
 //! };
 //!
 //! // This gives Bob a `Peer`, which he converts into a `Rumors`, just like Alice
 //! // did when she seeded the initial network. But now Bob's rumor set is linked
-//! // to Alice's, because he bootstrapped from her.
+//! // to Alice's, because he joined from her.
 //! let bob = bob.into_rumors();
 //!
 //! // Now, Bob immediately has the message Alice sent before they ever met.
@@ -224,7 +224,7 @@
 //!   at [`send`](Rumors::send)-time, rather than causing replicas to diverge
 //!   upon gossip.
 //! - **Nesting depth must be bounded.** Deserializing a message may recur at
-//!   most [`Peer::payload_depth_limit`] steps (256 by default). An over-deep
+//!   most [`Peer::message_depth_limit`] steps (256 by default). An over-deep
 //!   value is rejected at [`send`](Rumors::send)-time, rather than risking a
 //!   peer overflowing its stack upon receipt.
 //!
@@ -320,9 +320,20 @@
 //!     Ok((Arc::new(client).into(), Arc::new(server).into()))
 //! }
 //!
+//! // Run gossip continuously over the provided stream, indefinitely.
+//! async fn gossip_over(
+//!     rumors: Rumors<String>,
+//!     stream: impl AsyncRead + AsyncWrite + Send + Unpin,
+//! ) -> Result<(), Box<dyn Error>> {
+//!     let (read, write) = split(stream);
+//!     rumors.gossip(BufReader::new(read), write).await?;
+//!     Ok(())
+//! }
+//!
+//! // Connect to a peer over TLS, then gossip with them indefinitely.
 //! # #[expect(dead_code)]
 //! async fn connect(
-//!     rumors: &Rumors<String>,
+//!     rumors: Rumors<String>,
 //!     tls: &TlsConnector,
 //!     addr: SocketAddr,
 //!     name: ServerName<'static>,
@@ -333,25 +344,18 @@
 //!     gossip_over(rumors, stream).await
 //! }
 //!
+//! // Accept a single connection over TLS via TCP, returning a future
+//! // which will gossip indefinitely when awaited (e.g. in a spawned task).
 //! # #[expect(dead_code)]
 //! async fn accept(
-//!     rumors: &Rumors<String>,
+//!     rumors: Rumors<String>,
 //!     tls: &TlsAcceptor,
 //!     listener: &TcpListener,
-//! ) -> Result<(), Box<dyn Error>> {
+//! ) -> Result<impl Future<Output = Result<(), Box<dyn Error>>> + Send, Box<dyn Error>> {
 //!     let (tcp, _) = listener.accept().await?;
 //!     tcp.set_nodelay(true)?;
 //!     let stream = tls.accept(tcp).await?;
-//!     gossip_over(rumors, stream).await
-//! }
-//!
-//! async fn gossip_over(
-//!     rumors: &Rumors<String>,
-//!     stream: impl AsyncRead + AsyncWrite + Send + Unpin,
-//! ) -> Result<(), Box<dyn Error>> {
-//!     let (read, write) = split(stream);
-//!     rumors.gossip(BufReader::new(read), write).await?;
-//!     Ok(())
+//!     Ok(gossip_over(rumors, stream))
 //! }
 //! ```
 //!
@@ -434,7 +438,7 @@ pub use batch::{Batch, Committed};
 // the widget's assets are attached to rustdoc's own view of before only).
 #[doc(no_inline)]
 pub use before::{Count, Version, causally};
-pub use bookmark::{BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, NoBookmark};
+pub use bookmark::{BOOKMARK_FORMAT_VERSION, Bookmark, NoBookmark};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub use bookmark::{FileBookmark, RunBlocking, TokioBlocking};
@@ -442,8 +446,7 @@ pub use error::Error;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    Bootstrap, Connection, Gossip, Gossiped, Joined, Led, Peer, Retire, SynchronizationSettings,
-    Unbookmarked,
+    Connection, Gossip, Gossiped, Join, Joining, Led, Peer, Retire, Settings, Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

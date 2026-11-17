@@ -1,63 +1,36 @@
-//! Instrument gossip sessions to observe the CBOR-encoded bytes on the wire.
+//! Instrumentation to observe the wire protocol directly, primarily for
+//! debugging.
 //!
-//! The hook a debugger, session recorder, or tracing adapter attaches to a
-//! [`Peer`](crate::Peer) ([`Peer::observe`](crate::Peer::observe)) or a
-//! [`Bootstrap`](crate::Bootstrap) builder
-//! ([`Bootstrap::observe`](crate::Bootstrap::observe)) to watch every protocol
-//! message the peer exchanges, as raw wire bytes. The hook is rumors-blind: no
-//! protocol type appears in its signature, each invocation carries exactly one
-//! whole CBOR item with its stream identity, and a consumer parses with any
-//! CBOR library — or none.
+//! This provides hooks which can be attached to a [`Peer`](crate::Peer)
+//! ([`Peer::observe`](crate::Peer::observe)) or a
+//! [`Joining`](crate::Joining) builder
+//! ([`Joining::observe`](crate::Joining::observe)) to watch every protocol
+//! message the peer exchanges, as a stream of bytes on the wire. Because the
+//! `rumors` protocol is a stream of CBOR-encoded items, such a hook can
+//! agnostic to `rumors`, and parse the stream of bytes using any CBOR decoder.
 //!
-//! Attachment has three levels. Each peer observer supplies its own handlers
-//! for the levels below; every level can return `None` to skip what it does not
-//! care about:
+//! An observer is defined in terms of hooks at three levels of granularity, and
+//! every level can return `None` to skip the levels below:
 //!
 //! - **Peer**: each [`Observer`] follows the peer through cloning, bookmarking,
-//!   and reunion, and is asked for a session handler for every session the peer
-//!   enters — gossip, bootstrap, and retire alike. Repeated attachment adds
-//!   observers; callbacks visit them in attachment order.
-//! - **Session**: a [`SessionObserver`] receives the elected role, is asked for
-//!   a handler for each directed stream as it first carries an item, and
-//!   finally receives the session's completion, failure category, or
-//!   cancellation.
-//! - **Stream**: a [`StreamObserver`] receives that one directed stream's
-//!   messages, in stream order, one CBOR item per
-//!   [`message`](StreamObserver::message) call.
+//!   and reunion. It is asked to produce a session handler for every gossip
+//!   round the peer enters.
+//! - **Session**: a [`SessionObserver`] receives the peer's elected role for
+//!   this round of gossip. It is asked to produce a handler for each logical
+//!   directed stream as it first carries an item in the gossip protocol.
+//!   Finally, it receives the session's completion, failure category, or
+//!   cancellation information.
+//! - **Stream**: a [`StreamObserver`] receives that one logical directed
+//!   stream's messages, in order, one CBOR item at a time.
 //!
-//! The contract:
+//! **Observers must never block**: Handlers run synchronously inside each
+//! gossip session, and blocking will stall the session. Hand bytes off to a
+//! non-blocking channel if the consumer is slow or asynchronous.
 //!
-//! - **Ordering**: within one directed stream, invocations arrive in the
-//!   stream's order; across streams no ordering is promised (the session's two
-//!   directions progress concurrently). To recover the observed interleaving,
-//!   stamp each message from a session-scoped atomic counter shared by the
-//!   stream handlers. [`SessionObserver::finished`] is the final callback for a
-//!   session, after every stream handler's last message.
-//! - **Never block**: handlers run synchronously inside the session's own
-//!   tasks. Blocking in [`message`](StreamObserver::message) stalls the
-//!   session's connection in that direction, every logical stream of it at
-//!   once, and waiting on protocol progress deadlocks; hand bytes off to a
-//!   channel if the consumer is slow.
-//! - **Coverage**: every item of a session, both directions, control items and
-//!   data frames alike. One connection carries them all: the control items,
-//!   every item before and after the data frames, form the
-//!   [`Control`](StreamId::Control) stream, and each logical stream's frames
-//!   form one [`Data`](StreamId::Data) stream. Only complete items are
-//!   observed: a session that dies mid-frame does not deliver the fragment, and
-//!   an aborted session may have observed fewer items than crossed the wire. A
-//!   sent frame is observed once the session has written it whole, into its own
-//!   write buffer or to the write half, which may buffer it in turn, so an
-//!   aborted session may also have observed a sent frame that never reached the
-//!   peer.
-//! - **Cost**: unattached (or a level declined), one branch per frame;
-//!   attached, one extra contiguous copy of each observed frame. The wire bytes
-//!   themselves are unchanged either way.
-//!
-//! The hook watches the **wire**, synchronously, from inside the session's
-//! tasks; the content observers
-//! ([`UnorderedMessages`](crate::UnorderedMessages),
-//! [`CausalMessages`](crate::CausalMessages), and [`Changes`](crate::Changes))
-//! watch the **set**, asynchronously, from outside.
+//! **No inter-stream ordering is directly recorded:** Logical streams are
+//! treated as concurrent by the protocol. To recover the true on-the-wire
+//! interleaving of messages, use a per-session atomic counter shared by the
+//! stream handlers.
 
 use std::{
     fmt, io,
@@ -70,206 +43,199 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::{Protocol, SessionStats, Version};
 
-/// One peer-level observation handler, yielding one [`SessionObserver`] per
-/// session the peer enters.
+/// A peer-level observation handler: yields one [`SessionObserver`] per
+/// session.
 ///
-/// Attach with [`Peer::observe`](crate::Peer::observe) or
-/// [`Bootstrap::observe`](crate::Bootstrap::observe). The handler is shared by
-/// every clone of the peer's [`Rumors`](crate::Rumors) handle, and sessions run
-/// concurrently, so it is asked for session handlers from concurrent tasks.
+/// Attach this to a peer using [`Peer::observe`](crate::Peer::observe) or
+/// [`Joining::observe`](crate::Joining::observe). The attached handler is
+/// shared by every clone of the peer's [`Rumors`](crate::Rumors) handle.
+/// Because sessions run concurrently, it may be asked for session handlers from
+/// concurrent tasks.
 pub trait Observer: Send + Sync {
-    /// Begin observing one session, or return `None` to skip it.
+    /// Start observing one session, or return `None` to skip it.
     ///
-    /// Called once per session, before this side writes its first byte or
-    /// delivers any item to a handler. The returned handler lives for the
-    /// session.
-    fn session(&self, session: &SessionInfo) -> Option<Box<dyn SessionObserver>>;
+    /// This is called once per session. The returned handler is kept alive for
+    /// the duration of the session.
+    ///
+    /// The default implementation skips observation of the session.
+    fn session(&self, session: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
+        let _ = session;
+        None
+    }
 }
 
 /// A session-level observation handler: yields one [`StreamObserver`] per
-/// directed stream, as each first carries an item.
+/// directed stream.
 ///
-/// A session's two directions progress concurrently, so
-/// [`stream`](Self::stream) is called from concurrent tasks.
+/// The two directions of communication in a session are processed concurrently,
+/// so [`stream`](Self::stream) may be called from concurrent tasks.
 pub trait SessionObserver: Send + Sync {
-    /// Learn which role this side won in the session's role election.
+    /// Observe which role this side won in the session's role election.
     ///
-    /// Called at most once, when the election is decided — after the greetings
-    /// are exchanged and before any data frame. Not called when the greetings
-    /// carried equal versions (no election happens: the session ends with its
-    /// control items alone). The role is not part of [`SessionInfo`] because it
-    /// does not exist yet when the session begins; a consumer that needs it
-    /// before data frames arrive records it here. The default does nothing.
+    /// This is called at most once, when the election is decided, and is not
+    /// called if the session aborts early because the two sides are already in
+    /// sync.
+    ///
+    /// The default implementation does nothing.
     fn elected(&self, role: Role) {
         let _ = role;
     }
 
-    /// Observe how the session ended.
+    /// Observe the outcome of the session.
     ///
-    /// Called exactly once after a completed or failed session, or when its
-    /// future is dropped. A successful outcome borrows the frontier and copies
-    /// the small statistics record only for this synchronous call. The default
-    /// does nothing.
+    /// This is called exactly once after a completed or failed session, or when
+    /// its future is dropped.
+    ///
+    /// The default implementation does nothing.
     fn finished(&self, outcome: SessionOutcome<'_>) {
         let _ = outcome;
     }
 
-    /// Begin observing one directed stream, or return `None` to skip it.
+    /// Start observing one directed stream, or return `None` to skip it.
     ///
-    /// Called once per directed stream: for the control stream's two directions
-    /// at session start, and for each logical data stream when this side first
-    /// writes (sent) or first reads (received) one of its frames. A data stream
-    /// the session never speaks yields no handler.
+    /// This is called once per logical directed stream in the gossip protocol.
     ///
-    /// A control stream's handler lives until the session ends. A data stream's
-    /// handler lives only until this side has written (sent) or read (received)
-    /// the last frame of that direction, which happens before the closing items
-    /// and before [`finished`](Self::finished).
-    fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>>;
+    /// A control stream's handler is kept alive until the session ends. A data
+    /// stream's handler is kept alive only until this side has written (sent)
+    /// or read (received) the last frame of that direction.
+    ///
+    /// The default implementation skips observation of the stream.
+    fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
+        let _ = stream;
+        None
+    }
 }
 
-/// How an observed session ended.
-///
-/// The callback receives this after all preceding callbacks for the session. It
-/// is a diagnostic summary: methods that drove the session still return the
-/// full success value or error.
+/// The outcome of an observed session.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionOutcome<'a> {
-    /// The session completed and the peer confirmed completion.
+    /// The session completed and the remote peer confirmed it.
     Completed {
-        /// The causal frontier established by the session, before concurrent
-        /// local changes are joined into the replica.
+        /// The causal frontier established by the session, before any
+        /// concurrent changes are joined into the replica.
         converged: &'a Version,
-        /// The work measured during reconciliation.
+        /// The statistics collected during reconciliation.
         stats: SessionStats,
     },
-    /// The session returned an error of this category.
+    /// The session returned an error of this kind.
     Failed(SessionErrorKind),
-    /// The future driving the session was dropped before it returned.
+    /// The future driving the session was dropped.
     Cancelled,
 }
 
-/// The public error category reported to a [`SessionObserver`].
-///
-/// The session method retains the detailed error, including transport and
-/// protocol context. This copyable category lets observers label telemetry
-/// without depending on a bookmark's error type.
+/// The public error kind reported to a [`SessionObserver`].
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionErrorKind {
-    /// The transport failed or closed before an operation completed.
+    /// The transport failed or closed.
     Transport,
-    /// A protocol or implementation invariant failed.
+    /// A protocol or implementation invariant was violated.
     Protocol,
-    /// The peers advertised incompatible protocols, networks, or settings.
+    /// The two peers advertised incompatible protocols, networks, or settings.
     Mismatch,
-    /// The application's gossip timeout expired.
+    /// The application's specified gossip timeout expired.
     GossipTimeout,
-    /// Bookmark storage or decoding failed.
+    /// Bookmark storage or parsing failed.
     Bookmark,
 }
 
-/// A stream-level observation handler: receives one directed stream's messages,
-/// in stream order.
+/// A stream-level observation handler: receives one directed stream's messages
+/// in order.
 pub trait StreamObserver: Send {
-    /// Observe one protocol message: exactly one CBOR item of the wire, as sent
-    /// or received on this handler's directed stream.
+    /// Observe one protocol message.
     ///
-    /// Invoked synchronously from the session's own tasks, after the item was
-    /// handed whole to the write half (sent), which may still buffer it, or
-    /// read (received). A data stream's handler runs in the task that writes or
-    /// reads every frame of that direction, so blocking here stalls the whole
-    /// direction, not only this stream; see the module docs' never-block rule.
-    fn message(&mut self, bytes: &[u8]);
+    /// This method is provided exactly one CBOR item of the wire protocol, as
+    /// sent or received on this handler's logical directed stream.
+    ///
+    /// This is invoked synchronously from the session's own tasks, after the
+    /// item was handed whole to the write half (sent), which may still buffer
+    /// it, or read (received).
+    ///
+    /// The default implementation skips observation of the message.
+    fn message(&mut self, bytes: &[u8]) {
+        let _ = bytes;
+    }
 }
 
-/// What identifies one observed session.
+/// Identifying information for a single session.
 ///
-/// Deliberately carries no session number: numbering is the observer's own
-/// concern, exactly like message interleaving (see the module docs' ordering
-/// section). An [`Observer`] that wants "the peer's Nth observed session"
-/// counts inside its own [`session`](Observer::session) — the method is
-/// `&self`, so it synchronizes internally (an `AtomicU64` suffices), and the
-/// count means precisely what that observer defines it to mean.
+/// This deliberately carries no "session number": numbering is left to the
+/// observer.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SessionInfo {
-    /// Which lifecycle operation entered the session.
+    /// Which lifecycle operation started the session.
     pub kind: SessionKind,
-    /// The wire dialect the session speaks.
+    /// The wire protocol version the session used.
     pub protocol: Protocol,
 }
 
-/// The lifecycle operation that entered an observed session, on this side.
-///
-/// The counterparty's role in the same session may differ: a peer serving a
-/// bootstrap or absorbing a retirement observes an ordinary
-/// [`Gossip`](Self::Gossip) session, and learns what the remote wants from the
-/// remote's preamble — which its control-stream handler sees as bytes.
+/// The lifecycle operation which started an observed session, as seen by the
+/// local peer.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SessionKind {
-    /// This side is joining the universe
-    /// ([`Bootstrap::join`](crate::Bootstrap::join)).
-    Bootstrap,
-    /// This side is gossiping ([`Rumors::gossip`](crate::Rumors::gossip),
+    /// The local peer is joining the gossip network
+    /// ([`Peer::join`](crate::Peer::join)).
+    Join,
+    /// The local peer is gossiping ([`Rumors::gossip`](crate::Rumors::gossip),
     /// [`Rumors::gossip_stream`](crate::Rumors::gossip_stream), and
     /// [`Rumors::gossip_once`](crate::Rumors::gossip_once)).
     Gossip,
-    /// This side is retiring ([`Peer::retire`](crate::Peer::retire)).
+    /// The local peer is retiring ([`Peer::retire`](crate::Peer::retire)).
     Retire,
 }
 
-/// What identifies one observed directed stream.
+/// Identifying information for a logical directed stream within a session.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StreamInfo {
-    /// Which of the session's streams this is.
+    /// Which one of the session's streams this is.
     pub id: StreamId,
-    /// Whether this side sent or received the stream's messages.
+    /// Whether the local peer sent or received the stream's messages.
     pub direction: Direction,
 }
 
-/// One session stream's identity.
+/// The identity of a logical stream within a gossip session.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StreamId {
-    /// Session setup, network joins and departures, and completion
-    /// confirmation: the items before and after the data frames.
+    /// All the items before and after data frames.
+    ///
+    /// This encompasses session setup, network joins and departures, and
+    /// completion confirmation.
     Control,
-    /// One logical reconciliation data stream: the frames of one level's
-    /// replies in one direction.
+    /// One logical reconciliation data stream.
+    ///
+    /// This encompasses the frames of one reconciliation level's replies in one
+    /// particular direction.
     Data {
-        /// The elected role that speaks this stream's frames.
-        ///
-        /// Sent data streams are spoken by this side's elected role; received
-        /// ones by the counterparty's.
+        /// The elected session role that emits this stream's frames, from the
+        /// local peer's perspective.
         speaker: Role,
-        /// The logical stream's wire index: the index every one of its frames
-        /// names.
+        /// The logical stream's index.
         index: u8,
     },
 }
 
-/// The direction of one observed stream, from this peer's perspective.
+/// The direction of an observed stream, from the local peer's perspective.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Direction {
-    /// This side wrote the stream's messages.
+    /// The local peer wrote the stream's messages.
     Sent,
-    /// This side read the stream's messages.
+    /// The local peer read the stream's messages.
     Received,
 }
 
-/// One side's elected role in a session's reconciliation descent.
+/// One side's elected role in a single gossip session.
 ///
-/// Decided after the greetings are exchanged (the smaller advertised set
-/// initiates; see [`SessionObserver::elected`]).
+/// This is elected after the session's greetings are exchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Role {
-    /// This role asks the opening question and absorbs the final leaves.
+    /// This role *asks* the "opening question" of the exchange.
     Initiator,
-    /// This role answers the opening question.
+    /// This role *answers* the "opening question" of the exchange.
     Responder,
 }
 

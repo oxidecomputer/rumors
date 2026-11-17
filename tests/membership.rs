@@ -1,6 +1,6 @@
 //! Membership churn under the oracle-checked sequential engine.
 //!
-//! Mid-schedule bootstraps and retirements interleave with inserts, redactions,
+//! Mid-schedule joins and retirements interleave with inserts, redactions,
 //! and gossip, every run checked against the spec-shaped oracle and the global
 //! party invariants.
 //!
@@ -32,7 +32,7 @@ proptest! {
     ///
     /// 1. every live peer's readout multiset equals the oracle's
     ///    `expected_live()` — content crosses retirements and
-    ///    bootstraps without loss or invention;
+    ///    joins without loss or invention;
     /// 2. every live peer agrees on the full identity → value map
     ///    (built from the oracle minus its redaction set, so a live
     ///    redacted message is a mismatch here — deletion honoring
@@ -76,7 +76,7 @@ proptest! {
     /// The serial-everywhere baseline leg of the membership engine:
     /// every peer in the serial configuration on every iteration.
     ///
-    /// Mid-schedule bootstraps and retirements keep exercising the
+    /// Mid-schedule joins and retirements keep exercising the
     /// one-question-at-a-time orderings the liveness argument rests on
     /// regardless of what the swept leg draws.
     #[test]
@@ -96,7 +96,7 @@ proptest! {
 
 /// The membership alphabet is live in the generated population: sampled under
 /// proptest's deterministic runner, the strategy emits schedules containing
-/// both mid-schedule bootstraps and retirements.
+/// both mid-schedule joins and retirements.
 ///
 /// Either could silently vanish — a weight edit, or a validity rule that drops
 /// every choice — leaving the suite green while testing no membership at all.
@@ -104,7 +104,7 @@ proptest! {
 fn membership_population_contains_churn() {
     let mut runner = TestRunner::deterministic();
     let strategy = arb_membership_schedule(any::<u64>(), N_PEERS, MAX_EVENTS);
-    let mut bootstraps = 0usize;
+    let mut joins = 0usize;
     let mut retires = 0usize;
     for _ in 0..64 {
         let schedule = strategy
@@ -113,15 +113,15 @@ fn membership_population_contains_churn() {
             .current();
         for event in &schedule.events {
             match event {
-                Event::Bootstrap { .. } => bootstraps += 1,
+                Event::Join { .. } => joins += 1,
                 Event::Retire { .. } => retires += 1,
                 _ => {}
             }
         }
     }
     assert!(
-        bootstraps > 0,
-        "no sampled schedule bootstraps a newcomer: the membership \
+        joins > 0,
+        "no sampled schedule joins a newcomer: the membership \
          dimension has silently left the population"
     );
     assert!(

@@ -196,7 +196,7 @@ impl PointSummary {
             r.max_message_size_bytes,
             r.target_message_size_a_bytes,
             r.target_message_size_b_bytes,
-            r.payload_depth_limit,
+            r.message_depth_limit,
             r.session_deadline_seconds,
             r.link,
             r.rate_a_to_b_bits,
@@ -240,7 +240,7 @@ impl PointSummary {
 /// target to that minimum, which is [`minimum_budget`] at the default target.
 /// It doesn't publish the minimum at other targets, so the report reads
 /// the raised budget the library reports
-/// ([`SynchronizationSettings`](rumors::SynchronizationSettings)) rather than
+/// ([`PeerSettings`](rumors::PeerSettings)) rather than
 /// recomputing it.
 fn effective_budget(requested: Option<u64>, reported: Option<u64>) -> u64 {
     reported.unwrap_or_else(|| requested.unwrap_or(default::SYNC_MEMORY_BUDGET as u64))

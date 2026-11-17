@@ -171,9 +171,8 @@ pub struct Outcome {
     pub usage: Usage,
     /// The live messages this side holds after the session.
     pub live_after: u64,
-    /// The memory budget this side's peer runs its sessions at, as the library
-    /// reports it in
-    /// [`SynchronizationSettings`](rumors::SynchronizationSettings).
+    /// The memory budget this side's peer runs its sessions at, as reported in
+    /// [`PeerSettings`](rumors::PeerSettings).
     pub effective_budget: u64,
     /// Why the session failed, if it did.
     pub error: Option<String>,
@@ -303,8 +302,7 @@ async fn run(control_in: &mut impl BufRead, control_out: &mut impl Write) -> Res
     };
     let outcome = Outcome {
         live_after: rumors.snapshot().len() as u64,
-        effective_budget: u64::try_from(rumors.synchronization_settings().sync_memory_budget)
-            .unwrap_or(u64::MAX),
+        effective_budget: u64::try_from(rumors.settings().sync_memory_budget).unwrap_or(u64::MAX),
         ..outcome
     };
     send(

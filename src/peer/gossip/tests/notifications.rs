@@ -11,7 +11,7 @@ use crate::testing::{MEMORY_CAPACITY, memory_connection};
 use crate::{Connection, Peer, Retire};
 
 proptest! {
-    /// Bootstrap and retirement notify the surviving replica only when its
+    /// Join and retirement notify the surviving replica only when its
     /// tree changes, while conserving the identity donated and returned.
     #[test]
     fn lifecycle_notifies_only_for_tree_changes(
@@ -28,12 +28,12 @@ proptest! {
             let (serving, joining) = memory_connection(MEMORY_CAPACITY);
             tokio::join!(
                 provider.gossip_once(serving.read, serving.write),
-                Peer::<u64>::bootstrap().join(joining.read, joining.write),
+                Peer::<u64>::join(joining.read, joining.write),
             )
-        }).expect("bootstrap must complete");
+        }).expect("join must complete");
         served.unwrap();
-        let crate::Joined::Joined { peer: newcomer, connection: crate::Connection::Reusable { .. } } = joined else {
-            panic!("bootstrap must succeed");
+        let crate::Join::Connected { peer: newcomer, connection: crate::Connection::Reusable { .. } } = joined else {
+            panic!("join must succeed");
         };
         prop_assert!(!changes.has_changed().unwrap(), "donating a fork changes no content");
 
@@ -54,7 +54,7 @@ proptest! {
         prop_assert_eq!(changes.has_changed().unwrap(), provider.snapshot() != before);
     }
 
-    /// An abandoned bootstrap fork rejoins its owner without changing the tree
+    /// An abandoned donation fork rejoins its owner without changing the tree
     /// or waking content observers.
     #[test]
     fn abandoned_donations_restore_identity_without_notification(

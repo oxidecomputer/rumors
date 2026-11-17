@@ -70,8 +70,8 @@ impl From<MirrorError> for Error {
             proxy::Error::Pipe(PipeError::Departed(source)) => {
                 (Context::new(Phase::Reconciliation), Op::Read, source)
             }
-            proxy::Error::PayloadDepthMismatch { local, remote } => {
-                return Self::Mismatch(Mismatch::PayloadDepth { local, remote });
+            proxy::Error::MessageDepthMismatch { local, remote } => {
+                return Self::Mismatch(Mismatch::MessageDepth { local, remote });
             }
             proxy::Error::GreetingRead(source) => (Context::new(Phase::Greeting), Op::Read, source),
             proxy::Error::GreetingWrite { operation, source } => {

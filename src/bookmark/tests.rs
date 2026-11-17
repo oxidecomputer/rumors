@@ -12,7 +12,7 @@ use proptest::prelude::*;
 use super::*;
 use crate::testing::property::{SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
-use crate::{Connection, Joined, Peer};
+use crate::{Connection, Join, Peer};
 
 /// Whether a store confirms durability or fails on either side of replacement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -120,10 +120,10 @@ divided_proptest! {
             let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
             let (served, joined) = futures::join!(
                 sendable(rumors.gossip_once(&mut near.read, &mut near.write)),
-                sendable(Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write)),
+                sendable(Peer::<u64>::join(&mut far.read, &mut far.write)),
             );
             served.unwrap();
-            let Joined::Joined { peer, connection: Connection::Reusable { .. } } = joined else {
+            let Join::Connected { peer, connection: Connection::Reusable { .. } } = joined else {
                 panic!("the peer must join")
             };
             let received = peer.into_rumors().snapshot();
@@ -325,7 +325,7 @@ proptest! {
 }
 
 proptest! {
-    /// The public limit applies to the first bootstrap checkpoint, survives the
+    /// The public limit applies to the first join checkpoint, survives the
     /// Rumors-to-Peer round trip, and lowering it forces another store.
     #[test]
     fn configured_limit_controls_checkpoints(
@@ -335,15 +335,15 @@ proptest! {
     ) {
         run_to_quiescence(async {
             let seed = network.peer::<u64>().into_rumors();
-            let bootstrap = if configure_first {
-                Peer::<u64>::bootstrap().bookmark_size_limit(limit).bookmark(Memory::default())
+            let joining = if configure_first {
+                Peer::<u64>::joining().bookmark_size_limit(limit).bookmark(Memory::default())
             } else {
-                Peer::<u64>::bootstrap().bookmark(Memory::default()).bookmark_size_limit(limit)
+                Peer::<u64>::joining().bookmark(Memory::default()).bookmark_size_limit(limit)
             };
             let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
-            let (served, joined) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), bootstrap.join(&mut far.read, &mut far.write));
+            let (served, joined) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), joining.join(&mut far.read, &mut far.write));
             served.unwrap();
-            let Joined::Joined { peer, connection: Connection::Reusable { .. } } = joined else { panic!("reliable bootstrap must join") };
+            let Join::Connected { peer, connection: Connection::Reusable { .. } } = joined else { panic!("reliable join must join") };
             {
                 let applied = peer.bookmark.size_limit();
                 assert_eq!(applied, limit.max(format::record_size(0, 0)));

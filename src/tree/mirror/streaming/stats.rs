@@ -36,7 +36,7 @@ pub struct SessionStats {
     /// This can serve as a proxy for how much work was required to isolate
     /// divergences, separately from the work involved in transferring messages
     /// held by only one peer. Naturally, an already-converged session and a
-    /// bootstrap session both will report zero, since neither requires this
+    /// joining session both will report zero, since neither requires this
     /// kind of work.
     pub disputed_scopes: u64,
     /// New messages learned from the peer.

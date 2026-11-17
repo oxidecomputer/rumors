@@ -12,7 +12,7 @@ use futures::join;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::default;
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::{MessageDepthLimit, PayloadCodec};
 use crate::observe::{Attachment, SessionKind};
 use crate::testing::{Quiescence, memory_connection, run_to_quiescence};
 use crate::tree::Root;
@@ -129,7 +129,7 @@ where
     );
     let (a_end, b_end) = memory_connection(buffer);
     let [a_budget, b_budget] = budgets;
-    let codec = PayloadCodec::new::<T>(PayloadDepthLimit::default());
+    let codec = PayloadCodec::new::<T>(MessageDepthLimit::default());
     let size = default::TARGET_MESSAGE_SIZE as u64;
     let a_walk = a_budget.apply(Handshaking::start(
         Local,

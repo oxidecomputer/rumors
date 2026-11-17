@@ -23,7 +23,7 @@ use rumors::{Rumors, Version, causally};
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
 };
-use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{block_on, join_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -110,7 +110,7 @@ divided_proptest! {
     #[test]
     fn live_sends_and_gossip_learned_messages_are_observed(network in network_seed()) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         let sibling = a.clone();
 
@@ -343,7 +343,7 @@ divided_proptest! {
     #[test]
     fn checkpoint_is_portable_across_replicas(network in network_seed()) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         a.send(1).unwrap();
         b.send(2).unwrap();

@@ -69,7 +69,7 @@ pub struct Row {
     /// Side B's target message size; empty for the default.
     pub target_message_size_b_bytes: Option<u64>,
     /// The payload depth limit; empty for the default.
-    pub payload_depth_limit: Option<u64>,
+    pub message_depth_limit: Option<u64>,
     /// The session deadline; empty for none.
     pub session_deadline_seconds: Option<f64>,
     /// `emulated` or `network`.
@@ -296,7 +296,7 @@ impl Row {
             budget_b_bytes: p.settings.b.budget,
             target_message_size_a_bytes: p.settings.a.target_message_size,
             target_message_size_b_bytes: p.settings.b.target_message_size,
-            payload_depth_limit: p.settings.payload_depth_limit,
+            message_depth_limit: p.settings.message_depth_limit,
             session_deadline_seconds: p.settings.session_deadline.map(|d| d.as_secs_f64()),
             link: link.to_string(),
             rate_a_to_b_bits,

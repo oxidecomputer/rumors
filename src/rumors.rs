@@ -9,9 +9,7 @@ pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, NoBookmark};
 use crate::message::EncodeError;
-use crate::{
-    Batch, Committed, Error, Gossiped, Network, Peer, Snapshot, SynchronizationSettings, Version,
-};
+use crate::{Batch, Committed, Error, Gossiped, Network, Peer, Settings, Snapshot, Version};
 use futures::StreamExt;
 use futures::stream::FusedStream;
 use std::borrow::Borrow;
@@ -22,13 +20,11 @@ use tokio::{
 };
 
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
-/// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
+/// messages, and [`gossip`](Rumors::gossip)ing the results with peers.
 ///
 /// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may interact
-/// with the set concurrently. Synchronization is internal: anything one clone
-/// learns, all do.
-///
-/// Call [`snapshot`](Self::snapshot) to read a consistent view of the set.
+/// with clones concurrently. All synchronization is internal and automatic:
+/// anything one [`Rumors`] learns, all clones of it do.
 pub struct Rumors<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// A peer view sharing this replica's state and configuration.
     ///
@@ -134,7 +130,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
     }
 }
 
-/// Manage the shared replica and its handle lifetime.
+/// Manage the shared replica and the lifetime of its handle.
 impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Assemble the first handle of a fresh [`Rumors`] generation around
     /// `peer`. Every other handle is a [`Clone`] of this one, so the channel's
@@ -149,9 +145,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         }
     }
 
-    /// Return the local settings used to configure synchronization sessions.
-    pub fn synchronization_settings(&self) -> SynchronizationSettings {
-        self.peer.synchronization_settings()
+    /// Return the local settings used to configure the underlying
+    /// [`Peer`].
+    pub fn settings(&self) -> Settings {
+        self.peer.settings()
     }
 
     /// Await quiescence and restore the unique [`Peer`] handle.
@@ -183,78 +180,38 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         Some(peer)
     }
 
-    /// Send a message, committing it immediately.
+    /// Send a new message, returning the sent message's [`Version`].
     ///
-    /// The message is serialized and admitted here, at the call: admission runs
-    /// the exact decode every receiver's wire ingress runs, so a payload a
-    /// receiver would reject or misread is the typed [`EncodeError`] instead
-    /// (its variants name the causes), and nothing commits. To send many
-    /// messages in one commit, use [`send_all`](Self::send_all); to mix sends
-    /// and redactions in one commit, use [`batch`](Self::batch).
+    /// The returned [`Version`] uniquely identifies this message throughout the
+    /// gossip network and can be passed directly to [`redact`](Self::redact) in
+    /// the future.
     ///
-    /// Returns the message's [`Version`]. This uniquely identifies this send
-    /// throughout the network and can be passed directly to
-    /// [`redact`](Self::redact). Even byte-identical re-sends receive distinct
-    /// versions and remain distinct messages.
+    /// To send many messages in one commit, use [`send_all`](Self::send_all);
+    /// to mix sends and redactions in one commit, use [`batch`](Self::batch).
     ///
-    /// # Observe-then-send is domination
+    /// # Errors
     ///
-    /// Every message this replica observed before a commit is in the causal
-    /// past of that commit's sends, which is the supersession contract
-    /// last-write-wins patterns lean on. The boundary: sends from different
-    /// threads or different batches carry **no** guaranteed causal relationship
-    /// to one another unless the application synchronizes them itself.
+    /// Before this method returns, the message is serialized, then
+    /// deserialized, then compared against the original message. If this fails
+    /// to round-trip, or exceeds the configured [`Peer::message_depth_limit`],
+    /// an [`EncodeError`] results.
     ///
     /// # Panics
     ///
-    /// If `message` fails to serialize: a violation of the payload contract
-    /// ([choosing a payload type](crate#choosing-a-payload-type)).
+    /// If `message` fails to serialize.
     pub fn send(&self, message: T) -> Result<Version, EncodeError> {
         self.peer.send(message)
     }
 
-    /// Redact a message: remove the live message stamped with `version` from
-    /// the set, here and, through gossip, everywhere, committing immediately.
+    /// Redact an existing message by supplying its unique [`Version`],
+    /// returning `true` if the message previously existed.
     ///
-    /// Returns whether it removed a message: `true` if this replica held the
-    /// message live, `false` if it never received it or had already redacted
-    /// it. A redaction that returns `false` is a no-op, here and everywhere
-    /// else: it advances no history. So a message this replica never received
-    /// is live if it arrives later, and redacting it then removes it. A message
-    /// this replica already redacted stays redacted: gossip honors that earlier
-    /// redaction, so the message never becomes live here again.
+    /// This removes the message, if any exists, which is stamped with
+    /// `version`. The removal propagates automatically during gossip.
     ///
-    /// Redaction is infallible: no payload is created, so no depth admission
-    /// applies. To redact many versions in one commit, use
+    /// To redact many versions in one commit, use
     /// [`redact_all`](Self::redact_all); to mix redactions and sends in one
     /// commit, use [`batch`](Self::batch).
-    ///
-    /// ```
-    /// use rumors::{Peer, error::EncodeError};
-    ///
-    /// let rumors = Peer::<u64>::seed().into_rumors();
-    /// let version = rumors.send(7)?;
-    /// assert!(rumors.redact(&version), "a held message is removed");
-    /// assert!(!rumors.redact(&version), "a second redaction removes nothing");
-    /// # Ok::<(), EncodeError>(())
-    /// ```
-    ///
-    /// # Deletion is honored
-    ///
-    /// Once a redaction commits anywhere, no gossip schedule re-establishes the
-    /// redacted message from replicas that still hold it. Nothing crosses the
-    /// wire to represent a deletion; reconciliation infers deletions from the
-    /// causal frontiers the two sides exchange. A message the counterparty's
-    /// version shows it must already have seen, yet it no longer holds, was
-    /// deleted there, so the holder drops its own copy instead of transmitting
-    /// it. And because every send creates a fresh version, re-sending
-    /// byte-identical content after a redaction is a *new* message: no
-    /// resurrection, no suppression. For the same reason, two identical sends
-    /// are two messages, and redacting one never touches the other.
-    ///
-    /// Use the [`Version`] returned by [`send`](Self::send), or one reported by
-    /// an observer or [`Snapshot`]. Batched sends do not return versions
-    /// because one call may insert several messages.
     pub fn redact(&self, version: &Version) -> bool {
         self.peer.redact(version)
     }
@@ -520,7 +477,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// before a bookmark write fails; [`Error::Bookmark`] explains how to
     /// recover. See [what a session promises](crate#what-a-session-promises).
     ///
-    /// An established peer automatically serves bootstrappers and accepts
+    /// An established peer automatically serves joining peers and accepts
     /// retirements through this same call.
     ///
     /// Sessions may run concurrently on separate connections, through the same

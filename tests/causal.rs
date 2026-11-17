@@ -23,7 +23,7 @@ use rumors::{Rumors, Version};
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
 };
-use crate::common::wire::{bootstrap_fork, wire_gossip};
+use crate::common::wire::{join_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -121,7 +121,7 @@ divided_proptest! {
     #[test]
     fn converged_backlog_has_no_inversions(network in network_seed()) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         for v in 0..4u64 {
             a.send(v).unwrap();
@@ -156,7 +156,7 @@ divided_proptest! {
     fn snapshot_items_sort_by_ranked_version(network in network_seed()) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         let cause = a.send(0).unwrap();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
         let left = a.send(1).unwrap();
         let right = b.send(2).unwrap();
         assert!(
@@ -184,7 +184,7 @@ divided_proptest! {
     #[test]
     fn identical_backlogs_use_the_same_staging_order(network in network_seed()) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         a.send_all([1, 2]).unwrap();
         b.send_all([3, 4]).unwrap();
@@ -213,7 +213,7 @@ divided_proptest! {
     #[test]
     fn live_passes_preserve_causal_order_cumulatively(network in network_seed()) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         let mut obs = a.causal_messages();
         let mut delivered = Vec::new();
@@ -351,7 +351,7 @@ proptest! {
         network in network_seed(),
     ) {
         let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
         a.send_all(0..count).unwrap();
         b.send(count).unwrap();
         let mut obs = a.causal_messages();
@@ -483,7 +483,7 @@ proptest! {
             // Two replicas of one network: `known` is the crashing process,
             // `partner` survives it to seed the rebuild.
             let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-            let partner = bootstrap_fork(&known);
+            let partner = join_fork(&known);
             for v in &local {
                 known.send(*v).unwrap();
             }
@@ -537,10 +537,10 @@ proptest! {
             drop(unordered);
             drop(known);
 
-            // The rebuild: a fresh replica of the same network (bootstrapped
+            // The rebuild: a fresh replica of the same network (joined
             // converged from the survivor) resumes each face from the
             // persisted bytes.
-            let rebuilt = bootstrap_fork(&partner);
+            let rebuilt = join_fork(&partner);
 
             let since =
                 Version::decode(&causal_checkpoint[..]).expect("a checkpoint deserializes");

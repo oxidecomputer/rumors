@@ -13,7 +13,7 @@ use futures::future::join_all;
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
-use rumors::{Bookmark, Connection, Joined, Peer, Rumors};
+use rumors::{Bookmark, Connection, Join, Peer, Rumors};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::common::sim::assert_parties_partition;
@@ -88,15 +88,15 @@ async fn join_from(server: &Rumors<u64, StallingBookmark>) -> Rumors<u64> {
     let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
     let (served, joined) = futures::join!(
         server.gossip_once(&mut near.read, &mut near.write),
-        Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write),
+        Peer::<u64>::join(&mut far.read, &mut far.write),
     );
-    served.expect("serving a reliable bootstrap succeeds");
-    let Joined::Joined {
+    served.expect("serving a reliable join succeeds");
+    let Join::Connected {
         peer,
         connection: Connection::Reusable { .. },
     } = joined
     else {
-        panic!("a reliable bootstrap joins")
+        panic!("a reliable join succeeds")
     };
     peer.into_rumors()
 }
@@ -121,7 +121,7 @@ async fn reclaim<B: Bookmark>(
     peer
 }
 
-/// The most rounds a leaked bootstrap service is polled when a case leaks it
+/// The most rounds a leaked join service is polled when a case leaks it
 /// wherever the rounds run out, rather than at its stalled store.
 ///
 /// For the replicas the test builds, the checkpoint's store begins in the
@@ -175,7 +175,7 @@ divided_proptest! {
     /// whole. Each leak is followed by a reunion, and a joiner served at the
     /// end receives a fork of the reclaimed space without overlap.
     #[test]
-    fn reclaiming_resumes_reclamation_after_a_leaked_bootstrap(
+    fn reclaiming_resumes_reclamation_after_a_leaked_join(
         leaks in vec(leak(), 1..4),
         network in network_seed(),
     ) {
@@ -197,7 +197,7 @@ divided_proptest! {
                 storage.arm_at(leak.stalled_store);
                 let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
                 let mut leaked = Box::pin(live.gossip_once(&mut near.read, &mut near.write));
-                let mut joiner = Box::pin(Peer::<u64>::bootstrap().join(&mut far.read, &mut far.write));
+                let mut joiner = Box::pin(Peer::<u64>::join(&mut far.read, &mut far.write));
                 let mut cx = Context::from_waker(Waker::noop());
                 let mut joined = false;
                 let mut polls = 0;

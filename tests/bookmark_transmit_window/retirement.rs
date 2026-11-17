@@ -7,7 +7,7 @@ use proptest::prelude::*;
 use rumors::error::Phase;
 use rumors::{Connection, Error, Network, Retire};
 
-use super::{GatedBookmark, Msg, Rumors, block_on, boot_from, gossip};
+use super::{GatedBookmark, Msg, Rumors, block_on, gossip, join_from};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::flaky::{DurableStore, persisted_record};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
@@ -26,7 +26,7 @@ struct Pair {
 
 /// Construct the state needed to isolate identity transfer from reconciliation.
 impl Pair {
-    /// Bootstrap and settle both records so the next writes concern donation.
+    /// Join and settle both records so the next writes concern donation.
     ///
     /// The receiver is the first peer of the network `network` names.
     fn new(network: NetworkSeed, initial: usize) -> Self {
@@ -40,7 +40,7 @@ impl Pair {
                 .unwrap()
                 .into_rumors();
             receiver.send_all(0..initial as u64).unwrap();
-            let donor = boot_from(&receiver, donor_bookmark.clone()).await;
+            let donor = join_from(&receiver, donor_bookmark.clone()).await;
             gossip(&donor, &receiver).await;
             Self {
                 donor,

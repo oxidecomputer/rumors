@@ -11,7 +11,7 @@ use proptest::prelude::*;
 use rumors::{Error, Gossip, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::AsyncWriteExt;
 
-use common::wire::{block_on, bootstrap_fork_async};
+use common::wire::{block_on, join_fork_async};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -110,8 +110,8 @@ proptest! {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
             let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let b = bootstrap_fork_async(&a).await;
-            let c = bootstrap_fork_async(&a).await;
+            let b = join_fork_async(&a).await;
+            let c = join_fork_async(&a).await;
             let a = a.try_into_peer().await.unwrap()
                 .gossip_when(|changes| changes.map(|()| Gossip::WhenChanged))
                 .gossip_timeout(move || factory.start()).into_rumors();
@@ -235,16 +235,16 @@ proptest! {
     /// Each expired join returns an untouched bookmark and retryable policy.
     /// Successful joining preserves that policy for the peer's later sessions.
     #[test]
-    fn bootstrap_retries_preserve_policy(attempts in 1usize..5, network in network_seed()) {
+    fn join_retries_preserve_policy(attempts in 1usize..5, network in network_seed()) {
         use common::flaky::{FaultFeed, FlakyInMemoryBookmark};
-        use rumors::{Connection, Joined};
+        use rumors::{Connection, Join};
 
         block_on(async {
             let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
             a.send(42).unwrap();
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let config = Peer::<u64>::bootstrap()
+            let config = Peer::<u64>::joining()
                 .gossip_when(|_| stream::pending::<()>())
                 .gossip_timeout(move || factory.start());
             let store = Arc::new(Mutex::new(None));
@@ -257,16 +257,16 @@ proptest! {
                 assert!(joining.as_mut().now_or_never().is_none());
                 assert_eq!(deadlines.count(), generation + 1);
                 deadlines.expire(generation);
-                let Joined::Failed { bootstrap, error: Error::GossipTimeout } = joining.await else {
+                let Join::Failed { joining: returned, error: Error::GossipTimeout } = joining.await else {
                     panic!("expiry must return the builder");
                 };
                 assert!(store.lock().unwrap().is_none(), "no post-join attachment");
-                builder = bootstrap;
+                builder = returned;
             }
             let (mut near, mut far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (served, joined) = futures::join!(a.gossip_once(&mut near.read, &mut near.write), builder.join(&mut far.read, &mut far.write));
             served.unwrap();
-            let Joined::Joined { peer, connection: Connection::Reusable { .. } } = joined else { panic!("join succeeds") };
+            let Join::Connected { peer, connection: Connection::Reusable { .. } } = joined else { panic!("join succeeds") };
             assert_eq!(deadlines.count(), attempts + 1);
             assert!(deadlines.dropped(attempts));
             assert!(store.lock().unwrap().is_some());

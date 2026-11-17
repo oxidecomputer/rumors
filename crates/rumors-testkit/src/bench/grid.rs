@@ -148,7 +148,7 @@ const GRID_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0x36f7_bde7_e10e_5c65);
 /// Build the two peers for one grid cell.
 ///
 /// `left` founds the network `GRID_NETWORK_SEED` names; `right` is a genuine
-/// disjoint peer created from it via [`wire::bootstrap_fork`], so their parties
+/// disjoint peer created from it via [`wire::join_fork`], so their parties
 /// are disjoint (the precondition for `gossip`). The shared prefix is inserted
 /// before the split; the `differing` messages and `redacted` deletions are
 /// applied independently to each side after it.
@@ -170,7 +170,7 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
             .collect::<Vec<Version>>()
     });
 
-    let right = wire::bootstrap_fork(&left);
+    let right = wire::join_fork(&left);
     send_units(&left, differing);
     send_units(&right, differing);
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::{MessageDepthLimit, PayloadCodec};
 use crate::tree::mirror::streaming::message::Listed;
 use crate::tree::mirror::streaming::message::listed;
 
@@ -103,7 +103,7 @@ fn pushed_runs_validate_and_iterate() {
     let decoded =
         LeafRun::from_encoded(run.as_bytes().to_vec()).expect("a pushed run is structurally valid");
     let payloads: Vec<u64> = decoded
-        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(MessageDepthLimit::default()))
         .map(|record| *record.expect("a pushed record decodes").1.arc::<u64>())
         .collect();
     assert_eq!(payloads, vec![1, 2, 3]);

@@ -19,13 +19,16 @@ use std::fmt;
 
 use crate::{
     Count, Network, Protocol,
-    bookmark::{Bookmark, BookmarkIo, NoBookmark},
+    bookmark::{Bookmark, NoBookmark},
     observe::SessionErrorKind,
     tree::mirror::preamble,
 };
 
 mod session;
-pub use crate::{bookmark::FormatError, message::EncodeError};
+pub use crate::{
+    bookmark::{BookmarkIo, FormatError},
+    message::EncodeError,
+};
 pub use session::{
     Context, DataStream, Phase, ProtocolViolation, TransportError, TransportOperation,
 };
@@ -78,11 +81,11 @@ pub enum Mismatch {
     /// The peers have different configured payload depth limits, and are thus
     /// incompatible.
     ///
-    /// Align [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
+    /// Align [`Peer::message_depth_limit`](crate::Peer::message_depth_limit)
     /// across all peers in the gossip network, then reconnect.
     #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
     #[non_exhaustive]
-    PayloadDepth {
+    MessageDepth {
         /// The local peer's configured payload depth limit.
         local: u64,
         /// The remote peer's advertised payload depth limit.

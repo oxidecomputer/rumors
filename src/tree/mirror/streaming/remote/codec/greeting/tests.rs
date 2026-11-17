@@ -16,7 +16,7 @@ fn sample(listing: Vec<Listed>) -> Greeting {
         set_len: 7,
         grandchildren: 9,
         max_version_bytes: 4096,
-        payload_depth_limit: 300,
+        message_depth_limit: 300,
         target_message_size: 1 << 20,
         listing,
     }
@@ -64,7 +64,7 @@ proptest::proptest! {
         set_len in arb_uint(),
         grandchildren in 0..=65_536u64,
         max_version_bytes in arb_uint(),
-        payload_depth_limit in arb_uint(),
+        message_depth_limit in arb_uint(),
         target_message_size in arb_uint(),
     ) {
         let greeting = Greeting {
@@ -81,7 +81,7 @@ proptest::proptest! {
             set_len,
             grandchildren,
             max_version_bytes,
-            payload_depth_limit,
+            message_depth_limit,
             target_message_size,
         };
         let item = encode_greeting(&greeting);
@@ -97,7 +97,7 @@ proptest::proptest! {
         prop_assert_eq!(parsed.version, greeting.version);
         prop_assert_eq!(parsed.set_len, greeting.set_len);
         prop_assert_eq!(parsed.max_version_bytes, greeting.max_version_bytes);
-        prop_assert_eq!(parsed.payload_depth_limit, greeting.payload_depth_limit);
+        prop_assert_eq!(parsed.message_depth_limit, greeting.message_depth_limit);
         prop_assert_eq!(parsed.target_message_size, greeting.target_message_size);
         prop_assert_eq!(parsed.listing, greeting.listing);
     }

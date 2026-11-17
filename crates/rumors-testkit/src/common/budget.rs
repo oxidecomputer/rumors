@@ -61,7 +61,7 @@ impl BudgetChoice {
 /// [`choice(i)`](BudgetAssignment::choice).
 ///
 /// Indexing wraps, so one assignment covers founders and any peers created
-/// later (mid-run bootstraps) without knowing the final fleet size up front.
+/// later (mid-run joins) without knowing the final fleet size up front.
 #[derive(Debug, Clone)]
 pub struct BudgetAssignment(Vec<BudgetChoice>);
 

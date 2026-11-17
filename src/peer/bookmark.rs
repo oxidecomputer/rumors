@@ -10,7 +10,7 @@ use super::Peer;
 /// [`Peer`] returned unchanged.
 ///
 /// This error is returned by [`Peer::bookmark`] or
-/// [`Joined::Unbookmarked`](super::Joined::Unbookmarked). The peer is still
+/// [`Join::Unbookmarked`](super::Join::Unbookmarked). The peer is still
 /// usable without a bookmark, though it cannot persist or reclaim identity
 /// space. Repair or replace the storage, then try again.
 #[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
@@ -35,9 +35,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
 
 /// Attach [`Bookmark`] storage to a [`Peer`] which lacks it.
 impl<T: Send + Sync + 'static> Peer<T> {
-    /// Rumors uses a "bookmark" to record identity and local write progress,
-    /// reclaiming old "identity space" opportunistically. This limits the
-    /// storage used by message [`Version`](crate::Version)s across crashes and
+    /// Rumors uses a [`Bookmark`] to record identity and local
+    /// write progress, reclaiming old "identity space" opportunistically. This
+    /// limits the storage used by [`Version`](crate::Version)s across
     /// restarts.
     ///
     /// Bookmarks do not store the contents of messages. Their use is a
@@ -52,8 +52,8 @@ impl<T: Send + Sync + 'static> Peer<T> {
     /// the bookmark, supply [`FileBookmark`](crate::FileBookmark).
     ///
     /// To attach a bookmark immediately while joining an existing network
-    /// (rather than after the peer bootstraps), use
-    /// [`Bootstrap::bookmark`](super::Bootstrap::bookmark).
+    /// (rather than after the peer joins), use
+    /// [`Joining::bookmark`](super::Joining::bookmark).
     ///
     /// # Errors
     ///

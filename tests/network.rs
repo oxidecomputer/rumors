@@ -2,7 +2,7 @@
 //! peers from a different seed, even when their parties happen to look
 //! disjoint.
 //!
-//! Covers handle inheritance, bootstrap propagation, gossip, and retirement.
+//! Covers handle inheritance, join propagation, gossip, and retirement.
 
 use rumors_testkit::common;
 
@@ -178,36 +178,36 @@ divided_proptest! {
         assert_eq!(absorber.snapshot().hash(), absorber_hash);
     }
 
-    /// A bootstrapped peer adopts the provider's network, so it lands in exactly
+    /// A joined peer adopts the provider's network, so it lands in exactly
     /// the universe it was served from and can subsequently combine with it.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn bootstrap_adopts_provider_network(network in network_seed()) {
+    fn join_adopts_provider_network(network in network_seed()) {
         let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
         provider.send_all([1, 2, 3]).unwrap();
         let provider_network = provider.network();
 
-        let bootstrapped = block_on(async move {
+        let joiner = block_on(async move {
             let (mut a_end, mut b_end) =
                 rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let (provider_out, bootstrap_out) = tokio::join!(
+            let (provider_out, join_out) = tokio::join!(
                 provider.gossip_once(&mut a_end.read, &mut a_end.write),
-                Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+                Peer::<u64>::join(&mut b_end.read, &mut b_end.write),
             );
             provider_out.expect("provider gossip");
-            let joined = match bootstrap_out {
-                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
-                _ => panic!("provider served the bootstrap"),
+            let joined = match join_out {
+                rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
+                _ => panic!("provider served the join"),
             };
             assert_connection_drained(a_end, b_end);
             joined
         });
 
         assert_eq!(
-            bootstrapped.network(),
+            joiner.network(),
             provider_network,
-            "bootstrapped peer must join the provider's network",
+            "joined peer must join the provider's network",
         );
     }
 }

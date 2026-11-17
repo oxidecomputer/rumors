@@ -1,4 +1,4 @@
-use crate::message::PayloadDepthLimit;
+use crate::message::MessageDepthLimit;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io;
@@ -18,7 +18,7 @@ impl Message {
     /// Cache a fixture payload's encoding, panicking if serialization fails.
     pub(crate) fn new<T: Serialize + Send + Sync + 'static>(message: T) -> Self {
         Self {
-            serialized: encode(&message),
+            serialized: encode(&message).expect("test fixture payloads serialize"),
             message: Arc::new(message),
         }
     }
@@ -26,7 +26,7 @@ impl Message {
     /// Decode one fixture payload and copy its exact bytes into the cache.
     pub(crate) fn from_slice<T: DeserializeOwned + Send + Sync + 'static>(
         bytes: &[u8],
-        limit: PayloadDepthLimit,
+        limit: MessageDepthLimit,
     ) -> io::Result<Self> {
         let message: T = decode_exact(bytes, limit).map_err(PayloadDecodeError::into_io)?;
         Ok(Self {
@@ -87,14 +87,14 @@ proptest! {
     /// payload sizes on either side of buffer growth boundaries.
     #[test]
     fn stored_encodings_have_no_spare_capacity(size in 0usize..4096, value in any::<u8>()) {
-        let codec = PayloadCodec::new::<Vec<u8>>(PayloadDepthLimit::default());
+        let codec = PayloadCodec::new::<Vec<u8>>(MessageDepthLimit::default());
         assert_exact_cache(codec.message(Arc::new(vec![value; size])).unwrap());
     }
 
     /// Admission caches the payload's CBOR encoding and preserves its value.
     #[test]
     fn admission_caches_cbor_serialization(p in payload()) {
-        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        let codec = PayloadCodec::new::<Payload>(MessageDepthLimit::default());
         let m = codec.message(Arc::new(p.clone())).unwrap();
         let direct = cbor_vec(&p);
         prop_assert_eq!(m.as_slice(), direct.as_slice());
@@ -106,7 +106,7 @@ proptest! {
     #[test]
     fn wire_ingress_preserves_value_and_encoding(p in payload()) {
         let bytes = Bytes::from(cbor_vec(&p));
-        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        let codec = PayloadCodec::new::<Payload>(MessageDepthLimit::default());
         let m = Message::from_wire(bytes.clone(), codec).unwrap();
         prop_assert_eq!(&*m.arc::<Payload>(), &p);
         prop_assert_eq!(m.as_slice(), bytes.as_ref());
@@ -119,7 +119,7 @@ proptest! {
     fn trailing_bytes_are_rejected(p in payload(), trailer in proptest::collection::vec(any::<u8>(), 1..8)) {
         let mut bytes = cbor_vec(&p);
         bytes.extend_from_slice(&trailer);
-        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        let codec = PayloadCodec::new::<Payload>(MessageDepthLimit::default());
         prop_assert!(Message::from_wire(Bytes::from(bytes), codec).is_err());
     }
 
@@ -157,7 +157,7 @@ proptest! {
     #[test]
     fn arc_shares_the_stored_allocation(p in payload()) {
         let stored = Arc::new(p);
-        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        let codec = PayloadCodec::new::<Payload>(MessageDepthLimit::default());
         let m = codec.message(stored.clone()).unwrap();
         prop_assert!(Arc::ptr_eq(&stored, &m.arc::<Payload>()));
     }
@@ -188,16 +188,16 @@ proptest! {
     #[test]
     fn admission_and_ingress_share_depth_limit(depth in prop_oneof![
         1u64..33,
-        Just(PayloadDepthLimit::default().get()),
-        Just(PayloadDepthLimit::default().get() + 1),
+        Just(MessageDepthLimit::default().get()),
+        Just(MessageDepthLimit::default().get() + 1),
     ]) {
         let value = Arc::new(nested_arr(depth));
         let bytes = Bytes::from(cbor_vec(&*value));
-        let codec = PayloadCodec::new::<Arr>(PayloadDepthLimit::new(depth));
-        let lower_limit = PayloadDepthLimit::new(depth - 1);
+        let codec = PayloadCodec::new::<Arr>(MessageDepthLimit::new(depth));
+        let lower_limit = MessageDepthLimit::new(depth - 1);
         let lower = codec.with_limit(lower_limit);
         let error = lower.message(value.clone()).unwrap_err();
-        prop_assert!(matches!(error, super::EncodeError::Depth { limit } if limit == lower_limit.get()), "unexpected admission error: {:?}", error);
+        prop_assert!(matches!(error, super::EncodeError::TooDeep { limit } if limit == lower_limit.get()), "unexpected admission error: {:?}", error);
         prop_assert_eq!(
             Message::from_wire(bytes.clone(), lower).unwrap_err().kind(),
             io::ErrorKind::InvalidData,
@@ -229,14 +229,14 @@ proptest! {
     /// map wrapper, and admitted bytes decode at the same receiver limit.
     #[test]
     fn enum_admission_counts_the_payloads_decode(wrappers in 0u64..16) {
-        let limit = PayloadDepthLimit::new(wrappers + 1);
+        let limit = MessageDepthLimit::new(wrappers + 1);
         let codec = PayloadCodec::new::<E>(limit);
         let value = Arc::new(nested_enum(wrappers));
         let admitted = codec.message(value.clone()).unwrap();
         let received = Message::from_wire(Bytes::copy_from_slice(admitted.as_slice()), codec).unwrap();
         prop_assert_eq!(&*received.arc::<E>(), &*value);
         let error = codec.message(Arc::new(nested_enum(wrappers + 1))).unwrap_err();
-        prop_assert!(matches!(error, super::EncodeError::Depth { limit: actual } if actual == limit.get()), "unexpected admission error: {:?}", error);
+        prop_assert!(matches!(error, super::EncodeError::TooDeep { limit: actual } if actual == limit.get()), "unexpected admission error: {:?}", error);
     }
 }
 
@@ -262,14 +262,41 @@ impl<'de> serde::Deserialize<'de> for Lopsided {
 }
 
 /// A payload type whose `Deserialize` rejects its own `Serialize` output is the
-/// typed `EncodeError::Roundtrip` at the author — the value would have failed
+/// typed `EncodeError::Deserialize` at the author — the value would have failed
 /// at every receiver, and admission is that decode.
 #[test]
 fn a_type_that_cannot_read_its_own_output_fails_admission() {
-    let codec = PayloadCodec::new::<Lopsided>(PayloadDepthLimit::default());
+    let codec = PayloadCodec::new::<Lopsided>(MessageDepthLimit::default());
     let error = codec.message(Arc::new(Lopsided)).unwrap_err();
     assert!(
-        matches!(error, super::EncodeError::Roundtrip(_)),
+        matches!(error, super::EncodeError::Deserialize(_)),
         "the round-trip violation is its own typed case: {error:?}"
     );
+}
+
+/// A payload type whose `Serialize` always fails with a fixed message.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+struct Unserializable;
+
+/// Refuse every value, as a fallible `Serialize` does on its bad inputs.
+impl Serialize for Unserializable {
+    /// Fail with this fixture's fixed message.
+    fn serialize<S: Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
+        Err(serde::ser::Error::custom("refused"))
+    }
+}
+
+/// A value whose `Serialize` fails is the typed `EncodeError::Serialize` at the
+/// author, not a panic, and the error's source carries exactly the message the
+/// `Serialize` implementation gave, not ciborium's `Debug`-style rendering of
+/// its own error.
+#[test]
+fn a_value_that_cannot_serialize_fails_admission() {
+    let codec = PayloadCodec::new::<Unserializable>(MessageDepthLimit::default());
+    let error = codec.message(Arc::new(Unserializable)).unwrap_err();
+    let super::EncodeError::Serialize(source) = &error else {
+        panic!("the serialization failure is its own typed case: {error:?}");
+    };
+    assert_eq!(source.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(source.to_string(), "refused");
 }

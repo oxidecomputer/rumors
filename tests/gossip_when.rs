@@ -27,7 +27,7 @@ use tokio::io::{AsyncWriteExt, BufReader, DuplexStream};
 use tokio::time::timeout;
 
 use crate::common::fault::{self, FaultPlan, faulty};
-use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
+use crate::common::wire::{join_fork_async, tokio_block_on as block_on, wire_gossip_async};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -38,10 +38,10 @@ use rumors_testkit::divided_proptest;
 const DEADLINE: Duration = Duration::from_secs(10);
 
 /// A connected, party-disjoint pair: the first peer of the network `network`
-/// names and a bootstrap fork of it.
+/// names and a join fork of it.
 async fn pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-    let b = bootstrap_fork_async(&a).await;
+    let b = join_fork_async(&a).await;
     (a, b)
 }
 
@@ -346,8 +346,8 @@ divided_proptest! {
     fn changes_propagate_transitively_through_a_chain(network in network_seed()) {
         block_on(async {
             let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let b = bootstrap_fork_async(&a).await;
-            let c = bootstrap_fork_async(&b).await;
+            let b = join_fork_async(&a).await;
+            let c = join_fork_async(&b).await;
 
             let (mut ab_a_end, mut ab_b_end) = connection();
             let (mut bc_b_end, mut bc_c_end) = connection();
@@ -420,8 +420,8 @@ divided_proptest! {
     fn a_redaction_frontier_propagates_transitively_through_a_chain(network in network_seed()) {
         block_on(async {
             let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let b = bootstrap_fork_async(&a).await;
-            let c = bootstrap_fork_async(&b).await;
+            let b = join_fork_async(&a).await;
+            let c = join_fork_async(&b).await;
 
             let (mut ab_a_end, mut ab_b_end) = connection();
             let (mut bc_b_end, mut bc_c_end) = connection();

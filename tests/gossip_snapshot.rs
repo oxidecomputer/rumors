@@ -20,7 +20,7 @@ use crate::common::gossip_snapshot::{capture_gossip, capture_gossip_returning, s
 use crate::common::shape::{
     ballast_avoiding, keep_only, leaf_path, path_radix, pool, send_pool, shaped_pair,
 };
-use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
+use crate::common::wire::{block_on, join_fork, join_fork_async};
 
 /// The version of the live message holding `value`: how a scenario picks out a
 /// specific message for redaction. The scenarios use distinct payloads, so the
@@ -41,7 +41,7 @@ fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
 #[test]
 fn empty_pair_converges_immediately() {
     let a: Rumors<u64> = seeded();
-    let b = bootstrap_fork(&a);
+    let b = join_fork(&a);
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
@@ -58,7 +58,7 @@ fn one_sided_transfer() {
         let a: Rumors<u64> = seeded();
         // B is a genuine disjoint fork of A, created while A is still empty, so
         // it is an empty peer in the same universe.
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
 
         a.send_all([1, 2]).unwrap();
         (a, b)
@@ -82,7 +82,7 @@ const COLLIDING_POOL: u64 = 1024;
 fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         send_pool(&a, 0, COLLIDING_POOL);
         (a, b)
     });
@@ -135,7 +135,7 @@ fn asymmetric_message_targets_unbatch_the_run() {
     let b = block_on(async {
         b.try_into_peer()
             .await
-            .expect("the bootstrapped handle is sole")
+            .expect("the joined handle is sole")
             .target_message_size(0)
             .into_rumors()
     });
@@ -280,7 +280,7 @@ fn bulk_initiator_supplies_its_exclusive_child_on_request() {
     // set so the subtree holder initiates.
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         send_pool(&a, 0, RADIX_POOL);
         (a, b)
     });
@@ -359,7 +359,7 @@ fn requested_supplies_honor_redactions() {
     let (a, b, first) = block_on(async {
         let a: Rumors<u64> = seeded();
         let first = a.send(1).unwrap();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         b.redact(&first);
         (a, b, first)
     });
@@ -453,7 +453,7 @@ fn fork_insert_redact() {
 
         // (2) Fork: B is a genuine disjoint fork sharing A's observations
         // (both hold 1 and 2, under the same versions).
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
 
         // (3) Each fork inserts one distinct message.
         a.send(3).unwrap();
@@ -480,7 +480,7 @@ fn converged_forks_noop() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         a.send_all([1, 2]).unwrap();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -497,7 +497,7 @@ fn redaction_only() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         a.send_all([1, 2]).unwrap();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         a.redact(&version_for(&a, 1));
         (a, b)
     });
@@ -512,7 +512,7 @@ const DEEP_TRIE_PER_SIDE: u64 = 18;
 fn deep_trie_divergence() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         a.send_all(0..DEEP_TRIE_PER_SIDE).unwrap();
         b.send_all(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE)
             .unwrap();
@@ -557,7 +557,7 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
     send_pool(&a, 0, RADIX_POOL);
     let (first, second) = shaped_pair(&a, &pool(&a, 0, RADIX_POOL), 1, true);
     keep_only(&a, 0, RADIX_POOL, &[first, second]);
-    let b = bootstrap_fork(&a);
+    let b = join_fork(&a);
 
     // Diverge under the shared radix: a third leaf lands there on the
     // populated side alone.
@@ -631,7 +631,7 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
 fn string_payload() {
     let (a, b) = block_on(async {
         let a: Rumors<String> = seeded();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         a.send("hello".to_string()).unwrap();
         b.send("world".to_string()).unwrap();
         (a, b)
@@ -654,7 +654,7 @@ fn same_live_content_divergent_versions() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         a.send(1).unwrap();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
 
         // A diverges in version but not in live content: insert 2, then drop it.
         let transient = a.send(2).unwrap();
@@ -667,7 +667,7 @@ fn same_live_content_divergent_versions() {
 /// Concurrent, identical redaction.
 ///
 /// Both forks hold `1` and `2`, and *each* independently redacts `1` (the same
-/// message: a bootstrap copies the leaf, [`Version`] included) before they
+/// message: a join copies the leaf, [`Version`] included) before they
 /// gossip. The two redactions are causally concurrent — distinct version
 /// advances on distinct parties — yet target the same message, so this pins
 /// that the protocol converges idempotently on `{2}` rather than treating the
@@ -677,7 +677,7 @@ fn both_redact_the_same_message() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         a.send_all([1, 2]).unwrap();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         let v1 = version_for(&a, 1);
         a.redact(&v1);
         b.redact(&v1);

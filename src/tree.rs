@@ -119,7 +119,7 @@ pub struct Root {
 }
 
 /// The empty root: the empty [`Version`] over no nodes. The state a mirror
-/// exchange starts from when the local side holds nothing yet: a bootstrapping
+/// exchange starts from when the local side holds nothing yet: a joining
 /// peer mirrors the provider's tree into it.
 impl Default for Root {
     fn default() -> Self {

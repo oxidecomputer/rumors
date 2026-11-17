@@ -140,8 +140,8 @@ spawn(async move {
 });
 
 // Now, Bob joins the gossip network by *bootstrapping* from Alice.
-let rumors::Joined::Joined { peer: bob, .. } =
-    Peer::<String>::bootstrap().join(bob_read, bob_write).await
+let rumors::Join::Connected { peer: bob, .. } =
+    Peer::<String>::joining().join(bob_read, bob_write).await
 else {
     panic!("Alice must allow Bob to bootstrap");
 };
@@ -224,7 +224,7 @@ can't check:
   at `send`-time, rather than causing replicas to diverge
   upon gossip.
 - **Nesting depth must be bounded.** Deserializing a message may recur at
-  most `Peer::payload_depth_limit` steps (256 by default). An over-deep
+  most `Peer::message_depth_limit` steps (256 by default). An over-deep
   value is rejected at `send`-time, rather than risking a
   peer overflowing its stack upon receipt.
 
@@ -319,8 +319,19 @@ fn tls(
     Ok((Arc::new(client).into(), Arc::new(server).into()))
 }
 
+// Run gossip continuously over the provided stream, indefinitely.
+async fn gossip_over(
+    rumors: Rumors<String>,
+    stream: impl AsyncRead + AsyncWrite + Send + Unpin,
+) -> Result<(), Box<dyn Error>> {
+    let (read, write) = split(stream);
+    rumors.gossip(BufReader::new(read), write).await?;
+    Ok(())
+}
+
+// Connect to a peer over TLS, then gossip with them indefinitely.
 async fn connect(
-    rumors: &Rumors<String>,
+    rumors: Rumors<String>,
     tls: &TlsConnector,
     addr: SocketAddr,
     name: ServerName<'static>,
@@ -331,24 +342,17 @@ async fn connect(
     gossip_over(rumors, stream).await
 }
 
+// Accept a single connection over TLS via TCP, returning a future
+// which will gossip indefinitely when awaited (e.g. in a spawned task).
 async fn accept(
-    rumors: &Rumors<String>,
+    rumors: Rumors<String>,
     tls: &TlsAcceptor,
     listener: &TcpListener,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<impl Future<Output = Result<(), Box<dyn Error>>> + Send, Box<dyn Error>> {
     let (tcp, _) = listener.accept().await?;
     tcp.set_nodelay(true)?;
     let stream = tls.accept(tcp).await?;
-    gossip_over(rumors, stream).await
-}
-
-async fn gossip_over(
-    rumors: &Rumors<String>,
-    stream: impl AsyncRead + AsyncWrite + Send + Unpin,
-) -> Result<(), Box<dyn Error>> {
-    let (read, write) = split(stream);
-    rumors.gossip(BufReader::new(read), write).await?;
-    Ok(())
+    Ok(gossip_over(rumors, stream))
 }
 ```
 

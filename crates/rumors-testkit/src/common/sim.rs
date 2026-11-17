@@ -6,7 +6,7 @@
 //! engine spawns everything at once onto a multi-thread runtime: overlapping
 //! sessions between arbitrary pairs (including several sessions involving the
 //! same peer simultaneously, through cloned [`Rumors`] handles), concurrent
-//! local sends and redactions, bootstraps served over lossy wires, and a prober
+//! local sends and redactions, joins served over lossy wires, and a prober
 //! that re-checks global party disjointness while the chaos is in flight. Task
 //! interleaving is genuinely nondeterministic; the invariants asserted here
 //! must hold under *every* interleaving, so a failure is always a true failure
@@ -14,12 +14,12 @@
 //!
 //! # Phases
 //!
-//! 1. **Fleet**: one seed and its clean bootstrap forks.
+//! 1. **Fleet**: one seed and its clean join forks.
 //! 2. **Chaos**: every session, every activity script, and every extra
-//!    bootstrap attempt runs concurrently; channel cuts land at arbitrary byte
+//!    join attempt runs concurrently; channel cuts land at arbitrary byte
 //!    offsets, and endpoints vanish mid-session, via [`FaultPlan`]s. Serving a
-//!    bootstrap mid-chaos puts the snapshot-and-fork critical section under
-//!    concurrent sends from sibling handles (see `run_boot`); a failed attempt
+//!    join mid-chaos puts the snapshot-and-fork critical section under
+//!    concurrent sends from sibling handles (see `run_join`); a failed attempt
 //!    may orphan the served fork's id-region — counted, see below. Each peer
 //!    also carries one observer of each kind
 //!    ([`UnorderedMessages`](rumors::UnorderedMessages) and
@@ -50,9 +50,9 @@
 //! # Loss accounting
 //!
 //! Party id-regions can leave the live universe *legitimately* when a wire
-//! drops mid-hand-off: a bootstrap fork lost in flight, a retirement whose
+//! drops mid-hand-off: a donation fork lost in flight, a retirement whose
 //! [`Retire::Retired`] carries a lost connection while its absorber also
-//! failed, or a peer that vanished while bootstrapping or retiring. The engine
+//! failed, or a peer that vanished while joining or retiring. The engine
 //! counts every such *possible* loss conservatively in
 //! [`SimOutcome::possible_losses`]. Disjointness must hold regardless; the
 //! sharper invariants -- the surviving parties fold-join back to exactly
@@ -64,7 +64,7 @@
 //! whole ([`Retire::Recovered`]), confirms a committed absorber session —
 //! which, per [`Peer::retire`]'s contract (a session reconciles content exactly
 //! as gossip would), holds the union including the retiree's unique messages
-//! and redactions — or increments the counter; and a faulted bootstrap risks
+//! and redactions — or increments the counter; and a faulted join risks
 //! only identity space, because a newborn holds no unique content.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -109,16 +109,16 @@ pub const MAX_SHRINK_TIME: u32 = 60_000;
 /// pieces are scheduled.
 #[derive(Debug, Clone)]
 pub struct Plan {
-    /// Fleet size built by clean bootstraps before anything else runs.
+    /// Fleet size built by clean joins before anything else runs.
     pub n_peers: usize,
     /// Messages inserted at the seed before any fork.
     pub seed_messages: Vec<u64>,
-    /// Extra joiners bootstrapped *during* the chaos phase, one per entry; the
-    /// entry is the fault plan for the *bootstrapping* endpoint.
+    /// Extra joiners joined *during* the chaos phase, one per entry; the
+    /// entry is the fault plan for the *joining* endpoint.
     ///
     /// Even a clean entry matters: it serves the party-fork critical section
-    /// while sibling handles are mid-send (see `run_boot`).
-    pub faulty_boots: Vec<FaultPlan>,
+    /// while sibling handles are mid-send (see `run_join`).
+    pub faulty_joins: Vec<FaultPlan>,
     /// Per-peer scripts (length `n_peers`) of local sends and redactions, run
     /// concurrently with every session.
     pub scripts: Vec<Vec<Activity>>,
@@ -127,7 +127,7 @@ pub struct Plan {
     /// Retirements run after the chaos phase settles.
     pub retires: Vec<RetireOp>,
     /// Budget choices for the whole fleet: founder `i` runs at
-    /// `budgets.choice(i)`, and a newcomer bootstrapped by `faulty_boots[j]`
+    /// `budgets.choice(i)`, and a newcomer joined by `faulty_joins[j]`
     /// takes `budgets.choice(j)`.
     ///
     /// Founders draw independently, so the chaos includes sessions between
@@ -265,7 +265,7 @@ pub struct SimOutcome {
     pub inserted: Vec<u64>,
     /// The execution-time redaction log; see [`Redaction`].
     pub redactions: Vec<Redaction>,
-    /// Endpoints that reached their vanish point, across sessions, bootstraps,
+    /// Endpoints that reached their vanish point, across sessions, joins,
     /// and retirements.
     pub vanished: usize,
 }
@@ -381,7 +381,7 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
             .prop_map(
                 move |(
                     seed_messages,
-                    faulty_boots,
+                    faulty_joins,
                     scripts,
                     sessions,
                     retires,
@@ -390,7 +390,7 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
                 )| Plan {
                     n_peers: n,
                     seed_messages,
-                    faulty_boots,
+                    faulty_joins,
                     scripts,
                     sessions,
                     retires,
@@ -487,12 +487,12 @@ async fn run_session(
     usize::from(driven_a.vanished()) + usize::from(driven_b.vanished())
 }
 
-/// Serve one bootstrap from `server` mid-chaos, the joiner's endpoint faulted
+/// Serve one join from `server` mid-chaos, the joiner's endpoint faulted
 /// by `fault`. Returns the newcomer, or `None` for a possible in-flight loss of
 /// the donated fork, with the vanish accounting.
 ///
 /// This is the most delicate intra-set race the engine exercises: serving a
-/// bootstrap must snapshot the tree and speculatively fork the party in one
+/// join must snapshot the tree and speculatively fork the party in one
 /// critical section, while sibling `Rumors` clones of the same set concurrently
 /// send, redact, and gossip. A torn snapshot/fork would hand the newcomer a
 /// version exceeding what its party slice justifies — surfacing downstream as a
@@ -502,12 +502,12 @@ async fn run_session(
 /// directions of a duplex (its read cut models the server's frames dying in
 /// flight). A joiner that fails or vanishes may or may not have cost the server
 /// its donated fork, so it conservatively counts as a possible loss either way.
-async fn run_boot(
+async fn run_join(
     server: Rumors<u64>,
     fault: FaultPlan,
     budget: BudgetChoice,
 ) -> (Option<Peer<u64>>, usize) {
-    let (boot_side, serve_side) =
+    let (joiner_side, serve_side) =
         rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let serve = tokio::spawn(async move {
         let mut end = fault::faulty(serve_side, FaultPlan::NONE);
@@ -516,12 +516,12 @@ async fn run_boot(
             .await
             .map(|(gossiped, ..)| gossiped)
     });
-    let boot = tokio::spawn(fault::drive(boot_side, fault, async move |end| {
-        Peer::<u64>::bootstrap().join(end.read, end.write).await
+    let joiner = tokio::spawn(fault::drive(joiner_side, fault, async move |end| {
+        Peer::<u64>::join(end.read, end.write).await
     }));
-    let (served, driven) = tokio::join!(serve, boot);
-    let served = served.expect("bootstrap serve task");
-    let Some(joined) = driven.expect("bootstrap join task").outcome else {
+    let (served, driven) = tokio::join!(serve, joiner);
+    let served = served.expect("join serve task");
+    let Some(joined) = driven.expect("joiner task").outcome else {
         assert_survivor(&served);
         return (None, 1);
     };
@@ -530,20 +530,20 @@ async fn run_boot(
         // A lost connection means the whole party arrived before the session
         // failed, so the joiner keeps it, and the server gave it up: nothing
         // is lost.
-        rumors::Joined::Joined { peer, connection } => {
+        rumors::Join::Connected { peer, connection } => {
             if let rumors::Connection::Lost { error } = &connection {
                 assert_honest_error(error);
             }
             Some(budget.apply(peer))
         }
-        rumors::Joined::Bailed { .. } => {
-            unreachable!("the serving peer is never itself bootstrapping")
+        rumors::Join::Bounced { .. } => {
+            unreachable!("the serving peer is never itself joining")
         }
-        rumors::Joined::Failed { error, .. } => {
+        rumors::Join::Failed { error, .. } => {
             assert_honest_error(&error);
             None
         }
-        rumors::Joined::Unbookmarked { .. } => unreachable!("no bookmark was selected"),
+        rumors::Join::Unbookmarked { .. } => unreachable!("no bookmark was selected"),
     };
     (newcomer, 0)
 }
@@ -665,7 +665,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<SetOnce<()>>) {
 /// that handle is read and arrives at a later-sampled handle before that one is
 /// read would be witnessed twice with no linearity broken. The check is
 /// therefore sound only while no region moves between two sampled handles,
-/// which `run_plan` guarantees: the bootstraps it probes move regions from
+/// which `run_plan` guarantees: the joins it probes move regions from
 /// sampled founders to newcomers this loop never samples, and retirements begin
 /// only after `done`. A prober over a phase with founder-to-founder transfers
 /// needs a consistent snapshot, or a re-read that confirms an overlap persists.
@@ -725,16 +725,14 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for i in 1..plan.n_peers {
-        let child = crate::common::wire::bootstrap_fork_with_budget_async(
-            &fleet[0],
-            plan.budgets.choice(i),
-        )
-        .await;
+        let child =
+            crate::common::wire::join_fork_with_budget_async(&fleet[0], plan.budgets.choice(i))
+                .await;
         fleet.push(child);
     }
 
     // Phase 2: chaos. Everything at once: every session, every activity
-    // script, every bootstrap, and the disjointness prober, interleaving
+    // script, every join, and the disjointness prober, interleaving
     // freely.
     let casts = fleet;
     // Set once the writers have settled; a task that finds it set sees
@@ -759,12 +757,12 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             s.fault_b,
         )));
     }
-    let boot_tasks: Vec<_> = plan
-        .faulty_boots
+    let join_tasks: Vec<_> = plan
+        .faulty_joins
         .iter()
         .enumerate()
         .map(|(i, fault)| {
-            tokio::spawn(run_boot(
+            tokio::spawn(run_join(
                 casts[i % casts.len()].clone(),
                 *fault,
                 plan.budgets.choice(i),
@@ -781,8 +779,8 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         vanished += vanishes;
     }
     let mut newcomers = Vec::new();
-    for task in boot_tasks {
-        let (newcomer, vanishes) = task.await.expect("bootstrap task");
+    for task in join_tasks {
+        let (newcomer, vanishes) = task.await.expect("join task");
         vanished += vanishes;
         match newcomer {
             Some(newcomer) => newcomers.push(newcomer),
@@ -1023,7 +1021,7 @@ pub fn assert_deletion_honored(readouts: &[BTreeMap<Vec<u8>, u64>], redactions: 
 /// committed absorber session (which, per [`Peer::retire`]'s contract,
 /// reconciles content exactly as gossip would and so holds the union including
 /// the retiree's unique messages), or increments the counter; and a faulted
-/// bootstrap risks only identity space, because a newborn holds no unique
+/// join risks only identity space, because a newborn holds no unique
 /// content. Under that premise a loss-free run conserves every insert and
 /// propagates every redaction, so the multiset equality is exact.
 pub fn assert_value_oracle(

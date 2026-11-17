@@ -2,7 +2,7 @@
 //!
 //! The simulator generates sends, redactions, sessions, crashes, and
 //! retirement, with wire and storage failures. Wire faults affect ordinary
-//! gossip; bootstrap and retirement use clean connections but may fail through
+//! gossip; join and retirement use clean connections but may fail through
 //! storage. Each network descends from its own seed; histories from different
 //! networks are never compared or reconciled.
 //!
@@ -20,8 +20,8 @@
 //!   emissions.
 //!
 //! The ordinary plans finish each session before taking another step. The
-//! `concurrent` suite holds bootstrap forks in flight while generated
-//! operations advance the fleet, then completes or cancels the bootstraps and
+//! `concurrent` suite holds donation forks in flight while generated
+//! operations advance the fleet, then completes or cancels the joins and
 //! tests recovery. The storage-window suite separately controls pauses inside
 //! individual stores.
 //!
@@ -43,7 +43,8 @@ use proptest::prelude::*;
 use rand_chacha::ChaChaRng;
 use rumors::error::{Mismatch, ProtocolViolation};
 use rumors::{
-    Bookmark, BookmarkIo, Connection, Error, Network, Peer, Retire, Rumors, Snapshot, Version,
+    Bookmark, Connection, Error, Network, Peer, Retire, Rumors, Snapshot, Version,
+    error::BookmarkIo,
 };
 
 use crate::common::fault::{self, FaultPlan};
@@ -203,13 +204,13 @@ where
     );
 }
 
-/// Why a bootstrap's joining side came up without a live peer.
+/// Why a joiner came up without a live peer.
 #[derive(Debug)]
-enum BootFailure {
+enum JoinFailure {
     /// The join session failed before any peer existed.
     Join(Error),
     /// The join ended without a peer, which only a server that was itself
-    /// bootstrapping could cause.
+    /// joining could cause.
     NoPeer,
     /// The eager attach persist failed; the handed-back peer is dropped.
     Attach(BookmarkIo<FlakyError>),
@@ -333,13 +334,13 @@ struct Redacted {
 /// whole path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PathEvent {
-    /// A cross-network session resolved: `loser` re-bootstraps into `winner`.
+    /// A cross-network session resolved: `loser` rejoins into `winner`.
     Mismatch { winner: usize, loser: usize },
-    /// `newcomer` bootstrapped from `server`, or stayed dormant on failure.
-    Bootstrap {
+    /// `newcomer` joined from `server`, or stayed dormant on failure.
+    Join {
         newcomer: usize,
         server: usize,
-        booted: bool,
+        joined: bool,
     },
     /// `who` seeded a fresh universe: no live member of its network remained.
     Reseeded(usize),
@@ -413,7 +414,7 @@ impl World {
     }
 
     /// Build `n` nodes that all share *one* network: node 0 seeds it, and nodes
-    /// `1..n` bootstrap into it over clean wires.
+    /// `1..n` join into it over clean wires.
     ///
     /// Every bookmark is reliable (an empty fault schedule never fails), the
     /// precondition the leakage property rests on.
@@ -444,7 +445,7 @@ impl World {
             pending_redactions: Vec::new(),
             label: 0,
         });
-        // The rest start dormant in node 0's network; the bootstraps below make
+        // The rest start dormant in node 0's network; the joins below make
         // them live forks of its identity.
         world.nodes.extend((1..n).map(|label| Node {
             state: NodeState::Dormant,
@@ -458,8 +459,8 @@ impl World {
 
         for who in 1..n {
             assert!(
-                world.bootstrap_into(who, 0),
-                "single-network setup: reliable bootstrap of node {who} into the seed must succeed",
+                world.join_into(who, 0),
+                "single-network setup: reliable join of node {who} into the seed must succeed",
             );
         }
         world
@@ -714,7 +715,7 @@ impl World {
 
     /// Secure what is now known to the network, then discard the rest.
     ///
-    /// `who`'s in-memory state is about to vanish (a crash or a re-bootstrap),
+    /// `who`'s in-memory state is about to vanish (a crash or a rejoin),
     /// so any emission that was neither persisted nor seen by another peer is
     /// lost — never known to the network, and so no later reuse of its version
     /// is a recycle.
@@ -735,7 +736,7 @@ impl World {
     /// `fault_a`/`fault_b`.
     ///
     /// A cross-network pair surfaces [`Mismatch::Network`] on at least one
-    /// side; the loser of the `(min_ticks, network)` tie-break re-bootstraps
+    /// side; the loser of the `(min_ticks, network)` tie-break rejoins
     /// into the winner. Any other error is a disruption, admitted only when the
     /// step scheduled a fault or met a mismatch; a step that cannot fail must
     /// succeed on both sides, and a session both sides complete loses no
@@ -820,7 +821,7 @@ impl World {
         }
     }
 
-    /// Re-bootstrap the lesser of two mismatched live peers into the greater's
+    /// Rejoin the lesser of two mismatched live peers into the greater's
     /// network, by the documented metric: greater `(min_ticks, network)` wins.
     fn resolve_mismatch(&mut self, a: usize, b: usize) {
         let ta = self.tuple(a);
@@ -830,7 +831,7 @@ impl World {
         };
         let (winner, loser) = if ta >= tb { (a, b) } else { (b, a) };
         self.path.push(PathEvent::Mismatch { winner, loser });
-        self.bootstrap_into(loser, winner);
+        self.join_into(loser, winner);
     }
 
     /// This live peer's tie-break key: its frontier's minimum event count, then
@@ -841,19 +842,19 @@ impl World {
     }
 
     /// (Re)create `who` as a fresh replica in `server`'s network by
-    /// bootstrapping from it over a clean wire.
+    /// joining from it over a clean wire.
     ///
     /// Reuses `who`'s durable store (so it reclaims any of its own identity the
     /// pulled frontier now dominates) and its still- active fault schedule.
     /// Returns whether `who` is live afterwards.
     ///
-    /// The bootstrap's wire is clean so the fleet can make progress, but the
+    /// The join's wire is clean so the fleet can make progress, but the
     /// bookmarks on both sides stay flaky: the server's donating
     /// `slice`/`write` and `who`'s eager identity persist can each fail, which
     /// is precisely the adversarial persistence path. On any failure `who` is
     /// left dormant for a later attempt. Over reliable bookmarks nothing can
     /// fail, and the step asserts that both sides succeed.
-    fn bootstrap_into(&mut self, who: usize, server: usize) -> bool {
+    fn join_into(&mut self, who: usize, server: usize) -> bool {
         let Some(server_rumors) = self.nodes[server].live() else {
             return false;
         };
@@ -868,33 +869,30 @@ impl World {
         // Drop any prior incarnation before creating the new one.
         self.nodes[who].state = NodeState::Dormant;
 
-        let (boot_out, serve_out) = block_on(async {
-            let (boot_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+        let (join_out, serve_out) = block_on(async {
+            let (joiner_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
             // Each side owns its end inside its block so a failing one drops
             // it (see `gossip`).
             tokio::join!(
                 async move {
-                    let mut end = boot_side;
-                    let peer = match Peer::<Msg>::bootstrap()
-                        .join(&mut end.read, &mut end.write)
-                        .await
-                    {
+                    let mut end = joiner_side;
+                    let peer = match Peer::<Msg>::join(&mut end.read, &mut end.write).await {
                         // A joiner that received its whole party keeps it,
                         // whether or not its connection survived to confirm
                         // completion.
-                        rumors::Joined::Joined { peer, .. } => peer,
-                        rumors::Joined::Bailed { .. } => return Err(BootFailure::NoPeer),
-                        rumors::Joined::Failed { error, .. } => {
-                            return Err(BootFailure::Join(error));
+                        rumors::Join::Connected { peer, .. } => peer,
+                        rumors::Join::Bounced { .. } => return Err(JoinFailure::NoPeer),
+                        rumors::Join::Failed { error, .. } => {
+                            return Err(JoinFailure::Join(error));
                         }
-                        rumors::Joined::Unbookmarked { .. } => {
+                        rumors::Join::Unbookmarked { .. } => {
                             unreachable!("no bookmark was selected")
                         }
                     };
                     peer.sync_memory_budget(0)
                         .bookmark(bookmark)
                         .await
-                        .map_err(|unbookmarked| BootFailure::Attach(unbookmarked.error))
+                        .map_err(|unbookmarked| JoinFailure::Attach(unbookmarked.error))
                 },
                 async move {
                     let end = serve_side;
@@ -908,7 +906,7 @@ impl World {
         // the wire on the newcomer (a truncated hand-off), and the newcomer
         // through its own eager attach persist after the session. Neither
         // can fail over reliable bookmarks.
-        let step = format!("bootstrap of {who} from {server}");
+        let step = format!("join of {who} from {server}");
         if let Err(error) = &serve_out {
             assert_not_codec_bug(&format!("{step}, serving side"), error);
             assert!(
@@ -916,12 +914,12 @@ impl World {
                 "{step}: the serve failed on a clean wire over reliable bookmarks: {error:?}",
             );
         }
-        let booted = match boot_out {
+        let joined = match join_out {
             Ok(peer) => Some(peer),
-            Err(BootFailure::NoPeer) => {
+            Err(JoinFailure::NoPeer) => {
                 panic!("{step}: the server was gossiping, so the join cannot end without a peer")
             }
-            Err(BootFailure::Join(error)) => {
+            Err(JoinFailure::Join(error)) => {
                 assert_not_codec_bug(&format!("{step}, joining side"), &error);
                 assert!(
                     may_fail,
@@ -929,7 +927,7 @@ impl World {
                 );
                 None
             }
-            Err(BootFailure::Attach(error)) => {
+            Err(JoinFailure::Attach(error)) => {
                 assert!(
                     !matches!(error, BookmarkIo::Format(_)),
                     "{step}: the attach rejected a bookmark file the crate wrote: {error:?}",
@@ -942,20 +940,20 @@ impl World {
             }
         };
 
-        self.path.push(PathEvent::Bootstrap {
+        self.path.push(PathEvent::Join {
             newcomer: who,
             server,
-            booted: booted.is_some(),
+            joined: joined.is_some(),
         });
-        match booted {
+        match joined {
             Some(peer) => {
                 self.nodes[who].network = peer.network();
                 self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
-                // The eager bootstrap persist secures `who`'s reclaimed identity;
+                // The eager join persist secures `who`'s reclaimed identity;
                 // the server's donating persist secures its emissions too.
                 self.secure(who);
                 self.secure(server);
-                // A bootstrap copies the server's content whole.
+                // A join copies the server's content whole.
                 let expected = &served - &self.ledger(network);
                 self.assert_session_preserved(&step, network, &expected, &[who]);
                 true
@@ -975,7 +973,7 @@ impl World {
         let server = (0..self.n())
             .find(|&k| k != who && self.nodes[k].is_live() && self.nodes[k].network == network);
         if let Some(server) = server
-            && (self.bootstrap_into(who, server) || self.networks.len() == 1)
+            && (self.join_into(who, server) || self.networks.len() == 1)
         {
             // A failed join in a single-network plan leaves this node
             // dormant for a later retry; it does not create another universe.
@@ -1136,7 +1134,7 @@ impl World {
         }
 
         // Collapse onto one network: the peer with the greatest tie-break key
-        // wins, and every other peer re-bootstraps into it.
+        // wins, and every other peer rejoins into it.
         let winner = (0..self.n())
             .max_by_key(|&k| self.tuple(k))
             .expect("a non-empty fleet");
@@ -1160,8 +1158,8 @@ impl World {
         for who in 0..self.n() {
             if who != winner && self.nodes[who].network != winning_network {
                 assert!(
-                    self.bootstrap_into(who, winner),
-                    "fault-free heal bootstrap of node {who} into {winner} must succeed",
+                    self.join_into(who, winner),
+                    "fault-free heal join of node {who} into {winner} must succeed",
                 );
             }
         }
@@ -1634,8 +1632,8 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     let bm_b = || FlakyInMemoryBookmark::new(store_b.clone(), faults_b.clone(), 1);
 
     block_on(async move {
-        // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
-        // region from its bookmark (drop = crash; re-bootstrap = revive).
+        // A seeds, B joins from A. Then each reboots once, reclaiming its
+        // region from its bookmark (drop = crash; rejoin = revive).
         let a = SCENARIO_NETWORK_SEED
             .peer::<Msg>()
             .sync_memory_budget(0)
@@ -1643,11 +1641,11 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        let b = boot_from_async(&a, bm_b()).await;
+        let b = join_from_async(&a, bm_b()).await;
         drop(a);
-        let a = boot_from_async(&b, bm_a()).await; // A reclaims
+        let a = join_from_async(&b, bm_a()).await; // A reclaims
         drop(b);
-        let b = boot_from_async(&a, bm_b()).await; // B reclaims
+        let b = join_from_async(&a, bm_b()).await; // B reclaims
 
         // Both parties are well-formed, disjoint, and tile the seed: a valid
         // single-universe state.
@@ -1692,22 +1690,19 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     });
 }
 
-/// Bootstrap a fresh peer with bookmark `bm` from `server` over a clean
-/// in-memory end, returning the booted peer's [`Rumors`]. Diagnostic helper.
-async fn boot_from_async(
+/// Join a fresh peer with bookmark `bm` from `server` over a clean
+/// in-memory end, returning the joined peer's [`Rumors`]. Diagnostic helper.
+async fn join_from_async(
     server: &Rumors<Msg, FlakyInMemoryBookmark>,
     bm: FlakyInMemoryBookmark,
 ) -> Rumors<Msg, FlakyInMemoryBookmark> {
     let server = server.clone();
-    let (boot_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
-    let (boot_out, serve_out) = tokio::join!(
+    let (joiner_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+    let (join_out, serve_out) = tokio::join!(
         async move {
-            let mut end = boot_side;
-            let peer = (match Peer::<Msg>::bootstrap()
-                .join(&mut end.read, &mut end.write)
-                .await
-            {
-                rumors::Joined::Joined {
+            let mut end = joiner_side;
+            let peer = (match Peer::<Msg>::join(&mut end.read, &mut end.write).await {
+                rumors::Join::Connected {
                     peer,
                     connection: rumors::Connection::Reusable { .. },
                 } => peer,
@@ -1726,8 +1721,8 @@ async fn boot_from_async(
             server.gossip_once(end.read, end.write).await
         },
     );
-    serve_out.expect("serve bootstrap");
-    boot_out.into_rumors()
+    serve_out.expect("serve join");
+    join_out.into_rumors()
 }
 
 /// Execute a reliable-recovery plan to its post-heal end state.
@@ -2077,10 +2072,10 @@ fn reconstructed_crash_pair_then_retire() {
         vec![
             PathEvent::Reseeded(0),
             PathEvent::Reseeded(1),
-            PathEvent::Bootstrap {
+            PathEvent::Join {
                 newcomer: 1,
                 server: 0,
-                booted: true,
+                joined: true,
             },
         ],
         "the plan's path through revival and heal",
@@ -2146,20 +2141,20 @@ fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
                 winner: 1,
                 loser: 2
             },
-            PathEvent::Bootstrap {
+            PathEvent::Join {
                 newcomer: 2,
                 server: 1,
-                booted: true,
+                joined: true,
             },
-            PathEvent::Bootstrap {
+            PathEvent::Join {
                 newcomer: 1,
                 server: 0,
-                booted: true,
+                joined: true,
             },
-            PathEvent::Bootstrap {
+            PathEvent::Join {
                 newcomer: 2,
                 server: 0,
-                booted: true,
+                joined: true,
             },
         ],
         "the plan's path through mismatch resolution, revival, and heal",

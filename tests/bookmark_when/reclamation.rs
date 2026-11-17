@@ -2,7 +2,7 @@
 
 use proptest::prelude::*;
 
-use super::{Peer, Probe, absorb_retire, block_on, bootstrap_fork_peer, plain_gossip};
+use super::{Peer, Probe, absorb_retire, block_on, join_fork_peer, plain_gossip};
 use crate::common::flaky::persisted_record;
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
@@ -11,17 +11,17 @@ use rumors_testkit::divided_proptest;
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// A checkpoint during bootstrap must not leave an older overlapping entry
+    /// A checkpoint during join must not leave an older overlapping entry
     /// that lets a restarted peer reuse versions of writes it has not recovered.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn concurrent_bootstrap_checkpoint_protects_writes_after_restart(network in network_seed()) {
+    fn concurrent_join_checkpoint_protects_writes_after_restart(network in network_seed()) {
         block_on(async {
             let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-            let witness = bootstrap_fork_peer(&seed).await.into_rumors();
+            let witness = join_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
-            let owner = bootstrap_fork_peer(&seed)
+            let owner = join_fork_peer(&seed)
                 .await
                 .bookmark(bookmark.clone())
                 .await
@@ -34,7 +34,7 @@ divided_proptest! {
                 let (mut near, mut far) =
                     rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let mut joining =
-                    Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
+                    Box::pin(Peer::<u64>::join(&mut near.read, &mut near.write));
                 let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
                 // Let the newcomer send its preamble, then let the provider reserve
                 // a fork. Neither future runs again while a second session proceeds.
@@ -45,10 +45,10 @@ divided_proptest! {
                 owner.send(42).unwrap();
                 plain_gossip(&owner, &witness).await;
             }
-            // Cancelling the bootstrap returns its reserved fork without another
+            // Cancelling the join returns its reserved fork without another
             // store. The ensuing crash preserves only the two overlapping entries.
             drop(owner);
-            let restarted = bootstrap_fork_peer(&seed)
+            let restarted = join_fork_peer(&seed)
                 .await
                 .bookmark(bookmark.clone())
                 .await
@@ -66,7 +66,7 @@ divided_proptest! {
     /// A restart reclaims both of two identities that overlap without either
     /// containing the other, rather than only the one it joins first.
     ///
-    /// The first identity is recorded before a fork is reserved for a bootstrap.
+    /// The first identity is recorded before a fork is reserved for a join.
     /// The second is recorded after absorbing a retiree while that fork is still
     /// reserved, so it contains the retiree's region but not the fork. Whichever
     /// identity the restart joins first, the part of the other outside it must be
@@ -77,9 +77,9 @@ divided_proptest! {
     fn restart_reclaims_identities_that_overlap_without_nesting(network in network_seed()) {
         block_on(async {
             let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-            let witness = bootstrap_fork_peer(&seed).await.into_rumors();
+            let witness = join_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
-            let owner = bootstrap_fork_peer(&seed)
+            let owner = join_fork_peer(&seed)
                 .await
                 .bookmark(bookmark.clone())
                 .await
@@ -88,13 +88,13 @@ divided_proptest! {
             owner.send(1).unwrap();
             plain_gossip(&owner, &witness).await;
             let whole = owner.dangerously_alias_party();
-            let retiree = bootstrap_fork_peer(&seed).await;
+            let retiree = join_fork_peer(&seed).await;
             let absorbed = retiree.dangerously_alias_party();
             {
                 let (mut near, mut far) =
                     rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let mut joining =
-                    Box::pin(Peer::<u64>::bootstrap().join(&mut near.read, &mut near.write));
+                    Box::pin(Peer::<u64>::join(&mut near.read, &mut near.write));
                 let mut serving = Box::pin(owner.gossip_once(&mut far.read, &mut far.write));
                 assert!(futures::poll!(joining.as_mut()).is_pending());
                 assert!(futures::poll!(serving.as_mut()).is_pending());
@@ -110,7 +110,7 @@ divided_proptest! {
             // Cancelling returns the fork; the crash follows before any checkpoint.
             drop(owner);
 
-            let restarted = bootstrap_fork_peer(&witness)
+            let restarted = join_fork_peer(&witness)
                 .await
                 .bookmark(bookmark.clone())
                 .await
@@ -139,18 +139,18 @@ divided_proptest! {
 }
 
 proptest! {
-    /// Outstanding bootstrap forks defer reclamation without delaying durable
+    /// Outstanding donation forks defer reclamation without delaying durable
     /// checkpoints. Cancelling or completing the last fork permits recovery again.
     #[test]
-    fn pending_bootstraps_defer_reclamation_but_not_checkpoints(
+    fn pending_joins_defer_reclamation_but_not_checkpoints(
         releases in proptest::collection::vec((any::<bool>(), any::<usize>()), 1..5),
         network in network_seed(),
     ) {
         block_on(async {
             let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-            let witness = bootstrap_fork_peer(&seed).await.into_rumors();
+            let witness = join_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
-            let departed = bootstrap_fork_peer(&seed).await
+            let departed = join_fork_peer(&seed).await
                 .bookmark(bookmark.clone()).await.unwrap().into_rumors();
             departed.send(42).unwrap();
             plain_gossip(&departed, &witness).await;
@@ -159,7 +159,7 @@ proptest! {
 
             // Restart without the old writes, so recovery cannot precede the
             // forks we are about to hold. Only the witness has those writes.
-            let restarted = bootstrap_fork_peer(&seed).await
+            let restarted = join_fork_peer(&seed).await
                 .bookmark(bookmark.clone()).await.unwrap().into_rumors();
             let mut pending = Vec::new();
             for _ in &releases {
@@ -167,7 +167,7 @@ proptest! {
                 let (near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let provider = restarted.clone();
                 let mut joining = Box::pin(async move {
-                    Peer::<u64>::bootstrap().join(near.read, near.write).await
+                    Peer::<u64>::join(near.read, near.write).await
                 });
                 let mut serving = Box::pin(async move { provider.gossip_once(far.read, far.write).await });
                 assert!(futures::poll!(joining.as_mut()).is_pending());
@@ -200,8 +200,8 @@ proptest! {
                 if complete {
                     let (joined, served) = futures::join!(joining, serving);
                     served.unwrap();
-                    let rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } = joined else {
-                        panic!("reliable bootstrap must complete");
+                    let rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } = joined else {
+                        panic!("reliable join must complete");
                     };
                     newcomers.push(peer);
                 } else {
@@ -233,9 +233,9 @@ proptest! {
             // All peers descend from this seed. Only the witness learns the
             // departing peer's writes, so the seed can serve an incomplete restart.
             let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-            let witness = bootstrap_fork_peer(&seed).await.into_rumors();
+            let witness = join_fork_peer(&seed).await.into_rumors();
             let bookmark = Probe::default();
-            let departed = bootstrap_fork_peer(&seed).await
+            let departed = join_fork_peer(&seed).await
                 .bookmark(bookmark.clone()).await.unwrap().into_rumors();
             for message in 0..messages {
                 departed.send(message).unwrap();
@@ -246,7 +246,7 @@ proptest! {
             drop(departed);
 
             let source = if caught_up_on_join { &witness } else { &seed };
-            let restarted = bootstrap_fork_peer(source).await
+            let restarted = join_fork_peer(source).await
                 .bookmark(bookmark.clone()).await.unwrap().into_rumors();
             let fresh_party = restarted.dangerously_alias_party();
             assert!(fresh_party.is_disjoint(&old_party));

@@ -346,7 +346,7 @@ fn hook_capture(recorder: &HookRecorder, transport: &PipeCapture) -> HookCapture
 ///
 /// Each side is a closure handed its recorded connection end and its hook
 /// recorder; it attaches the recorder to its peer (or builder) and returns the
-/// future that drives its role (`gossip`, `bootstrap`, `retire`, …). Rendering
+/// future that drives its role (`gossip`, `join`, `retire`, …). Rendering
 /// consumes the observation hook's items — the instrument enters through the
 /// public door — while the transport capture stays as the totality oracle
 /// behind the byte-pin claim. The renderer preserves exact items per logical
@@ -354,7 +354,7 @@ fn hook_capture(recorder: &HookRecorder, transport: &PipeCapture) -> HookCapture
 /// protocol's deterministic observable ordering. A driver must run its session
 /// to completion and assert its own outcome.
 ///
-/// [`capture_gossip`] is the gossip/gossip specialization; the bootstrap and
+/// [`capture_gossip`] is the gossip/gossip specialization; the join and
 /// retire snapshot suites build the asymmetric pairings on top of this.
 pub fn capture_session<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
 where

@@ -1,16 +1,16 @@
 ---
-source: tests/bootstrap_snapshot.rs
-expression: capture_bootstrap(provider)
+source: tests/join_snapshot.rs
+expression: capture
 ---
 direction A -> B
 control item 0 (30 bytes) / preamble /
 55799_1([
     "rumors",
     2,
-    h'85075c6362fdf6d4e12c2575ea5bcd04',
+    h'00000000000000000000000000000000',
     0,
 ])
-control item 1 (102 bytes) / sealed network secret /
+control item 1 (70 bytes) / joining key /
 / contents drawn fresh each session; not rendered /
 control item 2 (118 bytes) / greeting /
 24_0(<<{
@@ -19,12 +19,10 @@ control item 2 (118 bytes) / greeting /
     "version": 53846_1(h'e0'),
     "grandchildren": 0,
     "max_version_bytes": 0,
-    "payload_depth_limit": 256_1,
+    "message_depth_limit": 256_1,
     "target_message_size": 262144_2,
 }>>)
-control item 3 (5 bytes) / party hand-off /
-53845_1(h'48')
-control item 4 (2 bytes) / epilogue /
+control item 3 (2 bytes) / epilogue /
 "."
 
 direction B -> A
@@ -35,7 +33,7 @@ control item 0 (30 bytes) / preamble /
     h'00000000000000000000000000000000',
     0,
 ])
-control item 1 (70 bytes) / bootstrap key /
+control item 1 (70 bytes) / joining key /
 / contents drawn fresh each session; not rendered /
 control item 2 (118 bytes) / greeting /
 24_0(<<{
@@ -44,7 +42,7 @@ control item 2 (118 bytes) / greeting /
     "version": 53846_1(h'e0'),
     "grandchildren": 0,
     "max_version_bytes": 0,
-    "payload_depth_limit": 256_1,
+    "message_depth_limit": 256_1,
     "target_message_size": 262144_2,
 }>>)
 control item 3 (2 bytes) / epilogue /

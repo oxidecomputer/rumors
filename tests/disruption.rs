@@ -1,7 +1,7 @@
 //! Party linearity and disjointness under arbitrary disruption.
 //!
 //! One simulation (`common::sim`): a fleet of peers on one multi-thread
-//! runtime, every gossip session, bootstrap, send, and redact spawned at once,
+//! runtime, every gossip session, join, send, and redact spawned at once,
 //! over in-memory wires that may be severed at arbitrary byte offsets. The
 //! global properties are stated on each test below. Task interleavings are
 //! nondeterministic, so a counterexample may not replay byte-for-byte; the
@@ -32,7 +32,7 @@ use crate::common::sim::{
     assert_party_invariants, assert_survivor, assert_value_oracle, lost_custody, quiesce, run_plan,
     survivor_readouts,
 };
-use crate::common::wire::bootstrap_fork;
+use crate::common::wire::join_fork;
 use rumors_testkit::common::property::{FLEET_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -88,7 +88,7 @@ divided_proptest! {
     ///    the retiree whole, confirms a committed absorber session (which
     ///    per `Peer::retire`'s contract reconciles content exactly as
     ///    gossip would), or increments the counter, and a faulted
-    ///    bootstrap risks only identity space.
+    ///    join risks only identity space.
     ///
     /// Peer-vs-peer equality (3) alone cannot catch every survivor
     /// agreeing on the *wrong* set; (5) and (6) check the fleet against a
@@ -96,7 +96,7 @@ divided_proptest! {
     ///
     /// The chaos: overlapping sessions through
     /// cloned [`Rumors`] handles, concurrent sends and redactions,
-    /// bootstraps served mid-chaos against the same shared state,
+    /// joins served mid-chaos against the same shared state,
     /// retirements, and endpoints that vanish mid-protocol (their session
     /// dropped with its connection, its remaining frames never written).
     #[test]
@@ -174,7 +174,7 @@ fn vanishes_fire_in_the_generated_population() {
 fn vanish_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     a.send_all(0..8).unwrap();
-    let b = bootstrap_fork(&a);
+    let b = join_fork(&a);
     a.send_all(8..16).unwrap();
     (a, b)
 }
@@ -291,7 +291,7 @@ divided_proptest! {
             let plan = Plan {
                 n_peers: 2,
                 seed_messages: vec![10],
-                faulty_boots: vec![],
+                faulty_joins: vec![],
                 scripts: vec![vec![], vec![Activity::Send(20), Activity::Send(30)]],
                 sessions: vec![],
                 retires: vec![RetireOp {
@@ -343,7 +343,7 @@ fn tripwire_plan(network: NetworkSeed) -> Plan {
     Plan {
         n_peers: 2,
         seed_messages: vec![10, 20, 30],
-        faulty_boots: vec![],
+        faulty_joins: vec![],
         scripts: vec![
             vec![Activity::Send(40), Activity::Redact(0)],
             vec![Activity::Send(50)],
@@ -496,7 +496,7 @@ divided_proptest! {
             let plan = Plan {
                 n_peers: 3,
                 seed_messages: vec![10, 20, 30],
-                faulty_boots: vec![],
+                faulty_joins: vec![],
                 scripts: vec![vec![], vec![Activity::Redact(0)], vec![Activity::Send(40)]],
                 sessions: vec![Session {
                     a: 0,
@@ -597,7 +597,7 @@ async fn envelope_session_bytes(network: NetworkSeed) -> usize {
     let mut fleet = vec![seed];
     for _ in 1..MAX_PLAN_PEERS {
         fleet.push(
-            common::wire::bootstrap_fork_with_budget_async(&fleet[0], BudgetChoice::Default).await,
+            common::wire::join_fork_with_budget_async(&fleet[0], BudgetChoice::Default).await,
         );
     }
     // One send tick and one redaction tick per party: each peer marks

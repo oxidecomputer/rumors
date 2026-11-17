@@ -19,7 +19,7 @@
 //!   durably before it can leave the process, because the recipient will own it
 //!   from the moment it may have arrived.
 //! - **No reclaiming while a fork is reserved.** A fork of the live party which
-//!   is speculatively reserved to donate to a bootstrapping counterparty may
+//!   is speculatively reserved to donate to a joining counterparty may
 //!   still exist inside another older recorded identity; reclaiming that
 //!   identity would revive the forked identity locally while the newcomer is
 //!   about to receive it.
@@ -52,78 +52,83 @@ pub use error::FormatError;
 pub use file::{FileBookmark, RunBlocking, TokioBlocking};
 pub use format::BOOKMARK_FORMAT_VERSION;
 
-/// Persistent restart bookkeeping that limits growth of message versions.
+/// Persistent bookkeeping to limit the growth of message
+/// [`Version`]s.
 ///
-/// When peers disappear without retiring, their internal bookkeeping can make
-/// [`Version`]s larger. Reusing a bookmark across restarts lets Rumors recover
-/// and recycle that bookkeeping as it catches up with the network. This is an
-/// optimization: peers can join and gossip without bookmarks.
+/// Every [`Peer`](crate::Peer) created by [`joining`](Peer::joining) another
+/// obtains a unique donated fragment of the other peer's "identity space",
+/// which it then can use to stamp its own messages with [`Version`]s. When that
+/// peer finally [`retire`](crate::Peer::retire)s into another peer, this unique
+/// identity is *recycled* into the receiving peer, to be reused. If, on the
+/// other hand, a peer fails to retire before dropping out of the gossip
+/// network, its fragment of identity space is lost and not safely recoverable.
+/// Every time such irreversible fragmentation occurs, it increases the required
+/// storage for subsequent causal [`Version`]s in the future.
 ///
-/// The application stores opaque bytes. Rumors owns their format; implement
-/// [`load`](Self::load) and [`store`](Self::store) to read and atomically
-/// replace them. A bookmark stores no messages. Recover those by joining and
-/// gossiping.
+/// If you can guarantee that peers will always [`retire`](crate::Peer::retire)
+/// at the end of their lifecycle, or you do not care about this kind of
+/// potential space leak, you do not need the [`Bookmark`] mechanism. However,
+/// if your deployment of `rumors` is both potentially fallible and indefinitely
+/// long-lived (the likely situation!), using a [`Bookmark`] can
+/// *opportunistically recover identity space* in case of crashes and restarts.
+/// By attaching the same persistent [`Bookmark`] to a [`Peer`](crate::Peer),
+/// you provide it with the opportunity to remember and recover past fragments
+/// of identity, thereby preventing the space leak which would otherwise be
+/// caused by any un-graceful shutdowns.
 ///
-/// # Restarting a peer
+/// When a peer starts or restarts, join the gossip network again with the same
+/// bookmark selected through
+/// [`Joining::bookmark`](crate::Joining::bookmark), or attach it through
+/// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining: the
+/// peer is now bookmarked; you don't need to do anything else.
 ///
-/// Join again with the same bookmark selected through
-/// [`Bootstrap::bookmark`](crate::Bootstrap::bookmark), or attach it through
-/// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining. Rumors
-/// handles recovery automatically during subsequent gossip.
+/// Using a [`Bookmark`] does not allow a peer to persist the contents of the
+/// gossip set; it solely recovers the peer's internal identity, which is not
+/// directly visible to your application. Peers with and without a bookmark
+/// behave the same.
 ///
-/// Each peer has an internal *identity* used to generate distinct message
-/// versions. The bookmark records that identity and the progress of its own
-/// writes. Rumors can reclaim a prior incarnation's identity once it has caught
-/// up with those writes; it need not recover every message that the prior
-/// incarnation had merely observed.
+/// # Size limits
 ///
-/// Reclamation happens when Rumors updates the bookmark, and ordinary gossip
-/// updates it only to record local progress before exchanging locally
-/// originated messages, not merely when it learned remote changes. An identity
-/// that becomes reclaimable during an exchange therefore waits for the session
-/// after the next local send, redaction, or identity change. Reclamation also
-/// waits while bootstrap sessions hold identities for transfer. These delays
-/// postpone the potential to reduce the representational size of transmitted
-/// versions; they do not delay checkpointing local writes.
-///
-/// # Bounded retention
-///
-/// A bookmark can retain identities from several [`Network`]s, so rejoining a
-/// network can recover its earlier bookkeeping. The default size limit is 16
-/// MiB; configure
+/// A bookmark can retain many identity fragments from any [`Network`]s a peer
+/// might have joined. To prevent indefinite growth, bookmarks are size-limited,
+/// discarding least-recently-used information. The default size limit is 16
+/// MiB, which is configurable with
 /// [`Peer::bookmark_size_limit`](crate::Peer::bookmark_size_limit) or
-/// [`Bootstrap::bookmark_size_limit`](crate::Bootstrap::bookmark_size_limit).
-/// Rumors discards the oldest identities from the least recently used network,
-/// one at a time until the record fits. It removes a network only when no
-/// identities remain there. Both recency orders survive restarts.
+/// [`Joining::bookmark_size_limit`](crate::Joining::bookmark_size_limit).
 ///
-/// Discarding recovery rights is safe: it can increase future version sizes,
-/// but cannot erase replicated messages or permit version reuse. The limit
-/// includes the encoded identities, their write progress, and the integrity
-/// frame. It bounds stored bytes rather than peak memory used to load or encode
-/// them.
+/// # Storage requirements
 ///
-/// # Storage obligations
+/// Bookmarks help to save significant amounts of storage space when used
+/// correctly, but they also introduce hazards if used or implemented
+/// incorrectly. When using bookmarks or implementing storage for them:
+/// - Always reuse a single, separate bookmark for each peer across every time
+///   it restarts.
 ///
-/// - Use one bookmark for one peer across its restarts. Never share it between
-///   concurrently live peers or duplicate it to start another peer.
-///   [`FileBookmark`] refuses to open a bookmark that another live
-///   `FileBookmark` on the same machine holds.
-/// - Replace the record atomically, and never roll back a successful store. A
-///   stale but valid record can cause versions to be reused and corrupt the
-///   set.
-/// - Preserve the complete record across restarts; Rumors handles retention.
+/// - Always replace the bookmark record atomically, preventing torn writes.
+/// - Never share bookmarks between concurrently live peers or duplicate them
+///   between peers.
+/// - Never roll back after successfully storing the bookmark.
 ///
-/// Use `conformance::bookmark` from a dev-dependency with the `conformance`
-/// feature to check an implementation's loads, replacements, and interruptions.
-/// Backend-specific crash tests must still establish durability.
+/// <div class="warning">
+///
+/// Sharing, duplicating, or rolling back bookmarks can introduce violations of
+/// causality which can corrupt the contents of the gossip set across all peers.
+///
+/// </div>
+///
+/// You can use `conformance::bookmark` from a dev-dependency with the
+/// `conformance` feature to check your own implementation against a variety of
+/// simulated scenarios designed to exercise these and other invariants, though
+/// you still should use your own backend-specific crash tests to establish
+/// durability.
 ///
 /// # Examples
 ///
-/// The `fs` feature provides [`FileBookmark`]. Its constructor takes the
-/// application's way to run blocking work, a [`RunBlocking`] runner; a Tokio
-/// application passes [`TokioBlocking`]. It locks the bookmark, and fails if
-/// another live peer holds it:
+/// The `fs` feature provides [`FileBookmark`] as a default way to persist a
+/// bookmark to the filesystem. Its constructor takes the application's way to
+/// run blocking work, an implementation of [`RunBlocking`]. For
+/// [Tokio](https://tokio.rs), use [`TokioBlocking`] here; for other runtimes,
+/// implement this trait yourself.
 ///
 /// ```
 /// # #[cfg(feature = "fs")]
@@ -139,76 +144,44 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// # }
 /// # }
 /// ```
-///
-/// A slow store delays synchronization or completion when accepting a
-/// retirement. A session may already have exchanged its connection preamble
-/// while waiting for storage. Local sends continue; storage errors are reported
-/// through [`BookmarkIo`].
-///
-/// # Limits of recovery
-///
-/// A crash before a new peer's bookmark is persisted can still lose the
-/// opportunity to recycle its identity. This affects version size, not messages
-/// already replicated elsewhere. Retirement and bookmarks reduce version
-/// growth; they do not guarantee that versions stay a fixed size. Spread
-/// bootstrap requests across established peers: long chains of joins or
-/// repeated joins through a single provider also increase version size.
-///
-/// If a session fails after it writes its bookmark and the peer crashes before
-/// another session shares those writes, no live peer holds what the record
-/// requires to reclaim the crashed party's identity, so that identity can never
-/// be safely caught up. It stays recorded and unused until the bookmark size
-/// limit evicts it.
-///
-/// Retirement removes the departing identity from the local bookmark before
-/// sending it. If the transfer then fails or is cancelled, that bookmark cannot
-/// recover the removed identity. Recovery depends on what reached the recipient
-/// and its bookmark; see [`Retire::Retired`](crate::Retire::Retired). Serving a
-/// bootstrap removes the donated identity the same way. If that session fails
-/// before sending, the identity returns to the live peer and is recorded again
-/// at its next checkpoint; a crash before this occurs would drop it forever.
 pub trait Bookmark {
-    /// Failure to open or replace the stored bytes.
+    /// The error when failing to open or replace the stored bytes.
     type Error: std::error::Error + Send + Sync + 'static;
 
-    /// The byte source [`load`](Self::load) hands back.
+    /// The byte source returned by [`load`](Self::load).
     type Reader: AsyncRead + Unpin + Send;
 
-    /// Open the stored record for reading, or `Ok(None)` if nothing is stored.
+    /// Open the stored bookmark for reading, or `Ok(None)` if the bookmark is
+    /// not stored yet.
     ///
-    /// Called before the first update, and again if an update fails or loading
-    /// is cancelled. Each call must return the current record; loading must not
-    /// consume it. `Ok(None)` means no record exists. Return present bytes even
-    /// if they are short or malformed: Rumors validates their format.
+    /// This is called before the first update to the bookmark, and again if an
+    /// update fails or loading is cancelled. Each call must return the current
+    /// bookmark's contents.
     fn load(&self) -> impl Future<Output = Result<Option<Self::Reader>, Self::Error>> + Send;
 
-    /// Atomically replace the stored record with these owned, encoded bytes.
+    /// Atomically replace the stored record with these bytes.
     ///
-    /// Treat the bytes as opaque; Rumors handles their format and validation.
+    /// Treat the supplied bytes as opaque; their format and validation are
+    /// handled internally to `rumors`.
     ///
-    /// Return `Ok(())` only once the complete replacement is durable, i.e.
-    /// after an atomic write followed by a filesystem sync. An error or
-    /// cancellation may leave either the previous or replacement record;
-    /// neither may be partial.
+    /// Return `Ok(())` *only once the complete replacement is durable and
+    /// irrevocable*, i.e. after an atomic write followed by a filesystem sync.
+    /// An error or cancellation is permitted to leave either the previous or
+    /// replacement record, but neither may be partial.
     ///
-    /// Never roll back the durable state of a bookmark to before a successful
-    /// store. Work that continues after an error or cancellation must not
-    /// overwrite a later successful store: stale records can permit version
-    /// reuse and corrupt the gossip set. A future leaked instead of dropped
-    /// counts as cancelled: once the application reclaims its peer
-    /// ([`Rumors::try_into_peer`](crate::Rumors::try_into_peer)), later stores
-    /// proceed while any work the leaked store started may still be running.
+    /// After this method returns `Ok(())`, never roll back the state of the
+    /// bookmark to any prior state.
     fn store(&self, bytes: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
-/// A storage failure or an unreadable bookmark record.
+/// A failure reading or writing a [`Bookmark`].
 #[derive(Debug, thiserror::Error)]
 pub enum BookmarkIo<E> {
-    /// The storage implementation could not open or replace the record.
+    /// The underlying storage could not open or replace the record.
     #[error(transparent)]
     Io(E),
 
-    /// Reading the returned stream failed, or its bytes failed validation.
+    /// Reading the bookmark failed, or its format was invalid.
     #[error(transparent)]
     Format(#[from] FormatError),
 }
@@ -220,25 +193,27 @@ pub enum BookmarkIo<E> {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NoBookmark;
 
-/// Disable persistence for peers that do not use a bookmark.
+///  Peers that do not use a bookmark get no persistence.
 impl Bookmark for NoBookmark {
-    /// This implementation performs no fallible operation.
+    /// This implementation never does anything that could fail.
     type Error = std::convert::Infallible;
-    /// No stored record is returned.
+
+    /// No stored bookmark is ever returned.
     type Reader = tokio::io::Empty;
 
-    /// Report that no record is stored.
+    /// Report that no bookmark is stored.
     async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         Ok(None)
     }
 
-    /// Discard the record when persistence is disabled.
+    /// Discard the bookmark when persistence is disabled.
     async fn store(&self, _bytes: Vec<u8>) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
-/// The forks reserved for bootstraps and not yet sent, which pause reclamation.
+/// The donation forks reserved for joining peers and not yet sent, which pause
+/// reclamation.
 ///
 /// We can reclaim old identities during a bookmark checkpoint only while no
 /// [`Reservation`] is outstanding. That is race-free because `reserve` needs

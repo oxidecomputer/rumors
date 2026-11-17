@@ -1,6 +1,6 @@
 //! End-to-end proof that the adapter bridges real sessions faithfully.
 //!
-//! Driven through the public API only: a bootstrapped-then-gossiping peer under
+//! Driven through the public API only: a joined-then-gossiping peer under
 //! a capturing subscriber yields the documented span tree, and every item the
 //! hook delivers surfaces as exactly one `message` event (held against a
 //! counting wrapper around the adapter itself).
@@ -171,7 +171,7 @@ fn message_text(event: &EventRecord) -> Option<&str> {
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// A bootstrapped-then-gossiping peer emits the documented span tree,
+    /// A joined-then-gossiping peer emits the documented span tree,
     /// with exactly one `message` event per item the hook delivered.
     ///
     /// The tree: a `session` span per session with kind and ordinal,
@@ -199,19 +199,19 @@ divided_proptest! {
                     .send("from the seed".to_string())
                     .expect("a flat string admits");
 
-                // Bob's own bootstrap session is observed through the
+                // Bob's own join session is observed through the
                 // builder; the attachment then follows the joined peer.
                 let ((near_read, near_write), (far_read, far_write)) = connection();
                 let (served, joined) = tokio::join!(
                     alice.gossip_once(far_read, far_write),
-                    Peer::<String>::bootstrap()
+                    Peer::<String>::joining()
                         .observe(counting.clone())
                         .join(near_read, near_write),
                 );
                 served.expect("provider session");
                 let bob = (match joined {
-                    rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
-                    _ => panic!("alice is established, not herself bootstrapping"),
+                    rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
+                    _ => panic!("alice is established, not herself joining"),
                 })
                 .into_rumors();
 
@@ -244,8 +244,8 @@ divided_proptest! {
             .iter()
             .filter(|(_, s)| s.name == "session")
             .collect();
-        assert_eq!(sessions.len(), 2, "bootstrap then gossip: {sessions:?}");
-        assert!(sessions[0].1.fields["kind"].contains("Bootstrap"));
+        assert_eq!(sessions.len(), 2, "join then gossip: {sessions:?}");
+        assert!(sessions[0].1.fields["kind"].contains("Join"));
         assert_eq!(sessions[0].1.fields["ordinal"], "0");
         assert!(sessions[1].1.fields["kind"].contains("Gossip"));
         assert_eq!(sessions[1].1.fields["ordinal"], "1");
@@ -351,19 +351,19 @@ divided_proptest! {
                     .send("from the seed".to_string())
                     .expect("a flat string admits");
 
-                // Bootstrap both counterparties unobserved, and attach the
+                // Join both counterparties unobserved, and attach the
                 // adapter to bob only after his join: the two concurrent
                 // gossip sessions are then the first sessions the adapter
                 // sees.
                 let ((near_read, near_write), (far_read, far_write)) = connection();
                 let (served, joined) = tokio::join!(
                     alice.gossip_once(far_read, far_write),
-                    Peer::<String>::bootstrap().join(near_read, near_write),
+                    Peer::<String>::join(near_read, near_write),
                 );
                 served.expect("provider session");
                 let bob = (match joined {
-                    rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
-                    _ => panic!("alice is established, not herself bootstrapping"),
+                    rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
+                    _ => panic!("alice is established, not herself joining"),
                 })
                 .observe(Arc::new(TracingObserver::new()))
                 .into_rumors();
@@ -371,12 +371,12 @@ divided_proptest! {
                 let ((near_read, near_write), (far_read, far_write)) = connection();
                 let (served, joined) = tokio::join!(
                     alice.gossip_once(far_read, far_write),
-                    Peer::<String>::bootstrap().join(near_read, near_write),
+                    Peer::<String>::join(near_read, near_write),
                 );
                 served.expect("provider session");
                 let carol = (match joined {
-                    rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
-                    _ => panic!("alice is established, not herself bootstrapping"),
+                    rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
+                    _ => panic!("alice is established, not herself joining"),
                 })
                 .into_rumors();
 

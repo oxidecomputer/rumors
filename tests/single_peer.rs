@@ -243,9 +243,9 @@ divided_proptest! {
     }
 }
 
-/// A value whose serialization fails on demand, so a test can fire
-/// [`rumors::Batch::send`]'s documented serialization panic at a chosen point
-/// mid-batch.
+/// A value whose serialization fails on demand, so a test can make admission
+/// reject a chosen message with
+/// [`EncodeError::Serialize`](rumors::error::EncodeError::Serialize).
 #[derive(Debug, PartialEq, Eq)]
 struct Explosive {
     value: u64,
@@ -281,37 +281,69 @@ divided_proptest! {
     /// [`Rumors::batch`](rumors::Rumors::batch) commits iff the closure
     /// returns `Ok`; a panic's unwind exits the closure without returning, so
     /// the commit call never runs and nothing publishes — structurally, with
-    /// no unwind detection anywhere.
-    ///
-    /// `Batch::send` panics when a value fails to serialize (its documented
-    /// panic contract), which is this test's panic source: the first send is
-    /// queued, the second detonates.
+    /// no unwind detection anywhere. The closure queues one send, then
+    /// panics.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn a_panicked_batch_commits_nothing(network in network_seed()) {
-        let rumors: Rumors<Explosive> = network.peer().sync_memory_budget(0).into_rumors();
+        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             rumors.batch(|batch| {
-                batch.send(Explosive {
-                    value: 1,
-                    fail: false,
-                })?;
-                // The documented serialization panic fires here, after the
-                // first send is queued; the unwind exits the closure.
-                batch.send(Explosive {
-                    value: 2,
-                    fail: true,
-                })?;
+                batch.send(1)?;
+                panic!("the closure unwinds after queueing a send");
+                #[allow(unreachable_code)]
                 Ok::<(), rumors::error::EncodeError>(())
             })
         }));
-        assert!(unwound.is_err(), "the second send must panic");
+        assert!(unwound.is_err(), "the closure must panic");
         assert_eq!(
             rumors.snapshot().len(),
             0,
             "a batch whose closure panicked must commit nothing"
         );
+    }
+
+    /// [`Rumors::send_all`](rumors::Rumors::send_all) is one all-or-nothing
+    /// commit when a message fails to serialize: wherever the failing message
+    /// sits in the iterator, it is the returned
+    /// [`EncodeError::Serialize`](rumors::error::EncodeError::Serialize), and
+    /// nothing lands.
+    ///
+    /// The messages admitted before the failing one are cancelled with it,
+    /// and admission stops at the failing message rather than draining the
+    /// iterator.
+    ///
+    /// The claim holds for every network seed, batch length, and position of
+    /// the failing message.
+    #[test]
+    fn send_all_commits_nothing_when_a_message_fails_to_serialize(
+        network in network_seed(),
+        (len, fail_at) in (1..8_u64).prop_flat_map(|len| (Just(len), 0..len)),
+    ) {
+        let rumors: Rumors<Explosive> = network.peer().sync_memory_budget(0).into_rumors();
+
+        let mut drawn = 0_u64;
+        let error = rumors
+            .send_all(
+                (0..len)
+                    .map(|i| Explosive {
+                        value: i,
+                        fail: i == fail_at,
+                    })
+                    .inspect(|_| drawn += 1),
+            )
+            .expect_err("one message fails to serialize");
+        assert!(
+            matches!(error, rumors::error::EncodeError::Serialize(_)),
+            "the rejection is the serialization case: {error:?}"
+        );
+        assert_eq!(
+            rumors.snapshot().len(),
+            0,
+            "a rejected send_all commits nothing, earlier-admitted messages included"
+        );
+        assert_eq!(drawn, fail_at + 1, "admission stops at the failing message");
     }
 
     /// A batch commits nothing until — and everything once — the closure
@@ -370,7 +402,7 @@ divided_proptest! {
     fn a_depth_error_cancels_the_whole_batch(network in network_seed()) {
         let limit = 4;
         let rumors: Rumors<Arr> = network.peer()
-            .payload_depth_limit(limit)
+            .message_depth_limit(limit)
             .sync_memory_budget(0)
             .into_rumors();
         let deep = Arr::nested(4);
@@ -383,7 +415,7 @@ divided_proptest! {
             })
             .expect_err("the second send exceeds the limit");
         assert!(
-            matches!(error, rumors::error::EncodeError::Depth { limit: l } if l == limit),
+            matches!(error, rumors::error::EncodeError::TooDeep { limit: l } if l == limit),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(
@@ -428,7 +460,7 @@ divided_proptest! {
     fn send_all_commits_nothing_when_a_message_is_rejected(network in network_seed()) {
         let limit = 4;
         let rumors: Rumors<Arr> = network.peer()
-            .payload_depth_limit(limit)
+            .message_depth_limit(limit)
             .sync_memory_budget(0)
             .into_rumors();
 
@@ -446,7 +478,7 @@ divided_proptest! {
             )
             .expect_err("the third message exceeds the limit");
         assert!(
-            matches!(error, rumors::error::EncodeError::Depth { limit: l } if l == limit),
+            matches!(error, rumors::error::EncodeError::TooDeep { limit: l } if l == limit),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(
@@ -521,7 +553,7 @@ divided_proptest! {
     fn batch_send_all_handled_locally_keeps_the_admitted_prefix(network in network_seed()) {
         let limit = 4;
         let rumors: Rumors<Arr> = network.peer()
-            .payload_depth_limit(limit)
+            .message_depth_limit(limit)
             .sync_memory_budget(0)
             .into_rumors();
         rumors.send_all([Arr::nested(3)]).unwrap();
@@ -537,7 +569,7 @@ divided_proptest! {
                         Arr::nested(2),
                     ])
                     .expect_err("the third message exceeds the limit");
-                assert!(matches!(error, rumors::error::EncodeError::Depth { .. }));
+                assert!(matches!(error, rumors::error::EncodeError::TooDeep { .. }));
                 batch.redact_all(&doomed);
                 Ok::<(), rumors::error::EncodeError>(())
             })

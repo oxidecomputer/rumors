@@ -51,7 +51,7 @@ fn greeting(listing: Vec<Listed>) -> Vec<u8> {
         set_len: 0,
         grandchildren: 0,
         max_version_bytes: 0,
-        payload_depth_limit: 0,
+        message_depth_limit: 0,
         target_message_size: 0,
         listing,
     })
@@ -332,7 +332,7 @@ async fn empty_listing_greeting_decodes() {
         set_len: 7,
         grandchildren: 0,
         max_version_bytes: 512,
-        payload_depth_limit: 256,
+        message_depth_limit: 256,
         target_message_size: 1 << 16,
         listing: Vec::new(),
     });
@@ -343,7 +343,7 @@ async fn empty_listing_greeting_decodes() {
     assert_eq!(greeting.version, version);
     assert_eq!(greeting.set_len, 7);
     assert_eq!(greeting.max_version_bytes, 512);
-    assert_eq!(greeting.payload_depth_limit, 256);
+    assert_eq!(greeting.message_depth_limit, 256);
     assert_eq!(greeting.target_message_size, 1 << 16);
     assert!(greeting.listing.is_empty());
 }

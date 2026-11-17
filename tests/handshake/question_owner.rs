@@ -10,7 +10,7 @@ use rumors::Rumors;
 use rumors_testkit::common::gossip_snapshot::capture_gossip_returning;
 use rumors_testkit::common::seed::NetworkSeed;
 use rumors_testkit::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
-use rumors_testkit::common::wire::{block_on, bootstrap_fork_async};
+use rumors_testkit::common::wire::{block_on, join_fork_async};
 
 /// The network every test here founds.
 ///
@@ -75,7 +75,7 @@ fn divergent_root_child_has_one_question_owner() {
     let (a, b, first) = block_on(async {
         let a: Rumors<u64> = seeded();
         let first = a.send(1).unwrap();
-        let b = bootstrap_fork_async(&a).await;
+        let b = join_fork_async(&a).await;
         (a, b, first)
     });
     let radix = path_radix(&a, &first);

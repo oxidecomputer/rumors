@@ -13,7 +13,7 @@ use rumors_testkit::bench::latency;
 use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::FLEET_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
-use rumors_testkit::common::wire::bootstrap_fork_with_budget;
+use rumors_testkit::common::wire::join_fork_with_budget;
 use rumors_testkit::divided_proptest;
 
 /// Messages both peers share before the fork.
@@ -69,7 +69,7 @@ fn diverged_pair(network: NetworkSeed, budget: BudgetChoice) -> (Rumors<u64>, Ru
     // Fixed, so the hop ceiling is judged on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork_with_budget(&left, budget);
+    let right = join_fork_with_budget(&left, budget);
     send_random(&left, DIVERGENT_PER_SIDE, &mut rng);
     send_random(&right, DIVERGENT_PER_SIDE, &mut rng);
     (left, right)

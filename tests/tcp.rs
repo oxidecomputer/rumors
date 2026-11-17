@@ -44,8 +44,8 @@ const DIVERGENT_MESSAGES: u64 = 2_000;
 /// The replicas are forks of the network `network` names.
 async fn converge_over_tcp(network: NetworkSeed, buffers: Option<u32>) {
     let seed = network.peer::<u64>().into_rumors();
-    let a: Rumors<u64> = common::wire::bootstrap_fork_async(&seed).await;
-    let b: Rumors<u64> = common::wire::bootstrap_fork_async(&seed).await;
+    let a: Rumors<u64> = common::wire::join_fork_async(&seed).await;
+    let b: Rumors<u64> = common::wire::join_fork_async(&seed).await;
     common::wire::diverge(&a, &b, DIVERGENT_MESSAGES);
     let (a_end, b_end) = tcp::pair(buffers).await.expect("loopback connection");
     let sessions = async {

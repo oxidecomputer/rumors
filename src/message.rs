@@ -38,21 +38,21 @@ pub struct Message {
 /// A peer's payload nesting-depth limit, counted in the CBOR decode engine's
 /// recursion steps.
 ///
-/// Selected by [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
+/// Selected by [`Peer::message_depth_limit`](crate::Peer::message_depth_limit)
 /// (whose docs carry the full contract); defaults to
-/// [`default::PAYLOAD_DEPTH_LIMIT`]. A step is the engine's own accounting
+/// [`default::MESSAGE_DEPTH_LIMIT`]. A step is the engine's own accounting
 /// (arrays, maps, tags, and type-driven wrappers such as an enum's variant
 /// scope), not a structural property of the bytes — which is why admission at
 /// send runs the decode itself rather than counting anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct PayloadDepthLimit(u64);
+pub(crate) struct MessageDepthLimit(u64);
 
 /// Construct and inspect the decoder's recursion limit.
-impl PayloadDepthLimit {
+impl MessageDepthLimit {
     /// A limit of exactly `steps` decode recursion steps: a payload value whose
     /// decode recurses deeper is rejected.
     pub(crate) const fn new(steps: u64) -> Self {
-        PayloadDepthLimit(steps)
+        MessageDepthLimit(steps)
     }
 
     /// The limit, in decode recursion steps.
@@ -71,10 +71,10 @@ impl PayloadDepthLimit {
 }
 
 /// Use the crate's default payload depth limit.
-impl Default for PayloadDepthLimit {
+impl Default for MessageDepthLimit {
     /// Return the default recursion limit.
     fn default() -> Self {
-        PayloadDepthLimit(default::PAYLOAD_DEPTH_LIMIT)
+        MessageDepthLimit(default::MESSAGE_DEPTH_LIMIT)
     }
 }
 
@@ -85,14 +85,16 @@ impl Default for PayloadDepthLimit {
 pub enum EncodeError {
     /// The payload value's CBOR encoding nests deeper than the
     /// [`Peer`](crate::Peer)'s configured
-    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit).
+    /// [`message_depth_limit`](crate::Peer::message_depth_limit).
     #[error("message payload nests deeper than the configured payload depth limit ({limit} steps)")]
-    Depth {
+    TooDeep {
         /// The configured
-        /// [`payload_depth_limit`](crate::Peer::payload_depth_limit) which the
+        /// [`message_depth_limit`](crate::Peer::message_depth_limit) which the
         /// message would have exceeded.
         limit: u64,
     },
+    #[error("message failed to serialize")]
+    Serialize(#[source] io::Error),
     /// The payload type's [`Deserialize`](serde::Deserialize) implementation
     /// rejected the output of its own [`Serialize`]
     /// implementation.
@@ -101,7 +103,7 @@ pub enum EncodeError {
     /// succeeds, because otherwise this failure would propagate to every other
     /// node.
     #[error("message payload does not survive its own serde round-trip")]
-    Roundtrip(#[source] io::Error),
+    Deserialize(#[source] io::Error),
     /// The message round-trips to a *different value* (as measured by the
     /// message type's `Eq`).
     ///
@@ -111,21 +113,21 @@ pub enum EncodeError {
     /// because otherwise the value held at this [`Peer`](crate::Peer) might
     /// diverge from the value held at another one.
     #[error("message payload's encoding decodes to a different value")]
-    Unfaithful,
+    Roundtrip,
 }
 
 /// Why a payload decode failed: the crate-internal split between the depth case
 /// and everything else.
 ///
 /// The depth case stays typed end to end so send-side admission can surface it
-/// as [`EncodeError::Depth`] without string matching; wire ingress folds both
+/// as [`EncodeError::TooDeep`] without string matching; wire ingress folds both
 /// cases back into the `io::Error` its surface speaks ([`Message::from_wire`]).
 /// The decode-side counterpart of [`EncodeError`].
 #[derive(Debug)]
 pub(crate) enum PayloadDecodeError {
     /// The payload's decode recursed past the given limit (the decode engine's
     /// recursion-limit error, preserved as a variant).
-    Depth(PayloadDepthLimit),
+    Depth(MessageDepthLimit),
     /// Truncation (the reader's own error, passed through) or invalid data
     /// (corruption, a type mismatch, trailing bytes).
     Io(io::Error),
@@ -154,20 +156,20 @@ impl PayloadDecodeError {
 /// Serializes one type-erased payload value into an admission-checked
 /// [`Message`]; the serializing half of a [`PayloadCodec`].
 pub(crate) type PayloadSerializer =
-    fn(Arc<dyn Any + Send + Sync>, PayloadDepthLimit) -> Result<Message, EncodeError>;
+    fn(Arc<dyn Any + Send + Sync>, MessageDepthLimit) -> Result<Message, EncodeError>;
 
 /// Deserializes one exact CBOR payload encoding into a type-erased payload
 /// value, bounding the decode's recursion at the given depth limit; the
 /// deserializing half of a [`PayloadCodec`].
 pub(crate) type PayloadDeserializer =
-    fn(&[u8], PayloadDepthLimit) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError>;
+    fn(&[u8], MessageDepthLimit) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError>;
 
 /// A peer's payload codec: the typed payload boundary created once at
 /// [`Peer`](crate::Peer) construction and carried by every session.
 ///
 /// The payload type's serde obligations concentrate at construction; the fn
 /// pointer inside is the type's only residue afterwards, so everything that
-/// carries a codec stays non-generic. The configured [`PayloadDepthLimit`]
+/// carries a codec stays non-generic. The configured [`MessageDepthLimit`]
 /// rides beside the pointer as data (a plain fn pointer cannot capture it),
 /// which is what makes the limit unmissable: every ingress parse in the peer's
 /// orbit goes through this one value.
@@ -178,7 +180,7 @@ pub(crate) struct PayloadCodec {
     /// Decode the peer's payload type into shared, type-erased storage.
     deserialize: PayloadDeserializer,
     /// The recursion limit used for admission and wire ingress.
-    limit: PayloadDepthLimit,
+    limit: MessageDepthLimit,
 }
 
 /// Apply one payload type and depth limit at every typed boundary.
@@ -191,14 +193,14 @@ impl PayloadCodec {
     /// needs neither bound, since gossip re-supplies cached bytes), and `Eq` so
     /// send-side admission can hold every encoding to decode back equal to the
     /// value sent.
-    pub(crate) fn new<T>(limit: PayloadDepthLimit) -> Self
+    pub(crate) fn new<T>(limit: MessageDepthLimit) -> Self
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
         /// Recover the payload type and check its encoding before storage.
         fn serialize_payload<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static>(
             payload: Arc<dyn Any + Send + Sync>,
-            limit: PayloadDepthLimit,
+            limit: MessageDepthLimit,
         ) -> Result<Message, EncodeError> {
             let payload: Arc<T> = payload.downcast().unwrap_or_else(|_| {
                 panic!("a codec serializes exactly the payload type it was built for")
@@ -209,7 +211,7 @@ impl PayloadCodec {
         /// Decode one value into shared, type-erased storage.
         fn deserialize_payload<T: DeserializeOwned + Send + Sync + 'static>(
             bytes: &[u8],
-            limit: PayloadDepthLimit,
+            limit: MessageDepthLimit,
         ) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError> {
             Ok(Arc::new(decode_exact::<T>(bytes, limit)?))
         }
@@ -239,13 +241,13 @@ impl PayloadCodec {
 
     /// The configured payload depth limit this codec enforces: what the
     /// greeting declares and the handshake holds to equality.
-    pub(crate) fn limit(&self) -> PayloadDepthLimit {
+    pub(crate) fn limit(&self) -> MessageDepthLimit {
         self.limit
     }
 
     /// Replace the carried depth limit, keeping the codec's fn pointers.
     #[must_use]
-    pub(crate) fn with_limit(self, limit: PayloadDepthLimit) -> Self {
+    pub(crate) fn with_limit(self, limit: MessageDepthLimit) -> Self {
         PayloadCodec { limit, ..self }
     }
 
@@ -269,21 +271,36 @@ fn de_error(error: ciborium::de::Error<io::Error>) -> io::Error {
     }
 }
 
+/// Map a ciborium serialization failure into `io::Error`, the dual of
+/// [`de_error`]: a writer's own error passes through, and a value the payload's
+/// `Serialize` refused becomes invalid input carrying its message.
+///
+/// We map the value case ourselves because ciborium's `Display` for this error
+/// is its `Debug` rendering.
+fn ser_error(error: ciborium::ser::Error<io::Error>) -> io::Error {
+    match error {
+        ciborium::ser::Error::Io(error) => error,
+        ciborium::ser::Error::Value(message) => {
+            io::Error::new(io::ErrorKind::InvalidInput, message)
+        }
+    }
+}
+
 /// Encode one CBOR value, discarding spare capacity before caching it.
 ///
-/// Panics if the payload cannot serialize, as required by [`Message`].
-fn encode<T: Serialize>(value: &T) -> Bytes {
+/// Fails if the value's `Serialize` implementation fails. The writer is a
+/// `Vec`, whose writes cannot fail, so every error is the value's own.
+fn encode<T: Serialize>(value: &T) -> io::Result<Bytes> {
     let mut buf = Vec::new();
-    ciborium::ser::into_writer(value, &mut buf)
-        .expect("every message value must serialize (see Message's panic contract)");
-    if buf.len() == buf.capacity() {
+    ciborium::ser::into_writer(value, &mut buf).map_err(ser_error)?;
+    Ok(if buf.len() == buf.capacity() {
         Bytes::from(buf)
     } else {
         // A shrink can leave the original allocation in place. Copy into a
         // fresh allocation so the long-lived cache sheds the growth buffer's
         // spare capacity; the allocator may still round up the requested size.
         Bytes::copy_from_slice(&buf)
-    }
+    })
 }
 
 /// Decode exactly one CBOR value of type `T` from `bytes`, bounding the
@@ -296,7 +313,7 @@ fn encode<T: Serialize>(value: &T) -> Bytes {
 /// classify it without string matching.
 fn decode_exact<T: DeserializeOwned>(
     bytes: &[u8],
-    limit: PayloadDepthLimit,
+    limit: MessageDepthLimit,
 ) -> Result<T, PayloadDecodeError> {
     let mut input = bytes;
     let message: T =
@@ -319,24 +336,24 @@ impl Message {
     /// Check admission and cache the encoding, sharing the payload's [`Arc`].
     pub(crate) fn try_from_arc<T>(
         arc: Arc<T>,
-        limit: PayloadDepthLimit,
+        limit: MessageDepthLimit,
     ) -> Result<Self, EncodeError>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
-        let serialized = encode(&*arc);
+        let serialized = encode(&*arc).map_err(EncodeError::Serialize)?;
         // Run the same typed decode that wire ingress wraps in an `Arc`, so
         // admission cannot accept a value that a receiver would reject.
         let decoded = match decode_exact::<T>(&serialized, limit) {
             Ok(decoded) => decoded,
             Err(PayloadDecodeError::Depth(limit)) => {
-                return Err(EncodeError::Depth { limit: limit.get() });
+                return Err(EncodeError::TooDeep { limit: limit.get() });
             }
-            Err(PayloadDecodeError::Io(source)) => return Err(EncodeError::Roundtrip(source)),
+            Err(PayloadDecodeError::Io(source)) => return Err(EncodeError::Deserialize(source)),
         };
         // Decoding successfully is not enough: the value must survive intact.
         if decoded != *arc {
-            return Err(EncodeError::Unfaithful);
+            return Err(EncodeError::Roundtrip);
         }
         Ok(Message {
             serialized,

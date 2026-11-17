@@ -13,7 +13,7 @@
 //! an unintended wire change visible without prescribing an internal poll
 //! schedule.
 //!
-//! Every cell builds a fresh network. A bootstrap changes the parties that
+//! Every cell builds a fresh network. A join changes the parties that
 //! stamp later messages, so reusing a corpus would change their versions and
 //! paths. A `Rumors` clone shares the same replica and cannot serve as a copy.
 
@@ -123,7 +123,7 @@ fn build(shape: Shape) -> (Rumors<Bytes>, Rumors<Bytes>) {
         .collect();
     shared.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
 
-    let right = common::wire::bootstrap_fork(&left);
+    let right = common::wire::join_fork(&left);
     left.send_all((0..shape.left_inserts).map(|_| Bytes::new()))
         .expect("send left insertions");
     right

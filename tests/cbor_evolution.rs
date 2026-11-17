@@ -63,7 +63,7 @@ enum EventV2 {
 }
 
 /// Send `payload` from the first `Peer<A>` of the network `network` names and
-/// receive it on a bootstrapped `Peer<B>` over an in-memory connection: the
+/// receive it on a joined `Peer<B>` over an in-memory connection: the
 /// crate's whole encode/decode path, across two payload *types*.
 async fn exchanged<A, B>(network: NetworkSeed, payload: A) -> B
 where
@@ -78,11 +78,8 @@ where
     let server = tokio::spawn(async move {
         serve.gossip_once(far.read, far.write).await.unwrap();
     });
-    let receiver = (match Peer::<B>::bootstrap()
-        .join(&mut near.read, &mut near.write)
-        .await
-    {
-        rumors::Joined::Joined {
+    let receiver = (match Peer::<B>::join(&mut near.read, &mut near.write).await {
+        rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
@@ -173,12 +170,12 @@ divided_proptest! {
     }
 
     /// A payload that does not decode as the receiving type fails the session
-    /// cleanly: bootstrapping a `Peer<u64>` from a `String`-payload donor
+    /// cleanly: joining a `Peer<u64>` from a `String`-payload donor
     /// returns an error — never a panic, and never a misconstructed peer.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn undecodable_payload_fails_bootstrap_cleanly(network in network_seed()) {
+    fn undecodable_payload_fails_join_cleanly(network in network_seed()) {
         tokio_block_on(async {
             let sender = network.peer::<String>().into_rumors();
             sender.send("not a number".to_string()).unwrap();
@@ -187,11 +184,10 @@ divided_proptest! {
             let serve = sender.clone();
             let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
 
-            let joined = Peer::<u64>::bootstrap()
-                .join(&mut near.read, &mut near.write)
+            let joined = Peer::<u64>::join(&mut near.read, &mut near.write)
                 .await;
             assert!(
-                matches!(joined, rumors::Joined::Failed { .. }),
+                matches!(joined, rumors::Join::Failed { .. }),
                 "a String payload must not decode as u64"
             );
 
@@ -207,7 +203,7 @@ divided_proptest! {
     /// undecodable value: the receiving session fails as an error, never a
     /// panic, moving nothing into the receiver's set.
     ///
-    /// `u64` payloads that fit `u32` interoperate (the bootstrap here rides
+    /// `u64` payloads that fit `u32` interoperate (the join here rides
     /// one); the first value that does not fit is the one that must fail.
     ///
     /// The claim holds for every network seed.
@@ -220,11 +216,10 @@ divided_proptest! {
             let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let serve = sender.clone();
             let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
-            let receiver = (match Peer::<u32>::bootstrap()
-                .join(&mut near.read, &mut near.write)
+            let receiver = (match Peer::<u32>::join(&mut near.read, &mut near.write)
                 .await
             {
-                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
+                rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the sender is established"),
             })
             .into_rumors();

@@ -9,7 +9,7 @@ use proptest::{collection::vec, prelude::*};
 use rumors::{Rumors, Version};
 
 use super::seed::NetworkSeed;
-use super::wire::{bootstrap_fork, wire_gossip};
+use super::wire::{join_fork, wire_gossip};
 
 /// A message, a temporary lack of news, or the end of an observer.
 #[derive(Debug, PartialEq)]
@@ -109,7 +109,7 @@ where
 {
     let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
     let sibling = a.clone();
-    let b = bootstrap_fork(&a);
+    let b = join_fork(&a);
     let mut obs = subscribe(&a);
     let mut published = BTreeMap::new();
     let mut delivered = Vec::new();
@@ -197,7 +197,7 @@ where
     S: Stream<Item = (Version, Arc<u64>)> + Unpin,
 {
     let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-    let b = bootstrap_fork(&a);
+    let b = join_fork(&a);
     b.send_all(values).unwrap();
     wire_gossip(&a, &b);
     let expected = live_map(&a);

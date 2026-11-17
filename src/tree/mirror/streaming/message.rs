@@ -98,7 +98,7 @@ pub struct Greeting {
     /// pace.
     pub target_message_size: u64,
     /// The sender's configured payload nesting-depth limit
-    /// ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)), in
+    /// ([`Peer::message_depth_limit`](crate::Peer::message_depth_limit)), in
     /// decode recursion steps.
     ///
     /// A session proceeds only if the two exchanged values are equal: the limit
@@ -108,7 +108,7 @@ pub struct Greeting {
     /// resolution. On the wire the value is authored by the proxy from the
     /// session's payload codec at send; an in-process participant carries the
     /// default.
-    pub payload_depth_limit: u64,
+    pub message_depth_limit: u64,
     /// The sender's root children in strictly ascending radix order, each with
     /// its grandchild count; empty when the sender's tree is empty.
     pub listing: Vec<Listed>,

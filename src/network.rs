@@ -10,7 +10,7 @@
 //! hasn't joined the network canot predict where a future message will sit in
 //! the tree or what any subtree's digest will be; the tree's `Hash` says why
 //! the digests are keyed. A peer only sends the secret out encrypted, to an
-//! authenticated peer, in the item a provider sends a bootstrapping peer (the
+//! authenticated peer, in the item a provider sends a joining peer (the
 //! mirror's `secret` module). It is never printed: [`NetworkSecret`]'s `Debug`
 //! redacts it, and it has no `Display`.
 //!
@@ -33,13 +33,13 @@
 //!   800-107), for the subtree digests gossip compares;
 //! - HKDF with SHA-256 (RFC 5869, SP 800-56C) for the key schedule that derives
 //!   both of those keys and the network identifier from the secret;
-//! - HPKE (RFC 9180) for the sealed secret a provider sends a bootstrapping
+//! - HPKE (RFC 9180) for the sealed secret a provider sends a joining
 //!   peer, with the suite DHKEM(P-256, HKDF-SHA256), HKDF-SHA256 and
 //!   AES-256-GCM: ECDH over P-256 (SP 800-56A), HKDF with SHA-256 (SP 800-56C),
 //!   and AES-256-GCM (FIPS 197, SP 800-38D);
 //! - SHA3-256 (FIPS 202) for the bookmark's integrity checksum.
 //!
-//! Randomness (the secret, the bootstrap's key pairs) comes from the operating
+//! Randomness (the secret, the joining key pairs) comes from the operating
 //! system's generator, read through `getrandom` on every draw; a FIPS validated
 //! deployment would supply an approved DRBG there.
 
@@ -76,14 +76,14 @@ const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 ///
 /// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), they
 /// must descend from the same [`seed`](crate::Peer::seed) by a transitive chain
-/// of [`bootstrap`](crate::Peer::bootstrap)s. This is required to ensure that
+/// of [`joining`](crate::Peer::joining)s. This is required to ensure that
 /// [`Version`](crate::Version)s for messages across an entire network are
 /// causally comparable in a meaningful way.
 ///
 /// Merely *knowing* the [`Network`] to which a [`Peer`](crate::Peer) belongs
-/// does not grant membership in that gossip network. In order to join the
-/// network, you must [`bootstrap`](crate::Peer::bootstrap) from an existing
-/// member of the network.
+/// does not grant membership in that gossip network. In order to participate in
+/// gossip, you must explicitly [`join`](crate::Peer::join) an existing member
+/// of the network.
 //
 // Internally, the identifier is expanded from the network's secret by its
 // key schedule (`NetworkKeys`), so publishing it reveals nothing about the
@@ -112,19 +112,19 @@ impl<'de> Deserialize<'de> for Network {
 }
 
 impl Network {
-    /// The all-zero placeholder a bootstrapping peer sends in the handshake: it
+    /// The all-zero placeholder a joining peer sends in the handshake: it
     /// has no rumor set yet, hence no real network.
     ///
     /// It is the one value no network's identifier takes
     /// ([`NetworkSecret::from_rng`] redraws a secret that would derive it), so
-    /// it unambiguously means "I am bootstrapping" on the wire and suppresses
+    /// it unambiguously means "I am joining" on the wire and suppresses
     /// the network-match check.
-    pub(crate) const BOOTSTRAP: Network = Network([0u8; NETWORK_BYTES]);
+    pub(crate) const JOINING: Network = Network([0u8; NETWORK_BYTES]);
 
-    /// Whether this is the [`BOOTSTRAP`](Self::BOOTSTRAP) placeholder rather
+    /// Whether this is the [`JOINING`](Self::JOINING) placeholder rather
     /// than a real network's identifier.
-    pub(crate) fn is_bootstrap(self) -> bool {
-        self == Network::BOOTSTRAP
+    pub(crate) fn is_joining(self) -> bool {
+        self == Network::JOINING
     }
 
     /// The raw 16 bytes, for placement into the preamble.
@@ -172,7 +172,7 @@ impl fmt::Display for Network {
 /// under different keys could compare a single subtree.
 ///
 /// So the secret lives only in its peers' memory and crosses the wire only
-/// sealed for a bootstrapping peer (see the mirror's `secret` module). Nothing
+/// sealed for a joining peer (see the mirror's `secret` module). Nothing
 /// stores it: a bookmark names each network by its public identifier, and a
 /// restarted peer learns the secret again from the provider it joins through.
 /// Nothing prints it either: `Debug` shows `NetworkSecret(..)`, there is no
@@ -215,9 +215,9 @@ impl NetworkSecret {
     /// generator: the secret keys every leaf path and tree digest, so a
     /// predictable one re-enables the offline search that keying rules out.
     ///
-    /// A secret whose identifier would be the bootstrap placeholder
-    /// ([`Network::BOOTSTRAP`]) is drawn again, since its network would be
-    /// indistinguishable from a bootstrapping peer. Drawing such a secret means
+    /// A secret whose identifier would be the joining placeholder
+    /// ([`Network::JOINING`]) is drawn again, since its network would be
+    /// indistinguishable from a joining peer. Drawing such a secret means
     /// finding a preimage of one HKDF output, probability `2^-128` per draw, so
     /// the redraw never runs in practice; it makes the placeholder unreachable
     /// by construction, and redrawing is the one response that keeps `seed`
@@ -227,7 +227,7 @@ impl NetworkSecret {
             let mut bytes = Zeroizing::new([0u8; NETWORK_BYTES]);
             rng.fill_bytes(&mut *bytes);
             let secret = NetworkSecret(*bytes);
-            if !secret.network().is_bootstrap() {
+            if !secret.network().is_joining() {
                 return secret;
             }
         }
@@ -239,12 +239,12 @@ impl NetworkSecret {
         KeySchedule::extract(self).network()
     }
 
-    /// The raw secret bytes, to seal into the bootstrap's secret item.
+    /// The raw secret bytes, to seal into the join's secret item.
     pub(crate) fn as_bytes(&self) -> &[u8; NETWORK_BYTES] {
         &self.0
     }
 
-    /// Reconstructs a secret from 16 bytes received in a bootstrap's secret
+    /// Reconstructs a secret from 16 bytes received in a join's secret
     /// item or written by a test.
     pub(crate) fn from_bytes(bytes: [u8; NETWORK_BYTES]) -> Self {
         NetworkSecret(bytes)
@@ -332,7 +332,7 @@ impl NetworkKeys {
         Arc::clone(&FIXTURE)
     }
 
-    /// The network's secret, to seal for a bootstrapping peer.
+    /// The network's secret, to seal for a joining peer.
     pub(crate) fn secret(&self) -> &NetworkSecret {
         &self.secret
     }

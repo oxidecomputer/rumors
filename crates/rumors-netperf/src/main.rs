@@ -511,9 +511,9 @@ struct GridArgs {
     /// Side B's target_message_size.
     #[arg(long)]
     target_message_size_b: Option<String>,
-    /// Peer::payload_depth_limit, or `default`.
+    /// Peer::message_depth_limit, or `default`.
     #[arg(long)]
-    payload_depth_limit: Option<String>,
+    message_depth_limit: Option<String>,
     /// Peer::gossip_timeout, such as `60s`, or `none`.
     #[arg(long)]
     session_deadline: Option<String>,
@@ -552,7 +552,7 @@ impl GridArgs {
             ("target_message_size", &self.target_message_size),
             ("target_message_size_a", &self.target_message_size_a),
             ("target_message_size_b", &self.target_message_size_b),
-            ("payload_depth_limit", &self.payload_depth_limit),
+            ("message_depth_limit", &self.message_depth_limit),
             ("session_deadline", &self.session_deadline),
             ("rate", &self.rate),
             ("rtt", &self.rtt),

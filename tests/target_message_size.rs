@@ -1,5 +1,5 @@
 //! End-to-end coverage of [`rumors::Peer::target_message_size`] and its
-//! bootstrap-time twin [`rumors::Bootstrap::target_message_size`].
+//! join-time twin [`rumors::Join::target_message_size`].
 //!
 //! The target threads from the public builders into the greeting, lowered to
 //! what the memory budget affords, the session runs at the exchanged minimum of
@@ -12,10 +12,10 @@ use rumors_testkit::common;
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::{Bootstrap, Peer, Rumors, default};
+use rumors::{Joining, Peer, Rumors, default};
 
 use crate::common::gossip_snapshot::{capture_gossip, capture_session, observed};
-use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
+use crate::common::wire::{block_on, join_fork_async, wire_gossip_async};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// Messages each side originates after the fork: enough for multi-leaf supplied
@@ -56,7 +56,7 @@ fn diverged_pair(
             .sync_memory_budget(0)
             .target_message_size(left_target)
             .into_rumors();
-        let right = bootstrap_fork_async(&left).await;
+        let right = join_fork_async(&left).await;
         let right = right
             .try_into_peer()
             .await
@@ -118,7 +118,7 @@ fn seeded_diverged_pair(
             .sync_memory_budget(0)
             .target_message_size(left_target)
             .into_rumors();
-        let right = bootstrap_fork_async(&left).await;
+        let right = join_fork_async(&left).await;
         let right = right
             .try_into_peer()
             .await
@@ -303,7 +303,7 @@ fn nonzero_minimum_binds_both_encoders() {
 }
 
 /// A deterministically seeded, populated provider: the same corpus for every
-/// bootstrap capture, so their supply-frame counts are comparable.
+/// join capture, so their supply-frame counts are comparable.
 fn seeded_provider() -> Rumors<u64> {
     let provider = COUNTED_NETWORK.peer().sync_memory_budget(0).into_rumors();
     let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
@@ -313,16 +313,16 @@ fn seeded_provider() -> Rumors<u64> {
     provider
 }
 
-/// Capture one bootstrap session's wire traffic: `provider` serves via `gossip`
+/// Capture one join session's wire traffic: `provider` serves via `gossip`
 /// while a newcomer joins under `config`.
-fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
+fn capture_join(provider: Rumors<u64>, config: Joining<u64>) -> String {
     capture_session(
         move |mut end, hook| async move {
             let provider = observed(provider, hook).await;
             provider
                 .gossip_once(&mut end.read, &mut end.write)
                 .await
-                .expect("the provider serves the bootstrap");
+                .expect("the provider serves the join");
         },
         move |mut end, hook| async move {
             let outcome = config
@@ -332,12 +332,12 @@ fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
             assert!(
                 matches!(
                     outcome,
-                    rumors::Joined::Joined {
+                    rumors::Join::Connected {
                         connection: rumors::Connection::Reusable { .. },
                         ..
                     }
                 ),
-                "the provider serves the bootstrap"
+                "the provider serves the join"
             );
         },
     )
@@ -350,7 +350,7 @@ const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;
 /// A configured sync memory budget never reaches the wire.
 ///
 /// A budget bounds only what its own side holds, so no peer is told it. A
-/// bootstrap newcomer is empty and asks one question, which its budget admits
+/// join newcomer is empty and asks one question, which its budget admits
 /// whatever its value. The same seeded provider serves the same corpus to a
 /// default-budget newcomer and to one on [`OFF_DEFAULT_BUDGET`]: the two
 /// captures must be equal byte for byte. The negative control shows the
@@ -358,10 +358,10 @@ const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;
 /// itself (the message-size target) must change the capture.
 #[test]
 fn sync_memory_budget_never_reaches_the_wire() {
-    let default_budget = capture_bootstrap(seeded_provider(), Peer::<u64>::bootstrap());
-    let custom_budget = capture_bootstrap(
+    let default_budget = capture_join(seeded_provider(), Peer::<u64>::joining());
+    let custom_budget = capture_join(
         seeded_provider(),
-        Peer::<u64>::bootstrap().sync_memory_budget(OFF_DEFAULT_BUDGET),
+        Peer::<u64>::joining().sync_memory_budget(OFF_DEFAULT_BUDGET),
     );
     assert_eq!(
         default_budget, custom_budget,
@@ -369,9 +369,9 @@ fn sync_memory_budget_never_reaches_the_wire() {
     );
 
     // Negative control: the same harness must be able to see a difference.
-    let custom_target = capture_bootstrap(
+    let custom_target = capture_join(
         seeded_provider(),
-        Peer::<u64>::bootstrap().target_message_size(0),
+        Peer::<u64>::joining().target_message_size(0),
     );
     assert_ne!(
         default_budget, custom_target,
@@ -380,9 +380,9 @@ fn sync_memory_budget_never_reaches_the_wire() {
     );
 }
 
-/// A newcomer's [`Bootstrap::target_message_size`] genuinely reaches the
-/// bootstrap greeting and binds the *provider's* encoder, which no
-/// post-bootstrap knob could show.
+/// A newcomer's [`Join::target_message_size`] genuinely reaches the
+/// join greeting and binds the *provider's* encoder, which no
+/// post-join knob could show.
 ///
 /// The same seeded provider serves the same corpus twice: to a newcomer
 /// advertising a zero target (batching forbidden: one leaf per supply frame)
@@ -393,20 +393,20 @@ fn sync_memory_budget_never_reaches_the_wire() {
 /// both sessions would run at the provider's own setting and the two counts
 /// would be equal, failing the strict inequality.
 #[test]
-fn bootstrap_advertisement_binds_the_provider() {
-    let unbatched = capture_bootstrap(
+fn join_advertisement_binds_the_provider() {
+    let unbatched = capture_join(
         seeded_provider(),
-        Peer::<u64>::bootstrap().target_message_size(0),
+        Peer::<u64>::joining().target_message_size(0),
     );
-    let batched = capture_bootstrap(seeded_provider(), Peer::<u64>::bootstrap());
+    let batched = capture_join(seeded_provider(), Peer::<u64>::joining());
     let (unbatched_frames, batched_frames) = (supply_frames(&unbatched), supply_frames(&batched));
     assert!(
         batched_frames > 0,
-        "a populated bootstrap must supply at least one run"
+        "a populated join must supply at least one run"
     );
     assert!(
         unbatched_frames > batched_frames,
-        "a zero bootstrap advertisement must forbid the provider's batching: \
+        "a zero join advertisement must forbid the provider's batching: \
          {unbatched_frames} supply frames vs {batched_frames} batched"
     );
 }
@@ -420,7 +420,7 @@ const AFFORDING_BUDGET: usize = 64 * 1024 * 1024;
 /// budget affords, never the target as set.
 ///
 /// A newcomer on [`AFFORDING_BUDGET`] asks for the largest target; its settings
-/// report a lowered one, between the default and the wire's cap. Its bootstrap
+/// report a lowered one, between the default and the wire's cap. Its join
 /// capture must equal, byte for byte, the capture of a newcomer that sets the
 /// lowered target directly. The negative control is a newcomer whose unlimited
 /// budget affords the largest target: its capture must differ, so the equality
@@ -431,17 +431,17 @@ fn a_lowered_target_reaches_the_greeting() {
         .peer::<u64>()
         .sync_memory_budget(AFFORDING_BUDGET)
         .target_message_size(usize::MAX)
-        .synchronization_settings()
+        .settings()
         .target_message_size;
     assert!(
         default::TARGET_MESSAGE_SIZE < lowered && lowered < rumors::testing::MAX_RUN_BUDGET_BYTES,
         "the budget must lower the largest target, but not to the default: {lowered} B",
     );
     let newcomer = |budget: usize, target: usize| {
-        let config = Peer::<u64>::bootstrap()
+        let config = Peer::<u64>::joining()
             .sync_memory_budget(budget)
             .target_message_size(target);
-        capture_bootstrap(seeded_provider(), config)
+        capture_join(seeded_provider(), config)
     };
 
     let asked = newcomer(AFFORDING_BUDGET, usize::MAX);

@@ -88,7 +88,7 @@ where
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();
     };
     send(&left, common, &mut rng);
-    let right = common::wire::bootstrap_fork_with_budget(&left, budget);
+    let right = common::wire::join_fork_with_budget(&left, budget);
     send(&left, divergent, &mut rng);
     send(&right, divergent, &mut rng);
     (left, right)

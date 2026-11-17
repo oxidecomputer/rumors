@@ -17,7 +17,7 @@ use rumors::error::Mismatch;
 use rumors::{Error, Gossiped, Protocol, Rumors};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::common::wire::{assert_connection_drained, bootstrap_fork_async};
+use crate::common::wire::{assert_connection_drained, join_fork_async};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
@@ -96,7 +96,7 @@ divided_proptest! {
             // Same universe: `bob` is a party-disjoint fork of `alice`, so their
             // networks match.
             let alice: Rumors<String> = network.peer().sync_memory_budget(0).into_rumors();
-            let bob = bootstrap_fork_async(&alice).await;
+            let bob = join_fork_async(&alice).await;
 
             let (mut a_end, mut b_end) =
                 rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -213,19 +213,19 @@ divided_proptest! {
         });
     }
 
-    /// A bootstrap network paired with a retiring intent is rejected because a
+    /// A join network paired with a retiring intent is rejected because a
     /// peer cannot receive and donate an identity in the same session.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn bootstrap_retire_conflict_is_a_violation(network in network_seed()) {
+    fn join_retire_conflict_is_a_violation(network in network_seed()) {
         pollster::block_on(async {
             let reply = preamble(V2_OPENING, WIRE_VERSION, [0; 16], INTENT_RETIRE);
             match gossip_against(network, &reply).await {
                 Err(Error::Protocol(error)) => {
                     assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
                 }
-                other => panic!("expected a bootstrap-retire violation, got {other:?}"),
+                other => panic!("expected a join-retire violation, got {other:?}"),
             }
         });
     }
@@ -235,6 +235,6 @@ divided_proptest! {
 #[path = "handshake/question_owner.rs"]
 mod question_owner;
 
-/// Check that gossip preserves messages sent after a bootstrap snapshot.
+/// Check that gossip preserves messages sent after a join snapshot.
 #[path = "handshake/stale_floor.rs"]
 mod stale_floor;

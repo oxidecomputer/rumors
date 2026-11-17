@@ -49,7 +49,7 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
     arb_actions("[a-z]{0,8}".prop_map(String::from))
 }
 
-/// Apply a `LocalAction` sequence to an already-bootstrapped local replica.
+/// Apply a `LocalAction` sequence to an already-joined local replica.
 pub fn build_local<T>(local: rumors::Rumors<T>, actions: &[LocalAction<T>]) -> rumors::Rumors<T>
 where
     T: Send + Sync + Clone + Serialize + DeserializeOwned + Eq + 'static,

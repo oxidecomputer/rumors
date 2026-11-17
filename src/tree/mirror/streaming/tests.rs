@@ -442,7 +442,7 @@ fn join_oracle(a: Root, b: Root) -> Root {
 /// Generated relationships for the independent join oracle.
 ///
 /// The union covers shared-history divergence (including redactions and matched
-/// subtrees), independent party histories (including empty bootstrap shapes),
+/// subtrees), independent party histories (including empty join shapes),
 /// and the equal-version short circuit.
 fn arb_oracle_pair() -> impl Strategy<Value = (Root, Root)> {
     prop_oneof![

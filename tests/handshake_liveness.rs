@@ -12,7 +12,7 @@
 //! session shape through the window that hides nothing.
 //!
 //! The fixtures make the version frames non-trivial on purpose — several
-//! disjoint originators plus bootstrap→retire cycles, self-checked to exceed
+//! disjoint originators plus join→retire cycles, self-checked to exceed
 //! the window [`GREETING_FLOOR`]-fold — and every cell asserts liveness and
 //! convergence only, never greeting-frame contents.
 //!
@@ -32,9 +32,7 @@ use rumors_testkit::divided_proptest;
 
 use crate::common::{
     budget::BudgetChoice,
-    wire::{
-        assert_connection_drained, block_on, bootstrap_fork_async, bootstrap_fork_with_budget_async,
-    },
+    wire::{assert_connection_drained, block_on, join_fork_async, join_fork_with_budget_async},
 };
 
 /// Per-direction byte capacity of the connection every cell's session runs
@@ -83,7 +81,7 @@ async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
 
 /// Widen `rumors`'s causal version over roomy connections: fork [`ORIGINATORS`]
 /// disjoint peers with pairwise-distinct commit counts, gossip each back, and
-/// run one bootstrap→retire cycle.
+/// run one join→retire cycle.
 ///
 /// The version then spans several party regions whose uneven tick counts defeat
 /// event-tree normalization.
@@ -96,7 +94,7 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     // the version forever, keeping it branchy.
     let mut originators = Vec::new();
     for originator in 0..ORIGINATORS {
-        let fork = bootstrap_fork_async(rumors).await;
+        let fork = join_fork_async(rumors).await;
         for _ in 0..(originator + 1) * MESSAGES_PER_ORIGINATOR {
             fork.send(payload).unwrap();
             payload += 1;
@@ -119,9 +117,9 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     for fork in &originators {
         gossip_over(rumors, fork, ROOMY_CAPACITY).await;
     }
-    // One bootstrap→retire cycle: the retiree's region rejoins the seed's,
+    // One join→retire cycle: the retiree's region rejoins the seed's,
     // exercising the id-space shape a recycled identity leaves behind.
-    let cycled = bootstrap_fork_async(rumors).await;
+    let cycled = join_fork_async(rumors).await;
     cycled.send(payload).unwrap();
     let cycled = cycled
         .try_into_peer()
@@ -171,7 +169,7 @@ async fn seasoned_pair(
     b_budget: BudgetChoice,
 ) -> (Rumors<u64>, Rumors<u64>) {
     let a = seasoned(network, a_budget).await;
-    let b = bootstrap_fork_with_budget_async(&a, b_budget).await;
+    let b = join_fork_with_budget_async(&a, b_budget).await;
     // The fork originates a little of its own before converging, so the
     // pair's shared version includes events from b's region too.
     for payload in 0..MESSAGES_PER_ORIGINATOR {
@@ -250,7 +248,7 @@ async fn empty_meets_populated_session(network: NetworkSeed) {
     let seed: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
     // Fork the empty side out before any content exists, then season only
     // the seed.
-    let empty = bootstrap_fork_async(&seed).await;
+    let empty = join_fork_async(&seed).await;
     season(&seed, 0).await;
     gossip_over(&seed, &empty, MIN_CAPACITY).await;
     assert_eq!(seed.snapshot().hash(), empty.snapshot().hash());
@@ -260,22 +258,22 @@ async fn empty_meets_populated_session(network: NetworkSeed) {
     );
 }
 
-/// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and the
+/// Join: a seasoned provider serves a newcomer, so the whole tree and the
 /// trailing party donation cross the minimal connection.
-async fn bootstrap_session(network: NetworkSeed) {
+async fn join_session(network: NetworkSeed) {
     let provider = seasoned(network, BudgetChoice::Serial).await;
     let (mut p_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
         provider.gossip_once(&mut p_end.read, &mut p_end.write),
-        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
+        Peer::<u64>::join(&mut n_end.read, &mut n_end.write),
     );
     served.expect("the serving session completes");
     let newcomer = (match joined {
-        rumors::Joined::Joined {
+        rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
-        _ => panic!("the provider serves the bootstrap"),
+        _ => panic!("the provider serves the join"),
     })
     .into_rumors();
     assert_eq!(newcomer.snapshot().hash(), provider.snapshot().hash());
@@ -314,36 +312,36 @@ async fn retire_session(network: NetworkSeed) {
     assert_connection_drained(r_end, p_end);
 }
 
-/// Mutual bootstrap: both sides are identity-less newcomers, so the session
+/// Mutual join: both sides are identity-less newcomers, so the session
 /// bails with `None` on both ends.
 ///
 /// The bail lands only after it is certified through a symmetric greeting
 /// exchange whose fixed-width frames overflow the one-byte window many times
-/// over. No seasoning is possible here: a bootstrapping peer holds no identity
+/// over. No seasoning is possible here: a joining peer holds no identity
 /// to widen, so the fixed frames are the whole hazard.
-async fn mutual_bootstrap_session() {
+async fn mutual_join_session() {
     let (mut a_end, mut b_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (a_out, b_out) = tokio::join!(
-        Peer::<u64>::bootstrap().join(&mut a_end.read, &mut a_end.write),
-        Peer::<u64>::bootstrap().join(&mut b_end.read, &mut b_end.write),
+        Peer::<u64>::join(&mut a_end.read, &mut a_end.write),
+        Peer::<u64>::join(&mut b_end.read, &mut b_end.write),
     );
     assert!(
-        matches!(a_out, rumors::Joined::Bailed { .. }),
-        "a mutually-bootstrapping peer returns its builder"
+        matches!(a_out, rumors::Join::Bounced { .. }),
+        "a mutually-joining peer returns its builder"
     );
     assert!(
-        matches!(b_out, rumors::Joined::Bailed { .. }),
-        "a mutually-bootstrapping peer returns its builder"
+        matches!(b_out, rumors::Join::Bounced { .. }),
+        "a mutually-joining peer returns its builder"
     );
     assert_connection_drained(a_end, b_end);
 }
 
-/// Retire into a bootstrapper: a seasoned retiree hands its whole tree and then
+/// Retire into a joiner: a seasoned retiree hands its whole tree and then
 /// its whole party to an identity-less newcomer.
 ///
-/// This is the maximally asymmetric greetings of bootstrap plus the trailing
+/// This is the maximally asymmetric greetings of join plus the trailing
 /// donation of retire, all through the minimal connection.
-async fn retire_into_bootstrapper_session(network: NetworkSeed) {
+async fn retire_into_joiner_session(network: NetworkSeed) {
     let retiree = seasoned(network, BudgetChoice::Serial).await;
     let before = retiree.snapshot();
     let retiree = retiree
@@ -353,7 +351,7 @@ async fn retire_into_bootstrapper_session(network: NetworkSeed) {
     let (mut r_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (retired, joined) = tokio::join!(
         retiree.retire(&mut r_end.read, &mut r_end.write),
-        Peer::<u64>::bootstrap().join(&mut n_end.read, &mut n_end.write),
+        Peer::<u64>::join(&mut n_end.read, &mut n_end.write),
     );
     assert!(
         matches!(
@@ -362,14 +360,14 @@ async fn retire_into_bootstrapper_session(network: NetworkSeed) {
                 connection: Connection::Reusable { .. }
             }
         ),
-        "the bootstrapper absorbs the retiree, got {retired:?}"
+        "the joiner absorbs the retiree, got {retired:?}"
     );
     let successor = (match joined {
-        rumors::Joined::Joined {
+        rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
-        _ => panic!("the retiree serves the bootstrap"),
+        _ => panic!("the retiree serves the join"),
     })
     .into_rumors();
     let after = successor.snapshot();
@@ -467,13 +465,13 @@ divided_proptest! {
         block_on(empty_meets_populated_session(network));
     }
 
-    /// A V2 bootstrap served by a seasoned provider stays live over a
+    /// A V2 join served by a seasoned provider stays live over a
     /// one-byte-window connection, tree and party donation included.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn bootstrap(network in network_seed()) {
-        block_on(bootstrap_session(network));
+    fn joining(network in network_seed()) {
+        block_on(join_session(network));
     }
 
     /// A V2 retirement of a divergent seasoned replica stays live over a
@@ -486,23 +484,23 @@ divided_proptest! {
     }
 }
 
-/// A mutual V2 bootstrap bails cleanly on both sides over a one-byte-window
+/// A mutual V2 join bails cleanly on both sides over a one-byte-window
 /// connection, its fixed-width greeting exchange included.
 #[test]
-fn mutual_bootstrap() {
-    block_on(mutual_bootstrap_session());
+fn mutual_join() {
+    block_on(mutual_join_session());
 }
 
 divided_proptest! {
     #![divisor(FLEET_DIVISOR)]
 
-    /// A V2 retirement into a bootstrapper stays live over a one-byte-window
+    /// A V2 retirement into a joiner stays live over a one-byte-window
     /// connection and hands the newcomer the retiree's exact content.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn retire_into_bootstrapper(network in network_seed()) {
-        block_on(retire_into_bootstrapper_session(network));
+    fn retire_into_joiner(network in network_seed()) {
+        block_on(retire_into_joiner_session(network));
     }
 
     /// A mutual V2 retirement early-outs cleanly over a one-byte-window connection,

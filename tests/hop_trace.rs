@@ -455,7 +455,7 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
     // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
+    let right = join_fork(&left, default::TARGET_MESSAGE_SIZE);
 
     send_random(&left, DIVERGENT_PER_SIDE, &mut rng);
     send_random(&right, DIVERGENT_PER_SIDE, &mut rng);
@@ -475,7 +475,7 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     // with the same redactions, every run.
     let mut rng = ChaChaRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
     send_random(&left, COMMON, &mut rng);
-    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
+    let right = join_fork(&left, default::TARGET_MESSAGE_SIZE);
 
     let versions: Vec<Version> = left.snapshot().versions().cloned().collect();
     let mut shuffled = versions;
@@ -492,7 +492,7 @@ fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut ChaChaRng) {
 
 /// Join `parent`'s network with a new peer holding its messages, at the default
 /// memory budget and with the given target message size.
-fn bootstrap_fork<T>(parent: &Rumors<T>, target_message_size: usize) -> Rumors<T>
+fn join_fork<T>(parent: &Rumors<T>, target_message_size: usize) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -500,11 +500,11 @@ where
         let (parent_end, newcomer_end) = rumors::testing::memory_connection(CAPACITY);
         let (served, newcomer) = tokio::join!(
             parent.gossip_once(parent_end.read, parent_end.write),
-            Peer::<T>::bootstrap().join(newcomer_end.read, newcomer_end.write),
+            Peer::<T>::join(newcomer_end.read, newcomer_end.write),
         );
-        served.expect("serve bootstrap");
+        served.expect("serve join");
         (match newcomer {
-            rumors::Joined::Joined {
+            rumors::Join::Connected {
                 peer,
                 connection: rumors::Connection::Reusable { .. },
             } => peer,
@@ -628,7 +628,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         .peer()
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
         .into_rumors();
-    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
+    let right = join_fork(&left, default::TARGET_MESSAGE_SIZE);
     {
         left.send_all(0..64u64).unwrap();
     }
@@ -737,7 +737,7 @@ fn trace_empty_session() {
     // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x1234_5678_9abc_def0);
     send_random(&left, 64, &mut rng);
-    let right = bootstrap_fork(&left, default::TARGET_MESSAGE_SIZE);
+    let right = join_fork(&left, default::TARGET_MESSAGE_SIZE);
     let (traced, predicted) =
         trace_point("empty divergence: identical 64-message peers", left, right);
     assert_eq!(predicted.hops, 3, "the rule's count for equal versions");
@@ -769,7 +769,7 @@ const MAX_PAYLOAD: usize = 2_048;
 const MAX_SMALL_TARGET: usize = 1_024;
 
 /// The divisor of the case count of `hops_follow_the_rule`: each case runs one
-/// bootstrap and one traced session, the session class.
+/// join and one traced session, the session class.
 ///
 /// The traced session's runtime has timers, but its clock is paused and
 /// advances without waiting, so the timers cost no wall time.
@@ -838,7 +838,7 @@ struct PairPlan {
 
 impl PairPlan {
     /// Build the pair in the network `network` names: side `'A'` creates the
-    /// network and sends the shared history, side `'B'` joins it by bootstrap,
+    /// network and sends the shared history, side `'B'` joins it by join,
     /// and then each side diverges.
     fn build(&self, network: NetworkSeed) -> (Rumors<Bytes>, Rumors<Bytes>) {
         let payload = Bytes::from(vec![0; self.payload_len]);
@@ -849,7 +849,7 @@ impl PairPlan {
             .into_rumors();
         a.send_all(iter::repeat_n(payload.clone(), self.common))
             .expect("a byte payload encodes");
-        let b = bootstrap_fork(&a, self.b.target_message_size);
+        let b = join_fork(&a, self.b.target_message_size);
         let shared = a.snapshot();
         self.a.apply(&a, &shared, &payload);
         self.b.apply(&b, &shared, &payload);
@@ -991,7 +991,7 @@ fn placed_path(value: u64, depth: usize) -> [u8; 32] {
 }
 
 /// Build a placed pair: side `A` creates the network and sends the shared
-/// messages, side `B` joins it by bootstrap, `A` sends the exclusive message,
+/// messages, side `B` joins it by join, `A` sends the exclusive message,
 /// and, if `a_initiates`, `B` sends the ballast.
 ///
 /// Inside a placement ([`with_leaf_paths`]), every leaf takes the path
@@ -1002,7 +1002,7 @@ fn placed_pair(a_initiates: bool) -> (Rumors<u64>, Rumors<u64>) {
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
         .into_rumors();
     a.send_all(PLACED_SHARED).expect("a u64 encodes");
-    let b = bootstrap_fork(&a, default::TARGET_MESSAGE_SIZE);
+    let b = join_fork(&a, default::TARGET_MESSAGE_SIZE);
     a.send_all([PLACED_EXCLUSIVE]).expect("a u64 encodes");
     if a_initiates {
         b.send_all(PLACED_BALLAST).expect("a u64 encodes");

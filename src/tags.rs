@@ -27,17 +27,16 @@ pub const VERSION_TAG: u64 = 0xD256;
 /// Tags a byte string holding a [`Clock`](before::Clock)'s encoding.
 pub const CLOCK_TAG: u64 = 0xD257;
 
-/// Tags a byte string holding a network's secret sealed for a bootstrapping
-/// peer: HPKE's encapsulated key, the sealed secret, and its authentication
-/// tag.
+/// Tags a byte string holding a network's secret sealed for a joining peer:
+/// HPKE's encapsulated key, the sealed secret, and its authentication tag.
 ///
 /// Public, as every tag the wire carries is, so that a tool reading a capture
-/// can name the item; hidden from the rendered docs, as [`BOOTSTRAP_KEY_TAG`]
-/// is, because no caller handles a bootstrap's items.
+/// can name the item; hidden from the rendered docs, as [`JOINING_KEY_TAG`]
+/// is, because no caller handles a join's wire message items.
 #[doc(hidden)]
 pub const NETWORK_SECRET_TAG: u64 = 0xD258;
 
-/// Tags a byte string holding the public key a bootstrapping peer draws for one
+/// Tags a byte string holding the public key a joining peer draws for one
 /// session.
 #[doc(hidden)]
-pub const BOOTSTRAP_KEY_TAG: u64 = 0xD259;
+pub const JOINING_KEY_TAG: u64 = 0xD259;

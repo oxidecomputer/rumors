@@ -18,7 +18,7 @@ use rumors_testkit::common;
 use rumors::error::Mismatch;
 use rumors::{Peer, Rumors, default};
 
-use crate::common::wire::{bootstrap_fork, wire_gossip};
+use crate::common::wire::{join_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -43,9 +43,9 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn a_payload_at_the_default_depth_round_trips(network in network_seed()) {
-        let at_limit = nested(default::PAYLOAD_DEPTH_LIMIT);
+        let at_limit = nested(default::MESSAGE_DEPTH_LIMIT);
         let a: Rumors<Arr> = network.peer().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         a.send(at_limit.clone())
             .expect("a payload at exactly the limit is admitted");
@@ -72,10 +72,10 @@ divided_proptest! {
     fn one_step_past_the_limit_is_rejected_at_send(network in network_seed()) {
         let rumors: Rumors<Arr> = network.peer().sync_memory_budget(0).into_rumors();
         let error = rumors
-            .send(nested(default::PAYLOAD_DEPTH_LIMIT + 1))
+            .send(nested(default::MESSAGE_DEPTH_LIMIT + 1))
             .expect_err("one step past the limit is rejected");
         assert!(
-            matches!(error, rumors::error::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
+            matches!(error, rumors::error::EncodeError::TooDeep { limit } if limit == default::MESSAGE_DEPTH_LIMIT),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
@@ -111,9 +111,9 @@ divided_proptest! {
     #[test]
     fn the_deepest_admissible_enum_round_trips(network in network_seed()) {
         // The innermost unit variant costs the step the wrappers don't.
-        let at_limit = nested_enum(default::PAYLOAD_DEPTH_LIMIT - 1);
+        let at_limit = nested_enum(default::MESSAGE_DEPTH_LIMIT - 1);
         let a: Rumors<E> = network.peer().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         a.send(at_limit.clone())
             .expect("a payload whose decode needs exactly the limit is admitted");
@@ -141,10 +141,10 @@ divided_proptest! {
     fn an_enum_needing_one_step_past_the_limit_is_rejected_at_send(network in network_seed()) {
         let rumors: Rumors<E> = network.peer().sync_memory_budget(0).into_rumors();
         let error = rumors
-            .send(nested_enum(default::PAYLOAD_DEPTH_LIMIT))
+            .send(nested_enum(default::MESSAGE_DEPTH_LIMIT))
             .expect_err("a decode needing limit + 1 is rejected");
         assert!(
-            matches!(error, rumors::error::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
+            matches!(error, rumors::error::EncodeError::TooDeep { limit } if limit == default::MESSAGE_DEPTH_LIMIT),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
@@ -156,32 +156,32 @@ divided_proptest! {
 
     /// A fleet whose limit was raised in concert gossips content past the
     /// default depth clean: the knob threads through send admission, the
-    /// bootstrap builder, and wire ingress alike.
+    /// join builder, and wire ingress alike.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn equal_raised_limits_gossip_deep_content_clean(network in network_seed()) {
-        let raised = default::PAYLOAD_DEPTH_LIMIT + 64;
-        let deep = nested(default::PAYLOAD_DEPTH_LIMIT + 32);
+        let raised = default::MESSAGE_DEPTH_LIMIT + 64;
+        let deep = nested(default::MESSAGE_DEPTH_LIMIT + 32);
 
         let a: Rumors<Arr> = network.peer()
-            .payload_depth_limit(raised)
+            .message_depth_limit(raised)
             .sync_memory_budget(0)
             .into_rumors();
         // The fork selects the same raised limit one session early, on the
-        // bootstrap builder, exactly as a real fleet member would.
+        // join builder, exactly as a real fleet member would.
         let b = crate::common::wire::block_on(async {
             let (mut provider, mut newcomer) =
                 rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (served, joined) = tokio::join!(
                 a.gossip_once(&mut provider.read, &mut provider.write),
-                Peer::<Arr>::bootstrap()
-                    .payload_depth_limit(raised)
+                Peer::<Arr>::joining()
+                    .message_depth_limit(raised)
                     .join(&mut newcomer.read, &mut newcomer.write),
             );
-            served.expect("the seed serves the bootstrap");
+            served.expect("the seed serves the join");
             (match joined {
-                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
+                rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the seed is established"),
             })
             .sync_memory_budget(0)
@@ -223,7 +223,7 @@ divided_proptest! {
             .send(P { field: Some(None) })
             .expect_err("a value whose encoding decodes differently is rejected");
         assert!(
-            matches!(error, rumors::error::EncodeError::Unfaithful),
+            matches!(error, rumors::error::EncodeError::Roundtrip),
             "the rejection is the typed faithfulness case: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
@@ -302,14 +302,14 @@ divided_proptest! {
     fn mismatched_limits_abort_both_sides_at_the_handshake(network in network_seed()) {
         use rumors::Error;
         let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-        let b = bootstrap_fork(&a);
+        let b = join_fork(&a);
 
         // Re-key one side's limit through the Peer knob: the fork was created
         // at the default, and the setting follows the peer through reunion.
-        let raised = default::PAYLOAD_DEPTH_LIMIT + 1;
+        let raised = default::MESSAGE_DEPTH_LIMIT + 1;
         let b = crate::common::wire::block_on(async {
             let peer = b.try_into_peer().await.expect("the sole handle reunites");
-            peer.payload_depth_limit(raised).into_rumors()
+            peer.message_depth_limit(raised).into_rumors()
         });
 
         let a_shape = std::sync::Arc::new(SessionShape::default());
@@ -338,14 +338,14 @@ divided_proptest! {
             )
         });
 
-        let Error::Mismatch(Mismatch::PayloadDepth { local, remote, .. }) = a_err else {
+        let Error::Mismatch(Mismatch::MessageDepth { local, remote, .. }) = a_err else {
             panic!("a's error must be the typed mismatch: {a_err:?}");
         };
-        assert_eq!((local, remote), (default::PAYLOAD_DEPTH_LIMIT, raised));
-        let Error::Mismatch(Mismatch::PayloadDepth { local, remote, .. }) = b_err else {
+        assert_eq!((local, remote), (default::MESSAGE_DEPTH_LIMIT, raised));
+        let Error::Mismatch(Mismatch::MessageDepth { local, remote, .. }) = b_err else {
             panic!("b's error must be the typed mismatch: {b_err:?}");
         };
-        assert_eq!((local, remote), (raised, default::PAYLOAD_DEPTH_LIMIT));
+        assert_eq!((local, remote), (raised, default::MESSAGE_DEPTH_LIMIT));
 
         for shape in [&a_shape, &b_shape] {
             assert!(
@@ -384,11 +384,11 @@ divided_proptest! {
                 rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (served, joined) = tokio::join!(
                 a.gossip_once(&mut provider.read, &mut provider.write),
-                Peer::<String>::bootstrap().join(&mut newcomer.read, &mut newcomer.write),
+                Peer::<String>::join(&mut newcomer.read, &mut newcomer.write),
             );
-            served.expect("the seed serves the bootstrap (no payloads to decode yet)");
+            served.expect("the seed serves the join (no payloads to decode yet)");
             (match joined {
-                rumors::Joined::Joined { peer, connection: rumors::Connection::Reusable { .. } } => peer,
+                rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the seed is established"),
             })
             .sync_memory_budget(0)

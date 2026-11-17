@@ -1,4 +1,4 @@
-//! The bootstrap's sealed secret: the items' framing, the seal's documented
+//! The join's sealed secret: the items' framing, the seal's documented
 //! suite and bindings, and the typed defect or transport error each failure
 //! maps to.
 //!
@@ -22,7 +22,7 @@ use crate::{
     error::{Phase, TransportOperation as Op},
     network::{NETWORK_BYTES, NetworkSecret},
     observe::SessionHandle,
-    tags::{BOOTSTRAP_KEY_TAG, NETWORK_SECRET_TAG},
+    tags::{JOINING_KEY_TAG, NETWORK_SECRET_TAG},
     tree::mirror::cbor::{self, MAJOR_BSTR},
 };
 
@@ -51,14 +51,14 @@ fn fixed_secret() -> NetworkSecret {
     NetworkSecret::from_bytes([0x5e; NETWORK_BYTES])
 }
 
-/// HPKE's `info` as the module documents it: the label `"rumors bootstrap
+/// HPKE's `info` as the module documents it: the label `"rumors join
 /// network secret"`, then protocol version 2 as a big-endian `u64`.
 ///
 /// Both parts are spelled out as literals, so that a change to either in the
 /// module is one these tests disagree with.
 fn documented_info() -> Vec<u8> {
     [
-        b"rumors bootstrap network secret".as_slice(),
+        b"rumors join network secret".as_slice(),
         &2u64.to_be_bytes(),
     ]
     .concat()
@@ -116,7 +116,7 @@ fn prefixes_match_the_writers() {
     for (prefix, tag, len, total) in [
         (
             KEY_ITEM_PREFIX,
-            BOOTSTRAP_KEY_TAG,
+            JOINING_KEY_TAG,
             PUBLIC_KEY_LEN,
             KEY_ITEM_LEN,
         ),

@@ -14,7 +14,7 @@ use rumors::Rumors;
 
 use crate::common::oracle::{readout, readout_multiset};
 use crate::common::overlap::{self, arb_overlap_schedule, execute_overlap_and_quiesce};
-use crate::common::wire::{bootstrap_fork, wire_gossip};
+use crate::common::wire::{join_fork, wire_gossip};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
@@ -36,8 +36,8 @@ fn redacted_trio(
 ) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
     let a = rumors::testing::ledger_budget(network.peer(), 0).into_rumors();
     a.send_all(0..n).unwrap();
-    let b = bootstrap_fork(&a);
-    let c = bootstrap_fork(&a);
+    let b = join_fork(&a);
+    let c = join_fork(&a);
     // Resolve the target in this network; versions from another seeded
     // fixture need not identify its messages, even if their values match.
     let version = b
