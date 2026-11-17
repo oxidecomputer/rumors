@@ -169,7 +169,7 @@ pub struct Settings {
     pub b: SideSettings,
     /// [`Peer::payload_depth_limit`](rumors::Peer::payload_depth_limit).
     pub payload_depth_limit: Option<u64>,
-    /// [`Peer::session_deadline`](rumors::Peer::session_deadline): a session
+    /// [`Peer::gossip_timeout`](rumors::Peer::gossip_timeout): a session
     /// running longer fails and is recorded as failed.
     pub session_deadline: Option<Duration>,
 }

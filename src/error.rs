@@ -1,32 +1,19 @@
 //! What could possibly go wrong?
 //!
-//! Session methods return [`Error`]. Choose a response from its cause:
+//! Failures during gossip return [`Error`]. Choose how to respond based on the
+//! cause of the error:
 //!
-//! - [`Transport`](Error::Transport): reconnect over a fresh connection.
-//! - [`Mismatch`](Error::Mismatch): use the mismatch kind and its values to
-//!   deploy a compatible build, join the intended network, or align settings.
-//! - [`Bookmark`](Error::Bookmark): repair or replace the bookmark storage.
-//! - [`DeadlineExceeded`](Error::DeadlineExceeded): the application's session
-//!   deadline expired. Reconnect, adjusting the deadline if needed.
-//! - [`Protocol`](Error::Protocol): report a bug with its context and
-//!   diagnostic source. Individual protocol checks stay private.
-//!
-//! Public error enums are non-exhaustive when new checks may add variants. A
-//! closed enum reserves its variant roster as part of the contract.
-//!
-//! A failed or cancelled session leaves its connection at an unknown position.
-//! Discard the connection before retrying: a later session on it gets no typed
-//! warning, and can fail in any way or misread the stale bytes.
-//!
-//! Failure does not guarantee unchanged state. On an existing replica, a
-//! failure in [`Phase::Completion`] leaves local work committed but the peer's
-//! commit unconfirmed. A bootstrap served by a provider has received its whole
-//! identity before that phase, so one that fails there keeps its peer, and
-//! reports the error as a [`Connection::Lost`](crate::Connection::Lost) beside
-//! it. A bootstrap that fails earlier, or that met another bootstrapper and so
-//! received no identity, returns its builder for retry in
-//! [`Joined::Failed`](crate::Joined::Failed). [`Error::Bookmark`] can also
-//! leave restart bookkeeping awaiting persistence.
+//! - [`Transport`](Error::Transport): reconnect to the peer over a fresh
+//!   connection (or don't!).
+//! - [`Mismatch`](Error::Mismatch): examine the mismatch to deploy a compatible
+//!   application, join the intended network, or align configuration.
+//! - [`Bookmark`](Error::Bookmark): repair or replace the underlying bookmark
+//!   storage.
+//! - [`GossipTimeout`](Error::GossipTimeout): the caller-specified gossip
+//!   timeout expired. Reconnect to the peer, adjusting the deadline if needed.
+//! - [`Protocol`](Error::Protocol): [please report a bug in this
+//!   crate](https://github.com/oxidecomputer/rumors/issues/new) by providing
+//!   the error's context and diagnostic source.
 
 use std::fmt;
 
@@ -38,99 +25,106 @@ use crate::{
 };
 
 mod session;
-pub use crate::message::EncodeError;
+pub use crate::{bookmark::FormatError, message::EncodeError};
 pub use session::{
     Context, DataStream, Phase, ProtocolViolation, TransportError, TransportOperation,
 };
 
-/// An incompatibility that prevents the peers from reconciling.
+/// An incompatibility between peers which prevents them from reconciling.
 ///
-/// Each variant carries the values needed to choose a recovery action. Retrying
-/// unchanged peers cannot resolve a mismatch; after resolving it, reconnect
-/// over a fresh connection.
+/// Each variant carries the values needed to choose the right recovery action.
+/// This category of error cannot be resolved by retrying without making changes
+/// to the [`Peer`](crate::Peer) in some way. After resolving the underlying
+/// issue, reconnect over a fresh connection.
+///
+/// When such an error occurs, no reconciliation has yet taken place.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Mismatch {
-    /// The peer speaks a different wire version. Deploy compatible Rumors
-    /// versions at both ends, then reconnect.
+    /// The remote peer uses an incompatible wire protocol.
+    ///
+    /// Deploy compatible
+    /// `rumors` versions at both ends.
     #[error(
         "peer speaks rumors protocol version {remote_version}, while this build speaks {local_protocol:?}"
     )]
     #[non_exhaustive]
     Protocol {
-        /// The protocol spoken by this build.
+        /// The protocol version spoken by this build.
         local_protocol: Protocol,
-        /// The wire version advertised by the peer.
+        /// The protocol version advertised by the remote peer.
         remote_version: u64,
     },
 
-    /// Both peers were gossiping but belong to different causal universes. Use
-    /// these event bounds to apply the dominance rule described by
-    /// [`Peer`](crate::Peer)'s "Bootstrapping without consensus" section.
+    /// The remote peer belongs to a different gossip network.
+    ///
+    /// Optionally, use these event bounds to apply the dominance rule described
+    /// by [`Peer`](crate::Peer)'s "Bootstrapping without consensus" section.
     #[error("peer belongs to network {remote_network:?}, ours is {local_network:?}")]
     #[non_exhaustive]
     Network {
-        /// The network identifier this side advertised.
+        /// The local peer's network identifier.
         local_network: Network,
-        /// The event bound this side advertised for its own universe.
+        /// A lower bound on the total number of events in the local peer's
+        /// gossip network.
         local_min_events: Count,
-        /// The network identifier advertised by the peer.
+        /// The remote peer's network identifier.
         remote_network: Network,
-        /// A lower bound on events recorded in the remote universe.
+        /// A lower bound on the total number of events in the remote peer's
+        /// gossip network.
         remote_min_events: Count,
     },
 
-    /// The peers have different payload depth limits. Align
-    /// [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit) across
-    /// the fleet, then reconnect. No reconciliation has taken place.
+    /// The peers have different configured payload depth limits, and are thus
+    /// incompatible.
+    ///
+    /// Align [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
+    /// across all peers in the gossip network, then reconnect.
     #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
     #[non_exhaustive]
     PayloadDepth {
-        /// This side's configured limit.
+        /// The local peer's configured payload depth limit.
         local: u64,
-        /// The limit the peer advertised.
+        /// The remote peer's advertised payload depth limit.
         remote: u64,
     },
 }
 
-/// A failure returned by bootstrap, gossip, or retirement.
-///
-/// `B` retains the application's bookmark error type. Session diagnostics are
-/// independent of bookmark storage. For failures with a [`Context`], inspect
-/// its phase as well as its cause: completion can fail after local commit.
+/// A failure returned during reconciliation.
 #[non_exhaustive]
 #[derive(thiserror::Error)]
 pub enum Error<B: Bookmark = NoBookmark> {
-    /// A transport operation failed or the peer closed before it completed.
-    /// Reconnect using a fresh connection.
+    /// A transport operation failed or the peer closed the connection before it
+    /// completed.
+    ///
+    /// Reconnect to the peer using a fresh connection.
     #[error(transparent)]
     Transport(TransportError),
 
-    /// A protocol or implementation invariant failed. Report its context and
-    /// diagnostic source as a bug; ordinary peer departure is a transport
-    /// failure.
+    /// A protocol invariant failed to be upheld by the implementation.
+    ///
+    /// [Please report its context and diagnostic source as a
+    /// bug.](https://github.com/oxidecomputer/rumors/issues/new)
     #[error(transparent)]
     Protocol(ProtocolViolation),
 
-    /// The peers have incompatible protocols, networks, or settings. Resolve
-    /// the mismatch before retrying on a fresh connection.
+    /// The two peers have incompatible protocols, networks, or settings.
+    ///
+    /// Resolve the mismatch by changing parameters before retrying on a fresh
+    /// connection.
     #[error(transparent)]
     Mismatch(Mismatch),
 
-    /// The application's deadline ended an active wire session. Discard the
-    /// connection and reconnect. A local commit already made is not undone, and
-    /// the peer's completion may be unconfirmed.
-    #[error("session deadline exceeded; discard the connection and reconnect")]
-    DeadlineExceeded,
-
-    /// The application's bookmark failed to load, persist, or decode. Repair or
-    /// replace the storage before retrying.
+    /// The application's gossip timeout interrupted an active session.
     ///
-    /// Synchronization may already have started. When accepting a retirement,
-    /// content has already committed before the bookmark write. It stays live,
-    /// and a later successful gossip persists the pending restart bookkeeping.
-    /// Until then, a crash can prevent that bookkeeping from being recovered.
-    /// See [`Bookmark`] for the recovery limits.
+    /// Discard the connection and reconnect to the peer.
+    #[error("gossip timeout exceeded; discard the connection and reconnect")]
+    GossipTimeout,
+
+    /// The application's [`Bookmark`] failed to load, persist, or parse.
+    ///
+    /// In case of non-transient errors, repair or replace the underlying
+    /// storage before retrying.
     #[error(transparent)]
     Bookmark(BookmarkIo<B::Error>),
 }
@@ -142,22 +136,22 @@ impl<B: Bookmark> Error<B> {
             Self::Transport(_) => SessionErrorKind::Transport,
             Self::Protocol(_) => SessionErrorKind::Protocol,
             Self::Mismatch(_) => SessionErrorKind::Mismatch,
-            Self::DeadlineExceeded => SessionErrorKind::DeadlineExceeded,
+            Self::GossipTimeout => SessionErrorKind::GossipTimeout,
             Self::Bookmark(_) => SessionErrorKind::Bookmark,
         }
     }
 }
 
-/// Format session failures without requiring the bookmark handle itself to be
+/// Format failures without requiring the bookmark handle itself to be
 /// debuggable.
 impl<B: Bookmark> fmt::Debug for Error<B> {
-    /// Formats the variant and its actionable diagnostic fields.
+    /// Formats the error and its actionable diagnostic fields.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Transport(error) => f.debug_tuple("Transport").field(error).finish(),
             Self::Protocol(error) => f.debug_tuple("Protocol").field(error).finish(),
             Self::Mismatch(error) => f.debug_tuple("Mismatch").field(error).finish(),
-            Self::DeadlineExceeded => f.write_str("DeadlineExceeded"),
+            Self::GossipTimeout => f.write_str("GossipTimeout"),
             Self::Bookmark(error) => f.debug_tuple("Bookmark").field(error).finish(),
         }
     }
@@ -196,7 +190,7 @@ impl Error {
             Self::Transport(error) => Error::Transport(error),
             Self::Protocol(error) => Error::Protocol(error),
             Self::Mismatch(error) => Error::Mismatch(error),
-            Self::DeadlineExceeded => Error::DeadlineExceeded,
+            Self::GossipTimeout => Error::GossipTimeout,
             Self::Bookmark(error) => match error {
                 BookmarkIo::Io(never) => match never {},
                 BookmarkIo::Format(error) => Error::Bookmark(BookmarkIo::Format(error)),

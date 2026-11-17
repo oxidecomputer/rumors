@@ -259,18 +259,26 @@ pub use connection::Connection;
 pub(crate) use gossip::COMPLETION_MARKER;
 pub use gossip::{Gossip, Gossiped, Led, Retire};
 
-/// The start and end of a [`Rumors`]'s lifecycle.
+/// The start and end of the lifecycle for [`Rumors`].
 ///
-/// Create a network with [`seed`](Self::seed), or join an established peer's
-/// network with [`bootstrap`](Self::bootstrap). Independently seeded networks
-/// cannot gossip with one another: their [`Network`](crate::Network)s mismatch,
-/// which will throw an error during attempts to gossip.
+/// Create a new gossip network with [`Peer::seed`](Self::seed), or join an
+/// established peer's network with [`Peer::bootstrap`](Self::bootstrap) ---
+/// both result in a [`Peer`], which can be additionally configured before
+/// proceeding to using it.
 ///
-/// To use and clone the replica, convert the peer into a [`Rumors`]. A [`Peer`]
-/// cannot be cloned and exists only while no [`Rumors`] handles to that replica
-/// remain. This API design ensures that when a [`Peer`]
+///  A [`Peer`] cannot be cloned and exists only while no [`Rumors`] handles to
+/// that replica remain. This API design ensures that when a [`Peer`]
 /// [`retire`](Self::retire)s, it cannot interrupt another handle's gossip
 /// sessions.
+///
+/// To use and clone the replica, convert the [`Peer`] into a [`Rumors`] using
+/// [`into_rumors`](Peer::into_rumors), then use the [`Rumors`] API to interact
+/// with the message set and gossip with other peers.
+///
+/// When finished, convert any
+/// [`Rumors`] clone back into a [`Peer`] using
+/// [`try_into_peer`](crate::Rumors::try_into_peer), and optionally
+/// [`retire`](Peer::retire) the [`Peer`] before stopping your application.
 ///
 /// # Example
 ///
@@ -278,97 +286,103 @@ pub use gossip::{Gossip, Gossiped, Led, Retire};
 ///
 /// ```
 /// use rumors::{Connection, Joined, Peer, Retire};
+/// use tokio::io::{BufReader, duplex, split};
 ///
 /// # tokio::runtime::Builder::new_current_thread()
 /// #     .build()
 /// #     .unwrap()
 /// #     .block_on(async {
-/// // The counterparty this example talks to: the universe's seed, serving
-/// // the bootstrap and later accepting the retirement, over in-memory
-/// // connections. Each session takes the two halves of one connection.
-/// let counterparty = Peer::<String>::seed().into_rumors();
-/// let (near, far) = tokio::io::duplex(64 * 1024);
-/// let (near_read, near_write) = tokio::io::split(near);
-/// let near_read = tokio::io::BufReader::new(near_read);
+/// // To connect to a peer, we pass the read/write halves of one connection.
+/// // In this example, we assume we've already set up a connection to some remote peer.
+/// # let counterparty = Peer::<String>::seed().into_rumors();
+/// # let (connection, far) = duplex(64 * 1024);
+/// let (read, write) = split(connection);
+/// let read = BufReader::new(read);
 /// # let serve = counterparty.clone();
 /// # tokio::spawn(async move {
 /// #     let (far_read, far_write) = tokio::io::split(far);
 /// #     let far_read = tokio::io::BufReader::new(far_read);
 /// #     serve.gossip_once(far_read, far_write).await.unwrap();
 /// # });
-/// // Join through an established peer. The new peer receives its full set.
-/// let Joined::Joined { peer, .. } = Peer::<String>::bootstrap()
-///     .join(near_read, near_write)
-///     .await
-/// else {
+///
+/// // Join the network through an existing peer.
+/// let Joined::Joined { peer, .. } = Peer::<String>::bootstrap().join(read, write).await else {
 ///     panic!("the established counterparty must serve the bootstrap");
 /// };
 ///
-/// // A `Peer` is `!Clone`; trade it for `Rumors` handles to send and gossip.
+/// // `Peer: !Clone`, so we trade it for `Rumors` to send, listen, and gossip concurrently.
 /// let rumors = peer.into_rumors();
 /// let other = rumors.clone();
-/// // ... send, redact, and gossip concurrently through the clones ...
 ///
-/// // Once every other handle is gone, the unique `Peer` can be reclaimed.
+/// // ... use the `Rumors` handles concurrently however you want ...
+///
+/// // Once all but one `Rumors` has been dropped, a unique `Peer` can be reclaimed.
 /// drop(other);
 /// let Some(peer) = rumors.try_into_peer().await else {
 ///     unreachable!("all other handles were dropped already");
 /// };
 ///
-/// // Leave the network through any gossiping peer. It need not be the
-/// // one we joined through.
-/// let (near, far) = tokio::io::duplex(64 * 1024);
-/// let (near_read, near_write) = tokio::io::split(near);
-/// let near_read = tokio::io::BufReader::new(near_read);
+/// // Leave the network by retiring into any peer; it need not be the one we bootstrapped from.
+/// // Here, we pretend we have another connection to another peer already in hand.
+/// # let (connection, far) = duplex(64 * 1024);
+/// let (read, write) = split(connection);
+/// let read = BufReader::new(read);
+///
 /// # tokio::spawn(async move {
-/// #     let (far_read, far_write) = tokio::io::split(far);
-/// #     let far_read = tokio::io::BufReader::new(far_read);
+/// #     let (far_read, far_write) = split(far);
+/// #     let far_read = BufReader::new(far_read);
 /// #     counterparty.gossip_once(far_read, far_write).await.unwrap();
 /// # });
-/// let retry = match peer.retire(near_read, near_write).await {
-///     // This peer left the network; nothing more to do. A lost connection
-///     // carries the session's error, worth logging.
+/// let retry = match peer.retire(read, write).await {
+///     // We have now left the gossip network.
 ///     Retire::Retired { connection } => {
 ///         if let Connection::Lost { error } = connection {
-///             eprintln!("retired, but the session then failed: {error}");
+///             eprintln!("error after retiring: {error}");
 ///         }
 ///         None
 ///     }
-///     // Both sides were retiring; retry against a different peer.
+///     // The remote peer was also retiring; retry retiring into a different peer.
 ///     Retire::Declined { peer, .. } => Some(peer),
-///     // Retirement did not proceed. Retry using a fresh connection.
+///     // Retirement failed part-way through; retry using a fresh connection, or another peer.
 ///     Retire::Recovered { peer, error: _ } => Some(peer),
 /// };
-/// assert!(retry.is_none(), "the example's retirement succeeds");
+/// # assert!(retry.is_none(), "the example's retirement succeeds");
 /// # });
 /// ```
 ///
 /// # Bootstrapping without consensus
 ///
 /// If your application admits a distinguished "first peer" (for example, via
-/// leader election or another consensus mechanism), have that peer call
-/// [`Peer::seed`].
+/// leader election), have that peer call [`Peer::seed`].
 ///
-/// Absent any true consensus mechanism, another reasonable approach to
-/// bootstrapping a [`Network`] is for *every* [`Peer`] to initially call
-/// [`Peer::seed`] and attempt to [`gossip`](crate::Rumors::gossip) with all
-/// others. Initially, peers report
-/// [`Mismatch::Network`](crate::error::Mismatch::Network); whenever a peer
-/// observes one, it can use a deterministic metric to decide whether it or its
-/// peer should dominate.
+/// Absent any true consensus on who should create the gossip network, another
+/// reasonable approach to bootstrapping a [`Network`] is for *every* [`Peer`]
+/// to initially call [`Peer::seed`] and attempt to
+/// [`gossip`](crate::Rumors::gossip) with all others. Initially, peers will
+/// each report [`Mismatch::Network`](crate::error::Mismatch::Network); whenever
+/// a peer observes such an error, it can use a deterministic metric to decide
+/// whether it or its peer should dominate.
 ///
-/// A reasonable such metric is provided by the error itself: compare its
-/// `local_min_events` against its `remote_min_events`. The greater minimal
-/// event count wins, with ties broken by comparing the two [`Network`]
-/// identifiers (their ordering is total). The winner then stays in its network,
-/// and the loser drops its replica and attempts to
-/// re-[`bootstrap`](Peer::bootstrap) into the winning [`Network`] of which it
-/// just learned.
+/// A reasonable such metric is provided by metrics provided in the error
+/// itself: compare its `local_min_events` against the `remote_min_events`. Let
+/// the greater count win, with ties broken by comparing the two [`Network`]
+/// identifiers. The winner then stays in its network, and the loser drops its
+/// [`Peer`] and attempts to re-[`bootstrap`](Peer::bootstrap) from the winning
+/// peer.
 ///
 /// If peers are reasonably well-connected as the network gets started, this
 /// protocol quickly reaches a stable steady state, which is henceforth
 /// disrupted only if a group of new peers spends a long time partitioned before
 /// uniting with the rest of the network.
+///
+/// A tweak to this scheme can guarantee the absence of data loss, at the cost
+/// of network coherence: only allow the greater-count peer to "win" if the
+/// losing peer has *zero* local events. This alternative convergence rule will
+/// result in a gossip network fragmented into "largest coherent partitions".
+/// Which version of this rule to pick (or whether some other convergence
+/// mechanism is desirable) is a decision `rumors` doesn't try to make for
+/// you --- your own application and its constraints should dictate the
+/// trade-offs here.
 pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The keys of the network this replica belongs to, derived from the secret
     /// drawn at seed or received at join. Its public identifier is
@@ -398,40 +412,26 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     pub(crate) codec: PayloadCodec,
 }
 
-/// The local settings that govern a peer's synchronization sessions.
+/// The settings configured on a [`Peer`] for gossip synchronization.
 ///
-/// Read these from [`Peer::synchronization_settings`] or
+/// These are queryable via [`Peer::synchronization_settings`] or
 /// [`Rumors::synchronization_settings`](crate::Rumors::synchronization_settings).
-/// A session admits its work against this peer's memory budget and uses the
-/// smaller of the two peers' message-size targets. The values here are this
-/// peer's inputs to those decisions.
+///
+/// Non-inspectable gossip policies set via [`gossip_when`](Peer::gossip_when)
+/// and [`gossip_until`](Peer::gossip_until) are not represented here.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SynchronizationSettings {
-    /// The memory budget each session admits its work against
-    /// ([`Peer::sync_memory_budget`]).
-    ///
-    /// It is the budget set, raised to the minimum for
-    /// [`target_message_size`](Self::target_message_size), so never more than
-    /// the larger of the budget set and the minimum at the default target,
-    /// about 36.4 MiB.
+    /// The configured [`Peer::sync_memory_budget`], adjusted for what is
+    /// possible to achieve based on internal constraints.
     pub sync_memory_budget: usize,
-    /// The wire-message target this peer advertises
-    /// ([`Peer::target_message_size`]): the target set, saturated at the
-    /// wire's limit of about 4 GiB and clamped to what the memory budget
-    /// affords.
-    ///
-    /// Passing it back to [`Peer::target_message_size`] selects the same
-    /// target.
+    /// The configured [`Peer::target_message_size`].
     pub target_message_size: usize,
-    /// The write batch range this peer's sessions batch their writes within
-    /// ([`Peer::write_batch_range`]), as they apply it.
-    ///
-    /// It runs from the segment size, included, to the largest batch, included
-    /// and saturated at the write buffer's capacity, or unbounded. Passing it
-    /// back to [`Peer::write_batch_range`] selects the same batching.
+    /// The configured [`Peer::write_batch_range`]), normalized to a pair of
+    /// non-crossed bounds.
     pub write_batch_range: (Bound<usize>, Bound<usize>),
-    /// The payload nesting limit this peer requires its counterpart to match.
+    /// The configured [`Peer::payload_depth_limit`], required to match between
+    /// any two peers which gossip.
     pub payload_depth_limit: u64,
 }
 
@@ -661,24 +661,26 @@ impl<T: Send + Sync + 'static> Inner<T> {
 #[cfg(test)]
 mod tests;
 
-/// A bounded replica summary, independent of `T: Debug`.
+/// A bounded summary, independent of `T: Debug`.
 impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Peer<T, B> {
-    /// Summarize the replica without printing payloads.
+    /// Summarize the replica without printing its contents.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_summary("Peer", f)
     }
 }
 
 impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBookmark> {
-    /// Create a new gossip network containing only this peer.
+    /// Create a new peer belonging to a fresh gossip network which initially
+    /// contains only that peer.
     ///
-    /// Call this function *once per network*. Other peers in a single network
-    /// should join through [`bootstrap`](Self::bootstrap). Independently seeded
-    /// peers cannot ever gossip with each other.
+    /// Independently seeded peers cannot ever gossip with each other, so you
+    /// must call this function *once per network*. Subsequently, other peers
+    /// should join the same gossip network through
+    /// [`bootstrap`](Self::bootstrap).
     ///
     /// # Panics
     ///
-    /// Panics if the operating system's random number source fails.
+    /// Panics if the operating system's random number generator fails.
     pub fn seed() -> Self {
         // The secret comes from the operating system on every call, never
         // from a generator whose state lives in this process: a forked
@@ -774,20 +776,19 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     }
 }
 
-/// Inspect the network and configure replication behavior.
+/// Inspect and configure settings for gossip.
 impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Return the gossip network this replica belongs to.
+    /// Return the gossip network to which this replica belongs.
     pub fn network(&self) -> Network {
         self.keys.network()
     }
 
-    /// Return the local settings used to configure synchronization sessions.
+    /// Return the local settings used to configure gossip sessions.
     ///
-    /// The message-size target and the memory budget are returned as sessions
-    /// run on them, whichever order the two were set in: the target saturated
-    /// at the wire's limit of about 4 GiB and clamped to what the budget affords,
-    /// matching the value advertised to peers, and the budget raised to the
-    /// minimum for that target.
+    /// This excludes the gossip initiation and termination policies defined by
+    /// [`gossip_when`](Peer::gossip_when) and
+    /// [`gossip_until`](Peer::gossip_until), which are specified as async
+    /// closures and therefore cannot be meaningfully inspected.
     pub fn synchronization_settings(&self) -> SynchronizationSettings {
         let sizing = self.settings.sizing;
         let limits = sizing.limits();
@@ -818,28 +819,44 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             .finish_non_exhaustive()
     }
 
-    /// Select how each connection initiates gossip. By default it follows
-    /// changes.
+    /// Set the policy for when each [`Rumors`] will initiate
+    /// gossip with a peer during [`Rumors::gossip`](crate::Rumors::gossip) or
+    /// [`Rumors::gossip_stream`](crate::Rumors::gossip_stream).
     ///
-    /// The factory receives a fresh [`Changes`] subscription for each
-    /// connection's driver, from [`Rumors::gossip`](crate::Rumors::gossip) or
-    /// [`Rumors::gossip_stream`](crate::Rumors::gossip_stream). It can adapt
-    /// that stream, combine it with periodic heartbeat requests, or ignore it
-    /// and provide its own policy. An always-pending stream only serves remote
-    /// initiations. An endless, always-ready stream can busy-loop.
+    /// By default, gossip will initiate immediately any time the local set of
+    /// messages changes.
     ///
-    /// Each item converts to [`Gossip`]; `()` means initiate if this connection
-    /// has new local state. The driver suppresses echoes of its own completed
-    /// sessions. Remote initiations are always served, regardless of the local
-    /// policy. Ending the policy stream ends the driver cleanly after any
-    /// active session.
+    /// You might want to alter this policy if you want to debounce or
+    /// rate-limit gossip, or gossip only on an interval or in response to some
+    /// external, application-specified event.
     ///
-    /// The factory is shared by all handles and may be called concurrently for
-    /// different connections. Each returned stream belongs to one driver.
+    /// To set this policy, provide a function `when`, which accepts a stream of
+    /// [`Changes`] and returns a stream of [`Gossip`]. Your
+    /// function can adapt that stream, combine it with another, or ignore it
+    /// entirely and provide its own policy.
     ///
-    /// To end every driver's policy on a shared signal, whichever policy this
-    /// selects, use [`gossip_until`](Self::gossip_until) rather than building
-    /// the signal into the factory.
+    /// If you return [`Gossip::WhenChanged`] from
+    /// your stream, gossip will only happen if there have been changes since
+    /// the last gossip round with this peer; if you return
+    /// [`Gossip::Unconditionally`], gossip will
+    /// happen regardless of local changes. Note that `(): Into<Gossip>` where
+    /// `().into() == Gossip::WhenChanged`, so an ordinary stream of `()` acts
+    /// as a sequence of "ticks" which initiate gossip only if there are known
+    /// changes to broadcast.
+    ///
+    /// Two extremes to be aware of:
+    ///
+    /// - A stream which always pends and never yields an item will only gossip
+    ///   if the remote side initiates; if everyone has this policy, nobody will
+    ///   ever gossip.
+    /// - A stream which immediately yields every time it is polled will cause a
+    ///   busy-loop. Don't do this!
+    ///
+    /// When the stream of [`Gossip`] ends, `rumors` will stop
+    /// each gossip connection cleanly after any active session. That said, to
+    /// end every driver's policy on a shared signal, use
+    /// [`gossip_until`](Self::gossip_until) rather than building the signal
+    /// into the factory.
     pub fn gossip_when<F, S>(mut self, when: F) -> Self
     where
         F: Fn(crate::Changes<T>) -> S + Send + Sync + 'static,
@@ -850,17 +867,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// End every gossip driver's initiation policy once `stop` resolves, for a
-    /// graceful shutdown.
+    /// Graceful shutdown: end every gossip driver's initiation policy once
+    /// `stop` resolves.
     ///
-    /// The drivers of every handle share `stop`, and its output is discarded.
-    /// Each driver observes it between sessions: a driver with a session in
-    /// flight finishes that session, then ends cleanly, its connection resting
-    /// at a session boundary. Ending a driver's policy ends the driver, so it
-    /// serves no further remote initiations either. `stop` bounds whichever
-    /// policy [`gossip_when`](Self::gossip_when) selects, the default included.
-    /// Use [`session_deadline`](Self::session_deadline) to bound a stalled
-    /// exchange.
+    /// This future is shared by every [`Rumors`] handle, and its
+    /// output is discarded. The `stop` future bounds whichever policy
+    /// [`gossip_when`](Self::gossip_when) specifies, including the default.
     ///
     /// ```
     /// # pollster::block_on(async {
@@ -877,7 +889,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// let drive = async move { handle.gossip(read, write).await };
     /// // Finishing `drive` drops its `handle`.
     ///
-    /// // Request shutdown, then keep driving gossip while reclaiming the peer.
+    /// // Request graceful shutdown, then continue driving gossip while trying to reclaim the peer.
     /// stop.send(()).unwrap();
     /// let (finished, peer) = futures::join!(drive, rumors.try_into_peer());
     /// finished.unwrap();
@@ -887,14 +899,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// # });
     /// ```
     ///
-    /// [`Rumors::try_into_peer`] waits for every other handle to be dropped,
-    /// including handles held by tasks doing work other than gossip.
+    /// [`Rumors::try_into_peer`] waits for every other handle to be dropped, so
+    /// invoking `stop` allows it to resolve and collect all the disparate
+    /// gossiping clones back into a single [`Peer`].
     ///
     /// Once `stop` has resolved, it stays in effect: a driver started later
-    /// ends at once. Replace it (with [`std::future::pending`] to clear it)
-    /// before restarting gossip. Stopping does not force a final
-    /// synchronization of pending local changes, retire the peer, or affect
-    /// explicit [`Rumors::gossip_once`] calls.
+    /// ends at once. Replace it (e.g. with [`std::future::pending`] to reset
+    /// the policy entirely) before restarting gossip.
     pub fn gossip_until<F>(mut self, stop: F) -> Self
     where
         F: Future + Send + 'static,
@@ -903,54 +914,38 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Supply a fresh deadline for each wire session. Disabled by default.
+    /// Impose a timeout on the completion of each round of gossip. This is
+    /// disabled by default.
     ///
-    /// The deadline covers gossip, bootstrap, and retirement through final
-    /// confirmation. It starts when an explicit call or the local policy
-    /// initiates a session, or when the first remote bytes arrive. Idle waits
-    /// are untimed, and traffic does not reset the deadline.
+    /// Because Rumors is runtime-independent, the application owns whatever
+    /// clock is used for the deadline.
     ///
-    /// Expiry reports
-    /// [`Error::DeadlineExceeded`](crate::Error::DeadlineExceeded) and leaves
-    /// the connection at an unknown position: discard it. A completed local
-    /// commit is not undone. [`Retire`] preserves a usable peer when recovery
-    /// is safe; otherwise it reports an uncertain retirement. A gossip driver
-    /// ends after the error.
+    /// For example, a one-second deadline with Tokio could be configured by
+    /// passing the gossip timeout of:`||
+    /// tokio::time::sleep(Duration::from_secs(1))`.
     ///
-    /// Because Rumors is runtime-independent, the application owns the clock
-    /// used for the deadline: for a one-second deadline with Tokio, pass `||
-    /// tokio::time::sleep(std::time::Duration::from_secs(1))`. Configure
-    /// [`Bootstrap::session_deadline`] before joining; the returned peer
-    /// inherits it. Bookmark attachment after the join's wire session is a
-    /// separate local storage operation and is not covered by this deadline.
-    pub fn session_deadline<D, F>(mut self, deadline: D) -> Self
+    /// Before joining via [`bootstrap`](Peer::bootstrap), configure
+    /// [`Bootstrap::gossip_timeout`]; it will apply to the initial bootstrap
+    /// session, and the returned [`Peer`] will inherit it henceforth.
+    pub fn gossip_timeout<D, F>(mut self, timeout: D) -> Self
     where
         D: Fn() -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.settings.gossip_policy.set_deadline(deadline);
+        self.settings.gossip_policy.set_deadline(timeout);
         self
     }
 
-    /// Limit the complete encoded bookmark, including its integrity frame.
+    /// Impose a maximum size limit on a stored [`Bookmark`].
     ///
-    /// The default is [`default::BOOKMARK_SIZE_LIMIT`] (16 MiB). The budget is
-    /// shared by all networks retained in this bookmark. Updates discard the
-    /// oldest identities from the least recently used network, removing each
-    /// network only after its last identity is gone. Eviction only loses
-    /// opportunities to recycle identity space; it cannot lose replicated
-    /// messages or permit version reuse.
+    /// The default is [`default::BOOKMARK_SIZE_LIMIT`].
     ///
-    /// Set this before [`bookmark`](Peer::bookmark) to apply it to attachment,
-    /// or afterwards to apply it at the next checkpoint.
-    /// [`Bootstrap::bookmark_size_limit`] configures it before joining. Smaller
-    /// values are raised to the empty frame size (43 bytes). A limit that
-    /// cannot hold one identity keeps no recovery rights. Capacity is not
-    /// reserved up front.
+    /// Updates to a bookmark discard the oldest and least recently-used
+    /// information once the size of the bookmark hits this capacity.
     ///
-    /// This bounds stored bytes, not peak working memory: loading and encoding
-    /// use temporary allocations, and an existing record may exceed a newly
-    /// lowered limit until the next successful store.
+    ///
+    /// Use [`Bootstrap::bookmark_size_limit`] to configure this setting
+    /// explicitly before joining a gossip network.
     pub fn bookmark_size_limit(mut self, bytes: usize) -> Self {
         self.bookmark.set_size_limit(bytes);
         self
@@ -958,8 +953,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Constrain the memory budget for each synchronization session.
     ///
-    /// The default is [`default::SYNC_MEMORY_BUDGET`] (512 MiB), and the least
-    /// is about 36.4 MiB.
+    /// The default is [`default::SYNC_MEMORY_BUDGET`] (512 MiB), and the
+    /// minimum is about 36.4 MiB.
     ///
     /// This setting is preserved indefinitely throughout the lifecycle of the
     /// [`Peer`], and all [`Rumors`] clones inherit it.
@@ -972,223 +967,137 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Add a wire observer to this peer's future sessions.
+    /// Add a wire [`Observer`] to this peer's gossip
+    /// sessions.
     ///
-    /// For every session the peer enters — gossip, bootstrap serving, and
-    /// retirement alike — each observer is asked for a per-session observer,
-    /// which sees each directed stream's protocol messages as raw CBOR items.
-    /// The full contract (the three handler levels, the ordering and
-    /// back-pressure rules, what exactly is observed) is the
-    /// [`observe`](crate::observe) module's.
+    /// For every session the peer enters, each [`Observer`] is given the
+    /// capability to see each directed stream's protocol messages as raw CBOR
+    /// items. This can be useful to debug, test, or instrument the `rumors`
+    /// protocol itself.
     ///
-    /// Observation never changes the wire: an observed session's bytes are
-    /// identical to an unobserved one's. The choice follows the peer through
-    /// [`into_rumors`](Self::into_rumors), cloning and reunion, bookmarking,
-    /// and retirement; every [`Rumors`] clone shares all observers. Calling
-    /// `observe` again adds another; callbacks visit them in registration
-    /// order. To observe a joining peer's own bootstrap session, attach on the
-    /// builder instead ([`Bootstrap::observe`]).
+    /// Calling `observe` again adds another, and observers are invoked in
+    /// registration order. To observe a joining peer's own bootstrap session,
+    /// attach it instead using [`Bootstrap::observe`].
     #[must_use]
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.settings.observe.attach(observer);
         self
     }
 
-    /// Bound the encoded size of the batched messages this peer sends.
+    /// Tune the target encoded size of the batched messages this peer sends.
     ///
-    /// When the default protocol supplies a subtree the counterparty lacks, its
-    /// leaves ship as *runs*: one wire message carrying a delimited sequence of
-    /// leaf records. Batching is chunked by bytes: a run flushes once appending
-    /// the next leaf would push the message's full encoded size, framing
-    /// included, past `bytes`. Every run carries at least one leaf, so a
-    /// message whose single leaf alone outgrows the target ships anyway and
-    /// exceeds it. Runs never span reconciliation units: batching stops at each
-    /// supplied subtree's last leaf.
+    /// When a peer supplies messages which its counterparty lacks, those
+    /// messages are coalesced into batches of records which are flushed if
+    /// appending the next message would push the batch's size past the
+    /// specified target `bytes`.
     ///
-    /// # Memory
+    /// Adjusting this setting can subtly trade between latency, CPU
+    /// utilization, and memory. It is recommended to stick with the
+    /// default,[`default::TARGET_MESSAGE_SIZE`], unless there is a compelling
+    /// reason to differ. Any value is safe: zero degrades to one leaf per
+    /// message, and any limit above the maximum possible ~4 GiB saturates.
     ///
-    /// The target sizes the room a session sets aside, out of
-    /// [`sync_memory_budget`](Self::sync_memory_budget), for the runs on their
-    /// way through the connection: about two runs' worth at this peer's own
-    /// target in each direction, as the budget's section on messages on their
-    /// way describes. That room never takes more than the budget affords: a
-    /// session runs at the largest target, at most yours, whose room fits the
-    /// budget beside everything else it sets aside, a budget below the minimum
-    /// at the default target counting as that minimum. Every target at or
-    /// below the default fits, so a session lowers only a larger one, and never
-    /// below the default. It advertises the target it runs at, which
-    /// [`synchronization_settings`](Self::synchronization_settings) reports. A
-    /// lowered target leaves the session's work only the room for its largest
-    /// single piece beyond what every budget sets aside, so such a session
-    /// keeps little in flight: raise the budget with the target. Each run holds
-    /// at most the target's worth of bytes, framing aside, unless its one leaf
-    /// alone outgrows the target; such a run takes its direction's whole room,
-    /// and one larger than about twice the target holds its excess beyond the
-    /// budget while it crosses. A run whose frame
-    /// (the run and a few bytes of framing) is smaller than the sending side's
-    /// write buffer, about 63 KiB, is copied into it as it is written. The
-    /// receiver decodes each run's encoded bytes as it goes, handing each leaf
-    /// to the storage backend as it is read; a decoded leaf joins the replica,
-    /// which the budget never covers.
+    /// If two peers configure this differently, they interoperate by
+    /// negotiating the minimum of their two target message sizes, so that the
+    /// lesser-configured peer receives batches sized according to its own
+    /// desires.
     ///
-    /// Each session runs at the **minimum** of the two ends' targets: the
-    /// greeting carries each side's setting, each side's *encoder* batches
-    /// within that minimum, and each side's decoder refuses a larger run unless
-    /// it holds one leaf. Your setting thus bounds the frames you build and,
-    /// through the minimum, the frames a conforming peer sends you, so the room
-    /// your side sets aside at the target it advertises covers both directions:
-    /// the more memory-constrained peer sets the pace. Peers with different
-    /// settings interoperate.
-    ///
-    /// The default, [`default::TARGET_MESSAGE_SIZE`], is 256 KiB, the size by
-    /// which batching a supplied subtree's records saves no more processor time
-    /// in the workloads measured; its documentation gives the measurements. Any
-    /// value is safe: zero degrades to one leaf per message, and values above
-    /// the wire's limit of about 4 GiB, set by its 32-bit length field,
-    /// saturate to it, so a run built within the target always fits the wire.
-    ///
-    /// The choice follows the peer through [`into_rumors`](Self::into_rumors),
-    /// cloning and reunion, bookmarking, and retirement.
+    /// This setting is preserved indefinitely throughout the lifecycle of the
+    /// Peer, and all Rumors clones inherit it.
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.settings.sizing.run_budget = RunBudget::from_bytes(bytes);
         self
     }
 
-    /// Choose how many bytes of messages each write to your write half carries,
-    /// so the writes suit your transport.
+    /// Tune write-batching to optimize for your underlying transport.
     ///
-    /// A session sends many small messages, and each write to your write half
-    /// costs your transport something whatever its size: a system call on a
-    /// socket, a record on a TLS stream. So a session gathers the messages it
-    /// builds into *batches*, and writes and flushes each batch at once. The
-    /// range's start is the *segment size*, the most a batch of small messages
-    /// carries, so that each such write fits one network segment; its end is
-    /// the *largest batch*, the most any batch carries.
+    /// This range should usually run from the "largest smallest frame" to the
+    /// "largest single frame" your transport allows, which economizes on system
+    /// calls and optimizes the fullness of each individual transport frame.
     ///
-    /// - A batch whose messages each fit the segment size stays within it: the
-    ///   session flushes before a message that would push the batch past the
-    ///   segment size, and as soon as the batch reaches it.
-    /// - A message larger than the segment size spans segments however it is
-    ///   written. The session flushes the batch before it, keeping that batch's
-    ///   one-segment write, and the large message starts a batch that the
-    ///   messages after it share, up to the largest batch.
-    /// - While your write half is full, small writes buy no latency, since
-    ///   bytes queue anyway. Once writing out a batch has had to wait for your
-    ///   write half, each next batch grows up to the largest batch, until one
-    ///   is written out without waiting.
-    /// - While the session readies messages back to back, small writes buy no
-    ///   latency either: each would only delay the messages queued behind it.
-    ///   Once two batches in a row have been flushed at their ceiling, each
-    ///   next batch grows up to the largest batch, until one ends because
-    ///   nothing more was ready. A single burst a little over the segment size
-    ///   keeps its one-segment writes.
+    /// The default, [`default::tls::WRITE_BATCH_RANGE`], is tuned for TLS over
+    /// TCP on a 1,500-byte MTU Ethernet link.
     ///
-    /// Either way the session also flushes whenever it has nothing more ready
-    /// to send. It never waits for more messages to fill a batch, so both
-    /// bounds are ceilings, not targets, and a message larger than its batch's
-    /// ceiling is written and flushed alone.
+    /// This setting is preserved indefinitely throughout the lifecycle of the
+    /// [`Peer`], and all [`Rumors`] clones inherit it.
     ///
-    /// A peer that never calls this uses [`default::tls::WRITE_BATCH_RANGE`],
-    /// from 1,426 to 16,384 bytes, because TLS over TCP is the common
-    /// deployment. Over TLS 1.3 on a 1,500-byte Ethernet link, each batch of
-    /// small messages that keeps to the segment size then leaves as one record
-    /// that fills at most one TCP segment, and every other batch as one record
-    /// of at most TLS's largest plaintext. [`default::tls`] gives the
-    /// arithmetic and how to adjust both bounds for other links and transports.
+    /// # When and how to change this
     ///
-    /// # How the bounds convert
+    /// Keeping the default will never cause correctness issues, but in other
+    /// contexts, you may see improved performance by changing it.
     ///
-    /// Inclusive and exclusive bounds both work: an excluded start of `s` bytes
-    /// means `s + 1`, and an excluded end of `e` bytes means `e - 1`.
+    /// By way of example:
     ///
-    /// - An unbounded start means a segment size of zero: every batch grows to
-    ///   the largest batch.
-    /// - A start above the end is lowered to the end.
-    /// - An end above the session's write buffer, about 63 KiB, saturates to
-    ///   it.
-    /// - An end of zero, as in `..=0` or the empty `..0`, turns batching across
-    ///   the session's work off. The session flushes whenever it finds no
-    ///   message ready, without first letting its other work build more, so a
-    ///   write carries only the messages ready together, and the write buffer
-    ///   writes itself out whenever the next message does not fit beside the
-    ///   buffered ones.
-    /// - An unbounded end means no largest batch. A batch of small messages
-    ///   still keeps to the segment size, but any other batch grows until the
-    ///   session has nothing more ready to send, and the write buffer writes
-    ///   itself out whenever it fills. You rarely want that: it suits a write
-    ///   half that gains nothing from smaller writes and holds nothing back
-    ///   until flushed, such as a raw socket carrying a bulk transfer. It gives
-    ///   up the bound on how long a written message waits for its flush, which
-    ///   then lasts as long as the session keeps readying messages, and a write
-    ///   half that holds bytes until flushed, such as an encrypting or
-    ///   compressing layer, holds them that long.
+    /// - **Plain TCP** does not have a separate record framing layer.
+    ///   Consequently, the write batch range should start at the TCP segment
+    ///   payload size, 1,448 bytes, and can end wherever you choose. No record
+    ///   limit applies in this setting, so a larger maximum will make fewer
+    ///   writes, but may increase latency and memory usage if set exceptionally
+    ///   high.
+    /// - **IPv6** headers are 20 bytes longer than IPv4's, so subtract 20 bytes
+    ///   from the minimum of the range, giving 1,406 bytes as an optimal
+    ///   minimum for gossip over TLS.
     ///
-    /// The setting chooses only when the write buffer is flushed, never its
-    /// size, so it changes no memory bound:
-    /// [`sync_memory_budget`](Self::sync_memory_budget), its minimum, and the
-    /// buffers beside it are the same whatever you set here. It is local to
-    /// this peer and is not negotiated with the counterparty.
+    /// - **Larger MTUs**, such as 9,000-byte jumbo frames, should raise the
+    ///   minimum by the same amount, for example 8,926 bytes as an optimal
+    ///   minimum for gossip over TLS.
     ///
-    /// The choice follows the peer through [`into_rumors`](Self::into_rumors),
-    /// cloning and reunion, bookmarking, and retirement.
+    /// # Settings to (probably) avoid
+    ///
+    /// - A crossed range like `hi..low` is corrected internally to `low..low`.
+    ///   You're probably doing something wrong if you do this.
+    /// - An unbounded-below range like `..max` or `0..max` means a "largest
+    ///   smallest frame" of zero. This means every batch will try to grow to
+    ///   the maximum size, rather than dispatching small batches quickly. This
+    ///   usually harms performance!
+    /// - A maximum set to zero, as in `..=0` or the empty `..0`, turns batching
+    ///   off entirely. Sessions will flush immediately when they find no
+    ///   message ready. This usually harms performance!
+    /// - An unbounded maximum, or a maximum set above the internal write buffer
+    ///   size, saturates at this inner capacity. A batch of small messages
+    ///   still will flush when it reaches the minimum size, but any batch that
+    ///   accumulates past this will continue to grow until the session has
+    ///   nothing more ready to send, only flushing when the internal write
+    ///   buffer fills. This usually harms performance!
     #[must_use]
     pub fn write_batch_range(mut self, range: impl RangeBounds<usize>) -> Self {
         self.settings.sizing.write_batch = WriteBatch::from_range(range);
         self
     }
 
-    /// Bound the nesting depth of the message payloads this peer sends and
-    /// accepts.
+    /// Bound the depth of the messages this peer sends and accepts.
     ///
-    /// A payload value is accepted only if decoding its CBOR encoding as the
-    /// peer's payload type recurses at most `limit` steps. What consumes one
-    /// step is the decode engine's own accounting for that type — arrays, maps,
-    /// and tags each do, and so can type-driven wrappers such as an enum's
-    /// variant scope — so the bound is engine-defined, not a structural count
-    /// of the bytes. The default, [`default::PAYLOAD_DEPTH_LIMIT`], is 256
-    /// steps: exactly the bound the decoder applies by default, so a fleet at
-    /// the default sees no acceptance change on existing content.
+    /// A message value is accepted only if decoding its CBOR encoding as the
+    /// peer's payload type recurs at most `limit` steps. The meaning of such a
+    /// "recursion step" is internal to `rumors`, but is guaranteed to remain
+    /// stable within a single wire protocol.
     ///
-    /// Three points enforce the one bound:
+    /// Applying such a limit prevents a peer from "poisoning" the gossip set
+    /// with an excessively nested encoded message, which otherwise could
+    /// trigger a stack overflow on receipt by other peers.
     ///
-    /// - **Send** ([`Rumors::send`](crate::Rumors::send),
-    ///   [`Batch::send`](crate::Batch::send)): admission runs the exact decode
-    ///   every receiver's wire ingress runs — same payload type, same limit,
-    ///   same engine — so an over-deep value is rejected at its author, at the
-    ///   moment of choice, with a typed [`EncodeError`].
-    /// - **Handshake**: the greeting carries each side's configured limit, and
-    ///   a session proceeds only if the two are exactly equal; a mismatch in
-    ///   either direction aborts both sides with
-    ///   [`Mismatch::PayloadDepth`](crate::error::Mismatch::PayloadDepth)
-    ///   before anything else — the converged-session short-circuit included —
-    ///   so a mixed configuration is caught at every pairing.
-    /// - **Wire ingress**: every payload decode runs under this same limit, so
-    ///   over-deep *content* supplied by a nonconforming implementation fails
-    ///   its session with a typed decode error. The bound governs the decode's
-    ///   recursion, not the bytes' shape: deep byte patterns the engine
-    ///   consumes without recursing (a tag chain in a scalar position, say)
-    ///   decode fine and are harmless.
+    /// This limit is checked by peers both prior to
+    /// [`send`](crate::Rumors::send), and also during message decoding, so that
+    /// a conforming peer cannot even send a too-deep message, and a
+    /// non-conforming peer which bypasses the internal check will succeed only
+    /// at isolating itself from gossip, since everyone else will reject its bad
+    /// message.
     ///
-    /// Together those establish the invariant this setting exists for: between
-    /// conforming peers, no session can fail on payload depth at all — true by
-    /// construction within a decode-engine version, because admission and
-    /// ingress are one computation, not two accountings held in agreement.
-    /// Over-deep values are rejected at their author, and mismatched fleets are
-    /// rejected at the handshake. (A fleet mixing builds whose CBOR engine
-    /// versions account recursion differently could still diverge; upgrading
-    /// the engine is a fleet-coordination event in the same register as
-    /// changing this limit.) The limit is a property of the *shared set* —
-    /// every replica must be able to hold and forward all content — which is
-    /// why the handshake demands equality rather than negotiating: a peer whose
-    /// session bound dropped below its own configured limit could already hold
-    /// messages deeper than the negotiated bound, which it would then not be
-    /// allowed to gossip. Changing the limit is therefore a fleet-coordinated
-    /// configuration event, like the [`Protocol`](crate::Protocol) deployed
-    /// across the fleet, never a per-peer tuning parameter.
+    /// The default is [`default::PAYLOAD_DEPTH_LIMIT`], which should be ample
+    /// for almost any type.
     ///
-    /// The choice follows the peer through [`into_rumors`](Self::into_rumors),
-    /// cloning and reunion, bookmarking, and retirement.
+    /// This setting is preserved indefinitely throughout the lifecycle of the
+    /// [`Peer`], and all [`Rumors`] clones inherit it.
+    ///
+    /// <div class="warning">
+    ///
+    /// **This setting must be *exactly the same* for all peers in the gossip
+    /// network.** Peers will refuse to gossip with one another if they are
+    /// configured with different payload depth limits, *even if they have
+    /// ostensibly compatible sets of messages.*
+    ///
+    /// </div>
     #[must_use]
     pub fn payload_depth_limit(mut self, limit: u64) -> Self {
         self.codec = self.codec.with_limit(PayloadDepthLimit::new(limit));
@@ -1196,12 +1105,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     }
 
     /// Convert the [`Peer`] into a [`Rumors`] so it can [`send`](Rumors::send),
-    /// [`redact`](Rumors::redact), and [`gossip`](Rumors::gossip).
+    /// [`redact`](Rumors::redact), and [`gossip`](Rumors::gossip) with other
+    /// peers.
     ///
-    /// Unlike [`Peer`], [`Rumors`] is [`Clone`], so that gossip may proceed
-    /// concurrently. Once a single [`Rumors`] handle remains,
-    /// [`try_into_peer`](Rumors::try_into_peer) converts it back into a
-    /// [`Peer`].
+    /// Unlike [`Peer`], [`Rumors`] is [`Clone`], so that you can
+    /// [`gossip`](crate::Rumors::gossip) with many other peers concurrently.
+    /// Once a single [`Rumors`] handle remains,
+    /// [`try_into_peer`](Rumors::try_into_peer) will convert it back into the
+    /// original [`Peer`].
     pub fn into_rumors(self) -> Rumors<T, B> {
         Rumors::new(self)
     }

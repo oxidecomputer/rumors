@@ -43,26 +43,24 @@ impl PartialOrd for StageKey {
     }
 }
 
-/// Observe messages in a [`Rumors`](crate::Rumors) in causal order.
+/// A stream yielding messages from a [`Rumors`](crate::Rumors) in causal order.
 ///
-/// For any two yielded messages with versions `v` and `w`, if `v < w` then the
-/// `v` message is yielded first. Concurrent messages are delivered in arbitrary
-/// order, which may differ between [`gossip`](crate::Rumors::gossip)ing
-/// replicas of the same [`Rumors`](crate::Rumors).
+/// This stream yields items of type `(Version, Arc<T>)`.
 ///
-/// Each message arrives as an owned `(Version, Arc<T>)` — both handles are
-/// cheap reference bumps into shared storage — through the [`Stream`] impl or
-/// [`try_next`](Self::try_next), exactly as for
-/// [`UnorderedMessages`](super::UnorderedMessages).
+/// For any two messages with [`Version`]s `v` and `w`, if `v <
+/// w` then the `v` message is yielded first. Concurrent messages (i.e. those
+/// with incomparable versions) are delivered in arbitrary order, which may
+/// differ between [`gossip`](crate::Rumors::gossip)ing replicas of the same
+/// [`Rumors`](crate::Rumors).
 ///
-/// Unlike [`UnorderedMessages`](super::UnorderedMessages), this costs an extra
-/// amortized factor, logarithmic in the number of messages the set holds, in
-/// memory and in the time to retrieve each message, and both costs may burst
-/// arbitrarily large, up to the total size of the messages stored in the
-/// underlying [`Rumors`](crate::Rumors).
+/// Unlike [`UnorderedMessages`](super::UnorderedMessages), keeping this stream
+/// causally ordered may cost up to an extra amortized factor, logarithmic in
+/// the number of messages held by the underlying peer. Both costs may burst
+/// arbitrarily, up to the total number of messages in the underlying
+/// [`Rumors`](crate::Rumors).
 ///
-/// This observer does not count against the quiescence that lets
-/// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
+/// Holding this stream open does not prevent
+/// [`try_into_peer`](crate::Rumors::try_into_peer) from reclaiming the
 /// [`Peer`](crate::Peer).
 pub struct CausalMessages<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
@@ -91,9 +89,9 @@ pub struct CausalMessages<T: Send + Sync + 'static> {
     staged: BTreeMap<StageKey, Leaf>,
 }
 
-/// Summarize an observer without requiring its payloads to be debuggable.
+///   Format a causal stream without requiring its messages to be debuggable.
 impl<T: Send + Sync + 'static> std::fmt::Debug for CausalMessages<T> {
-    /// Formats its ingest and delivery frontiers and queued-message count.
+    /// Format the and delivery frontiers and queued-message count.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CausalMessages")
             .field("ingested", &self.ingested)
@@ -103,7 +101,7 @@ impl<T: Send + Sync + 'static> std::fmt::Debug for CausalMessages<T> {
     }
 }
 
-/// Subscribe, stage unseen messages, and expose a safe resume point.
+/// Subscribe to messages, and query the safe resume point.
 impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// Observe messages beyond `since`, starting from the current snapshot.
     pub(crate) fn subscribe(inner: &watch::Sender<Inner<T>>, since: Version) -> Self {
@@ -147,33 +145,25 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
         *ingested |= &ceiling;
     }
 
-    /// The sound resume point: the causal frontier *behind* any internally
-    /// staged backlog, suitable for persisting across processes or handing to
-    /// another replica of the same network.
+    /// The latest causal resumption point.
     ///
-    /// Resuming from this [`Version`] will never skip messages, but it may
-    /// replay an arbitrary number of them. It covers a yielded message only
-    /// from the *following* call onward, so a checkpoint persisted after
-    /// handling each message replays — never skips — the message in flight at a
-    /// crash.
+    /// The checkpoint is the causal frontier *behind* any internally-staged
+    /// backlog. Resuming from this [`Version`] will never skip messages, but it
+    /// may replay any number of them.
     ///
-    /// Folding the yielded versions yourself is not a substitute: the causal
-    /// order is partial, not total, so "the last version I saw" is not
-    /// well-defined, and such a fold is not a causally closed boundary.
-    ///
-    /// After the observer ends (`None`), this is the final [`Version`] of the
-    /// [`Rumors`](crate::Rumors).
+    /// After the stream ends (i.e. yields `None`), this is the final
+    /// [`Version`] of the underlying [`Rumors`](crate::Rumors).
     pub fn checkpoint(&self) -> &Version {
         &self.checkpoint
     }
 }
 
-/// Provides one-step, non-blocking causal observation.
+/// Provides non-blocking causal observation.
 impl<T: Send + Sync + 'static> CausalMessages<T> {
-    /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
-    /// again later) if not, [`Ended`] if no further message is possible.
+    /// Return one stream item without blocking, if one is ready.
     ///
-    /// One [`Stream`] poll with a no-op waker, rendered as the trichotomy.
+    /// This returns a versioned message if one is ready, [`Quiet`] (ask again
+    /// later) if not, or [`Ended`] if no further message is possible.
     ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
@@ -187,8 +177,8 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
     }
 }
 
-/// Yields owned `(Version, Arc<T>)` pairs popped from the staged backlog in
-/// causal order: cheap handles into the shared storage.
+/// Yields owned `(Version, Arc<T>)` pairs popped from a causally ordered
+/// backlog.
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
     type Item = (Version, Arc<T>);
 

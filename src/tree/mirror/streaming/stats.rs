@@ -19,76 +19,88 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::counter::widen;
 
-/// Local measurements from one completed gossip session.
+/// Local metrics from one completed gossip round.
 ///
-/// The two peers can report different values because each measures its own work
-/// and traffic. Field documentation identifies the boundaries needed to compare
-/// the two sides or aggregate sessions.
+/// The two peers may report different values because each measures its own work
+/// and traffic.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SessionStats {
-    /// Time from the start of the exchange until both peers confirm completion.
+    /// Time from the start to the end of the round of gossip.
     ///
-    /// This is the session latency measured with a monotonic clock. It includes
-    /// transport waits and bookmark I/O, but excludes time spent waiting for a
-    /// continuous gossip policy to initiate the session.
+    /// This does not include time spent waiting for the next round of gossip.
     pub elapsed: Duration,
-    /// Portions of the rumor set this peer compared where both peers had
+    /// Portions of the message set this peer compared where both peers had
     /// messages but their contents differed.
     ///
-    /// This indicates how much searching gossip required, separate from
-    /// transferring messages held by only one peer. The peers alternate these
-    /// comparisons, so add their values for the session total. An
-    /// already-converged session and a bootstrap report zero.
+    /// This can serve as a proxy for how much work was required to isolate
+    /// divergences, separately from the work involved in transferring messages
+    /// held by only one peer. Naturally, an already-converged session and a
+    /// bootstrap session both will report zero, since neither requires this
+    /// kind of work.
     pub disputed_scopes: u64,
-    /// Live messages learned from the peer.
+    /// New messages learned from the peer.
     ///
     /// Together with [`messages_shed`](Self::messages_shed), this shows how the
-    /// session changed the local rumor set. Modulo concurrent gossip sessions,
-    /// its net size change is `messages_gained - messages_shed`.
+    /// round of gossip altered the local message set. Modulo concurrent gossip
+    /// sessions, the net size change effected by this round of gossip is
+    /// `messages_gained - messages_shed`.
     pub messages_gained: u64,
-    /// Live messages removed because the peer had already seen and deleted
+    /// Existing messages removed because the peer had already seen and redacted
     /// them.
     ///
-    /// Rumors communicates redaction without retaining tombstones. This count
-    /// distinguishes deletions learned from the peer from messages gained
-    /// during the same session.
+    /// Together with [`messages_gained`](Self::messages_gained), this shows how
+    /// the round of gossip altered the local message set. Modulo concurrent
+    /// gossip sessions, the net size change effected by this round of gossip is
+    /// `messages_gained - messages_shed`.
     pub messages_shed: u64,
-    /// Encoded bytes sent to compare and transfer messages.
+    /// Bytes sent to compare and transfer messages *specifically*.
     ///
-    /// This measures the session's outgoing data frames. It excludes every item
-    /// outside them that shares the connection: the session's setup before the
-    /// frames, and an identity donation and the completion confirmation after
-    /// them. On a completed session, one peer's `bytes_sent` equals the other's
+    /// This measures the session's outgoing data. It excludes fixed transfer
+    /// associated with session establishment and completion, and cannot measure
+    /// transport overhead. For a completed session, one peer's
+    /// [`bytes_sent`](Self::bytes_sent) equals the other's
     /// [`bytes_received`](Self::bytes_received).
     pub bytes_sent: u64,
-    /// Complete protocol frames sent while comparing and transferring messages.
+    /// Complete protocol frames sent while comparing and transferring messages
+    /// *specifically*.
     ///
-    /// This includes one end marker for each logical stream that carried a
-    /// reply. Compare it with [`bytes_sent`](Self::bytes_sent) to inspect
-    /// batching and average frame size under
+    /// Compare it with [`bytes_sent`](Self::bytes_sent) to observe batching and
+    /// average frame size under
     /// [`target_message_size`](crate::Peer::target_message_size).
     pub frames_sent: u64,
-    /// Encoded bytes received to compare and transfer messages.
+    /// Bytes received to compare and transfer messages *specifically*.
     ///
-    /// This is the incoming counterpart to [`bytes_sent`](Self::bytes_sent),
-    /// with the same exclusions and traffic interpretation.
+    /// This measures the session's incoming data. It excludes fixed transfer
+    /// associated with session establishment and completion, and cannot measure
+    /// transport overhead. For a completed session, one peer's
+    /// [`bytes_received`](Self::bytes_received) equals the other's
+    /// [`bytes_sent`](Self::bytes_sent).
     pub bytes_received: u64,
     /// Complete protocol frames received while comparing and transferring
-    /// messages.
+    /// messages *specifically*.
     ///
-    /// This is the incoming counterpart to [`frames_sent`](Self::frames_sent),
-    /// including the logical streams' end markers.
+    /// Compare it with [`bytes_received`](Self::bytes_received) to observe
+    /// batching and average frame size under
+    /// [`target_message_size`](crate::Peer::target_message_size).
     pub frames_received: u64,
-    /// Questions and answers this peer held back until its [memory
-    /// budget](crate::Peer::sync_memory_budget) had room for them.
+    /// Number of times this peer applied internal backpressure until its
+    /// [memory budget](crate::Peer::sync_memory_budget) had room to continue.
     ///
-    /// This shows whether the budget limited the session's pipelining. At zero,
-    /// the session kept in flight everything it was ready to send, and ran as
-    /// it would have with an unlimited budget. Above zero, each count is a
-    /// question or answer that waited for earlier work to free memory before
-    /// the session built it. Each peer counts against its own budget, so the
-    /// two sides of a session report their own numbers.
+    /// This measure shows whether (and to what extent) the configured budget
+    /// limited pipelining during the round of gossip. At zero, the session kept
+    /// in flight everything it was ready to send, behaving identically to a
+    /// session with unlimited budget. The greater this value is, the more the
+    /// pipeline stalled to prevent exceeding the memory budget.
+    ///
+    /// It is not necessarily the case that a round of gossip with a lot of
+    /// budget waits was *actually much slower* than it would have been with a
+    /// higher memory budget. The speed of a session slowly decreases as the
+    /// budget constricts it, so a session with a medium number of scattered
+    /// waits can "bury" the latency in the rest of its work. However, if you
+    /// slower synchronization than you hope for, a large number of budget waits
+    /// can indicate that your configured memory budget is imposing excessive
+    /// latency.
     pub budget_waits: u64,
 }
 

@@ -107,7 +107,7 @@ divided_proptest! {
                 .batch(|batch| {
                     batch.send(replaces_itself(&replica))?;
                     batch.redact(&version);
-                    Ok::<(), rumors::EncodeError>(())
+                    Ok::<(), rumors::error::EncodeError>(())
                 })
                 .unwrap();
             assert_replaced(&replica);

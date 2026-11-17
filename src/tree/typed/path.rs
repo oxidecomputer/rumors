@@ -8,10 +8,10 @@ use super::hash::{PATH_LEN, PathKey};
 use super::height::{Height, Root, S};
 use crate::Version;
 
-/// The remaining suffix of a leaf address, with `H` bytes left to traverse.
+/// The remaining suffix of a leaf address, with `H` bytes remaining to
+/// traverse until the leaf.
 ///
-/// Popping a byte advances the height marker. Equality and ordering compare
-/// only the remaining bytes, though the full address stays in memory.
+/// Equality and ordering compare only the remaining bytes.
 #[repr(transparent)]
 pub struct Path<H: Height = Root> {
     /// Remaining height; the function marker avoids `Send`/`Sync` bounds on

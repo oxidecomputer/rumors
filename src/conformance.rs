@@ -1,9 +1,9 @@
 //! A conformance suite for testing any caller-provided bookmark store.
 //!
-//! Enable the `conformance` feature in a dev-dependency to use [`bookmark`],
-//! which checks repeatable loads and complete record replacement. The suite
-//! accepts a deadline factory, so checks run under the application's clock and
-//! executor. It documents the obligations its probes cannot verify.
+//! Enable the `conformance` feature in your own crate's dev-dependency to use
+//! [`rumors::conformance::bookmark`](crate::conformance::bookmark). This module
+//! allows you to check that your own implementation of
+//! [`Bookmark`](crate::Bookmark) satisfies the obligations for that trait.
 
 pub mod bookmark;
 

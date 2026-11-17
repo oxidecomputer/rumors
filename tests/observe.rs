@@ -338,19 +338,19 @@ divided_proptest! {
     fn deadline_reports_its_error_category_once(network in network_seed()) {
         let observer = Arc::new(Recording::default());
         let peer = network.peer::<u64>()
-            .session_deadline(|| std::future::ready(()))
+            .gossip_timeout(|| std::future::ready(()))
             .observe(observer.clone())
             .into_rumors();
         let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
 
         assert!(matches!(
             block_on(peer.gossip_once(&mut end.read, &mut end.write)),
-            Err(rumors::Error::DeadlineExceeded)
+            Err(rumors::Error::GossipTimeout)
         ));
         let session = observer.take_session(SessionKind::Gossip);
         assert_eq!(
             session.outcome(),
-            RecordedOutcome::Failed(SessionErrorKind::DeadlineExceeded)
+            RecordedOutcome::Failed(SessionErrorKind::GossipTimeout)
         );
     }
 

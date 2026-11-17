@@ -514,7 +514,7 @@ struct GridArgs {
     /// Peer::payload_depth_limit, or `default`.
     #[arg(long)]
     payload_depth_limit: Option<String>,
-    /// Peer::session_deadline, such as `60s`, or `none`.
+    /// Peer::gossip_timeout, such as `60s`, or `none`.
     #[arg(long)]
     session_deadline: Option<String>,
     /// Link rate per direction: `100Mbit`, `uncapped`, or `A/B`.

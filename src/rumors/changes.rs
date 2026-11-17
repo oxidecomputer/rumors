@@ -8,26 +8,26 @@ use crate::{Inner, Version};
 
 use super::channel::Channel;
 
-/// Reports changes to a replica without returning its messages.
+/// Reports changes to the set of messages without returning the messages
+/// themselves.
 ///
-/// Use this stream to trigger gossip, persist state, or refresh a display. To
-/// read the messages themselves, use
+/// To listen to the messages themselves, use
 /// [`UnorderedMessages`](crate::UnorderedMessages) or
 /// [`CausalMessages`](crate::CausalMessages).
 ///
-/// # Notifications
+/// ## Notifications
 ///
-/// The first poll yields `()` immediately, even for an empty replica. Later
-/// polls coalesce all changes since the last notification into one `()`;
-/// notifications cannot be used to count commits. Changes include local
-/// insertions, redactions, and new state learned through gossip. Serving a
-/// bootstrap or accepting a retirement notifies only if the message set
-/// changes.
+/// The first poll of this stream will yield `()` immediately, even for a
+/// [`Peer`](crate::Peer) with no messages at all. Later polls coalesce all
+/// changes since the last poll into one `()`.
 ///
-/// The stream ends (`None`) once the [`Peer`](crate::Peer) and every
+/// The stream ends once the [`Peer`](crate::Peer) and every
 /// [`Rumors`](crate::Rumors) handle for the replica have dropped and the final
-/// change has been reported. Holding this observer does not prevent
-/// [`try_into_peer`](crate::Rumors::try_into_peer) from recovering the `Peer`.
+/// change has been reported to whoever is consuming the stream.
+///
+/// Holding this stream open does not prevent
+/// [`try_into_peer`](crate::Rumors::try_into_peer) from recovering the
+/// [`Peer`](crate::Peer).
 pub struct Changes<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,
@@ -39,9 +39,9 @@ pub struct Changes<T: Send + Sync + 'static> {
     seen: Option<Version>,
 }
 
-/// Summarize a change stream without requiring its payloads to be debuggable.
+/// Debug a change stream without requiring its messages to be debuggable.
 impl<T: Send + Sync + 'static> std::fmt::Debug for Changes<T> {
-    /// Formats the frontier most recently reported to the consumer.
+    /// Formats the message frontier most recently reported to the consumer.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Changes")
             .field("seen", &self.seen)
@@ -49,20 +49,21 @@ impl<T: Send + Sync + 'static> std::fmt::Debug for Changes<T> {
     }
 }
 
-/// The outcome of [`Changes::try_next`].
+/// The result of [`Changes::try_next`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TryTick {
-    /// The set advanced since the last report (a fresh signal's first step is
-    /// always a tick).
+    /// The set of messages changed since the last poll.
     Tick,
-    /// No advance since the last report; handles are still live, so more may
-    /// come. Ask again later.
+    /// No changes have happened since the last poll, but it would be possible
+    /// for some to happen later, because some handles still exist that could
+    /// send one.
     Quiet,
-    /// Every handle is gone and no further change is possible.
+    /// Every handle that could cause a change to occur has been dropped, so no
+    /// further changes are possible.
     Ended,
 }
 
-/// Creates change subscriptions and exposes non-blocking polling.
+/// Non-blocking polling for changes.
 impl<T: Send + Sync + 'static> Changes<T> {
     /// Subscribe to the replica, reporting its current state on the first poll.
     pub(crate) fn subscribe(inner: &watch::Sender<Inner<T>>) -> Self {
@@ -72,8 +73,10 @@ impl<T: Send + Sync + 'static> Changes<T> {
         }
     }
 
-    /// Take one non-blocking step: [`Tick`] if the set advanced since the last
-    /// report, [`Quiet`] (ask again later) if not, [`Ended`] if no further
+    /// Poll for changes.
+    ///
+    /// This returns [`Tick`] if the set of messages changed since the last
+    /// report, [`Quiet`] (ask again later) if not, and [`Ended`] if no further
     /// change is possible.
     ///
     /// [`Tick`]: TryTick::Tick
@@ -89,7 +92,7 @@ impl<T: Send + Sync + 'static> Changes<T> {
     }
 }
 
-/// Yields one unit item for each observed advance.
+/// Yields one unit item for each observed change, coalesced.
 impl<T: Send + Sync + 'static> Stream for Changes<T> {
     type Item = ();
 

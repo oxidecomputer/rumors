@@ -9,7 +9,7 @@ use crate::replica::Replica;
 
 use super::Node;
 
-pub(super) const SESSION_DEADLINE: Duration = Duration::from_secs(30);
+pub(super) const GOSSIP_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl Node {
     pub(super) async fn seed(&self) -> Result<()> {
@@ -19,7 +19,7 @@ impl Node {
         }
 
         let peer = Peer::seed()
-            .session_deadline(|| sleep(SESSION_DEADLINE))
+            .gossip_timeout(|| sleep(GOSSIP_TIMEOUT))
             .bookmark(self.claim_bookmark().await?)
             .await
             .map_err(|unbookmarked| unbookmarked.error)?;

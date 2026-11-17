@@ -83,7 +83,7 @@ pub const AXES: &[(&str, &str)] = &[
     ),
     (
         "session_deadline",
-        "Peer::session_deadline, a duration such as `60s`, or `none`",
+        "Peer::gossip_timeout, a duration such as `60s`, or `none`",
     ),
     (
         "rate",

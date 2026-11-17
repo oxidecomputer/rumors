@@ -72,10 +72,6 @@ pub(crate) use typed::hash::MERKLE_HASH_LEN;
 
 pub mod mirror;
 
-/// The fully-owned, lifetime-free leaf walk and the leaf handle it yields; the
-/// engine beneath
-/// [`Rumors::unordered_messages`](crate::Rumors::unordered_messages) and the
-/// streams built over it.
 pub use typed::{Leaf, RangeOwned};
 
 /// A sparse Merkle radix trie with transparent path compression, whose leaves
@@ -249,20 +245,19 @@ pub enum Action {
     Forget(Version),
 }
 
-/// The iterator of [`Snapshot::iter`](crate::Snapshot::iter): a lazy
-/// depth-first walk over every live message as `(&Version, Arc<T>)`, in
-/// unspecified order.
+/// An iterator over the messages in a [`Snapshot`](crate::Snapshot).
 ///
-/// The version is borrowed from the tree; the payload is an owned handle into
-/// the shared storage.
+/// It yields each message's [`Version`] and an owned `Arc<T>` handle to the
+/// message. The order is unspecified, an in particular, is *not in causal
+/// order*.
 ///
-/// An [`ExactSizeIterator`] (the live-message count is known up front) and a
-/// [`DoubleEndedIterator`]. Once exhausted, it remains exhausted.
+/// This is a [`DoubleEndedIterator`], [`ExactSizeIterator`], and
+/// [`FusedIterator`](std::iter::FusedIterator).
 pub struct Iter<'a, T>(typed::Iter<'a>, PhantomData<fn() -> T>);
 
-/// Format an iterator without inspecting its remaining payloads.
+/// Format the iterator without inspecting its remaining messages.
 impl<T> fmt::Debug for Iter<'_, T> {
-    /// Formats the number of messages left without inspecting payloads.
+    /// Formats the number of messages left without inspecting messages.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Iter")
             .field("remaining", &self.0.len())
@@ -270,33 +265,33 @@ impl<T> fmt::Debug for Iter<'_, T> {
     }
 }
 
-/// Visit live messages from the front of the tree walk.
+/// Visit messages from the front of the iterator.
 impl<'a, T: Send + Sync + 'static> Iterator for Iter<'a, T> {
     type Item = (&'a Version, Arc<T>);
 
-    /// Yields the next live message from the front of the walk.
+    /// Yields the next message from the front of the iterator.
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|(v, m)| (v, m.arc::<T>()))
     }
 
-    /// Returns the exact number of messages left to visit.
+    /// Returns the number of messages left to visit, exactly.
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
     }
 }
 
-/// Visit live messages from the back of the same tree walk.
+/// Visit messages from the back of the iterator.
 impl<'a, T: Send + Sync + 'static> DoubleEndedIterator for Iter<'a, T> {
-    /// Yields the next live message from the back of the walk.
+    /// Yields the next message from the back of the iterator.
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back().map(|(v, m)| (v, m.arc::<T>()))
     }
 }
 
-/// Report the exact number of live messages left to visit.
+/// Reports the exact number of messages left to visit.
 impl<'a, T: Send + Sync + 'static> ExactSizeIterator for Iter<'a, T> {}
 
-/// Promise that an exhausted tree walk remains exhausted.
+/// An exhausted tree walk remains exhausted.
 impl<'a, T: Send + Sync + 'static> std::iter::FusedIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {

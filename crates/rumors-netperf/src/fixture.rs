@@ -324,7 +324,7 @@ pub async fn configure(
         peer = peer.payload_depth_limit(limit);
     }
     if let Some(deadline) = point.settings.session_deadline {
-        peer = peer.session_deadline(move || tokio::time::sleep(deadline));
+        peer = peer.gossip_timeout(move || tokio::time::sleep(deadline));
     }
     Ok(peer.into_rumors())
 }

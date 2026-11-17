@@ -260,7 +260,7 @@ impl Staged {
 
     /// Wait for initiation bytes; return false for EOF at an empty boundary.
     ///
-    /// Return after the first read so the driver can start its session deadline
+    /// Return after the first read so the driver can start its gossip timeout
     /// even if the peer stops partway through the preamble.
     pub(crate) async fn wait_for_start<R>(&mut self, reader: &mut R) -> Result<bool, Error>
     where

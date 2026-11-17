@@ -69,7 +69,7 @@ proptest! {
             let factory = deadlines.clone();
             let a: Rumors<u64> = network.peer().sync_memory_budget(0)
                 .gossip_when(|_| stream::pending::<()>())
-                .session_deadline(move || factory.start()).into_rumors();
+                .gossip_timeout(move || factory.start()).into_rumors();
             a.send(7).unwrap();
             let before = a.snapshot().hash();
             let (mut end, mut remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -90,7 +90,7 @@ proptest! {
                 assert!(deadlines.dropped(0));
             } else {
                 deadlines.expire(0);
-                assert!(matches!(sessions.next().await, Some(Err(Error::DeadlineExceeded))));
+                assert!(matches!(sessions.next().await, Some(Err(Error::GossipTimeout))));
                 assert!(sessions.next().await.is_none(), "expiry is terminal");
                 drop(sessions);
             }
@@ -114,7 +114,7 @@ proptest! {
             let c = bootstrap_fork_async(&a).await;
             let a = a.try_into_peer().await.unwrap()
                 .gossip_when(|changes| changes.map(|()| Gossip::WhenChanged))
-                .session_deadline(move || factory.start()).into_rumors();
+                .gossip_timeout(move || factory.start()).into_rumors();
             let other_handle = a.clone();
             let (mut ab, mut ba) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (mut ac, mut ca) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -159,7 +159,7 @@ divided_proptest! {
         let factory = deadlines.clone();
         let a: Rumors<()> = network.peer()
             .gossip_when(|_| stream::pending::<()>())
-            .session_deadline(move || factory.start())
+            .gossip_timeout(move || factory.start())
             .into_rumors();
         let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
@@ -168,7 +168,7 @@ divided_proptest! {
         deadlines.expire(0);
         assert!(matches!(
             run_to_quiescence(session).unwrap(),
-            Err(Error::DeadlineExceeded)
+            Err(Error::GossipTimeout)
         ));
     }
 
@@ -178,7 +178,7 @@ divided_proptest! {
     #[test]
     fn an_available_session_result_wins_the_deadline_race(network in network_seed()) {
         let a: Rumors<()> = network.peer()
-            .session_deadline(|| std::future::ready(()))
+            .gossip_timeout(|| std::future::ready(()))
             .into_rumors();
         let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         drop(remote);
@@ -210,7 +210,7 @@ divided_proptest! {
                 let a: Rumors<()> = network
                     .peer()
                     .gossip_when(|_| stream::pending::<()>())
-                    .session_deadline(|| sleep(Duration::from_secs(1)))
+                    .gossip_timeout(|| sleep(Duration::from_secs(1)))
                     .into_rumors();
                 let (mut end, mut remote) =
                     rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -225,7 +225,7 @@ divided_proptest! {
                 advance(Duration::from_millis(1)).await;
                 assert!(matches!(
                     sessions.next().await,
-                    Some(Err(Error::DeadlineExceeded))
+                    Some(Err(Error::GossipTimeout))
                 ));
             });
     }
@@ -246,7 +246,7 @@ proptest! {
             let factory = deadlines.clone();
             let config = Peer::<u64>::bootstrap()
                 .gossip_when(|_| stream::pending::<()>())
-                .session_deadline(move || factory.start());
+                .gossip_timeout(move || factory.start());
             let store = Arc::new(Mutex::new(None));
             let mut builder = config.clone().bookmark(FlakyInMemoryBookmark::new(
                 store.clone(), Arc::new(Mutex::new(FaultFeed::new(vec![], vec![]))), 0,
@@ -257,7 +257,7 @@ proptest! {
                 assert!(joining.as_mut().now_or_never().is_none());
                 assert_eq!(deadlines.count(), generation + 1);
                 deadlines.expire(generation);
-                let Joined::Failed { bootstrap, error: Error::DeadlineExceeded } = joining.await else {
+                let Joined::Failed { bootstrap, error: Error::GossipTimeout } = joining.await else {
                     panic!("expiry must return the builder");
                 };
                 assert!(store.lock().unwrap().is_none(), "no post-join attachment");
@@ -279,7 +279,7 @@ proptest! {
             let mut session = Box::pin(b.gossip_once(&mut far.read, &mut far.write));
             assert!(session.as_mut().now_or_never().is_none());
             deadlines.expire(attempts + 1);
-            assert!(matches!(session.await, Err(Error::DeadlineExceeded)));
+            assert!(matches!(session.await, Err(Error::GossipTimeout)));
         });
     }
 }
@@ -300,7 +300,7 @@ divided_proptest! {
             let a: Rumors<u64> = network.peer()
                 .sync_memory_budget(0)
                 .gossip_when(|_| stream::pending::<()>())
-                .session_deadline(move || factory.start())
+                .gossip_timeout(move || factory.start())
                 .into_rumors();
             a.send(42).unwrap();
             let peer = a.try_into_peer().await.unwrap();
@@ -322,7 +322,7 @@ divided_proptest! {
             let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
             assert!(session.as_mut().now_or_never().is_none());
             deadlines.expire(0);
-            assert!(matches!(session.await, Err(Error::DeadlineExceeded)));
+            assert!(matches!(session.await, Err(Error::GossipTimeout)));
         });
     }
 }

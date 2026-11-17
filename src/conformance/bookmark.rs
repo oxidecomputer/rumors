@@ -1,8 +1,17 @@
-//! Conformance checks for caller-built [`Bookmark`] storage.
+//! A correctness validation suite for caller-provided [`Bookmark`] storage.
 //!
-//! [`check`] exercises empty storage, repeatable loads, replacement, and
-//! cancellation. Supply a factory of fresh, empty test instances; the checks
-//! overwrite their contents with opaque bytes, including empty records.
+//! The [`check`] function exercises a variety of scenarios against your
+//! provided implementation, including:
+//!
+//! - empty storage,
+//! - repeatable loads,
+//! - replacement, and
+//! - cancellation.
+//!
+//! Supply [`check`] with a function which returns fresh, empty test instances
+//! of your bookmark implementation; the checks overwrite their contents. You
+//! also need to supply an async timeout closure, to ensure that if your
+//! implementation deadlocks, the test fails in finite time.
 //!
 //! ```
 //! # #[expect(dead_code)]
@@ -14,26 +23,16 @@
 //! # }
 //! ```
 //!
-//! Each focused check starts a deadline before constructing its instance. An
-//! expired deadline cancels the check and panics with its name. The caller
-//! supplies the runtime and clock; a deterministic stall detector can use
-//! [`std::future::pending`] for the deadline. A deadline cannot interrupt code
-//! that never returns from a poll.
+//! Run [`check_failed_store`] separately with your own test fixture configured
+//! to fail its second store, repeating it for the failure points your backend
+//! exposes.
 //!
-//! Run [`check_failed_store`] separately with a fixture configured to fail its
-//! second store, repeating it for the failure points your backend exposes. A
-//! failed or cancelled store may leave either complete record. It must never
-//! leave a partial record or overwrite a later successful store.
+//! # Limitations
 //!
-//! # Limits of these checks
-//!
-//! These are live-process observations at sampled sizes and schedules. They
-//! cannot prove durability across process or power loss, exercise every failure
-//! point, or rule out a delayed overwrite after the check ends. Review the
-//! backend's sync and replacement ordering, and test crashes and unfinished
-//! background writes using its own fault controls. Cancellation here occurs
-//! after one poll; use a controlled fixture to make that poll reach the stage
-//! you intend to test.
+//! These are live observations at sampled sizes and schedules. They cannot
+//! prove durability across process or power loss, or generally speaking,
+//! exercise every failure point. But hopefully, they can find low-hanging fruit
+//! for you easily!
 
 use std::pin::pin;
 use std::task::Poll;
@@ -52,14 +51,18 @@ fn contents(len: usize, tag: u8) -> Vec<u8> {
     (0..len).map(|i| (i as u8).wrapping_mul(31) ^ tag).collect()
 }
 
-/// Run the storage and cancellation checks on fresh, empty instances.
+/// Run the storage and cancellation checks on fresh, empty instances of your
+/// store.
 ///
-/// `fresh` is called separately for each check. Use test storage whose ordinary
-/// loads and stores succeed. Fault injection belongs in [`check_failed_store`].
+/// `fresh` is called once for each check, to produce a new instance of your
+/// store.
+///
+/// Use test storage designed for ordinary loads and stores to succeed. Fault
+/// injection should be used in [`check_failed_store`].
 ///
 /// # Panics
 ///
-/// On a contract violation, unexpected I/O failure, or expired deadline.
+/// On any contract violation, unexpected I/O failure, or expired deadline.
 pub async fn check<B: Bookmark, D: Future<Output = ()>>(
     mut fresh: impl AsyncFnMut() -> B,
     mut deadline: impl FnMut() -> D,
@@ -68,15 +71,18 @@ pub async fn check<B: Bookmark, D: Future<Output = ()>>(
     check_cancelled_store(&mut fresh, &mut deadline).await;
 }
 
-/// Check absent storage, exact replacements, and repeatable loads.
+/// Check against requirements related to absent storage, exact replacements,
+/// and repeatable loads.
 ///
-/// Reading all, part, or none of a returned reader must not consume storage. A
-/// present empty record must remain distinguishable from an absent one. The
-/// deadline covers construction and all operations on this instance.
+/// Reading all, part, or none of a returned reader must not change what is
+/// stored. A present empty record must be distinguishable from an absent one.
+///
+/// The supplied deadline covers construction and all operations on this
+/// instance.
 ///
 /// # Panics
 ///
-/// On a contract violation, unexpected I/O failure, or expired deadline.
+/// On any contract violation, unexpected I/O failure, or expired deadline.
 pub async fn check_storage<B: Bookmark, D: Future<Output = ()>>(
     fresh: impl AsyncFnOnce() -> B,
     deadline: impl FnOnce() -> D,
@@ -128,19 +134,20 @@ pub async fn check_storage<B: Bookmark, D: Future<Output = ()>>(
     .await;
 }
 
-/// Check replacement when a store is cancelled after its first poll.
+/// Check replacement when a store operation is cancelled after its first poll.
 ///
-/// The fixture's first store must succeed. The second is polled once and
-/// dropped. If it completes successfully, its bytes must be present; if it is
-/// pending, either complete record is allowed. The next store must succeed and
-/// remain readable. An immediately completing store also conforms.
+/// The fixture you provide must succeed on its first poll. After this, it is
+/// polled once more, and dropped. If the store operation completes
+/// successfully, the bytes must be present; if it is pending, either complete
+/// record is allowed. The next store operation is required to succeed and
+/// remain readable. An immediately completing store also conforms to this
+/// specification.
 ///
-/// The deadline covers construction and the whole check. A controlled fixture
-/// can pause the second store at a chosen stage to exercise that cancellation.
+/// The supplied deadline covers construction and the whole check.
 ///
 /// # Panics
 ///
-/// On a contract violation, unexpected I/O failure, or expired deadline.
+/// On any contract violation, unexpected I/O failure, or expired deadline.
 pub async fn check_cancelled_store<B: Bookmark, D: Future<Output = ()>>(
     fresh: impl AsyncFnOnce() -> B,
     deadline: impl FnOnce() -> D,
@@ -174,18 +181,22 @@ pub async fn check_cancelled_store<B: Bookmark, D: Future<Output = ()>>(
     .await;
 }
 
-/// Check a failed store using caller-controlled fault injection.
+/// Check the semantics of failed storage operations using caller-controlled
+/// fault injection.
 ///
-/// Configure the fresh fixture so its first store succeeds, its second returns
-/// an error, and subsequent operations succeed. Run this check at each failure
-/// point the backend supports. Either complete record may remain after the
-/// error; the following successful store must replace it and remain readable.
-/// The deadline covers construction and the whole check.
+/// Configure the `fresh` fixture so that its first store operation succeeds,
+/// its second returns an error, and subsequent operations after this also
+/// succeed.
+///
+/// Run this check at each failure point your backend supports.
+///
+/// The supplied deadline covers construction and the whole check.
 ///
 /// # Panics
 ///
-/// If the second store succeeds, any other operation fails, a record is torn or
-/// lost, a subsequent store is rolled back, or the deadline expires.
+/// If the second store operation succeeds, any other operation fails, a record
+/// is torn or lost, a subsequent store operation is rolled back, or the
+/// deadline expires.
 pub async fn check_failed_store<B: Bookmark, D: Future<Output = ()>>(
     fresh: impl AsyncFnOnce() -> B,
     deadline: impl FnOnce() -> D,

@@ -10,24 +10,24 @@ use std::{
     fmt::{self, Debug},
 };
 
-/// One level above `H`.
-///
-/// `PhantomData<fn() -> T>` keeps this marker independent of `T`'s auto traits.
-/// Function pointers are always `Send + Sync`, so checking those traits does
-/// not recurse through the height chain.
-pub struct S<T>(
+/// One level of the tree above `H`.
+pub struct S<H>(
     /// The predecessor, recorded only in the type.
-    PhantomData<fn() -> T>,
+    ///
+    /// `PhantomData<fn() -> H>` keeps this marker independent of `H`'s auto traits.
+    /// Function pointers are always `Send + Sync`, so checking those traits does
+    /// not recurse through the height chain.
+    PhantomData<fn() -> H>,
 );
 
 // Explicit implementations avoid derive's bounds on `T`; height markers
 // carry no values whose traits need to be checked recursively.
 
 /// Copy the marker without requiring `T: Copy`.
-impl<T> Copy for S<T> {}
+impl<H> Copy for S<H> {}
 
 /// Clone the marker without requiring `T: Clone`.
-impl<T> Clone for S<T> {
+impl<H> Clone for S<H> {
     /// Copy this zero-sized marker.
     fn clone(&self) -> Self {
         *self
@@ -35,7 +35,7 @@ impl<T> Clone for S<T> {
 }
 
 /// Construct the marker without constructing a predecessor value.
-impl<T> Default for S<T> {
+impl<H> Default for S<H> {
     /// Create the zero-sized successor marker.
     fn default() -> Self {
         S(PhantomData)
@@ -43,7 +43,7 @@ impl<T> Default for S<T> {
 }
 
 /// Identify the marker without formatting its predecessor type.
-impl<T> Debug for S<T> {
+impl<H> Debug for S<H> {
     /// Render the successor marker as `S`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("S").finish()
@@ -51,13 +51,13 @@ impl<T> Debug for S<T> {
 }
 
 /// Equal successor markers contribute no distinguishing bytes.
-impl<T> std::hash::Hash for S<T> {
+impl<H> std::hash::Hash for S<H> {
     /// Leave the hasher unchanged: this type has only one value.
-    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {}
+    fn hash<Hasher: std::hash::Hasher>(&self, _state: &mut Hasher) {}
 }
 
 /// All values of the same successor type are equal.
-impl<T> PartialEq for S<T> {
+impl<H> PartialEq for S<H> {
     /// Compare the sole value of this marker type.
     fn eq(&self, _other: &Self) -> bool {
         true
@@ -65,10 +65,10 @@ impl<T> PartialEq for S<T> {
 }
 
 /// Marker equality is total.
-impl<T> Eq for S<T> {}
+impl<H> Eq for S<H> {}
 
 /// Order successor markers by their sole value.
-impl<T> PartialOrd for S<T> {
+impl<H> PartialOrd for S<H> {
     /// Delegate to the total ordering.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -76,24 +76,22 @@ impl<T> PartialOrd for S<T> {
 }
 
 /// Every pair of values of this marker type compares equal.
-impl<T> Ord for S<T> {
+impl<H> Ord for S<H> {
     /// Return equality without comparing predecessor types.
     fn cmp(&self, _other: &Self) -> Ordering {
         Ordering::Equal
     }
 }
 
-/// Height zero: the leaves.
+/// Height zero.
+///
+/// This is the height of the leaves of the tree.
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Z;
 
-/// A type-level height: how many levels sit between a node at this height and
-/// the leaves.
-///
-/// Traversals specialize each step for its height and stop at [`Z`]. The bound
-/// describes a type; it does not require constructing a marker value.
+/// A type-level height.
 pub trait Height: Sized + sealed::Sealed + 'static {
-    /// This height as a plain number (`Z` is 0; [`Root`] is 32).
+    /// This height as a runtime constant.
     const HEIGHT: usize;
 }
 
@@ -162,7 +160,7 @@ const _: () = assert!(size_of::<Root>() == 0 && align_of::<Root>() == 1);
 mod sealed {
     use super::{S, Z};
 
-    /// A marker belonging to this module's height family.
+    /// A sealed marker indicating that a type could be a valid height.
     pub trait Sealed {}
     /// Zero starts the height family.
     impl Sealed for Z {}

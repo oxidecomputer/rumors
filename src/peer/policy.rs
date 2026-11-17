@@ -1,4 +1,4 @@
-//! Application factories for connection initiation and session deadlines.
+//! Application factories for connection initiation and gossip timeouts.
 
 use std::future::{Future, pending};
 use std::sync::Arc;
@@ -27,7 +27,7 @@ pub(crate) struct Policy<T: Send + Sync + 'static> {
     until: Option<Shared<BoxFuture<'static, ()>>>,
 }
 
-/// Default to push-on-change with no session deadline.
+/// Default to push-on-change with no gossip timeout.
 impl<T: Send + Sync + 'static> Default for Policy<T> {
     /// Construct the default policy without allocating a factory.
     fn default() -> Self {
@@ -92,7 +92,7 @@ impl<T: Send + Sync + 'static> Policy<T> {
         tokio::select! {
             biased;
             result = session => result,
-            () = deadline => Err(Error::DeadlineExceeded),
+            () = deadline => Err(Error::GossipTimeout),
         }
     }
 

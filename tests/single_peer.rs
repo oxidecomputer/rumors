@@ -303,7 +303,7 @@ divided_proptest! {
                     value: 2,
                     fail: true,
                 })?;
-                Ok::<(), rumors::EncodeError>(())
+                Ok::<(), rumors::error::EncodeError>(())
             })
         }));
         assert!(unwound.is_err(), "the second send must panic");
@@ -333,7 +333,7 @@ divided_proptest! {
                 // Nothing queued is visible while the closure runs: the batch
                 // publishes only at its commit.
                 assert_eq!(rumors.snapshot().len(), 1, "queueing publishes nothing");
-                Ok::<(), rumors::EncodeError>(())
+                Ok::<(), rumors::error::EncodeError>(())
             })
             .expect("flat payloads are within any depth limit");
 
@@ -379,11 +379,11 @@ divided_proptest! {
             .batch(|batch| {
                 batch.send(Arr(vec![]))?;
                 batch.send(deep.clone())?;
-                Ok::<(), rumors::EncodeError>(())
+                Ok::<(), rumors::error::EncodeError>(())
             })
             .expect_err("the second send exceeds the limit");
         assert!(
-            matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
+            matches!(error, rumors::error::EncodeError::Depth { limit: l } if l == limit),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(
@@ -446,7 +446,7 @@ divided_proptest! {
             )
             .expect_err("the third message exceeds the limit");
         assert!(
-            matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
+            matches!(error, rumors::error::EncodeError::Depth { limit: l } if l == limit),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(
@@ -537,9 +537,9 @@ divided_proptest! {
                         Arr::nested(2),
                     ])
                     .expect_err("the third message exceeds the limit");
-                assert!(matches!(error, rumors::EncodeError::Depth { .. }));
+                assert!(matches!(error, rumors::error::EncodeError::Depth { .. }));
                 batch.redact_all(&doomed);
-                Ok::<(), rumors::EncodeError>(())
+                Ok::<(), rumors::error::EncodeError>(())
             })
             .expect("the closure handles the rejection itself");
 
@@ -576,7 +576,7 @@ divided_proptest! {
                     mid.contains(&2) && mid.contains(&3) && !mid.contains(&1),
                     "inner commits land before the outer batch: {mid:?}"
                 );
-                Ok::<(), rumors::EncodeError>(())
+                Ok::<(), rumors::error::EncodeError>(())
             })
             .expect("flat payloads are within any depth limit");
         assert_eq!(rumors.snapshot().len(), 3, "the outer batch lands last");

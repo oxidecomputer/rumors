@@ -78,30 +78,38 @@ impl Default for PayloadDepthLimit {
     }
 }
 
-/// A payload rejected before it is stored or sent.
-///
-/// See [`Rumors::send`](crate::Rumors::send) for the payload requirements.
+/// A message rejected by [`Rumors::send`](crate::Rumors::send) before it is
+/// stored or sent.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EncodeError {
-    /// The payload value's CBOR encoding nests deeper than the peer's
-    /// configured payload depth limit.
+    /// The payload value's CBOR encoding nests deeper than the
+    /// [`Peer`](crate::Peer)'s configured
+    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit).
     #[error("message payload nests deeper than the configured payload depth limit ({limit} steps)")]
     Depth {
-        /// The configured limit the payload's decode exceeded.
+        /// The configured
+        /// [`payload_depth_limit`](crate::Peer::payload_depth_limit) which the
+        /// message would have exceeded.
         limit: u64,
     },
-    /// The payload type's [`serde::Deserialize`] implementation rejected the
-    /// bytes its own [`serde::Serialize`] implementation produced: admitted,
-    /// such a value would fail at every receiver instead.
+    /// The payload type's [`Deserialize`](serde::Deserialize) implementation
+    /// rejected the output of its own [`Serialize`]
+    /// implementation.
+    ///
+    /// This is stopped before [`send`](crate::Rumors::send)
+    /// succeeds, because otherwise this failure would propagate to every other
+    /// node.
     #[error("message payload does not survive its own serde round-trip")]
     Roundtrip(#[source] io::Error),
-    /// The payload value's encoding decodes to a different value (by the
-    /// payload type's own `Eq`): the serde pairing is lossy for this value.
+    /// The message round-trips to a *different value* (as measured by the
+    /// message type's `Eq`).
     ///
-    /// The canonical example is a nested `Option` holding `Some(None)`, which
-    /// decodes as `None`. The check is send-side only: ingress holds no
-    /// original to compare against.
+    /// One common example of such an "unfaithful" type is an
+    /// `Option<Option<T>>` holding `Some(None)`, which decodes back to `None`.
+    /// This issue is stopped before [`send`](crate::Rumors::send) succeeds,
+    /// because otherwise the value held at this [`Peer`](crate::Peer) might
+    /// diverge from the value held at another one.
     #[error("message payload's encoding decodes to a different value")]
     Unfaithful,
 }

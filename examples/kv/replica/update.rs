@@ -1,4 +1,4 @@
-use rumors::EncodeError;
+use rumors::error::EncodeError;
 
 use crate::table::Update;
 

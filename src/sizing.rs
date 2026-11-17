@@ -20,10 +20,15 @@
 //! you want to ensure memory usage is bounded more tightly (for example if you
 //! expect many concurrent gossip sessions), you may want to adjust it.
 //!
+//! <div class="warning">
+//!
 //! **Important:** [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)
 //! constrains the memory used by *one gossip session*. If `N` concurrent gossip
 //! sessions could be happening at once, the total possible memory used could be
 //! as much as `N` times the configured budget.
+//!
+//! </div>
+//!
 //! # How to use this guide
 //!
 //! This guide helps you choose a memory budget from what you know about your
@@ -73,13 +78,13 @@
 //! So, **high memory cost** occurs only with all of **high BDP** + **high
 //! divergence** + **high number of messages** + **small message size**.
 //!
-//! # Choosing a budget
+//! # How to choose a budget
 //!
 //! Most of the time, you are best served by the default. If you have tighter
 //! memory constraints for the pessimal scenario outlined above, continue
 //! reading.
 //!
-//! ## The default and the minimum
+//! ## Default and minimum memory budgets
 //!
 //! The default sync memory budget is
 //! [`default::SYNC_MEMORY_BUDGET`](crate::default::SYNC_MEMORY_BUDGET) = **512
@@ -93,7 +98,7 @@
 //!
 //! Read on to understand what happens in between these extremes.
 //!
-//! # Estimating the effects of memory budget
+//! ## Estimating the effects of memory budget
 //!
 //! Running the real `rumors` gossip code on an in-memory deterministic
 //! simulation harness, we can measure estimates for the amount of memory
@@ -125,23 +130,23 @@
 //! the role of latency: decreasing latency *also* means there's less to
 //! pipeline, since it also means less data can be in flight at the same time.
 //!
-//! ## The required budget to achieve zero slowdown
+//! ### The required budget to achieve zero slowdown
 //!
 //! In the table below, we can see the minimal memory budget which results in a
 //! 0% slowdown for gossip in simulation.
 //!
 //! | Messages per replica, % in common | 1 ms (BDP = 125 kB) | 10 ms (BDP = 1.25 MB) | 100 ms   (BDP = 12.5 MB) |
 //! |-----------------------------------|---------------------|-----------------------|--------------------------|
-//! | 100,000, none                     | 36.7 MiB            | 78.5 MiB              | 117.3 MiB                |
-//! | 100,000, 90%                      | 52.6 MiB            | 67.8 MiB              | 67.8 MiB                 |
-//! | 100,000, 99%                      | 41.7 MiB            | 67.8 MiB              | 67.8 MiB                 |
-//! | 1,000,000, none                   | 36.8 MiB            | 74.2 MiB              | 421.1 MiB                |
-//! | 1,000,000, 90%                    | 36.8 MiB            | 72.9 MiB              | 422.1 MiB                |
-//! | 1,000,000, 99%                    | 38.6 MiB            | 102.3 MiB             | 214.3 MiB                |
+//! | 100,000 messages, 0% in common    | 36.7 MiB            | 78.5 MiB              | 117.3 MiB                |
+//! | 100,000 messages, 90% in common   | 52.6 MiB            | 67.8 MiB              | 67.8 MiB                 |
+//! | 100,000 messages, 99% in common   | 41.7 MiB            | 67.8 MiB              | 67.8 MiB                 |
+//! | 1,000,000 messages, 0% in common  | 36.8 MiB            | 74.2 MiB              | 421.1 MiB                |
+//! | 1,000,000 messages, 90% in common | 36.8 MiB            | 72.9 MiB              | 422.1 MiB                |
+//! | 1,000,000 messages, 99% in common | 38.6 MiB            | 102.3 MiB             | 214.3 MiB                |
 //!
 //!
 //!
-//! ### What does this tell us?
+//! #### What does this tell us?
 //!
 //! - **Near BDP = 125 kB** (i.e. 1 ms latency at 1 Gb/s), gossip sessions use
 //!   very close to the minimum budget.
@@ -150,7 +155,7 @@
 //! - **Near 12.5 MB** (i.e. 100 ms latency 1 Gb/s), the default budget is
 //!   required to prevent slowdown during gossip.
 //!
-//! ## The latency cost of a smaller budget
+//! ### The latency cost of a smaller budget
 //!
 //! When you set a budget that is lower than the amount of memory the gossip
 //! session would use, if unconstrained, `rumors` exerts backpressure.
@@ -165,14 +170,14 @@
 //!
 //! | Messages per replica, % in common | 1 ms (BDP = 125 kB) | 10 ms (BDP = 1.25 MB) | 100 ms   (BDP = 12.5 MB) |
 //! |-----------------------------------|---------------------|-----------------------|--------------------------|
-//! | 100,000, none                     | 1.00 ×              | 1.97 ×                | 5.18 ×                   |
-//! | 100,000, 90%                      | 1.00 ×              | 2.40 ×                | 2.93 ×                   |
-//! | 100,000, 99%                      | 1.05 ×              | 2.27 ×                | 2.69 ×                   |
-//! | 1,000,000, none                   | 1.00 ×              | 1.93 ×                | 14.5 ×                   |
-//! | 1,000,000, 90%                    | 1.00 ×              | 5.56 ×                | 26.7 ×                   |
-//! | 1,000,000, 99%                    | 1.01 ×              | 5.41 ×                | 9.80 ×                   |
+//! | 100,000 messages, 0% in common    | 1.00 ×              | 1.97 ×                | 5.18 ×                   |
+//! | 100,000 messages, 90% in common   | 1.00 ×              | 2.40 ×                | 2.93 ×                   |
+//! | 100,000 messages, 99% in common   | 1.05 ×              | 2.27 ×                | 2.69 ×                   |
+//! | 1,000,000 messages, 0% in common  | 1.00 ×              | 1.93 ×                | 14.5 ×                   |
+//! | 1,000,000 messages, 90% in common | 1.00 ×              | 5.56 ×                | 26.7 ×                   |
+//! | 1,000,000 messages, 99% in common | 1.01 ×              | 5.41 ×                | 9.80 ×                   |
 //!
-//! ### What does this tell us?
+//! #### What does this tell us?
 //!
 //! - **Near BDP = 125 kB** (i.e. 1 ms latency at 1 Gb/s), the minimum budget
 //!   will exert essentially no backpressure.

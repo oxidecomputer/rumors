@@ -71,22 +71,19 @@ const HASH_KEY_LABEL: &[u8] = b"rumors tree hash key";
 /// The key schedule's info label for the network identifier ([`NetworkKeys`]).
 const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 
-/// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
-/// the same [`seed`](crate::Peer::seed).
+/// The globally unique identifier shared by every [`Rumors`](crate::Rumors)
+/// descending from the same [`seed`](crate::Peer::seed).
 ///
 /// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), they
-/// must belong to the same causal universe. Two [`Peer`](crate::Peer)s from
-/// *independent* [`seed`](crate::Peer::seed)s can end up with coincidentally
-/// and transiently compatible causal state despite sharing no true causal
-/// history. Such peers must never combine, and the protocol validates that
-/// peers belong to the same [`Network`].
+/// must descend from the same [`seed`](crate::Peer::seed) by a transitive chain
+/// of [`bootstrap`](crate::Peer::bootstrap)s. This is required to ensure that
+/// [`Version`](crate::Version)s for messages across an entire network are
+/// causally comparable in a meaningful way.
 ///
-/// This type is opaque and [`Copy`]: callers can read it off a `Peer` with
-/// [`network`](crate::Peer::network), compare two, and serialize one, for
-/// example to key their own records by network. No operation takes one as
-/// input, so a deserialized identifier can only be compared: a peer's network
-/// is the one it was [`seed`](crate::Peer::seed)ed into or
-/// [bootstrapped](crate::Peer::bootstrap) into.
+/// Merely *knowing* the [`Network`] to which a [`Peer`](crate::Peer) belongs
+/// does not grant membership in that gossip network. In order to join the
+/// network, you must [`bootstrap`](crate::Peer::bootstrap) from an existing
+/// member of the network.
 //
 // Internally, the identifier is expanded from the network's secret by its
 // key schedule (`NetworkKeys`), so publishing it reveals nothing about the
@@ -147,8 +144,7 @@ impl fmt::Debug for Network {
     }
 }
 
-/// The bare lowercase hex of the 16-byte identifier, with no surrounding
-/// punctuation: the form for logs and operator-facing output.
+/// The bare lowercase hex of the 16-byte identifier.
 impl fmt::Display for Network {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         hex::encode(self.0).fmt(f)

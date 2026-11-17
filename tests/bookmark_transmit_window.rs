@@ -195,7 +195,7 @@ divided_proptest! {
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn bootstrap_attachment_is_outside_the_session_deadline(network in network_seed()) {
+    fn bootstrap_attachment_is_outside_the_gossip_timeout(network in network_seed()) {
         use futures::channel::oneshot;
         use rumors::{Connection, Joined};
 
@@ -207,7 +207,7 @@ divided_proptest! {
             let (expire, deadline) = oneshot::channel();
             let deadline = std::sync::Mutex::new(Some(deadline));
             let bootstrap = Peer::<Msg>::bootstrap()
-                .session_deadline(move || {
+                .gossip_timeout(move || {
                     let deadline = deadline.lock().unwrap().take().unwrap();
                     async move { deadline.await.unwrap() }
                 })

@@ -152,15 +152,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         self
     }
 
-    /// Set the join's session deadline, also inherited by the joined peer. See
-    /// [`Peer::session_deadline`] for timing and expiry behavior. Bookmark
+    /// Set the join's gossip timeout, also inherited by the joined peer. See
+    /// [`Peer::gossip_timeout`] for timing and expiry behavior. Bookmark
     /// attachment after the wire session is not covered.
-    pub fn session_deadline<D, F>(mut self, deadline: D) -> Self
+    pub fn gossip_timeout<D, F>(mut self, timeout: D) -> Self
     where
         D: Fn() -> F + Send + Sync + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
-        self.settings.gossip_policy.set_deadline(deadline);
+        self.settings.gossip_policy.set_deadline(timeout);
         self
     }
 
@@ -237,7 +237,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     ///
     /// [`Joined::Failed`] returns the builder when the session fails before
     /// this side has received its whole identity, including on
-    /// [`session_deadline`](Self::session_deadline) expiry. Discard the
+    /// [`gossip_timeout`](Self::gossip_timeout) expiry. Discard the
     /// connection and retry on another. Once the whole identity has arrived,
     /// this side has joined however the session ends, because the provider gave
     /// that identity up before sending it. A failure after that point, while
@@ -260,7 +260,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// peer. No message is lost and no identity is duplicated, but the identity
     /// can never be recycled, which lets versions grow as a crashed peer's
     /// identity does (see [`Bookmark`]). To bound a join's duration, configure
-    /// [`session_deadline`](Self::session_deadline) rather than dropping the
+    /// [`gossip_timeout`](Self::gossip_timeout) rather than dropping the
     /// future: a deadline that expires after the whole identity has arrived
     /// returns the live peer with a [`Connection::Lost`], where dropping the
     /// future would discard it.

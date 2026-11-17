@@ -6,34 +6,24 @@ use super::Error;
 use crate::observe::Role;
 use crate::tree::mirror::streaming::remote::codec;
 
-/// The part of a session in which a failure was detected.
+/// The part of the `rumors` protocol in which a failure was detected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Phase {
-    /// Identifying the protocol, network, and session intent.
+    ///  Specifying the protocol, network, and session intent.
     Preamble,
-    /// Exchanging versions and reconciliation settings.
+    /// Exchanging initial versions and reconciliation settings.
     Greeting,
-    /// Comparing trees and transferring their differences.
+    /// Comparing divergences and transferring new messages.
     Reconciliation,
-    /// Exchanging protocol state to complete a network join or departure.
+    /// Exchanging state to complete a network join or retirement.
     IdentityTransfer,
-    /// Exchanging confirmation that the session completed.
-    ///
-    /// On an existing replica, all local session work has committed before this
-    /// phase. A failure means the peer's commit is unconfirmed; it does not
-    /// undo local changes.
-    ///
-    /// A bootstrap served by a provider has received its whole identity before
-    /// this phase, so a failure here returns its live peer, beside a
-    /// [`Connection::Lost`](crate::Connection::Lost) carrying this error. Two
-    /// bootstrappers exchange no identity, so a failure here returns each one's
-    /// builder in [`Joined::Failed`](crate::Joined::Failed).
+    /// Exchanging final confirmation that the session completed successfully.
     Completion,
 }
 
 impl fmt::Display for Phase {
-    /// Describe the phase without requiring knowledge of internal modules.
+    /// Describe the phase succinctly.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Preamble => "the preamble",
@@ -45,20 +35,20 @@ impl fmt::Display for Phase {
     }
 }
 
-/// An operation whose progress depends on the transport.
+/// An operation which depends on the underlying wire transport.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum TransportOperation {
-    /// Receiving bytes from the peer.
+    /// Receiving bytes from the remote peer.
     Read,
-    /// Sending bytes to the peer.
+    /// Sending bytes to the remote peer.
     Write,
-    /// Making buffered writes visible to the peer.
+    /// Ensuring buffered writes are visible to the peer.
     Flush,
 }
 
 impl fmt::Display for TransportOperation {
-    /// Name the failed transport operation.
+    /// Name the failed transport operation succinctly.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Read => "read",
@@ -68,28 +58,30 @@ impl fmt::Display for TransportOperation {
     }
 }
 
-/// A logical data-stream position, when a failure can be attributed to one
-/// direction.
+/// A logical data-stream position, when a protocol violation can be attributed
+/// as such.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DataStream {
-    /// The elected role sending this stream's bytes.
+    /// The protocol role sending this stream's bytes.
     pub sender: Role,
-    /// The logical stream index, if a frame identified one.
+    /// The logical stream index, if known.
     pub index: Option<u8>,
 }
 
-/// Where a session detected a failure.
+/// Where a session detected a failure in the logical stream structure of the
+/// protocol.
 ///
 /// `data_stream` is absent for the preamble, greeting, and closing items, and
-/// for failures detected without a particular data-stream direction. Context
-/// describes detection; it does not establish which peer or transport
-/// implementation is at fault.
+/// for failures detected without a specified data-stream.
+///
+/// The error context does not definitively establish which peer or transport
+/// implementation is at fault, but it may provide a hint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Context {
-    /// The session phase in progress.
+    /// The sequential protocol phase currently in progress.
     pub phase: Phase,
-    /// The data-stream direction and index, when known.
+    /// The data-stream directionality and index, when known.
     pub data_stream: Option<DataStream>,
 }
 
@@ -116,7 +108,7 @@ impl Context {
 }
 
 impl fmt::Display for Context {
-    /// Include a known stream in the diagnostic's location.
+    /// Include any known stream in the diagnostic's location.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.phase)?;
         if let Some(DataStream { sender, index }) = self.data_stream {
@@ -129,36 +121,39 @@ impl fmt::Display for Context {
     }
 }
 
-/// A transport operation failed or the peer closed before it could complete.
+/// An operation on the underlying wire transport failed.
 ///
-/// Inspect `source.kind()` for the I/O category. A clean close before required
-/// bytes arrive is represented by `UnexpectedEof`. The context and original
-/// source remain available for logging; no message parsing is needed.
+/// Look to `source.kind()` for the I/O category, noting that a clean channel
+/// closure before required bytes arrive is represented by `UnexpectedEof`.
 #[derive(Debug, thiserror::Error)]
 #[error("{operation} failed during {context}")]
 #[non_exhaustive]
 pub struct TransportError {
-    /// Where the failure was detected.
+    /// Where the failure was detected in the protocol.
     pub context: Context,
-    /// The operation which could not complete.
+    /// The type of operation which could not complete.
     pub operation: TransportOperation,
-    /// The transport's error, or `UnexpectedEof` for a premature clean close.
+    /// The transport's error, or `UnexpectedEof` for a premature channel
+    /// closure.
     #[source]
     pub source: io::Error,
 }
 
-/// A violation of the protocol or one of its implementation invariants.
+/// A violation of the `rumors` protocol or one of its implementation
+/// invariants.
 ///
-/// This indicates a bug or incompatible implementation, not an ordinary peer
-/// departure. Report the context and diagnostic source. The diagnostic's
-/// concrete type is not part of the public API; applications handle this as one
-/// failure category rather than depending on individual grammar checks.
+/// **If this error occurs, it is *always* a bug in `rumors`**. [**Please report
+/// it**](https://github.com/oxidecomputer/rumors/issue/new)!
+///
+/// The concrete type of the underlying error is not part of the public API;
+/// applications should handle this as one failure category.
 #[derive(Debug, thiserror::Error)]
 #[error("protocol violation during {context}")]
 pub struct ProtocolViolation {
-    /// Where the violation was detected, with stream information when known.
+    /// Where/when the violation was detected in the protocol.
     pub context: Context,
-    /// Details for a bug report, including the original failure's source chain.
+    /// Details to include in your bug report, including the original failure's
+    /// source chain.
     #[source]
     pub source: Box<dyn std::error::Error + Send + Sync>,
 }

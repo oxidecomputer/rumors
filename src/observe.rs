@@ -164,8 +164,8 @@ pub enum SessionErrorKind {
     Protocol,
     /// The peers advertised incompatible protocols, networks, or settings.
     Mismatch,
-    /// The application's session deadline expired.
-    DeadlineExceeded,
+    /// The application's gossip timeout expired.
+    GossipTimeout,
     /// Bookmark storage or decoding failed.
     Bookmark,
 }

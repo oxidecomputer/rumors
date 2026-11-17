@@ -1,48 +1,35 @@
-//! Defaults for sessions over TLS 1.3 on TCP, across an Ethernet link.
+//! Defaults which were chosen specifically for TLS deployments.
 //!
-//! These defaults assume the deployment most sessions run in: TLS 1.3 over TCP
-//! over IPv4, on a path whose MTU is Ethernet's 1,500 bytes, with the TCP
-//! timestamps option on, as Linux, the BSDs and macOS send it by default. Under
-//! those assumptions one full TCP segment carries 1,448 bytes of payload, and a
-//! TLS 1.3 record adds 22 bytes to the plaintext it seals.
-//!
-//! For another deployment, recompute what the default derives from:
-//!
-//! - **Plain TCP** has no record framing. Start the write batch range at the
-//!   segment payload, 1,448 bytes, and end it where you like: no record limit
-//!   applies, so a larger end, up to the session's write buffer, makes fewer
-//!   writes.
-//! - **IPv6** headers are 20 bytes longer than IPv4's: subtract 20 from the
-//!   start, giving 1,406 bytes over TLS.
-//! - **Tunnels and VPNs** lower the MTU by their encapsulation, such as about
-//!   60 to 80 bytes for WireGuard or IPsec: subtract it from the start as well.
-//! - **Larger MTUs**, such as 9,000-byte jumbo frames, raise the start by the
-//!   same amount: 8,926 bytes over TLS.
-//!
-//! The end, TLS 1.3's largest record, holds for TLS over any link.
+//! These defaults are tuned for the following assumptions: TLS 1.3 over TCP
+//! over IPv4, on a path whose MTU is Ethernet's 1,500 bytes. In this context,
+//! these defaults optimize internal write-batching to reduce syscalls and
+//! latency.
 
 use std::ops::RangeInclusive;
 
 use crate::tree::mirror::streaming::remote::WRITE_BUFFER_BYTES;
 
-/// The write batch range a peer uses unless you set one
-/// ([`Peer::write_batch_range`](crate::Peer::write_batch_range)): from 1,426 to
-/// 16,384 bytes, inclusive.
+/// The default [`Peer::write_batch_range`](crate::Peer::write_batch_range).
 ///
-/// It runs from the most plaintext one TLS 1.3 record carries while the record
-/// fills one TCP segment to the most plaintext any TLS 1.3 record carries.
+/// This value is tuned to optimize for TLS 1.3 over TCP over IPv4, on a path
+/// whose MTU is Ethernet’s 1,500 bytes.
 ///
-/// The start is the *segment size*. A TCP segment on a 1,500-byte Ethernet link
-/// over IPv4 carries 1,448 bytes of payload: the MTU less 20 bytes of IPv4
-/// header, 20 of TCP header, and 12 of the TCP timestamps option. A TLS 1.3
-/// record adds 22 bytes to its plaintext: a 5-byte record header, a 1-byte
-/// inner content type, and a 16-byte AEAD tag. So a batch of at most 1,448 − 22
-/// = 1,426 bytes leaves as one record of at most 1,448 bytes, which fits one
-/// segment.
+/// It runs from the most plaintext a single TLS 1.3 record can carry whilst
+/// filling one TCP segment, all the way to the most plaintext *any* TLS 1.3
+/// record can carry.
 ///
-/// The end is the *largest batch*: TLS 1.3 limits a record's plaintext to
-/// 2<sup>14</sup> = 16,384 bytes (RFC 8446, section 5.1), so a batch of up to
-/// 16,384 bytes leaves as one record, and a larger one would take two.
+/// The minimum of the range is the *segment size*. A TCP segment on a
+/// 1,500-byte Ethernet link over IPv4 can carry up to 1,448 bytes of payload:
+/// the MTU, less 20 bytes of IPv4 header, 20 bytes of TCP header, and 12 bytes
+/// of TCP timestamps. A TLS 1.3 record uses an additional 22 bytes: a 5-byte
+/// record header, a 1-byte inner content type, and a 16-byte AEAD tag.
+/// Consequently, a batch of at most 1,448 − 22 = 1,426 bytes can be sent as a
+/// single TLS record of at most 1,448 bytes, which fits one TCP segment.
+///
+/// The maximum of the range is the *largest batch*. TLS 1.3 limits a record's
+/// plaintext to 2<sup>14</sup> = 16,384 bytes ([RFC 8446, section
+/// 5.1](https://www.rfc-editor.org/info/rfc8446/#section-5.1)), so a batch of
+/// up to 16,384 bytes leaves as a single TLS record.
 pub const WRITE_BATCH_RANGE: RangeInclusive<usize> = SEGMENT_PLAINTEXT..=TLS13_MAX_PLAINTEXT;
 
 /// The Ethernet MTU, in bytes: the largest IP packet one frame carries.

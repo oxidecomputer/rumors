@@ -7,7 +7,7 @@ use tracing::debug;
 use crate::replica::Replica;
 
 use super::Node;
-use super::seed::SESSION_DEADLINE;
+use super::seed::GOSSIP_TIMEOUT;
 
 impl Node {
     pub(super) async fn join(
@@ -22,7 +22,7 @@ impl Node {
         }
 
         match Peer::bootstrap()
-            .session_deadline(|| sleep(SESSION_DEADLINE))
+            .gossip_timeout(|| sleep(GOSSIP_TIMEOUT))
             .bookmark(self.claim_bookmark().await?)
             .join(read, write)
             .await

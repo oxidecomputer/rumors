@@ -8,40 +8,35 @@ use crate::bookmark::{Bookmark, NoBookmark};
 /// Whether a connection can carry another session, once we've finished using
 /// it.
 ///
-/// A session that completes leaves its connection exactly at the session
-/// boundary, ready for another session; a session that fails leaves it at an
-/// unknown position. Bootstrap and retirement decide whether this side joined
-/// or left before that is known, so their outcomes carry the connection's fate
-/// as a separate value: [`Joined`](crate::Joined) beside the new peer, and
-/// [`Retire`](crate::Retire) when this peer has left. See [what a session
-/// promises](crate#what-a-session-promises).
+/// A session that completes successfully leaves its connection exactly at the
+/// boundary between sessions, and both sides are aware of this. For this
+/// reason, it is safe to reuse such a connection. By contrast, a session that
+/// fails leaves the connection at an unknown position, so neither side can
+/// reuse it.
 ///
 /// To keep the connection for another session, take its halves with
-/// [`into_halves`](Self::into_halves), which returns a lost connection's error
-/// instead, so `?` passes it on.
-///
-/// `B` is the bookmark type of the session's [`Error`]. Retirement can fail in
-/// its peer's bookmark storage; bootstrap's session error is always
-/// `Error<NoBookmark>`.
+/// [`into_halves`](Self::into_halves); if the connection is reusable, you'll
+/// get it back, and if it's not, `?` passes the error on.
 #[must_use = "a reusable connection returns its halves; a lost one carries the session's error"]
 pub enum Connection<R, W, B: Bookmark = NoBookmark> {
-    /// The session completed, and both sides confirmed it. The halves rest
-    /// exactly at the session boundary, ready for another session.
+    /// The session completed, and both sides are aware of this.
+    ///
+    /// The connection halves rest exactly at the boundary between sessions,
+    /// ready for another session.
     Reusable {
-        /// The connection's read half.
+        /// The read half of the connection.
         read: R,
-        /// The connection's write half.
+        /// The write half of the connection.
         write: W,
     },
-    /// The session failed after this side had joined or left the network, for
-    /// example by a cut connection or an expired session deadline.
+    /// The session failed part-way through a session, and cannot be safely
+    /// recovered.
     ///
-    /// The connection is at an unknown position: discard it, and reconnect for
-    /// further sessions. Halves passed by value were dropped with the session;
-    /// halves passed as `&mut` are still the caller's, and must not carry
-    /// another session.
+    /// Halves passed by value were dropped with the session; halves passed as
+    /// `&mut` are still technically usable, but must not carry another session.
+    /// Discard them, and reconnect for further sessions.
     Lost {
-        /// The session failure.
+        /// The failure which caused the connection to break.
         error: Error<B>,
     },
 }
@@ -57,18 +52,20 @@ impl<R, W, B: Bookmark> Connection<R, W, B> {
     }
 }
 
-/// Take back a reusable connection's halves.
+/// Take back a reusable connection's halves, throwing an error if this can't be
+/// done.
 impl<R, W, B: Bookmark> Connection<R, W, B> {
-    /// Return a reusable connection's halves, or the error that lost it.
+    /// Return a reusable connection's halves, or the error that broke the
+    /// connection.
     ///
     /// # Errors
     ///
-    /// Returns the session's error if the connection is [`Lost`](Self::Lost).
+    /// Returns the underlying error if the connection is [`Lost`](Self::Lost).
     ///
     /// # Examples
     ///
-    /// A caller who wants the connection for another session takes its halves
-    /// with `?`, and a lost connection's error passes on:
+    /// A caller who wants the connection for another session can take its
+    /// halves with `?`, and propagate the error:
     ///
     /// ```
     /// use rumors::{Connection, Error};
@@ -92,9 +89,8 @@ impl<R, W, B: Bookmark> Connection<R, W, B> {
     }
 }
 
-/// Format a connection's fate without requiring debuggable transport types.
+/// Format a connection result without requiring debuggable transport types.
 impl<R, W, B: Bookmark> fmt::Debug for Connection<R, W, B> {
-    /// Formats the variant and, for a lost connection, its error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Reusable { .. } => f.debug_struct("Reusable").finish_non_exhaustive(),

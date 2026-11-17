@@ -75,7 +75,7 @@ divided_proptest! {
             .send(nested(default::PAYLOAD_DEPTH_LIMIT + 1))
             .expect_err("one step past the limit is rejected");
         assert!(
-            matches!(error, rumors::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
+            matches!(error, rumors::error::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
@@ -144,7 +144,7 @@ divided_proptest! {
             .send(nested_enum(default::PAYLOAD_DEPTH_LIMIT))
             .expect_err("a decode needing limit + 1 is rejected");
         assert!(
-            matches!(error, rumors::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
+            matches!(error, rumors::error::EncodeError::Depth { limit } if limit == default::PAYLOAD_DEPTH_LIMIT),
             "the rejection is the depth case naming the limit: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
@@ -223,7 +223,7 @@ divided_proptest! {
             .send(P { field: Some(None) })
             .expect_err("a value whose encoding decodes differently is rejected");
         assert!(
-            matches!(error, rumors::EncodeError::Unfaithful),
+            matches!(error, rumors::error::EncodeError::Unfaithful),
             "the rejection is the typed faithfulness case: {error:?}"
         );
         assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");

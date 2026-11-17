@@ -75,54 +75,65 @@ type LocalParticipant = materialized::Handshaking<Local, materialized::Start>;
 /// session's erased halves.
 type RemoteParticipant<'a> = streaming_remote::Handshaking<Local, DynRead<'a>, DynWrite<'a>>;
 
-/// The outcome of [`Peer::retire`].
+/// The result of [`Peer::retire`].
 ///
-/// [`Retired`](Self::Retired) means this peer left the network, and carries a
-/// [`Connection`] that says whether the connection can carry another session.
-/// [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered) return the
-/// peer, still holding its identity, so it can keep gossiping or retry
-/// retirement; dropping either result discards that peer.
-/// [`Declined`](Self::Declined) completed the session and returns the
-/// connection's halves, resting at the session boundary.
+/// - [`Retired`](Self::Retired) means this peer successfully left the network,
+///   and carries a [`Connection`] that indicates whether the connection can be
+///   safely reused.
+/// - [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered) both
+///   represent failures to retire, and both return the original
+///   [`Peer`], so it can retry retirement; dropping either result
+///   discards that peer.
+///   - [`Declined`](Retire::Declined) indicates that the counterparty was also
+///     attempting to retire, which means you probably shouldn't retry retiring
+///     into it again, since this error would likely occur again.
+///   - [`Recovered`](Retire::Recovered) indicates that there was an error
+///     during final synchronization, but before retirement completed. This
+///     could be transient, so it would be reasonable to retry with the same
+///     counterparty in some circumstances.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
 pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
-    /// This replica left the network, handing its identity to the remote peer.
+    /// This [`Peer`] has successfully left the gossip network.
     ///
-    /// The peer was consumed once it began to send its identity, and cannot
-    /// resume gossip or retry. With [`Connection::Reusable`], the remote peer
-    /// confirmed completion. With [`Connection::Lost`], the session failed
-    /// after the handoff began, including while awaiting [`Phase::Completion`],
-    /// so the remote peer may or may not have committed; if it did not, no peer
-    /// holds the identity, which then cannot be recycled (see [`Bookmark`]).
+    /// The peer cannot resume gossip or retry. With [`Connection::Reusable`],
+    /// the remote peer confirmed completion and the session finished. With
+    /// [`Connection::Lost`], the session failed sometime after retirement
+    /// began, so the connection is in an unknown state and should be discarded.
     Retired {
-        /// Whether the connection can carry another session.
+        /// Whether the connection can carry another gossip session.
         connection: Connection<R, W, B>,
     },
     /// The remote peer was also retiring, so the session changed neither
-    /// replica. Retry retirement with another peer.
+    /// [`Peer`]. Retry by retiring into a different remote peer.
     Declined {
-        /// The unchanged peer, still usable.
+        /// The unchanged original [`Peer`], still un-retired and usable.
         peer: Peer<T, B>,
-        /// The connection's read half, ready for another session.
+        /// The connection's read half, ready for another session with the
+        /// remote peer (though you probably don't want this, since the remote
+        /// peer was attempting to retire).
         read: R,
-        /// The connection's write half, ready for another session.
+        /// The connection's write half, ready for another session with the
+        /// remote peer (though you probably don't want this, since the remote
+        /// peer was attempting to retire).
         write: W,
     },
-    /// Retirement failed before the peer had to be consumed. The returned peer
-    /// can keep gossiping or retry retirement on a fresh connection; discard
-    /// the failed one.
+    /// Retirement failed before the critical point of no return.
+    ///
+    /// The [`Peer`] may keep gossiping or retry retirement on a fresh
+    /// connection. The original connection to the remote peer is failed and in
+    /// an unknown state; discard it.
     Recovered {
-        /// The unchanged peer, still usable.
+        /// The unchanged original [`Peer`], still un-retired and usable.
         peer: Peer<T, B>,
-        /// The session failure.
+        /// The failure which occurred.
         error: Error<B>,
     },
 }
 
-/// Format retirement outcomes without requiring debuggable payload, bookmark,
-/// or transport types.
+/// Format retirement outcomes without requiring any generic types to be
+/// debuggable.
 impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W, B> {
-    /// Formats the outcome and any returned peer, connection, or error.
+    /// Formats the result and any returned peer, connection, or error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Retired { connection } => f
@@ -142,78 +153,79 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W,
     }
 }
 
-/// One completed exchange, returned by
-/// [`gossip_once`](crate::Rumors::gossip_once) or yielded by
-/// [`gossip_stream`](crate::Rumors::gossip_stream).
+/// Information about one completed round of gossip.
 ///
-/// One of these exists per successful session; a failed session is an `Err`
-/// instead (the terminal `Err` of the `gossip` stream).
+/// This is returned by [`gossip_once`](crate::Rumors::gossip_once) or yielded
+/// by [`gossip_stream`](crate::Rumors::gossip_stream) repeatedly.
+///
+/// This report originates only from successful gossip rounds; failures report
+/// an `Err` instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Gossiped {
-    /// The causal frontier the two replicas converged on.
+    /// The greatest [`Version`] now known to both peers who
+    /// just gossiped.
     ///
-    /// Both replicas absorbed this frontier. Concurrent local work may leave
-    /// either replica ahead of it when the session commits.
+    /// Both sides absorbed all messages in the causal past or equal to this
+    /// [`Version`]. Concurrency may mean that by the time the
+    /// session commits, the overall [`Version`] of either side may be greater
+    /// than this, due to absorbing other changes.
     pub converged: Version,
-    /// Which trigger initiated the session on this side.
+    /// The local side's perspective about which side initiated this round of
+    /// gossip.
+    ///
+    /// Both sides may believe they initiated: if both race to initiate, the two
+    /// symmetrical initiations merge into one round of gossip.
     pub led: Led,
-    /// What the session measured about itself; every count is local, so the two
-    /// ends of one session report their own numbers.
+    /// Local statistics about the round of gossip, useful for reporting
+    /// metrics.
     ///
-    /// The byte and frame counts cover only the data frames that compare and
-    /// transfer messages. The session's setup, any identity it donates, and its
-    /// completion confirmation share the connection with those frames but are
-    /// not counted, so the byte counts are less than the bytes the session
-    /// moved over the connection.
-    ///
-    /// See [`SessionStats`] for each field's meaning and where it is counted
-    /// at.
+    /// See [`SessionStats`] for each field's meaning.
     pub stats: SessionStats,
 }
 
-/// Which side initiated a round of gossip.
+/// Which side of the connection *this peer* believes initiated a round of
+/// gossip.
 ///
-/// The session protocol itself is symmetric, and when both sides' triggers fire
-/// close together, each side may record `Local` for what becomes one session.
+/// If both peers race to initiate, each one may believe that it
+/// [`Led::Local`], because simultaneous gossip rounds merge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Led {
-    /// The local policy or an explicit
-    /// [`gossip_once`](crate::Rumors::gossip_once) call initiated the session.
+    /// The local [`gossip_when`](crate::Peer::gossip_when) policy or an
+    /// explicit call to [`gossip_once`](crate::Rumors::gossip_once) initiated
+    /// this round of gossip.
+    ///
+    /// If the local peer reports that it [`Led::Local`], the
+    /// remote peer may or may not also believe the same.
     Local,
-    /// The remote's preamble arrived first: this side responded.
+    /// The remote peer initiated gossip.
+    ///
+    /// If the local peer reports that the remote
+    /// [`Led::Remote`], then the remote definitely believes
+    /// that it [`Led::Local`]; two peers cannot both
+    /// simultaneously believe that the other side initiated.
     Remote,
 }
 
-/// Whether a policy stream item requests gossip conditionally or
-/// unconditionally.
+/// The policy by which a stream item for
+/// [`Peer::gossip_when`](crate::Peer::gossip_when) requests a gossip round.
 ///
-/// `()` converts to [`WhenChanged`](Self::WhenChanged), so the default changes
-/// stream needs no adaptation for [`Peer::gossip_when`]. Unconditional requests
-/// can add heartbeat sessions.
+/// Note that `()` is [`Into`]`<`[`WhenChanged`](Self::WhenChanged)`>`, so a
+/// stream of `()` acts as a stream of requests to gossip-on-change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Gossip {
-    /// Initiate a session only if the local set has changed since this
-    /// connection last [`converged`](Gossiped::converged).
-    ///
-    /// If nothing changed, the driver skips the session without sending bytes.
-    /// In particular, a change notification from the session's own merge never
-    /// starts another session on the connection that delivered it.
+    /// Initiate a round of gossip only if the local set of messages has changed
+    /// since this connection last [`converged`](Gossiped::converged).
     WhenChanged,
-    /// Initiate a session whether or not anything changed locally.
-    ///
-    /// A session between already-converged replicas is a short round-trip that
-    /// confirms the connection works end to end, and a session between diverged
-    /// ones converges them both ways — so an interval stream of unconditional
-    /// requests doubles as a liveness probe and an anti-entropy net, pulling
-    /// news a remote's own policy stream stayed quiet about.
+    /// Initiate a session whether or not the local set of messages has changed.
     Unconditionally,
 }
 
-/// Use unit-valued streams, including change subscriptions, as conditional
-/// initiation requests.
+/// Unit-valued streams, [`Changes`](crate::Changes), can be used directly as
+/// conditional gossip initiation policies.
 impl From<()> for Gossip {
-    /// Treat a change notification as a conditional initiation request.
+    /// Treat a change notification as a conditional initiation request by
+    /// converting it into [`Gossip::WhenChanged`].
     fn from((): ()) -> Self {
         Gossip::WhenChanged
     }

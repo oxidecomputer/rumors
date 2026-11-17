@@ -230,7 +230,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// commit, use [`batch`](Self::batch).
     ///
     /// ```
-    /// use rumors::{EncodeError, Peer};
+    /// use rumors::{Peer, error::EncodeError};
     ///
     /// let rumors = Peer::<u64>::seed().into_rumors();
     /// let version = rumors.send(7)?;
@@ -277,7 +277,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # Examples
     ///
     /// ```
-    /// use rumors::{EncodeError, Peer};
+    /// use rumors::{Peer, error::EncodeError};
     ///
     /// let rumors = Peer::<u64>::seed().into_rumors();
     /// rumors.send_all(0..10)?;
@@ -314,7 +314,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # Examples
     ///
     /// ```
-    /// use rumors::{EncodeError, Peer, Version};
+    /// use rumors::{Peer, Version, error::EncodeError};
     ///
     /// let rumors = Peer::<u64>::seed().into_rumors();
     /// rumors.send_all(0..10)?;
@@ -337,30 +337,29 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.redact_all(versions)
     }
 
-    /// Apply several changes in one all-or-nothing commit.
+    /// Apply several changes to the set of messages, atomically.
     ///
-    /// Runs `f` with a [`Batch`] scope handle for queueing
-    /// [`send`](Batch::send)s and [`redact`](Batch::redact)s, and commits
-    /// everything queued **iff `f` returns `Ok`**: observers and concurrent
-    /// gossip sessions see it all land as one commit, one tree traversal, and
-    /// at most one observer wakeup. Any other exit — a returned `Err` (how a
-    /// caller abandons a batch) or a panic — commits nothing.
+    /// Runs `f` with a [`Batch`] handle for queueing [`send`](Batch::send)s and
+    /// [`redact`](Batch::redact)s, and commits everything queued **iff `f`
+    /// returns `Ok`**. Any observers and concurrent gossip sessions see it all
+    /// land in one commit, and at most one observer wakeup. Any other exit —
+    /// i.e. `Err` or panic — commits nothing.
     ///
-    /// On commit, returns [`Committed`]: the closure's value, how many messages
-    /// the batch sent, how many its redactions removed, counted as
-    /// [`redact_all`](Self::redact_all) counts them, and the replica's frontier
-    /// right after the commit.
+    /// On commit, this returns [`Committed`], which annotates the closure's
+    /// original value with information about how many messages the batch sent,
+    /// how many its redactions removed, and the [`Peer`]'s
+    /// [`Version`] right after the commit.
     ///
-    /// The closure is synchronous and the scope handle cannot leave it (the
-    /// examples below show both escape routes failing to compile), so async
-    /// cancellation cannot observe a half-built batch. The closure may use the
-    /// same `Rumors` handle — a [`send`](Self::send), or a nested `batch` — and
-    /// such nested operations commit first, as their own separate commits.
+    /// The closure is synchronous and the type system prevents the handle from
+    /// leaving it, so async cancellation cannot observe a half-built batch. The
+    /// closure may use the same `Rumors` handle safely, though perhaps
+    /// confusingly, since such nested operations commit *inside-out*,
+    /// separately.
     ///
     /// # Examples
     ///
     /// ```
-    /// use rumors::{EncodeError, Peer};
+    /// use rumors::{Peer, error::EncodeError};
     ///
     /// let rumors = Peer::<String>::seed().into_rumors();
     /// rumors.batch(|batch| {
@@ -373,7 +372,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// # Ok::<(), EncodeError>(())
     /// ```
     ///
-    /// The scope handle cannot be stashed outside the closure:
+    /// The scope handle cannot be stashed outside the closure...
     ///
     /// ```compile_fail
     /// let rumors = rumors::Peer::<String>::seed().into_rumors();
@@ -509,7 +508,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// rest exactly at the session boundary, ready to host this pair's next
     /// session.
     ///
-    /// The configured [`Peer::session_deadline`] applies to this exchange. The
+    /// The configured [`Peer::gossip_timeout`] applies to this exchange. The
     /// initiation policy does not: this call always starts a session.
     ///
     /// On failure or cancellation, the connection's position is unknown:
@@ -582,7 +581,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// The driver serves remote initiations and follows the local policy
     /// selected by [`Peer::gossip_when`]. The default policy starts
     /// immediately, then pushes local changes. Configure
-    /// [`Peer::session_deadline`] to bound active sessions without timing idle
+    /// [`Peer::gossip_timeout`] to bound active sessions without timing idle
     /// waits.
     ///
     /// Each successful [`Gossiped`] reports the converged version, initiation

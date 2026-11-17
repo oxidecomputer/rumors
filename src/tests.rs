@@ -553,7 +553,7 @@ divided_proptest! {
     }
 }
 
-/// A session deadline that expires on its `expires_at`-th poll, counting every
+/// A gossip timeout that expires on its `expires_at`-th poll, counting every
 /// poll in `polls`.
 ///
 /// A session polls its deadline only after the session itself returns
@@ -628,7 +628,7 @@ fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usiz
     let provider = with_messages(
         network
             .peer::<u64>()
-            .session_deadline(expire_at_poll(&polls[1], provider_at)),
+            .gossip_timeout(expire_at_poll(&polls[1], provider_at)),
         &[1, 2, 3],
     );
     let (served, joined) = pollster::block_on(async {
@@ -636,7 +636,7 @@ fn cancelled_bootstrap(network: NetworkSeed, joiner_at: usize, provider_at: usiz
         let (served, joined) = tokio::join!(
             provider.gossip_once(a_end.read, a_end.write),
             Peer::<u64>::bootstrap()
-                .session_deadline(expire_at_poll(&polls[0], joiner_at))
+                .gossip_timeout(expire_at_poll(&polls[0], joiner_at))
                 .join(b_end.read, b_end.write),
         );
         (served.map(drop), joined)
@@ -668,7 +668,7 @@ divided_proptest! {
     /// any pair of them, never gives one identity to both sides, and a joiner
     /// that returns a peer holds exactly what the provider gave up.
     ///
-    /// A session deadline that expires on its `k`-th poll cancels its session
+    /// A gossip timeout that expires on its `k`-th poll cancels its session
     /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled bootstrap
     /// counts each side's suspensions; the joiner's cancellation then ranges
     /// over each of its suspensions, one past its last, and never, and so does
@@ -764,9 +764,9 @@ fn cancelled_retire(
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
     let (absorber, retiree) = bootstrap_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
     let retiree =
-        with_messages(retiree, &[4, 5]).session_deadline(expire_at_poll(&polls[0], retiree_at));
+        with_messages(retiree, &[4, 5]).gossip_timeout(expire_at_poll(&polls[0], retiree_at));
     let absorber =
-        with_messages(absorber, &[6]).session_deadline(expire_at_poll(&polls[1], absorber_at));
+        with_messages(absorber, &[6]).gossip_timeout(expire_at_poll(&polls[1], absorber_at));
     let absorber_before = party_of(&absorber);
     let retired = pollster::block_on(async {
         let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
@@ -801,7 +801,7 @@ divided_proptest! {
     /// any pair of them, never gives one identity to both sides, and a
     /// retiree returned for retry still retires.
     ///
-    /// A session deadline that expires on its `k`-th poll cancels its session
+    /// A gossip timeout that expires on its `k`-th poll cancels its session
     /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled retirement
     /// counts each side's suspensions; the retiree's cancellation then ranges
     /// over each of its suspensions, one past its last, and never, and so does
@@ -843,8 +843,8 @@ divided_proptest! {
                         assert!(whole.join(absorber).is_ok(), "{at}: one identity on both sides");
                         assert_eq!(whole, Party::seed(), "{at}: a recovered retiree stranded identity");
                         let survivor = retire_child_into(
-                            cancelled.absorber.session_deadline(std::future::pending::<()>),
-                            retiree.session_deadline(std::future::pending::<()>),
+                            cancelled.absorber.gossip_timeout(std::future::pending::<()>),
+                            retiree.gossip_timeout(std::future::pending::<()>),
                         );
                         assert_eq!(party_of(&survivor), Party::seed(), "{at}: the retried retirement left identity behind");
                     }
@@ -905,8 +905,8 @@ fn cancelled_gossip(
         .find(|(_, value)| **value == 1)
         .map(|(version, _)| version.clone());
     assert!(a.redact(&one.expect("the first side holds message 1")));
-    let a = a.session_deadline(expire_at_poll(&polls[0], a_at));
-    let b = with_messages(b, &[4, 5]).session_deadline(expire_at_poll(&polls[1], b_at));
+    let a = a.gossip_timeout(expire_at_poll(&polls[0], a_at));
+    let b = with_messages(b, &[4, 5]).gossip_timeout(expire_at_poll(&polls[1], b_at));
     let before = [live_values(&a), live_values(&b)];
     let reconciled = vec![2, 3, 4, 5, 6];
     let results = pollster::block_on(async {
@@ -937,8 +937,8 @@ fn cancelled_gossip(
             GossipSide::FailedUnchanged
         };
     }
-    let a = a.session_deadline(std::future::pending::<()>);
-    let b = b.session_deadline(std::future::pending::<()>);
+    let a = a.gossip_timeout(std::future::pending::<()>);
+    let b = b.gossip_timeout(std::future::pending::<()>);
     pollster::block_on(async {
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         let (a_out, b_out) = tokio::join!(
@@ -971,7 +971,7 @@ divided_proptest! {
     /// at any pair of them, publishes all of the session's result or none of
     /// it, and leaves both peers able to gossip.
     ///
-    /// A session deadline that expires on its `k`-th poll cancels its session
+    /// A gossip timeout that expires on its `k`-th poll cancels its session
     /// at the `k`-th suspension ([`ExpireAtPoll`]). An uncancelled session
     /// counts each side's suspensions; each side's cancellation then ranges
     /// over each of its suspensions, one past its last, and never, in every
@@ -1077,7 +1077,7 @@ impl Bookmark for SharedRecord {
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// A joiner whose session deadline expires after its whole party has
+    /// A joiner whose gossip timeout expires after its whole party has
     /// arrived keeps the party, and attaches its selected bookmark.
     ///
     /// The deadline expires while the joiner waits for the provider's completion
@@ -1133,7 +1133,7 @@ divided_proptest! {
                 };
                 let serve = provider.gossip_once(&mut a_end.read, &mut stalled);
                 let join = Peer::<u64>::bootstrap()
-                    .session_deadline(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
+                    .gossip_timeout(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
                     .bookmark(record.clone())
                     .join(&mut b_end.read, &mut b_end.write);
                 let joined = tokio::select! {
@@ -1149,7 +1149,7 @@ divided_proptest! {
                 }
             });
         let (peer, error) = joined;
-        assert!(matches!(error, Error::DeadlineExceeded), "got {error:?}");
+        assert!(matches!(error, Error::GossipTimeout), "got {error:?}");
         assert!(
             record.0.lock().unwrap().is_some(),
             "attachment persists a record despite the lost connection"

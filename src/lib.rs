@@ -95,10 +95,9 @@
 //! incidental here; `rumors` is runtime-agnostic.
 //!
 //! In a real application, you'd most likely use a TLS connection between two
-//! different machines. Outside the territory of Example Land, there are much
-//! more efficient ways than `rumors` to synchronize state within a single
-//! process on one machine; `rumors` shines for gossip between truly distinct
-//! peers.
+//! different machines. Outside of Example Land, there are much more efficient
+//! ways than `rumors` to synchronize state within a single process on one
+//! machine; `rumors` shines for gossip between truly distinct peers.
 //! ```
 //! use rumors::Peer;
 //! use tokio::spawn;
@@ -221,9 +220,9 @@
 //!   [`send`](Rumors::send) deserializes the serialized message immediately,
 //!   before sending it, and compares it to the original message using `Eq`. A
 //!   lossy serializer (for example `Some(None)` in a nested `Option`, which
-//!   decodes as `None`) returns an [`EncodeError`], failing at
-//!   [`send`](Rumors::send)-time, rather than causing replicas to diverge upon
-//!   gossip.
+//!   decodes as `None`) returns an [`EncodeError`](error::EncodeError), failing
+//!   at [`send`](Rumors::send)-time, rather than causing replicas to diverge
+//!   upon gossip.
 //! - **Nesting depth must be bounded.** Deserializing a message may recur at
 //!   most [`Peer::payload_depth_limit`] steps (256 by default). An over-deep
 //!   value is rejected at [`send`](Rumors::send)-time, rather than risking a
@@ -358,7 +357,7 @@
 //!
 //! A departed peer that never closes the connection leaves a session waiting,
 //! as does a transport whose writes don't complete; configure
-//! [`Peer::session_deadline`] to bound such waits.
+//! [`Peer::gossip_timeout`] to bound such waits.
 //!
 //! # Features
 //!
@@ -435,12 +434,11 @@ pub use batch::{Batch, Committed};
 // the widget's assets are attached to rustdoc's own view of before only).
 #[doc(no_inline)]
 pub use before::{Count, Version, causally};
-pub use bookmark::{BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, FormatError, NoBookmark};
+pub use bookmark::{BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, NoBookmark};
 #[cfg(feature = "fs")]
 #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
 pub use bookmark::{FileBookmark, RunBlocking, TokioBlocking};
 pub use error::Error;
-pub use message::EncodeError;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{

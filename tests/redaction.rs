@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{EncodeError, TryTick, Version};
+use rumors::{TryTick, Version, error::EncodeError};
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};

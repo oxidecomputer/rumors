@@ -10,12 +10,10 @@ use super::hash::PATH_LEN;
 use super::height::{Height, Root, S, Z};
 use super::path::Path;
 
-/// The path bytes accumulated from the root down to height `H`.
+/// The path from the root down to height `H`.
 ///
-/// Exactly `PATH_LEN - H::HEIGHT` bytes: the complement of a [`Path<H>`], which
-/// holds the bytes still to be consumed below that height.
-///
-/// The function marker avoids recursive auto-trait bounds on `H`; see [`S`].
+/// This is exactly `PATH_LEN - H::HEIGHT` bytes; it is the complement of a
+/// [`Path<H>`], which holds the bytes still to be consumed below that height.
 #[repr(transparent)]
 pub struct Prefix<H: Height = Z> {
     /// Height reached by these bytes, recorded only in the type.

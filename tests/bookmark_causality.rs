@@ -1829,7 +1829,7 @@ fn negative_control_classifier_rejects_codec_bugs() {
     }
     assert!(
         fires(Error::Bookmark(BookmarkIo::Format(
-            rumors::FormatError::Truncated { len: 0 }
+            rumors::error::FormatError::Truncated { len: 0 }
         ))),
         "an unconditional crate bug must fail the step"
     );

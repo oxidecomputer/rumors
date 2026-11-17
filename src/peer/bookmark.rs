@@ -6,24 +6,25 @@ use crate::bookmark::{Bookmark, BookmarkIo, NoBookmark};
 
 use super::Peer;
 
-/// A failed bookmark attachment, with the peer returned unchanged.
+/// The result of failing to attach a [`Bookmark`], with the
+/// [`Peer`] returned unchanged.
 ///
-/// Produced by [`Peer::bookmark`] or
-/// [`Joined::Unbookmarked`](super::Joined::Unbookmarked). The peer remains
-/// usable without a bookmark. Repair or replace the storage, then call
-/// `bookmark` on the returned peer to retry.
+/// This error is returned by [`Peer::bookmark`] or
+/// [`Joined::Unbookmarked`](super::Joined::Unbookmarked). The peer is still
+/// usable without a bookmark, though it cannot persist or reclaim identity
+/// space. Repair or replace the storage, then try again.
 #[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
 pub struct Unbookmarked<T: Send + Sync + 'static, B: Bookmark> {
-    /// The unchanged peer, with no bookmark attached.
+    /// The unchanged [`Peer`], without any bookmark attached.
     pub peer: Peer<T, NoBookmark>,
-    /// The storage or decoding failure.
+    /// The underlying storage or decoding failure.
     pub error: BookmarkIo<B::Error>,
 }
 
-/// Format an attachment failure without requiring debuggable payload or storage
+/// Format a bookmark failure without requiring debuggable message or storage
 /// types.
 impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
-    /// Format the returned peer and storage error.
+    /// Format the error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Unbookmarked")
             .field("peer", &self.peer)
@@ -32,12 +33,12 @@ impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
     }
 }
 
-/// Attach bookmark storage to an unbookmarked peer.
+/// Attach [`Bookmark`] storage to a [`Peer`] which lacks it.
 impl<T: Send + Sync + 'static> Peer<T> {
-    /// Rumors uses a "bookmark" to record a peer's internal identity and local
-    /// write progress, then reclaims old "identity space" opportunistically.
-    /// This limits the growth of message [`Version`](crate::Version)s across
-    /// crashes and restarts.
+    /// Rumors uses a "bookmark" to record identity and local write progress,
+    /// reclaiming old "identity space" opportunistically. This limits the
+    /// storage used by message [`Version`](crate::Version)s across crashes and
+    /// restarts.
     ///
     /// Bookmarks do not store the contents of messages. Their use is a
     /// (recommended!) optional optimization to prevent a space leak in the
@@ -56,10 +57,9 @@ impl<T: Send + Sync + 'static> Peer<T> {
     ///
     /// # Errors
     ///
-    /// A load, validation, or store failure returns the original peer,
-    /// unchanged and without a bookmark attached, in the [`Unbookmarked`]
-    /// error. It is safe to retry attaching the bookmark in case of transient
-    /// failures.
+    /// Any failure returns the original peer, unchanged and without a bookmark
+    /// attached, in the [`Unbookmarked`] error. It is safe to retry attaching
+    /// the bookmark in case of transient failures.
     pub async fn bookmark<B: Bookmark>(
         self,
         bookmark: B,

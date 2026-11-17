@@ -572,7 +572,7 @@ divided_proptest! {
         let deadline = Mutex::new(Some(deadline));
         let a = pollster::block_on(a.try_into_peer())
             .unwrap()
-            .session_deadline(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
+            .gossip_timeout(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
             .into_rumors();
         let reached = Arc::new(AtomicBool::new(false));
         let mut far_write = HoldCompletion {
@@ -596,7 +596,7 @@ divided_proptest! {
         expire.send(()).unwrap();
         assert!(matches!(
             run_to_quiescence(left).unwrap(),
-            Err(Error::DeadlineExceeded)
+            Err(Error::GossipTimeout)
         ));
         drop(right);
 
@@ -604,7 +604,7 @@ divided_proptest! {
         // factory before checking ordinary gossip over a fresh connection.
         let a = pollster::block_on(a.try_into_peer())
             .unwrap()
-            .session_deadline(std::future::pending)
+            .gossip_timeout(std::future::pending)
             .into_rumors();
         let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
         let (left, right) = run_to_quiescence(async {

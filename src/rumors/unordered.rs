@@ -8,29 +8,18 @@ use tokio::sync::watch;
 
 use super::channel::Channel;
 
-/// Observe messages in a [`Rumors`](crate::Rumors), in completely arbitrary
-/// (*non-causal*) order.
+/// A stream yielding messages from a [`Rumors`](crate::Rumors), in completely
+/// arbitrary (*non-causal*) order.
 ///
-/// This enumerates every message not causally contained in the starting
-/// checkpoint, then every message learned afterwards: by local
-/// [`send`](crate::Rumors::send), by gossip, through any handle. Once the
-/// [`Peer`](crate::Peer) and every [`Rumors`](crate::Rumors) have dropped and
-/// no further change is possible, it yields whatever remains and ends with
-/// `None`.
-///
-/// Each message arrives as an owned `(Version, Arc<T>)` — both handles are
-/// cheap reference bumps into shared storage — through either face:
-///
-/// - the [`Stream`] impl, awaiting quietly while the set is unchanged;
-/// - [`try_next`](Self::try_next), one non-blocking step at a time.
+/// This stream yields items of type `(Version, Arc<T>)`.
 ///
 /// Order is unspecified and does *not* follow the causal order: a message may
-/// be yielded before another that causally precedes it; use
-/// [`CausalMessages`](super::CausalMessages) if you want causal iteration order
-/// (at an amortized logarithmic cost in extra internal bookkeeping).
+/// be yielded before another that causally precedes it. Use
+/// [`CausalMessages`](super::CausalMessages) if you want causal iteration
+/// order.
 ///
-/// This observer does not count against the quiescence that lets
-/// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
+/// Holding this stream open does not prevent
+/// [`try_into_peer`](crate::Rumors::try_into_peer) from reclaiming the
 /// [`Peer`](crate::Peer).
 pub struct UnorderedMessages<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
@@ -41,9 +30,9 @@ pub struct UnorderedMessages<T: Send + Sync + 'static> {
     pass: Option<Pass>,
 }
 
-/// Summarize an observer without requiring its payloads to be debuggable.
+/// Debug the stream without requiring its payloads to be debuggable.
 impl<T: Send + Sync + 'static> std::fmt::Debug for UnorderedMessages<T> {
-    /// Formats its completed frontier and whether a snapshot is being
+    /// Format the stream's completed frontier and whether a snapshot is being
     /// delivered.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UnorderedMessages")
@@ -53,20 +42,22 @@ impl<T: Send + Sync + 'static> std::fmt::Debug for UnorderedMessages<T> {
     }
 }
 
-/// The outcome of [`UnorderedMessages::try_next`] or
+/// The result of [`UnorderedMessages::try_next`] or
 /// [`CausalMessages::try_next`].
 ///
-/// A non-blocking step that either yields a message or says why it can't.
+/// This is a non-blocking outcome that either yields a message or describes why
+/// it can't.
 ///
 /// [`CausalMessages::try_next`]: super::CausalMessages::try_next
 #[derive(Debug)]
 pub enum TryNext<T> {
-    /// A message was ready: the same owned `(Version, Arc<T>)` pair the
-    /// [`Stream`] face yields.
+    /// A message is ready: a version and an `Arc<T>` message.
     Message((Version, Arc<T>)),
-    /// No message is ready yet, but handles are still live: ask again later.
+    /// No message is ready yet, but it would be possible for one to arrive
+    /// later, because some handles still exist that could send one.
     Quiet,
-    /// Every handle is gone and no further message is possible.
+    /// Every handle that could cause a new message to arrive has been dropped,
+    /// so no further messages are possible.
     Ended,
 }
 
@@ -79,7 +70,7 @@ struct Pass {
     ceiling: Version,
 }
 
-/// Creates passes and exposes their completed frontier.
+/// Subscribe to messages, and query the safe resume point.
 impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// Observes messages beyond `since`, starting from the current snapshot.
     pub(crate) fn subscribe(inner: &watch::Sender<Inner<T>>, since: Version) -> Self {
@@ -107,68 +98,25 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
         }
     }
 
-    /// The sound resume point: the causal frontier of the last *completed*
-    /// pass, suitable for persisting across processes or handing to another
-    /// replica of the same network.
+    /// The latest causal resumption point.
     ///
-    /// Resuming from this checkpoint will never skip messages, but it may
-    /// replay an arbitrary number of them.
+    /// The checkpoint is the causal frontier *behind* any internally-staged
+    /// backlog. Resuming from this [`Version`] will never skip messages, but it
+    /// may replay any number of them.
     ///
-    /// Folding the yielded versions yourself is not a substitute: the causal
-    /// order is partial, not total, so "the last version I saw" is not
-    /// well-defined, and such a fold is not a causally closed boundary:
-    /// resuming from it could skip messages. This checkpoint moves only after a
-    /// complete pass.
-    ///
-    /// After the observer ends (`None`), this is the complete final frontier.
-    /// To merely pause in-process, just hold the observer: its idle state is
-    /// constant-size, and the checkpoint stays inside it.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use futures::{FutureExt, StreamExt};
-    /// use rumors::{Peer, Version};
-    ///
-    /// # tokio::runtime::Builder::new_current_thread()
-    /// #     .build()
-    /// #     .unwrap()
-    /// #     .block_on(async {
-    /// let rumors = Peer::<String>::seed().into_rumors();
-    /// rumors.send("one".to_string()).unwrap();
-    ///
-    /// let mut observer = rumors.unordered_messages();
-    /// let (_version, m) = observer.next().await.expect("one message");
-    /// assert_eq!(m.as_str(), "one");
-    ///
-    /// // Mid-pass, the checkpoint has not moved: resuming here would
-    /// // re-deliver "one" (a partial pass is not a causally closed boundary).
-    /// assert_eq!(observer.checkpoint(), &Version::new());
-    ///
-    /// // One more step finds nothing ready, completing the pass and
-    /// // absorbing its frontier into the checkpoint.
-    /// assert!(observer.next().now_or_never().is_none());
-    /// let checkpoint = observer.checkpoint().clone();
-    ///
-    /// // A resume from it re-observes nothing from the completed pass and
-    /// // everything not yet delivered.
-    /// rumors.send("two".to_string()).unwrap();
-    /// let mut resumed = rumors.unordered_messages_since(checkpoint);
-    /// let (_version, m) = resumed.next().await.expect("only the new message");
-    /// assert_eq!(m.as_str(), "two");
-    /// # });
-    /// ```
+    /// After the stream ends (i.e. yields `None`), this is the final
+    /// [`Version`] of the underlying [`Rumors`](crate::Rumors).
     pub fn checkpoint(&self) -> &Version {
         &self.checkpoint
     }
 }
 
-/// Provides one-step, non-blocking observation.
+/// Provides non-blocking observation.
 impl<T: Send + Sync + 'static> UnorderedMessages<T> {
-    /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
-    /// again later) if not, [`Ended`] if no further message is possible.
+    /// Return one stream item without blocking, if one is ready.
     ///
-    /// One [`Stream`] poll with a no-op waker, rendered as the trichotomy.
+    /// This returns a versioned message if one is ready, [`Quiet`] (ask again
+    /// later) if not, or [`Ended`] if no further message is possible.
     ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
@@ -182,9 +130,7 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     }
 }
 
-/// Yields owned `(Version, Arc<T>)` pairs: cheap handles into the shared
-/// storage (the version's buffer and the message's allocation are shared, not
-/// copied).
+/// Yields owned `(Version, Arc<T>)` pairs.
 impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
     type Item = (Version, Arc<T>);
 

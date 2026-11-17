@@ -177,22 +177,22 @@ proptest! {
                 let (a, stalled) = fault::stall_at(a, Vanish { offset: cut });
                 let deadline = std::sync::Mutex::new(Some(stalled));
                 let donor = pair.donor.try_into_peer().await.unwrap()
-                    .session_deadline(move || deadline.lock().unwrap().take().unwrap());
+                    .gossip_timeout(move || deadline.lock().unwrap().take().unwrap());
                 let outgoing = async move { donor.retire(a.read, a.write).await };
                 tokio::join!(outgoing, pair.receiver.gossip_once(b.read, b.write))
             });
             if matches!(stage, Failure::Preamble | Failure::Reconciliation) {
-                let Retire::Recovered { peer, error: Error::DeadlineExceeded } = outcome else {
+                let Retire::Recovered { peer, error: Error::GossipTimeout } = outcome else {
                     panic!("expiry before handoff must recover, stage {stage:?}: {outcome:?}");
                 };
                 assert_eq!(peer.dangerously_alias_party(), identity);
-                let live = peer.session_deadline(std::future::pending).into_rumors();
+                let live = peer.gossip_timeout(std::future::pending).into_rumors();
                 live.send(999).unwrap();
                 block_on(gossip(&live, &pair.receiver));
                 assert_eq!(live.snapshot().hash(), pair.receiver.snapshot().hash());
                 assert_eq!(recorded(&pair.donor_bookmark, network), Some(identity));
             } else {
-                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::DeadlineExceeded } }));
+                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::GossipTimeout } }));
                 assert!(recorded(&pair.donor_bookmark, network).is_none());
             }
             assert!(accepted.is_err(), "an incomplete donation cannot be accepted");
@@ -224,7 +224,7 @@ proptest! {
                 let (expire, deadline) = oneshot::channel();
                 let deadline = std::sync::Mutex::new(Some(deadline));
                 let donor = pair.donor.try_into_peer().await.unwrap()
-                    .session_deadline(move || {
+                    .gossip_timeout(move || {
                         let deadline = deadline.lock().unwrap().take().unwrap();
                         async move { deadline.await.unwrap() }
                     });
@@ -253,14 +253,14 @@ proptest! {
             } else { None };
             assert_eq!(recorded(&pair.donor_bookmark, network), expected_donor);
             if stage == Cancellation::AfterAbsorption {
-                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::DeadlineExceeded } }));
+                assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::GossipTimeout } }));
                 expected_receiver.join(identity).unwrap();
             } else {
-                let Retire::Recovered { peer, error: Error::DeadlineExceeded } = outcome else {
+                let Retire::Recovered { peer, error: Error::GossipTimeout } = outcome else {
                     panic!("expiry before handoff must recover: {outcome:?}");
                 };
                 assert_eq!(peer.dangerously_alias_party(), identity);
-                let live = peer.session_deadline(std::future::pending).into_rumors();
+                let live = peer.gossip_timeout(std::future::pending).into_rumors();
                 live.send(999).unwrap();
                 block_on(gossip(&live, &pair.receiver));
                 assert_eq!(live.snapshot().hash(), pair.receiver.snapshot().hash());

@@ -64,7 +64,7 @@ means:
   (`Peer::sync_memory_budget`). Most gossip sessions will be unaffected by
   even the minimum budget, but reconciliations between widely divergent
   peers will exert backpressure internally to make sure they don't balloon
-  memory beyond your budget.
+  beyond your budget.
 
 ## When *shouldn't* you use it?
 
@@ -99,10 +99,9 @@ This self-contained example runs a single gossip session between two peers
 incidental here; `rumors` is runtime-agnostic.
 
 In a real application, you'd most likely use a TLS connection between two
-different machines. Outside the territory of Example Land, there are much
-more efficient ways than `rumors` to synchronize state within a single
-process on one machine; `rumors` shines for gossip between truly distinct
-peers.
+different machines. Outside of Example Land, there are much more efficient
+ways than `rumors` to synchronize state within a single process on one
+machine; `rumors` shines for gossip between truly distinct peers.
 ```rust
 use rumors::Peer;
 use tokio::spawn;
@@ -221,9 +220,9 @@ can't check:
   `send` deserializes the serialized message immediately,
   before sending it, and compares it to the original message using `Eq`. A
   lossy serializer (for example `Some(None)` in a nested `Option`, which
-  decodes as `None`) returns an `EncodeError`, failing at
-  `send`-time, rather than causing replicas to diverge upon
-  gossip.
+  decodes as `None`) returns an `EncodeError`, failing
+  at `send`-time, rather than causing replicas to diverge
+  upon gossip.
 - **Nesting depth must be bounded.** Deserializing a message may recur at
   most `Peer::payload_depth_limit` steps (256 by default). An over-deep
   value is rejected at `send`-time, rather than risking a
@@ -355,7 +354,7 @@ async fn gossip_over(
 
 A departed peer that never closes the connection leaves a session waiting,
 as does a transport whose writes don't complete; configure
-`Peer::session_deadline` to bound such waits.
+`Peer::gossip_timeout` to bound such waits.
 
 ## Features
 

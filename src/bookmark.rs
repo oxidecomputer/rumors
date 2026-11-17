@@ -213,10 +213,10 @@ pub enum BookmarkIo<E> {
     Format(#[from] FormatError),
 }
 
-/// The placeholder [`Bookmark`] that persists nothing.
+/// The defult [`Bookmark`] which persists nothing.
 ///
-/// The default for every [`Peer`](crate::Peer). Ordinary gossip needs no
-/// bookmark, but repeated crashes can grow message versions without one.
+/// This is replaced by another type of bookmark persistence upon calling
+/// [`Peer::bookmark`](crate::Peer::bookmark).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NoBookmark;
 
