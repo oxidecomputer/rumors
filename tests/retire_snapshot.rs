@@ -140,7 +140,7 @@ fn mutual_retire_declines() {
 /// retiree's whole tree through the descent and then receives its whole party
 /// as the trailing frame.
 ///
-/// The newcomer *becomes* the retiree's successor in the same universe. The
+/// The newcomer *becomes* the retiree's successor in the same network. The
 /// cross of the join and retire legs: one side joins, the other
 /// retires, and the identity is handed off rather than reclaimed by an
 /// established peer.

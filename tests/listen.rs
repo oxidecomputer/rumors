@@ -336,7 +336,7 @@ divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
     /// Replica portability: a checkpoint earned against replica A is a valid
-    /// `since` against replica B of the same universe — messages observed via A
+    /// `since` against replica B of the same network — messages observed via A
     /// are skipped, messages B holds that A never saw fire.
     ///
     /// The claim holds for every network seed.

@@ -84,7 +84,7 @@ fn founded(network: NetworkSeed, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
     loaded(network.peer().sync_memory_budget(0).into_rumors(), payloads)
 }
 
-/// A join fork of `parent`, in its universe, loaded with `payloads`.
+/// A join fork of `parent`, in its network, loaded with `payloads`.
 fn forked(parent: &Rumors<Vec<u8>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
     loaded(block_on(join_fork_async(parent)), payloads)
 }

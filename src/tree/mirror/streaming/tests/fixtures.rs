@@ -108,7 +108,7 @@ pub(super) fn ceiling_of(node: &Option<TreeNode<height::Root>>) -> Version {
 ///
 /// Parties are pairwise disjoint, so every side's extras stay causally
 /// concurrent with everything else and survive deletion-pruning when provided
-/// across (crate safety rules: one universe, linear parties).
+/// across (crate safety rules: one network, linear parties).
 const SHARED_PARTY: usize = 0;
 /// The first remote's extras chain.
 const REMOTE_0_PARTY: usize = 1;

@@ -16,7 +16,7 @@
 //!    disjoint after every step of an arbitrary lifecycle schedule.
 //! 2. **Conservation**: the fold-join of all live parties is invariant along
 //!    the same schedules — it reconstitutes exactly [`Party::seed`]'s whole
-//!    interval, the baseline established when the universe is seeded. Identity
+//!    interval, the baseline established when the network is seeded. Identity
 //!    is moved and split, never created or destroyed; because each step is one
 //!    clean session driven to completion, nothing is in flight between steps,
 //!    and the fold covering the whole interval proves it.
@@ -196,8 +196,8 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
     }
 }
 
-/// Run `ops` from the universe `network` founds, invoking `check` on the live
-/// fleet at the baseline and after every step.
+/// Run `ops` from the network that `network` seeds, invoking `check` on the
+/// live fleet at the baseline and after every step.
 fn run_schedule(network: NetworkSeed, ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
     let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
     check(&fleet);

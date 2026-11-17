@@ -3,9 +3,9 @@
 //! A forked child is a copy of its parent, generator state included, so a peer
 //! that drew its network's secret from a generator living in the process would
 //! seed the same network in the parent and in every child forked after one
-//! shared draw: one secret, one identifier, one seed party, and two universes
-//! that gossip as one. [`Peer::seed`] draws from the operating system on every
-//! call instead.
+//! shared draw: one secret, one identifier, one seed party, and two
+//! independent histories that gossip as one network. [`Peer::seed`] draws
+//! from the operating system on every call instead.
 //!
 //! The test forks its own process, so it relies on nextest's process per test:
 //! a harness running other tests on other threads could fork while one of them

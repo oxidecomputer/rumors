@@ -1,4 +1,4 @@
-//! The per-universe [`rumors::Network`] guard: combining operations must refuse
+//! The [`rumors::Network`] guard: combining operations must refuse
 //! peers from a different seed, even when their parties happen to look
 //! disjoint.
 //!
@@ -27,7 +27,7 @@ fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync +
 divided_proptest! {
     #![divisor(LOCAL_DIVISOR)]
 
-    /// Every handle on one rumor set belongs to the same universe.
+    /// Every handle on one rumor set belongs to the same network.
     ///
     /// A [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
     /// [`Peer`]'s [`Network`](rumors::Network) unchanged, and the reclaimed
@@ -45,7 +45,7 @@ divided_proptest! {
         assert_eq!(
             rumors.snapshot().network(),
             network,
-            "a snapshot carries its set's universe"
+            "a snapshot carries its set's network"
         );
 
         let parent = block_on(rumors.try_into_peer()).expect("the sole reuniter reclaims the Peer");
@@ -179,7 +179,7 @@ divided_proptest! {
     }
 
     /// A joined peer adopts the provider's network, so it lands in exactly
-    /// the universe it was served from and can subsequently combine with it.
+    /// the network it was served from and can subsequently combine with it.
     ///
     /// The claim holds for every network seed.
     #[test]

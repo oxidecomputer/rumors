@@ -64,7 +64,7 @@ type Msg = u64;
 /// The network seed of the deterministic scenarios: the seed of their
 /// [`World`]'s network RNG.
 ///
-/// Each universe a world creates draws its network's secret from that stream,
+/// Each network a world seeds draws its secret from that stream,
 /// and with it its [`Network`] identifier; the identifiers decide the
 /// `(min_ticks, network)` tie-break between fresh peers. A scenario pins one
 /// path through those tie-breaks, so its seed stays fixed; the properties draw
@@ -103,7 +103,7 @@ struct Emission {
 /// [`secure`]: World::secure
 #[derive(Default)]
 struct EmissionLog {
-    /// Durable emissions grouped by their causal universe.
+    /// Durable emissions grouped by their network.
     durable: Mutex<BTreeMap<Network, Vec<Emission>>>,
 }
 
@@ -229,7 +229,7 @@ struct Node {
     /// The bookmark fail schedule, shared for the same reason.
     faults: Arc<Mutex<FaultFeed>>,
     /// The network this node currently belongs to (its last-known one while
-    /// dormant), so a revival rejoins the right universe.
+    /// dormant), so a revival rejoins the right network.
     network: Network,
     /// Emissions made by this incarnation that are not yet known to the
     /// network: neither persisted nor seen by another peer, so still erasable
@@ -288,13 +288,13 @@ struct World {
     /// Durable own-write progress, including records that a later store
     /// removes.
     protected: BTreeMap<Network, Version>,
-    /// The source of every universe's [`Network`] identifier, seeded from the
+    /// The source of every network's [`Network`] identifier, seeded from the
     /// world's network seed, so a run replays its tie-breaks between fresh
     /// peers.
     rng: ChaChaRng,
     /// Every network this world has seeded, to assert they are pairwise
-    /// distinct: two universes sharing an identifier would gossip as one
-    /// network while holding incomparable histories.
+    /// distinct: two independently seeded peers sharing an identifier would
+    /// gossip as one network while holding incomparable histories.
     networks: BTreeSet<Network>,
     /// The path this world took through every place a network identifier
     /// decides the outcome, which a reconstructed counterexample pins.
@@ -329,7 +329,7 @@ struct Redacted {
     own: Version,
 }
 
-/// One step of the path a plan takes through the places where a universe's
+/// One step of the path a plan takes through the places where a network's
 /// identifier decides what happens; the reconstructed counterexamples pin the
 /// whole path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,7 +342,7 @@ enum PathEvent {
         server: usize,
         joined: bool,
     },
-    /// `who` seeded a fresh universe: no live member of its network remained.
+    /// `who` seeded a fresh network: no live member of its old one remained.
     Reseeded(usize),
 }
 
@@ -362,9 +362,9 @@ impl World {
         }
     }
 
-    /// Seed a fresh universe for `bookmark`'s node, drawing its network from
+    /// Seed a fresh network for `bookmark`'s node, drawing its identifier from
     /// the world's RNG and asserting the identifier is new to this world.
-    fn seed_universe(
+    fn seed_network(
         &mut self,
         bookmark: FlakyInMemoryBookmark,
     ) -> Peer<Msg, FlakyInMemoryBookmark> {
@@ -376,13 +376,13 @@ impl World {
         .expect("a pristine seed attaches its bookmark without touching storage");
         assert!(
             self.networks.insert(peer.network()),
-            "the network RNG handed out {:?} twice: two universes would share an identifier",
+            "the network RNG handed out {:?} twice: two networks would share an identifier",
             peer.network(),
         );
         peer
     }
 
-    /// Build `n` nodes, each its own freshly-seeded universe, with identifiers
+    /// Build `n` nodes, each seeding its own network, with identifiers
     /// from `network_seed`'s stream.
     fn seed(
         n: usize,
@@ -398,7 +398,7 @@ impl World {
                 write_faults[label].clone(),
             )));
             let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-            let peer = world.seed_universe(bookmark);
+            let peer = world.seed_network(bookmark);
             let network = peer.network();
             world.nodes.push(Node {
                 state: NodeState::Live(Box::new(peer.into_rumors())),
@@ -420,7 +420,7 @@ impl World {
     /// precondition the leakage property rests on.
     ///
     /// Unlike [`seed`](World::seed), which starts the fleet fragmented into
-    /// per-peer universes and lets [`heal`](World::heal) force-collapse them, a
+    /// per-peer networks and lets [`heal`](World::heal) force-collapse them, a
     /// single shared seed means the id-space is partitioned *once* and then
     /// only moves between peers by donation and reclaim. That is what makes
     /// coverage (`fold` of all live and checkpointed regions equals
@@ -434,7 +434,7 @@ impl World {
         let store = Arc::new(Mutex::new(None));
         let faults = reliable();
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
-        let peer = world.seed_universe(bookmark);
+        let peer = world.seed_network(bookmark);
         let network = peer.network();
         world.nodes.push(Node {
             state: NodeState::Live(Box::new(peer.into_rumors())),
@@ -964,7 +964,7 @@ impl World {
 
     /// Bring `who` back to life if it is dormant: rejoin its last network from
     /// a live member if one remains (reclaiming its stranded identity), else
-    /// seed a brand-new universe (the degenerate solo recovery).
+    /// seed a brand-new network (the degenerate solo recovery).
     fn revive(&mut self, who: usize) {
         if self.nodes[who].is_live() {
             return;
@@ -976,7 +976,7 @@ impl World {
             && (self.join_into(who, server) || self.networks.len() == 1)
         {
             // A failed join in a single-network plan leaves this node
-            // dormant for a later retry; it does not create another universe.
+            // dormant for a later retry; it does not seed another network.
             return;
         }
         // No reachable member of its old network (or the rejoin's persistence
@@ -992,7 +992,7 @@ impl World {
         self.secure_and_lose(who);
         self.path.push(PathEvent::Reseeded(who));
         let bookmark = self.nodes[who].bookmark();
-        let peer = self.seed_universe(bookmark);
+        let peer = self.seed_network(bookmark);
         self.nodes[who].network = peer.network();
         self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
     }
@@ -1618,7 +1618,7 @@ fn arb_reliable_plan() -> impl Strategy<Value = Plan> {
 /// by no one: a leak. With the `join` normalization fixed, the absorption
 /// lands.
 ///
-/// No `World` harness, no faults, one universe, empty content — raw library
+/// No `World` harness, no faults, one network, empty content — raw library
 /// calls — so it pins the fix at the library boundary. The trigger is **both**
 /// peers having reclaimed: with only one side rebooted the absorption was
 /// always clean.
@@ -1648,7 +1648,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         let b = join_from_async(&a, bm_b()).await; // B reclaims
 
         // Both parties are well-formed, disjoint, and tile the seed: a valid
-        // single-universe state.
+        // single-network state.
         let pa = a.dangerously_alias_party();
         let pb = b.dangerously_alias_party();
         assert!(
@@ -2052,7 +2052,7 @@ proptest! {
 /// the heal must still converge. The path is pinned: each crash re-seeds its
 /// node (neither has a live member to reboot from), the cross-network retire is
 /// skipped, and the heal collapses node 1 into node 0, whose one send outranks
-/// a fresh universe.
+/// a fresh network.
 #[test]
 fn reconstructed_crash_pair_then_retire() {
     let world = run_plan(Plan {

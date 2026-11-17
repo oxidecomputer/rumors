@@ -62,7 +62,7 @@ where
 
 /// Join from an *empty* provider: the minimal join session. After the
 /// preamble the provider serves an empty tree and hands off a freshly-forked
-/// party — the shortest path by which a newcomer joins a universe.
+/// party — the shortest path by which a newcomer joins a network.
 #[test]
 fn empty_provider() {
     let provider: Rumors<u64> = seeded();

@@ -49,7 +49,7 @@
 //!
 //! # Loss accounting
 //!
-//! Party id-regions can leave the live universe *legitimately* when a wire
+//! Party id-regions can leave the live network *legitimately* when a wire
 //! drops mid-hand-off: a donation fork lost in flight, a retirement whose
 //! [`Retire::Retired`] carries a lost connection while its absorber also
 //! failed, or a peer that vanished while joining or retiring. The engine
@@ -410,7 +410,7 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
 pub fn assert_honest_error(e: &Error) {
     assert!(
         is_honest_error(e),
-        "an honest, single-universe simulation must only surface injected I/O \
+        "an honest, single-network simulation must only surface injected I/O \
          faults that truncate a frame (a cut never corrupts one); got: {e:?}"
     );
 }

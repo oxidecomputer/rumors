@@ -303,7 +303,7 @@ divided_proptest! {
     #[test]
     fn a_lost_epilogue_marker_is_distinguished_and_post_commit(network in network_seed()) {
         // Probe: measure B's total incoming bytes across one clean divergent
-        // session. `divergent_pair` builds byte-identical universes from one
+        // session. `divergent_pair` builds byte-identical networks from one
         // seed, so the replay below sees the same byte schedule.
         let clean_read_bytes = {
             let (a, b) = block_on(divergent_pair(network));

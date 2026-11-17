@@ -31,7 +31,7 @@ fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync +
 ///
 /// The search must hit one *specific* root radix, a direct-hit search with mean
 /// 256, so the pool is sized well past it (`common::shape` explains the
-/// search-and-redact staging; it is deterministic under the seeded universe).
+/// search-and-redact staging; it is deterministic under the seeded network).
 const RADIX_POOL: u64 = 2048;
 
 /// Payload base and pool size for the responder ballast: a disjoint payload

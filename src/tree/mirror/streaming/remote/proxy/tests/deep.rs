@@ -46,7 +46,7 @@ use super::{
     injected_operation,
 };
 
-/// Leaf addresses and edits for a pair of replicas in one universe.
+/// Leaf addresses and edits for a pair of replicas in one network.
 struct Divergence {
     /// Inserts made before the replicas separate.
     shared: Vec<Path>,

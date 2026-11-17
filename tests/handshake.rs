@@ -8,7 +8,7 @@
 //! `55799(["rumors", version: uint, network: bstr(16), intent: uint])`. The
 //! layout is transcribed here so the test remains independent of the encoder
 //! and decoder it checks. Network mismatch rejection rides the same preamble
-//! but needs a real peer in a different universe, so it is exercised separately
+//! but needs a real peer in a different network, so it is exercised separately
 //! in `tests/network.rs`.
 
 use rumors_testkit::common;
@@ -86,15 +86,15 @@ async fn gossip_against(network: NetworkSeed, reply: &[u8]) -> Result<Gossiped, 
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// Two well-behaved peers in the same universe complete the preamble and
+    /// Two well-behaved peers in the same network complete the preamble and
     /// proceed to a (trivially empty) gossip session.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn handshake_roundtrip_succeeds(network in network_seed()) {
         pollster::block_on(async {
-            // Same universe: `bob` is a party-disjoint fork of `alice`, so their
-            // networks match.
+            // `bob` is a party-disjoint fork of `alice`, so the two share a
+            // network.
             let alice: Rumors<String> = network.peer().sync_memory_budget(0).into_rumors();
             let bob = join_fork_async(&alice).await;
 

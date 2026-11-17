@@ -165,7 +165,7 @@ where
 /// The execution core: run any schedule over a slotted fleet with a gossip
 /// filter.
 ///
-/// The fleet starts along the schedule's fork tree: peer 0 is the universe
+/// The fleet starts along the schedule's fork tree: peer 0 is the network's
 /// seed, and every other initial peer is a genuine party-disjoint fork of an
 /// already-built peer (`fork_parents[i] < i`), created by serving it a
 /// join. Mid-schedule `Join` events append newcomer slots the same

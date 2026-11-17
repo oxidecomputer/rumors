@@ -92,9 +92,9 @@ divided_proptest! {
     /// A peer that absorbs a retiree whose party **overlaps** its own rejects it
     /// with [`Error::Protocol`] rather than corrupting its clock.
     ///
-    /// A correct universe never produces this (live parties are always disjoint);
-    /// we forge it with [`Party::dangerously_alias`] to check that absorption
-    /// detects a peer's violation of party disjointness.
+    /// A conforming network never produces this (live parties are always
+    /// disjoint); we forge it with [`Party::dangerously_alias`] to check that
+    /// absorption detects a peer's violation of party disjointness.
     ///
     /// The claim holds for every network seed.
     #[test]

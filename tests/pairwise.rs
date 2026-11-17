@@ -222,7 +222,7 @@ proptest! {
         prop_assert_eq!(fingerprint(&fork), fork_before);
     }
 
-    /// Gossip against an empty same-universe peer leaves the populated
+    /// Gossip against an empty same-network peer leaves the populated
     /// side untouched (nothing new to learn, no observation fires) while
     /// the empty side catches up to the populated side's content.
     #[test]

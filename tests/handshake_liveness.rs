@@ -39,12 +39,12 @@ use crate::common::{
 /// over: the harness minimum, so no frame of any phase fits in flight.
 const MIN_CAPACITY: usize = 1;
 
-/// Disjoint originators forked into a seasoned universe, each contributing its
+/// Disjoint originators forked into a seasoned network, each contributing its
 /// own events.
 ///
 /// They stay live through seasoning, so their regions' uneven tick counts keep
 /// the version's event tree branchy (a fully rejoined, uniformly ticked
-/// universe would normalize back to a one-or-two-byte version).
+/// network would normalize back to a one-or-two-byte version).
 const ORIGINATORS: u64 = 6;
 
 /// Base message count per originator; originator `i` commits `(i + 1)` times

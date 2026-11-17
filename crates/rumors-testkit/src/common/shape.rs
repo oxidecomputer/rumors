@@ -1,7 +1,7 @@
 //! Deterministic tree-shape staging for the wire-pin fixtures.
 //!
 //! A leaf's tree path is a pure function of its version and its network's
-//! secret, and a staged universe's secret and versions are a pure function of
+//! secret, and a staged network's secret and versions are a pure function of
 //! the staging script (the seeded network, the fork points, the send order) —
 //! payload bytes steer nothing. A fixture therefore stages a required shape in
 //! three steps: send a pool of messages, search the created versions for ones

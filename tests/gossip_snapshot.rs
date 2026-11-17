@@ -46,7 +46,7 @@ fn empty_pair_converges_immediately() {
 }
 
 /// One side holds two messages, the other is an empty peer in the same
-/// universe.
+/// network.
 ///
 /// Captures the one-directional flow: the empty peer initiates (the smaller set
 /// wins the election) and its empty greeting listing asks for everything, so
@@ -57,7 +57,7 @@ fn one_sided_transfer() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         // B is a genuine disjoint fork of A, created while A is still empty, so
-        // it is an empty peer in the same universe.
+        // it is an empty peer in the same network.
         let b = join_fork_async(&a).await;
 
         a.send_all([1, 2]).unwrap();
@@ -70,12 +70,12 @@ fn one_sided_transfer() {
 /// two-byte agreement needs a birthday-scale pool over 2¹⁶.
 const COLLIDING_POOL: u64 = 1024;
 
-/// Stage the batched-run universe: a populated peer holding exactly two leaves
+/// Stage the batched-run fixture: a populated peer holding exactly two leaves
 /// whose paths share their first two bytes, against an empty fork.
 ///
 /// Paths are version-derived, so the shape is staged by committing a pool of
 /// sends, searching the created versions for the first two-byte agreement, and
-/// redacting the rest — deterministic under the seeded universe (see
+/// redacting the rest — deterministic under the seeded network (see
 /// `common::shape`). The shared leading byte places both leaves inside one
 /// supplied root child (the two-byte agreement is stronger than that supply
 /// needs, and keeps the pair inside one subtree at height 30 as well).

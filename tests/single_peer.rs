@@ -179,7 +179,7 @@ proptest! {
         network in network_seed(),
     ) {
         // Each peer is its own fresh seed (the two never gossip, so they
-        // need not share a universe). Read the live multiset directly off
+        // need not share a network). Read the live multiset directly off
         // the snapshot.
         let multiset_of = |values: &[u64]| -> BTreeMap<u64, usize> {
             let peer = network.peer::<u64>().sync_memory_budget(0).into_rumors();

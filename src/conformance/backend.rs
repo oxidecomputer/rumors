@@ -778,7 +778,7 @@ where
 /// The deterministic tick order also lets path fixtures preassign these
 /// versions without creating trees outside their scoped path mapping.
 fn histories() -> [Vec<(Version, u64)>; 4] {
-    // Two concurrent histories from one universe: the left clock produces the
+    // Two concurrent histories from one seed: the left clock produces the
     // shared corpus, the messages the right redacts, and its own tail; the
     // right fork produces the other tail.
     let mut left_clock = before::Clock::seed();

@@ -35,7 +35,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
     /// at the wrapped set's current frontier: content already present is never
     /// logged, only what arrives afterwards.
     ///
-    /// The caller must create `local` by joining from the shared universe
+    /// The caller must create `local` by joining from the shared network's
     /// seed (directly, or via another peer), never as the first peer of another
     /// network: only then are all peers pairwise disjoint, the precondition for
     /// [`gossip_step`] to succeed.

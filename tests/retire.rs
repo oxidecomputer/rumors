@@ -324,7 +324,7 @@ divided_proptest! {
         assert_eq!(
             successor.network(),
             network,
-            "the successor joins the universe"
+            "the successor joins the network"
         );
         assert_eq!(
             readout(&successor.snapshot()),
@@ -465,10 +465,10 @@ proptest! {
 proptest! {
     /// Retiring A into B over the wire (after gossiping to convergence)
     /// leaves B with the same live content and causal version (`latest`) as
-    /// a plain gossip session in an identically-built universe.
+    /// a plain gossip session in an identically-built network.
     ///
     /// The party hand-off moves no content and no version. Two
-    /// independently seeded universes built from identical action sequences
+    /// independently seeded networks built from identical action sequences
     /// are compared, never connected; the content readout and `latest` are
     /// network-independent, so the distinct network secrets do not perturb
     /// the comparison.

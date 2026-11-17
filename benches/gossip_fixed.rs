@@ -3,7 +3,7 @@
 
 //! Fixed-size over-the-wire gossip sweeps.
 //!
-//! Every fixture starts with a total universe size of `N = 10_000` possible
+//! Every fixture starts with a total of `N = 10_000` possible
 //! actions and varies only where the work lands: shared pre-fork insertions,
 //! post-fork divergent insertions, or post-fork redactions. Each benchmark
 //! drives [`Rumors::gossip`] over one persistent in-memory connection, so the
