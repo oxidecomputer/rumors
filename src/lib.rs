@@ -112,7 +112,8 @@
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Gossip requires one connection between the two peers.
-//! // Here we create an in-memory pipe, for simplicity.
+//! // Here we create an in-memory pipe, for simplicity -- any capacity will work,
+//! // although very small capacities will degrade performance.
 //! let (alice_end, bob_end) = duplex(64 * 1024);
 //!
 //! // To gossip, each peer needs to supply an `AsyncBufRead` and an `AsyncWrite`.
