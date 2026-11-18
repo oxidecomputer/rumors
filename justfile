@@ -108,6 +108,10 @@ test-release *args:
 # takes `rumors` from this checkout, and builds offline against this
 # repository's lockfile, so the versions are the ones the repository builds
 # with. Warnings and unused dependencies fail the example's own build alone.
+# It builds the example's tests the same way, because the tutorial's
+# checkpoints are those tests, and a reader runs them with that manifest
+# rather than with this workspace's dev-dependencies; the workspace's test
+# run executes them.
 
 # Build the kv example as its own crate, from the manifest the tutorial shows.
 kv-standalone:
@@ -121,9 +125,11 @@ kv-standalone:
     rm "$crate/src/Cargo.toml.template" "$crate/src/rustfmt.toml"
     { cat examples/kv/Cargo.toml.template; printf '\n[workspace]\n'; } > "$crate/Cargo.toml"
     cp Cargo.lock "$crate/Cargo.lock"
-    cargo rustc --offline --manifest-path "$crate/Cargo.toml" --bin kv \
-        --config "patch.crates-io.rumors.path='$PWD'" \
-        -- -D warnings -D unused-crate-dependencies
+    for profile in dev test; do
+        cargo rustc --offline --manifest-path "$crate/Cargo.toml" --bin kv --profile "$profile" \
+            --config "patch.crates-io.rumors.path='$PWD'" \
+            -- -D warnings -D unused-crate-dependencies
+    done
 
 # Run the doctests (nightly), which nextest does not run.
 doctest:

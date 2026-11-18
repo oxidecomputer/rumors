@@ -16,9 +16,12 @@ const MANIFEST: &str = "Cargo.toml";
 #[cfg(feature = "tutorial")]
 const MANIFEST_TEMPLATE: &str = "Cargo.toml.template";
 
-/// The file holding the one-file program's count of non-blank lines, as bare
-/// digits with no trailing newline, so the tutorial can include it mid-sentence.
-/// Its extension keeps it apart from the chunks' `.md` fragments.
+/// The file holding the one-file program's count of non-blank lines outside its
+/// tests.
+///
+/// It holds bare digits with no trailing newline, so the tutorial can include
+/// it mid-sentence. Its extension keeps it apart from the chunks' `.md`
+/// fragments.
 #[cfg(feature = "tutorial")]
 const LINE_COUNT: &str = "lines.txt";
 
@@ -66,7 +69,7 @@ fn generate() -> Result<(), String> {
             .map_err(|error| format!("writing {}: {error}", path.display()))?;
     }
     let lines = out.join(LINE_COUNT);
-    fs::write(&lines, line_count(&flattened).to_string())
+    fs::write(&lines, line_count(&chunks, &flattened).to_string())
         .map_err(|error| format!("writing {}: {error}", lines.display()))?;
 
     let template_path = example.join(MANIFEST_TEMPLATE);
@@ -84,14 +87,16 @@ fn generate() -> Result<(), String> {
     tutorial::check_order(&names, &tutorial::references(&tutorial)?)
 }
 
-/// The number of non-blank lines in the one-file program, which is every
-/// flattened chunk in order: the `main.rs` a reader holds at the tutorial's
-/// end.
+/// The number of non-blank lines in the one-file program outside its test
+/// chunks, which is every other flattened chunk in order: the `main.rs` a
+/// reader holds at the tutorial's end, less the tests only `cargo test` runs.
 #[cfg(feature = "tutorial")]
-fn line_count(flattened: &[String]) -> usize {
-    flattened
+fn line_count(chunks: &[tutorial::Chunk], flattened: &[tutorial::Flattened]) -> usize {
+    chunks
         .iter()
-        .flat_map(|chunk| chunk.lines())
+        .zip(flattened)
+        .filter(|(chunk, _)| !chunk.test)
+        .flat_map(|(_, flattened)| flattened.text.lines())
         .filter(|line| !line.trim().is_empty())
         .count()
 }

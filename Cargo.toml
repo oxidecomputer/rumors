@@ -470,6 +470,12 @@ debug-assertions = true
 [profile.bench]
 debug = "line-tables-only"
 
+# The tutorial's checkpoints are tests inside the kv example, and Cargo runs an
+# example's tests only when its target asks for them.
+[[example]]
+name = "kv"
+test = true
+
 [[bench]]
 name = "branch_hash"
 harness = false

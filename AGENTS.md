@@ -70,6 +70,15 @@ justfile's `nightly_toolchain` give the reason and the bump procedure.
   explains that path, and `tests/seed_liveness.rs` fails any seed proptest
   would not read.
 
+## The kv example
+
+`examples/kv` is the source of the tutorial in `src/tutorial.rs`, which the
+build script renders chunk by chunk (`build/tutorial.rs` explains how). The
+tutorial's prose documents it, so the example carries no comments of any kind,
+doc comments included, and its tests stand inline beside the code they check,
+as the tutorial's checkpoints. The rules on test files, test doc comments, and
+item doc comments in the sections around this one do not apply to it.
+
 ## Writing documentation
 
 - Give every item a doc comment stating its purpose, private items, trait

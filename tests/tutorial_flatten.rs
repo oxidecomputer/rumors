@@ -12,23 +12,41 @@ use std::fs;
 
 use proptest::prelude::*;
 
-use tutorial::{Chunk, ROOT};
+use tutorial::{ALLOW_DEAD_CODE, Chunk, Flattened, ROOT};
 
-/// Chunks named `names`, with the matching sources.
+/// A chunk named `name` with the source `source`, a test chunk if `test`.
+fn chunk(name: &str, source: &str, test: bool) -> Chunk {
+    Chunk {
+        name: name.to_owned(),
+        source: source.to_owned(),
+        test,
+    }
+}
+
+/// Chunks named `names`, with the matching sources, none of them test chunks.
 fn chunks(sources: &[(&str, &str)]) -> Vec<Chunk> {
     sources
         .iter()
-        .map(|(name, source)| Chunk {
-            name: (*name).to_owned(),
-            source: (*source).to_owned(),
-        })
+        .map(|(name, source)| chunk(name, source, false))
         .collect()
 }
 
-/// Flatten `sources`, failing the test with the flattener's reason if it
-/// rejects them.
+/// Each chunk's text after flattening `sources`, failing the test with the
+/// flattener's reason if it rejects them.
 fn flatten(sources: &[(&str, &str)]) -> Vec<String> {
-    tutorial::flatten(&chunks(sources)).unwrap_or_else(|error| panic!("{error}"))
+    tutorial::flatten(&chunks(sources))
+        .unwrap_or_else(|error| panic!("{error}"))
+        .into_iter()
+        .map(|chunk| chunk.text)
+        .collect()
+}
+
+/// A flattened chunk other than a test chunk, whose text is `text`.
+fn untested(text: &str) -> Flattened {
+    Flattened {
+        text: text.to_owned(),
+        test_copy: None,
+    }
 }
 
 /// Flattening deletes module declarations, imports that stay inside the
@@ -147,6 +165,120 @@ fn a_glob_import_is_rejected() {
     assert!(matches!(result, Err(error) if error.contains("glob")));
 }
 
+/// A test chunk's text shows its tests as written, whatever form their test
+/// attributes take, without the imports flattening deletes; its test copy is
+/// that text with each test attribute replaced by `#[allow(dead_code)]`.
+#[test]
+fn a_test_chunk_shows_its_tests_and_its_copy_replaces_each_attribute() {
+    for (attribute, copied) in [
+        ("#[test]\n", format!("{ALLOW_DEAD_CODE}\n")),
+        (
+            "#[tokio::test(flavor = \"multi_thread\")]\n",
+            format!("{ALLOW_DEAD_CODE}\n"),
+        ),
+        ("#[test] ", format!("{ALLOW_DEAD_CODE} ")),
+    ] {
+        let tests = |attribute: &str| {
+            format!("{attribute}fn one() {{\n    a();\n}}\n\n{attribute}async fn two() {{}}")
+        };
+        let source = format!("use std::fs;\nuse super::a;\n\n{}\n", tests(attribute));
+        let flattened = tutorial::flatten(&[
+            chunk("a", "use std::fs;\n\nfn a() {}\n", false),
+            chunk("a/tests", &source, true),
+        ])
+        .unwrap();
+        assert_eq!(flattened[0].test_copy, None, "{attribute:?}");
+        assert_eq!(flattened[1].text, tests(attribute), "{attribute:?}");
+        assert_eq!(
+            flattened[1].test_copy,
+            Some(tests(&copied)),
+            "{attribute:?}"
+        );
+    }
+}
+
+/// A test chunk is rejected if it holds anything but tests and the imports
+/// flattening deletes, which the one-file program would put into the reader's
+/// non-test build: an import of a new name, or an item that is not a test.
+#[test]
+fn a_test_chunk_holding_anything_but_tests_is_rejected() {
+    for source in [
+        "use std::path::Path;\n\n#[test]\nfn checks() {}\n",
+        "fn helper() {}\n\n#[test]\nfn checks() {}\n",
+        "struct Fixture;\n",
+    ] {
+        let result = tutorial::flatten(&[chunk("tests", source, true)]);
+        assert!(
+            matches!(&result, Err(error) if error.contains("test chunk")),
+            "{source:?}"
+        );
+    }
+}
+
+/// A test outside a test chunk is rejected, since the line count would count
+/// it as part of the program.
+#[test]
+fn a_test_outside_a_test_chunk_is_rejected() {
+    let result = tutorial::flatten(&chunks(&[(ROOT, "#[test]\nfn checks() {}\n")]));
+    assert!(matches!(result, Err(error) if error.contains("`#[cfg(test)]`")));
+}
+
+/// `#[cfg(test)]` is rejected anywhere but alone on a module declaration: on
+/// an import, a test, any other item, a method, or the whole file, and beside
+/// another attribute on a declaration.
+#[test]
+fn cfg_test_anywhere_but_alone_on_a_module_declaration_is_rejected() {
+    for source in [
+        "#[cfg(test)]\nuse std::time::Duration;\n",
+        "#[cfg(test)]\n#[test]\nfn checks() {}\n",
+        "#[cfg(test)]\nfn helper() {}\n",
+        "struct A;\n\nimpl A {\n    #[cfg(test)]\n    fn helper() {}\n}\n",
+        "#![cfg(test)]\n\nstruct A;\n",
+        "#[cfg(test)]\n#[path = \"other.rs\"]\nmod tests;\n",
+    ] {
+        let result = tutorial::flatten(&chunks(&[("a", source)]));
+        assert!(
+            matches!(&result, Err(error) if error.contains("cfg(test)")),
+            "{source:?}"
+        );
+    }
+}
+
+/// Every chunk below a module declared with `#[cfg(test)]` is a test chunk,
+/// the module's own and its descendants', and every other chunk is not.
+#[test]
+fn a_cfg_test_module_and_its_descendants_hold_test_chunks() {
+    let dir = tempfile::tempdir().unwrap();
+    let write = |path: &str, source: &str| {
+        let path = dir.path().join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, source).unwrap();
+    };
+    write(
+        "main.rs",
+        "mod a;\n#[cfg(test)]\nmod tests;\nmod b;\n\nfn main() {}\n",
+    );
+    write("a.rs", "struct A;\n");
+    write("tests.rs", "mod nested;\n\n#[test]\nfn checks() {}\n");
+    write("tests/nested.rs", "#[test]\nfn deeper() {}\n");
+    write("b.rs", "struct B;\n");
+
+    let chunks: Vec<(String, bool)> = tutorial::chunks(dir.path())
+        .unwrap()
+        .into_iter()
+        .map(|chunk| (chunk.name, chunk.test))
+        .collect();
+    let expected = [
+        ("a", false),
+        ("tests/nested", true),
+        ("tests", true),
+        ("b", false),
+        (ROOT, false),
+    ]
+    .map(|(name, test)| (name.to_owned(), test));
+    assert_eq!(chunks, expected);
+}
+
 /// The chunks of an example follow each file's module declarations, with each
 /// file's own items where they stand among those declarations.
 ///
@@ -209,7 +341,7 @@ fn own_items_split_by_a_module_declaration_are_rejected() {
 /// `main`, and the last shows its chunk with neither.
 #[test]
 fn only_prefix_fragments_allow_dead_code_and_stub_main() {
-    let flattened = ["struct A;".to_owned(), "fn main() {}".to_owned()];
+    let flattened = [untested("struct A;"), untested("fn main() {}")];
     let prefix = tutorial::fragment(&flattened, 0).unwrap();
     assert_eq!(
         prefix,
@@ -224,7 +356,7 @@ fn only_prefix_fragments_allow_dead_code_and_stub_main() {
 #[test]
 fn a_chunk_line_rustdoc_would_hide_is_rejected() {
     for line in ["#", "  # hidden", "## unescaped"] {
-        let result = tutorial::fragment(&[line.to_owned()], 0);
+        let result = tutorial::fragment(&[untested(line)], 0);
         assert!(result.is_err(), "{line:?}");
     }
 }
@@ -277,16 +409,30 @@ fn shown_line() -> impl Strategy<Value = String> {
     "[a-z ;{}()]{0,12}"
 }
 
+/// Text of one to three shown lines.
+fn shown_text() -> impl Strategy<Value = String> {
+    prop::collection::vec(shown_line(), 1..4).prop_map(|lines| lines.join("\n"))
+}
+
+/// A flattened chunk, a test chunk or not, whose text and test copy are shown
+/// lines.
+fn flattened_chunk() -> impl Strategy<Value = Flattened> {
+    (shown_text(), prop::option::of(shown_text()))
+        .prop_map(|(text, test_copy)| Flattened { text, test_copy })
+}
+
 proptest! {
     /// Removing a fragment's hidden markers, its `allow` line, and its `main`
-    /// stub reproduces every chunk up to and including its own, separated by
-    /// blank lines, inside the code fence.
+    /// stub reproduces the program up to its chunk, then its test copy.
+    ///
+    /// That is: the code fence holds every chunk's text up to and including
+    /// its own, separated by blank lines, and then, for a test chunk, a blank
+    /// line and its test copy.
     #[test]
-    fn a_fragment_unhidden_is_the_program_up_to_its_chunk(
-        chunk_lines in prop::collection::vec(prop::collection::vec(shown_line(), 1..4), 1..5),
+    fn a_fragment_unhidden_is_the_program_up_to_its_chunk_then_its_test_copy(
+        flattened in prop::collection::vec(flattened_chunk(), 1..5),
         pick in any::<prop::sample::Index>(),
     ) {
-        let flattened: Vec<String> = chunk_lines.iter().map(|lines| lines.join("\n")).collect();
         let index = pick.index(flattened.len());
         let fragment = tutorial::fragment(&flattened, index).unwrap();
 
@@ -302,8 +448,9 @@ proptest! {
             .enumerate()
             .flat_map(|(at, chunk)| {
                 let separator = (at < index).then_some("");
-                chunk.lines().chain(separator)
+                chunk.text.lines().chain(separator)
             })
+            .chain(flattened[index].test_copy.iter().flat_map(|copy| std::iter::once("").chain(copy.lines())))
             .collect();
         prop_assert_eq!(body, expected);
     }

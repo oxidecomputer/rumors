@@ -21,9 +21,27 @@
 //! program, a glob import, or a file whose own items a module declaration
 //! splits in two.
 //!
+//! A module declared with `#[cfg(test)]`, and every module below it, holds
+//! *test chunks*: chunks of test functions, which carry an attribute named
+//! `test` such as `#[test]` or `#[tokio::test]`. A test chunk takes its place
+//! in teaching order like any other chunk, so the tutorial can show a test
+//! right after the code it checks, and its fragment shows the tests as written,
+//! attribute included. The program's line count leaves test chunks out.
+//! `#[cfg(test)]` itself never reaches the one-file program, since flattening
+//! deletes the module declaration that carries it, and [`flatten`] rejects it
+//! anywhere else. The one-file program has no test module to hide test code
+//! in, so [`flatten`] also rejects anything in a test chunk but its tests and
+//! the imports flattening deletes, which would reach the reader's non-test
+//! build: an import of new names belongs inside the test that uses it. It
+//! rejects a test outside a test chunk too, which the line count would include.
+//!
 //! Each fragment is a `no_run` doctest whose hidden lines hold every earlier
 //! chunk, so the doctests compile every prefix of the program: a chunk that
-//! refers to anything in a later chunk fails its own fragment.
+//! refers to anything in a later chunk fails its own fragment. Rustdoc compiles
+//! a fragment without `cfg(test)`, which deletes tests before the compiler
+//! checks them, so a test chunk's fragment also hides a copy of the chunk with
+//! each test attribute replaced by `#[allow(dead_code)]`: every test compiles
+//! against exactly the prefix it appears in.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -33,10 +51,15 @@ use std::path::Path;
 use proc_macro2::{LineColumn, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::visit::{self, Visit};
-use syn::{AttrStyle, Attribute, Expr, ImplItem, Item, Lit, Meta, UseTree, Visibility};
+use syn::{AttrStyle, Attribute, Expr, ImplItem, Item, ItemFn, Lit, Meta, UseTree, Visibility};
 
 /// The name of the chunk that holds the crate root's own items.
 pub const ROOT: &str = "main";
+
+/// The attribute that replaces each test attribute in the copy of a test chunk
+/// that its fragment hides, so that a build without `cfg(test)` keeps the tests
+/// and checks them.
+pub const ALLOW_DEAD_CODE: &str = "#[allow(dead_code)]";
 
 /// Render the example's manifest as its fragment: the template, byte for
 /// byte, in a TOML block that rustdoc does not compile.
@@ -52,6 +75,9 @@ pub struct Chunk {
     pub name: String,
     /// The chunk's complete source text.
     pub source: String,
+    /// Whether the chunk is a test chunk: one inside a module declared with
+    /// `#[cfg(test)]`, directly or through an ancestor.
+    pub test: bool,
 }
 
 /// Read the example at `dir` and return its chunks in teaching order.
@@ -62,16 +88,23 @@ pub struct Chunk {
 /// definition precedes the modules that say what it can do; between them, as
 /// a type's definition follows the modules defining the types it holds; or
 /// after them, as `main.rs`'s items do. A file with no items of its own
-/// contributes no chunk.
+/// contributes no chunk. Every chunk inside a module declared with
+/// `#[cfg(test)]` is a test chunk.
 pub fn chunks(dir: &Path) -> Result<Vec<Chunk>, String> {
     let mut chunks = Vec::new();
-    walk(dir, None, &mut chunks)?;
+    walk(dir, None, false, &mut chunks)?;
     Ok(chunks)
 }
 
 /// Add the chunks of the module at `module` (a path below the crate root, or
-/// `None` for the root itself) to `chunks`, in teaching order.
-fn walk(dir: &Path, module: Option<&str>, chunks: &mut Vec<Chunk>) -> Result<(), String> {
+/// `None` for the root itself) to `chunks`, in teaching order, as test chunks
+/// if `test`.
+fn walk(
+    dir: &Path,
+    module: Option<&str>,
+    test: bool,
+    chunks: &mut Vec<Chunk>,
+) -> Result<(), String> {
     let (name, path) = match module {
         None => (ROOT.to_owned(), dir.join("main.rs")),
         Some(module) => (module.to_owned(), dir.join(format!("{module}.rs"))),
@@ -80,17 +113,18 @@ fn walk(dir: &Path, module: Option<&str>, chunks: &mut Vec<Chunk>) -> Result<(),
         .map_err(|error| format!("reading {}: {error}", path.display()))?;
     let file = parse(&source, &name)?;
     let children = declared_modules(&file, &name)?;
-    let position = position(&file, &children, &name)?;
-    let mut own = position.is_some().then_some(Chunk { name, source });
+    let names: Vec<String> = children.iter().map(|child| child.name.clone()).collect();
+    let position = position(&file, &names, &name)?;
+    let mut own = position.is_some().then_some(Chunk { name, source, test });
     for (index, child) in children.iter().enumerate() {
         if position == Some(index) {
             chunks.extend(own.take());
         }
-        let child = match module {
-            None => child.clone(),
-            Some(module) => format!("{module}/{child}"),
+        let path = match module {
+            None => child.name.clone(),
+            Some(module) => format!("{module}/{}", child.name),
         };
-        walk(dir, Some(&child), chunks)?;
+        walk(dir, Some(&path), test || child.test, chunks)?;
     }
     chunks.extend(own);
     Ok(())
@@ -144,18 +178,42 @@ fn is_relative_start<S: AsRef<str>>(segment: &str, modules: &[S]) -> bool {
         || modules.iter().any(|module| module.as_ref() == segment)
 }
 
+/// One module a file declares.
+struct Declaration {
+    /// The module's name.
+    name: String,
+    /// Whether the declaration carries `#[cfg(test)]`, making the module and
+    /// every module below it hold test chunks.
+    test: bool,
+}
+
 /// The modules `file` declares with `mod name;`, in declaration order.
-fn declared_modules(file: &syn::File, name: &str) -> Result<Vec<String>, String> {
+///
+/// A declaration may carry `#[cfg(test)]` and no other attribute.
+fn declared_modules(file: &syn::File, name: &str) -> Result<Vec<Declaration>, String> {
     let mut modules = Vec::new();
     for item in &file.items {
         if let Item::Mod(module) = item {
-            if module.content.is_some() || !module.attrs.is_empty() {
+            let test = match module.attrs.as_slice() {
+                [] => false,
+                [attribute] if is_cfg_test(attribute) => true,
+                _ => {
+                    return Err(format!(
+                        "{name}: `mod {}` may carry `#[cfg(test)]` and no other attribute",
+                        module.ident
+                    ));
+                }
+            };
+            if module.content.is_some() {
                 return Err(format!(
                     "{name}: `mod {}` must be a plain declaration of a file module",
                     module.ident
                 ));
             }
-            modules.push(module.ident.to_string());
+            modules.push(Declaration {
+                name: module.ident.to_string(),
+                test,
+            });
         }
     }
     Ok(modules)
@@ -166,15 +224,27 @@ fn parse(source: &str, name: &str) -> Result<syn::File, String> {
     syn::parse_file(source).map_err(|error| format!("{name}: {error}"))
 }
 
-/// Flatten every chunk, returning each chunk's text as it appears in the
-/// one-file program, in the same order as `chunks`.
-pub fn flatten(chunks: &[Chunk]) -> Result<Vec<String>, String> {
+/// One chunk as it appears in the one-file program.
+#[derive(Debug, PartialEq)]
+pub struct Flattened {
+    /// The chunk's text, which its fragment shows.
+    pub text: String,
+    /// For a test chunk, its text with each test attribute replaced by
+    /// [`ALLOW_DEAD_CODE`], which its fragment hides after the text; `None`
+    /// for any other chunk.
+    pub test_copy: Option<String>,
+}
+
+/// Flatten every chunk, in the same order as `chunks`.
+pub fn flatten(chunks: &[Chunk]) -> Result<Vec<Flattened>, String> {
     let mut program = Program::default();
     for chunk in chunks {
         let file = parse(&chunk.source, &chunk.name)?;
-        program
-            .modules
-            .extend(declared_modules(&file, &chunk.name)?);
+        program.modules.extend(
+            declared_modules(&file, &chunk.name)?
+                .into_iter()
+                .map(|module| module.name),
+        );
     }
     chunks.iter().map(|chunk| program.flatten(chunk)).collect()
 }
@@ -194,12 +264,16 @@ struct Program {
 
 impl Program {
     /// Flatten one chunk, binding its new names.
-    fn flatten(&mut self, chunk: &Chunk) -> Result<String, String> {
+    fn flatten(&mut self, chunk: &Chunk) -> Result<Flattened, String> {
         let file = parse(&chunk.source, &chunk.name)?;
         let lines = Lines::new(&chunk.source);
         let mut edits = Vec::new();
+        let mut test_attributes = Vec::new();
 
         for attribute in &file.attrs {
+            if is_cfg_test(attribute) {
+                return Err(cfg_test_outside_a_declaration(chunk));
+            }
             if let AttrStyle::Inner(_) = attribute.style {
                 edits.push(lines.whole_lines(attribute.to_token_stream(), String::new()));
             }
@@ -217,23 +291,71 @@ impl Program {
                 Item::Mod(module) => {
                     edits.push(lines.whole_lines(module.to_token_stream(), String::new()));
                 }
-                Item::Use(import) => match self.import(chunk, &import.tree)? {
-                    Some(replacement) => {
-                        edits.push(lines.whole_lines(import.to_token_stream(), replacement));
+                Item::Use(import) => {
+                    if import.attrs.iter().any(is_cfg_test) {
+                        return Err(cfg_test_outside_a_declaration(chunk));
                     }
-                    None if !matches!(import.vis, Visibility::Inherited) => {
-                        edits.push(lines.visibility(&import.vis));
+                    let replacement = self.import(chunk, &import.tree)?;
+                    if chunk.test && replacement.as_deref() != Some("") {
+                        return Err(format!(
+                            "{}: this test chunk imports names no earlier chunk imports, \
+                             which would reach the reader's non-test build; import them \
+                             inside the test that uses them",
+                            chunk.name
+                        ));
                     }
-                    None => {}
-                },
+                    match replacement {
+                        Some(replacement) => {
+                            edits.push(lines.whole_lines(import.to_token_stream(), replacement));
+                        }
+                        None if !matches!(import.vis, Visibility::Inherited) => {
+                            edits.push(lines.visibility(&import.vis));
+                        }
+                        None => {}
+                    }
+                }
                 item => {
                     self.define(chunk, item)?;
                     self.reject_crate_paths(chunk, item)?;
+                    reject_cfg_test(chunk, item)?;
                     edits.extend(visibilities(item).map(|vis| lines.visibility(vis)));
+                    let attribute = match item {
+                        Item::Fn(function) => test_attribute(function),
+                        _ => None,
+                    };
+                    match (attribute, chunk.test) {
+                        (Some(attribute), true) => {
+                            test_attributes.push(lines.whole_lines(
+                                attribute.to_token_stream(),
+                                ALLOW_DEAD_CODE.to_owned(),
+                            ))
+                        }
+                        (None, false) => {}
+                        (None, true) => {
+                            return Err(format!(
+                                "{}: a test chunk holds only tests and the imports \
+                                 flattening deletes; anything else would reach the \
+                                 reader's non-test build",
+                                chunk.name
+                            ));
+                        }
+                        (Some(_), false) => {
+                            return Err(format!(
+                                "{}: a test belongs in a module declared with \
+                                 `#[cfg(test)]`",
+                                chunk.name
+                            ));
+                        }
+                    }
                 }
             }
         }
-        Ok(tidy(&apply(&chunk.source, edits)))
+
+        let text = tidy(&apply(&chunk.source, &edits));
+        let test_copy = chunk
+            .test
+            .then(|| tidy(&apply(&chunk.source, edits.iter().chain(&test_attributes))));
+        Ok(Flattened { text, test_copy })
     }
 
     /// Bind the names an import introduces, returning what replaces the
@@ -454,6 +576,52 @@ fn rustfmt_skips(file: &syn::File) -> Vec<&Attribute> {
         finder.visit_item(item);
     }
     finder.found
+}
+
+/// The attribute marking `function` as a test, if any: one whose path ends in
+/// `test`, as `#[test]` and `#[tokio::test]` do.
+fn test_attribute(function: &ItemFn) -> Option<&Attribute> {
+    function.attrs.iter().find(|attribute| {
+        attribute
+            .path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "test")
+    })
+}
+
+/// Whether `attribute` is exactly `#[cfg(test)]` (or its inner form).
+fn is_cfg_test(attribute: &Attribute) -> bool {
+    matches!(&attribute.meta, Meta::List(list)
+        if list.path.is_ident("cfg") && list.tokens.to_string() == "test")
+}
+
+/// The rejection of a `#[cfg(test)]` anywhere but on a module declaration.
+fn cfg_test_outside_a_declaration(chunk: &Chunk) -> String {
+    format!(
+        "{}: `#[cfg(test)]` may mark only a module declaration; flattening would \
+         have to delete it anywhere else, putting test code into the reader's \
+         non-test build",
+        chunk.name
+    )
+}
+
+/// Reject a `#[cfg(test)]` at any depth of `item`.
+fn reject_cfg_test(chunk: &Chunk, item: &Item) -> Result<(), String> {
+    struct Finder {
+        found: bool,
+    }
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_attribute(&mut self, attribute: &'ast Attribute) {
+            self.found |= is_cfg_test(attribute);
+        }
+    }
+    let mut finder = Finder { found: false };
+    finder.visit_item(item);
+    if finder.found {
+        return Err(cfg_test_outside_a_declaration(chunk));
+    }
+    Ok(())
 }
 
 /// Every visibility marker on `item`, its fields, and its associated items.
@@ -688,7 +856,8 @@ struct Edit {
 }
 
 /// Apply `edits`, which must not overlap, to `source`.
-fn apply(source: &str, mut edits: Vec<Edit>) -> String {
+fn apply<'e>(source: &str, edits: impl IntoIterator<Item = &'e Edit>) -> String {
+    let mut edits: Vec<&Edit> = edits.into_iter().collect();
     edits.sort_by_key(|edit| edit.range.start);
     let mut out = String::with_capacity(source.len());
     let mut at = 0;
@@ -717,23 +886,24 @@ fn tidy(text: &str) -> String {
 }
 
 /// Render the fragment for chunk `index`: a `no_run` doctest showing that
-/// chunk, with every earlier chunk as hidden lines.
+/// chunk, with every earlier chunk as hidden lines before it and, for a test
+/// chunk, its test copy as hidden lines after it.
 ///
 /// Every fragment but the last allows dead code, since a prefix defines items
 /// only later chunks use, and ends with a hidden `main` so that its items stay
 /// top-level.
-pub fn fragment(flattened: &[String], index: usize) -> Result<String, String> {
+pub fn fragment(flattened: &[Flattened], index: usize) -> Result<String, String> {
     let last = index + 1 == flattened.len();
     let mut out = String::from("\n```no_run\n");
     if !last {
         out.push_str("# #![allow(dead_code)]\n");
     }
     for earlier in &flattened[..index] {
-        for line in earlier.lines().chain(std::iter::once("")) {
+        for line in earlier.text.lines().chain(std::iter::once("")) {
             out.push_str(&hidden(line));
         }
     }
-    for line in flattened[index].lines() {
+    for line in flattened[index].text.lines() {
         let trimmed = line.trim_start();
         if trimmed == "#" || trimmed.starts_with("# ") || trimmed.starts_with("##") {
             return Err(format!(
@@ -743,6 +913,11 @@ pub fn fragment(flattened: &[String], index: usize) -> Result<String, String> {
         }
         out.push_str(line);
         out.push('\n');
+    }
+    if let Some(copy) = &flattened[index].test_copy {
+        for line in std::iter::once("").chain(copy.lines()) {
+            out.push_str(&hidden(line));
+        }
     }
     if !last {
         out.push_str("# fn main() {}\n");
