@@ -42,10 +42,7 @@ async fn main() -> Result<()> {
     axum::serve(http, router(node.clone()))
         .with_graceful_shutdown(async {
             if let Err(e) = tokio::signal::ctrl_c().await {
-                error!(
-                    error = &e as &dyn Error,
-                    "cannot wait for Ctrl-C, so shutting down"
-                );
+                error!(error = &e as &dyn Error);
             }
         })
         .await?;
