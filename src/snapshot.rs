@@ -109,7 +109,7 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// rumors.send("second".into())?;
     /// let snapshot = rumors.snapshot();
     /// let mut messages: Vec<_> = snapshot.iter().collect();
-    /// messages.sort_by(|a, b| a.0.ranked().cmp(&b.0.ranked()));
+    /// messages.sort_by_cached_key(|(version, _)| version.rank());
     /// # Ok::<(), rumors::error::EncodeError>(())
     /// ```
     pub fn iter(&self) -> Iter<'_, T> {
