@@ -191,6 +191,8 @@
 //!
 #![doc = tutorial!("node/update")]
 //!
+#![doc = tutorial!("node/update/tests")]
+//!
 //! ## Gossiping with other nodes
 //!
 //! ### When two gossip networks collide, whose "wins"?
@@ -200,6 +202,8 @@
 //! ### Gossip, built to converge on one "winning" network
 //!
 #![doc = tutorial!("node/gossip_over")]
+//!
+#![doc = tutorial!("node/gossip_over/tests")]
 //!
 //! # mTLS: authentication and authorization between replicas
 //!
@@ -228,6 +232,8 @@
 #![doc = tutorial!("tls/connect")]
 //!
 #![doc = tutorial!("tls/accept")]
+//!
+#![doc = tutorial!("tls/accept/tests")]
 //!
 //! # The lifecycle of a node in terms of its transport
 //!

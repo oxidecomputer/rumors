@@ -16,12 +16,12 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn new(bookmarks_dir: PathBuf) -> Arc<Self> {
+    pub fn new(bookmarks_dir: impl Into<PathBuf>) -> Arc<Self> {
         let (current, replica) = watch::channel(None);
         Arc::new(Self {
             replica,
             current: tokio::sync::Mutex::new(current),
-            bookmarks_dir,
+            bookmarks_dir: bookmarks_dir.into(),
             stop: CancellationToken::new(),
             tasks: TaskTracker::new(),
         })

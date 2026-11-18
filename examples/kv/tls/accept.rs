@@ -20,3 +20,6 @@ impl Tls {
         Ok((BufReader::new(read), write))
     }
 }
+
+#[cfg(test)]
+mod tests;

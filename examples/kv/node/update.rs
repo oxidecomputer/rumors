@@ -25,3 +25,6 @@ impl Node {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
