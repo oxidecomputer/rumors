@@ -7,7 +7,7 @@
 //! ([`Joining::observe`](crate::Joining::observe)) to watch every protocol
 //! message the peer exchanges, as a stream of bytes on the wire. Because the
 //! `rumors` protocol is a stream of CBOR-encoded items, such a hook can
-//! agnostic to `rumors`, and parse the stream of bytes using any CBOR decoder.
+//! be agnostic to `rumors`, and parse the stream of bytes using any CBOR decoder.
 //!
 //! An observer is defined in terms of hooks at three levels of granularity, and
 //! every level can return `None` to skip the levels below:

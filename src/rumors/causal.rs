@@ -89,9 +89,9 @@ pub struct CausalMessages<T: Send + Sync + 'static> {
     staged: BTreeMap<StageKey, Leaf>,
 }
 
-///   Format a causal stream without requiring its messages to be debuggable.
+/// Format a causal stream without requiring its messages to be debuggable.
 impl<T: Send + Sync + 'static> std::fmt::Debug for CausalMessages<T> {
-    /// Format the and delivery frontiers and queued-message count.
+    /// Format the ingested and delivery frontiers and queued-message count.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CausalMessages")
             .field("ingested", &self.ingested)

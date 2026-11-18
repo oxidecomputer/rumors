@@ -23,7 +23,7 @@
 //! # A sneak preview
 //!
 //! This tutorial is included in the `rumors` crate as
-//! [`example/kv`](https://github.com/oxidecomputer/rumors/tree/main/examples/kv),
+//! [`examples/kv`](https://github.com/oxidecomputer/rumors/tree/main/examples/kv),
 //! so you can run it immediately. Let's take a peek at what we'll be
 //! building...
 //!

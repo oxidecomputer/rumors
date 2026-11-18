@@ -98,7 +98,7 @@ pub struct SessionStats {
     /// higher memory budget. The speed of a session slowly decreases as the
     /// budget constricts it, so a session with a medium number of scattered
     /// waits can "bury" the latency in the rest of its work. However, if you
-    /// slower synchronization than you hope for, a large number of budget waits
+    /// see slower synchronization than you hope for, a large number of budget waits
     /// can indicate that your configured memory budget is imposing excessive
     /// latency.
     pub budget_waits: u64,

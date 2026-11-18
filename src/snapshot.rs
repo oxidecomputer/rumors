@@ -121,7 +121,7 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// The query can be anything [`Into`] a [`causally::Query`], i.e. an
     /// expression built from the [`causally`] vocabulary, such as
     /// `causally::since(&s)`, `causally::delta(&s, &e)`, `causally::after(&s) &
-    /// causally::before(&e)`, etc.), or a [`Span`](before::Span), or a
+    /// causally::before(&e)`, etc., or a [`Span`](before::Span), or a
     /// [`Version`] itself.
     ///
     /// Iterating a small causal query against a large snapshot costs work

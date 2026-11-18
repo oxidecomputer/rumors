@@ -81,7 +81,7 @@
 //!   It is not Byzantine fault-tolerant, and is not meant to be. In order to
 //!   ensure the integrity of the gossip set, any application using `rumors`
 //!   *must* [authenticate connections between
-//!   peers](#what-securing-the-transport-means).
+//!   peers](#how-should-peers-talk-to-one-another).
 //! - **If bandwidth is very scarce.** `rumors` buys low latency in part by
 //!   spending bandwidth. If your messages are very small (on the order of less
 //!   than 100 B), the overhead of the protocol can exceed your messages
@@ -270,7 +270,7 @@
 //! connection must itself be confidential: if someone can read the messages
 //! sent during gossip, they can reconstruct everything your application knows.
 //!
-//! ### Quick transport recipe: TLS over TCP via Tokio
+//! ## Quick transport recipe: TLS over TCP via Tokio
 //!
 //! Typically, you would run `rumors` over an (m)TLS connection over TCP.
 //!

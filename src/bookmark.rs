@@ -186,7 +186,7 @@ pub enum BookmarkIo<E> {
     Format(#[from] FormatError),
 }
 
-/// The defult [`Bookmark`] which persists nothing.
+/// The default [`Bookmark`] which persists nothing.
 ///
 /// This is replaced by another type of bookmark persistence upon calling
 /// [`Peer::bookmark`](crate::Peer::bookmark).

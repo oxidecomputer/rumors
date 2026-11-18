@@ -248,7 +248,7 @@ pub enum Action {
 /// An iterator over the messages in a [`Snapshot`](crate::Snapshot).
 ///
 /// It yields each message's [`Version`] and an owned `Arc<T>` handle to the
-/// message. The order is unspecified, an in particular, is *not in causal
+/// message. The order is unspecified, and in particular, is *not in causal
 /// order*.
 ///
 /// This is a [`DoubleEndedIterator`], [`ExactSizeIterator`], and

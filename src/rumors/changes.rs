@@ -15,7 +15,7 @@ use super::channel::Channel;
 /// [`UnorderedMessages`](crate::UnorderedMessages) or
 /// [`CausalMessages`](crate::CausalMessages).
 ///
-/// ## Notifications
+/// # Notifications
 ///
 /// The first poll of this stream will yield `()` immediately, even for a
 /// [`Peer`](crate::Peer) with no messages at all. Later polls coalesce all

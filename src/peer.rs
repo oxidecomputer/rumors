@@ -427,7 +427,7 @@ pub struct Settings {
     pub sync_memory_budget: usize,
     /// The configured [`Peer::target_message_size`].
     pub target_message_size: usize,
-    /// The configured [`Peer::write_batch_range`]), normalized to a pair of
+    /// The configured [`Peer::write_batch_range`], normalized to a pair of
     /// non-crossed bounds.
     pub write_batch_range: (Bound<usize>, Bound<usize>),
     /// The configured [`Peer::message_depth_limit`], required to match between
@@ -769,7 +769,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [`Version`]s efficient as peers come and go.
     ///
     /// The outcome of this function, [`Retire`], reports whether this peer
-    /// successfully left the network, or whether it remains (i.e. due to a
+    /// successfully left the network, or whether it remains (e.g. due to a
     /// failure which could be retried), and whether the connection can carry
     /// another session.
     pub async fn retire<R, W>(self, read: R, write: W) -> Retire<T, R, W, B>
@@ -897,8 +897,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// clock is used for the deadline.
     ///
     /// For example, a one-second deadline with Tokio could be configured by
-    /// passing the gossip timeout of:`||
-    /// tokio::time::sleep(Duration::from_secs(1))`.
+    /// passing the gossip timeout of:
+    /// `|| tokio::time::sleep(Duration::from_secs(1))`.
     ///
     /// Before [`joining`](Peer::joining), configure
     /// [`Joining::gossip_timeout`]; it will apply to the initial joining
@@ -969,7 +969,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// Adjusting this setting can subtly trade between latency, CPU
     /// utilization, and memory. It is recommended to stick with the
-    /// default,[`default::TARGET_MESSAGE_SIZE`], unless there is a compelling
+    /// default, [`default::TARGET_MESSAGE_SIZE`], unless there is a compelling
     /// reason to differ. Any value is safe: zero degrades to one leaf per
     /// message, and any limit above the maximum possible ~4 GiB saturates.
     ///

@@ -29,7 +29,7 @@ pub enum Connection<R, W, B: Bookmark = NoBookmark> {
         /// The write half of the connection.
         write: W,
     },
-    /// The session failed part-way through a session, and cannot be safely
+    /// The session failed part-way through, and cannot be safely
     /// recovered.
     ///
     /// Halves passed by value were dropped with the session; halves passed as

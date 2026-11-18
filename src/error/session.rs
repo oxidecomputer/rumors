@@ -143,7 +143,7 @@ pub struct TransportError {
 /// invariants.
 ///
 /// **If this error occurs, it is *always* a bug in `rumors`**. [**Please report
-/// it**](https://github.com/oxidecomputer/rumors/issue/new)!
+/// it**](https://github.com/oxidecomputer/rumors/issues/new)!
 ///
 /// The concrete type of the underlying error is not part of the public API;
 /// applications should handle this as one failure category.
