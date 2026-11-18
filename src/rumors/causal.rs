@@ -54,10 +54,10 @@ impl PartialOrd for StageKey {
 /// [`Rumors`](crate::Rumors).
 ///
 /// Unlike [`UnorderedMessages`](super::UnorderedMessages), keeping this stream
-/// causally ordered may cost up to an extra amortized factor, logarithmic in
-/// the number of messages held by the underlying peer. Both costs may burst
-/// arbitrarily, up to the total number of messages in the underlying
-/// [`Rumors`](crate::Rumors).
+/// causally ordered may cost up to an extra amortized factor of space and time,
+/// logarithmic in the number of messages held by the underlying peer. Both
+/// costs may burst arbitrarily, up to the total number of messages in the
+/// underlying [`Rumors`](crate::Rumors).
 ///
 /// Holding this stream open does not prevent
 /// [`try_into_peer`](crate::Rumors::try_into_peer) from reclaiming the

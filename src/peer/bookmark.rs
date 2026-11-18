@@ -13,11 +13,14 @@ use super::Peer;
 /// [`Join::Unbookmarked`](super::Join::Unbookmarked). The peer is still
 /// usable without a bookmark, though it cannot persist or reclaim identity
 /// space. Repair or replace the storage, then try again.
+#[derive(thiserror::Error)]
+#[error("could not attach bookmark to peer")]
 #[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
 pub struct Unbookmarked<T: Send + Sync + 'static, B: Bookmark> {
     /// The unchanged [`Peer`], without any bookmark attached.
     pub peer: Peer<T, NoBookmark>,
     /// The underlying storage or decoding failure.
+    #[source]
     pub error: BookmarkIo<B::Error>,
 }
 

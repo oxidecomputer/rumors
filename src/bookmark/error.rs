@@ -9,7 +9,7 @@ use super::format::BOOKMARK_FORMAT_VERSION;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum FormatError {
-    /// A truncated or empty file. (An *absent* bookmark is reported by
+    /// A truncated or empty bookmark. (An *absent* bookmark is reported by
     /// [`load`](super::Bookmark::load) returning `None`, not as an empty
     /// frame.)
     #[error("bookmark truncated: the {len} bytes present end inside the frame")]

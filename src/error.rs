@@ -62,7 +62,8 @@ pub enum Mismatch {
     /// The remote peer belongs to a different gossip network.
     ///
     /// Optionally, use these event bounds to apply the dominance rule described
-    /// by [`Peer`](crate::Peer)'s "Bootstrapping without consensus" section.
+    /// by [`Peer`](crate::Peer)'s "Bootstrapping a network without consensus"
+    /// section.
     #[error("peer belongs to network {remote_network:?}, ours is {local_network:?}")]
     #[non_exhaustive]
     Network {

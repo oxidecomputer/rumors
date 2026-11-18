@@ -929,8 +929,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 
     /// Constrain the memory budget for each synchronization session.
     ///
-    /// The default is [`default::SYNC_MEMORY_BUDGET`] (512 MiB), and the
-    /// minimum is about 36.4 MiB.
+    /// The default is [`default::SYNC_MEMORY_BUDGET`], and the minimum is about
+    /// 36.4 MiB.
     ///
     /// This setting is preserved indefinitely throughout the lifecycle of the
     /// [`Peer`], and all [`Rumors`] clones inherit it.
@@ -963,15 +963,15 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Tune the target encoded size of the batched messages this peer sends.
     ///
     /// When a peer supplies messages which its counterparty lacks, those
-    /// messages are coalesced into batches of records which are flushed if
-    /// appending the next message would push the batch's size past the
-    /// specified target `bytes`.
+    /// messages are coalesced into batches which are flushed if appending the
+    /// next message would push the batch's size past the specified target
+    /// `bytes`.
     ///
     /// Adjusting this setting can subtly trade between latency, CPU
     /// utilization, and memory. It is recommended to stick with the
     /// default, [`default::TARGET_MESSAGE_SIZE`], unless there is a compelling
-    /// reason to differ. Any value is safe: zero degrades to one leaf per
-    /// message, and any limit above the maximum possible ~4 GiB saturates.
+    /// reason to differ. Any value is safe: zero degrades to one message per
+    /// batch, and any limit above the maximum possible ~4 GiB saturates.
     ///
     /// If two peers configure this differently, they interoperate by
     /// negotiating the minimum of their two target message sizes, so that the
@@ -979,7 +979,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// desires.
     ///
     /// This setting is preserved indefinitely throughout the lifecycle of the
-    /// Peer, and all Rumors clones inherit it.
+    /// [`Peer`], and all [`Rumors`] clones inherit it.
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.settings.sizing.run_budget = RunBudget::from_bytes(bytes);

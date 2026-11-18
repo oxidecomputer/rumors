@@ -175,8 +175,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Joining<T, B> {
     ///
     /// Unlike the other settings, which could in principle wait to be set on
     /// the [`Peer`] once it is created, this option *must* be configured to
-    /// exactly match the remote peer prior to bootstrapping; otherwise,
-    /// bootstrapping will fail.
+    /// exactly match the remote peer prior to joining; otherwise, joining will
+    /// fail.
     pub fn message_depth_limit(mut self, limit: u64) -> Self {
         self.message_depth_limit = MessageDepthLimit::new(limit);
         self

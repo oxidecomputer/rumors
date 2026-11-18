@@ -62,8 +62,8 @@
 //!   gossip overhead!).
 //!
 //! The correlation is not linear in all these variables: in order to use a lot
-//! of memory during synchronization, you really need *all three* to be quite
-//! high. In particular, the following scenarios might *seem* like they could
+//! of memory during synchronization, you really need *all of these* to happen at
+//! once. In particular, the following scenarios might *seem* like they could
 //! use a lot of memory, but *they will not*:
 //!
 //! - highly divergent peers with many small messages, but on a *low-latency*
@@ -87,9 +87,8 @@
 //! ## Default and minimum memory budgets
 //!
 //! The default sync memory budget is
-//! [`default::SYNC_MEMORY_BUDGET`](crate::default::SYNC_MEMORY_BUDGET) = **512
-//! MiB**. This will not constrain the speed of gossip in most realistic
-//! situations.
+//! [`default::SYNC_MEMORY_BUDGET`](crate::default::SYNC_MEMORY_BUDGET). This
+//! will not constrain the speed of gossip in most realistic situations.
 //!
 //! The minimum is about **36.4 MiB**. Any specified budget below the minimum is
 //! implicitly rounded up to the minimum. This will constrain the speed of

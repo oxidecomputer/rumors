@@ -126,155 +126,193 @@
 //! dependencies in your `Cargo.toml`:
 //!
 #![doc = tutorial!("Cargo.toml")]
-//!# The model: a key-value store
 //!
-//!## Keys and their values
+//! # The model: a key-value store
+//!
+//! ## Keys and their values
 //!
 #![doc = tutorial!("table/key")]
-//!## A table is a map from keys to values
 //!
 #![doc = tutorial!("table/value")]
-//!## A table mapping keys to values
+//!
+//! ## A table is a map from keys to values
 //!
 #![doc = tutorial!("table")]
-//!## Updating the table
+//!
+//! ## Updating the table
 //!
 #![doc = tutorial!("table/update")]
-//!## Reading the table
+//!
+//! ## Reading the table
 //!
 #![doc = tutorial!("table/read")]
-//!# A replicated table
 //!
-//!## A replica is a table, plus a way to send updates
+//! # A replicated table
+//!
+//! ## A replica is a table, plus a way to send updates
 //!
 #![doc = tutorial!("replica")]
-//!## Updating the replica, and keeping it up to date
 //!
-//!### Keeping up to date with every update
+//! ## Updating the replica, and keeping it up to date
+//!
+//! ### Keeping up to date with every update
 //!
 #![doc = tutorial!("replica/keep_updated")]
-//!### Sending local updates
+//!
+//! ### Sending local updates
 //!
 #![doc = tutorial!("replica/update")]
-//!### Reading the current state
+//!
+//! ### Reading the current state
 //!
 #![doc = tutorial!("replica/read")]
-//!# mTLS: authentication and authorization between replicas
 //!
-//!## Credentials for membership in the gossip network
+//! # mTLS: authentication and authorization between replicas
+//!
+//! ## Credentials for membership in the gossip network
 //!
 #![doc = tutorial!("credentials")]
-//!### Generating a self-signed certificate
+//!
+//! ### Generating a self-signed certificate
 //!
 #![doc = tutorial!("credentials/generate")]
-//!### Storing credentials on disk
+//!
+//! ### Storing credentials on disk
 //!
 #![doc = tutorial!("credentials/store")]
-//!### Loading credentials from disk
+//!
+//! ### Loading credentials from disk
 //!
 #![doc = tutorial!("credentials/load")]
-//!## Configuring mTLS using our credentials
+//!
+//! ## Configuring mTLS using our credentials
 //!
 #![doc = tutorial!("tls")]
-//!## Connecting, and accepting connections
+//!
+//! ## Connecting, and accepting connections
 //!
 #![doc = tutorial!("tls/connect")]
+//!
 #![doc = tutorial!("tls/accept")]
-//!# A node is a replica which can talk to peers
+//!
+//! # A node is a replica which can talk to peers
 //!
 #![doc = tutorial!("node")]
-//!## Reading the inner replica
+//!
+//! ## Reading the inner replica
 //!
 #![doc = tutorial!("node/read")]
-//!## A bookmark: recovering "identity space" after a restart
+//!
+//! ## A bookmark: recovering "identity space" after a restart
 //!
 #![doc = tutorial!("node/claim_bookmark")]
-//!## Creating a gossip network
+//!
+//! ## Creating a gossip network
 //!
 #![doc = tutorial!("node/seed")]
-//!## Joining a gossip network
+//!
+//! ## Joining a gossip network
 //!
 #![doc = tutorial!("node/join")]
-//!## Submitting updates
+//!
+//! ## Submitting updates
 //!
 #![doc = tutorial!("node/wait_for_replica")]
 //!
 #![doc = tutorial!("node/update")]
-//!## Gossiping with other nodes
 //!
-//!### When two gossip networks collide, whose "wins"?
+//! ## Gossiping with other nodes
+//!
+//! ### When two gossip networks collide, whose "wins"?
 //!
 #![doc = tutorial!("node/give_way")]
-//!### Gossip, built to converge on one "winning" network
+//!
+//! ### Gossip, built to converge on one "winning" network
 //!
 #![doc = tutorial!("node/gossip_over")]
-//!## A node is a server *and* a client
 //!
-//!### Dialing other nodes
+//! ## A node is a server *and* a client
+//!
+//! ### Dialing other nodes
 //!
 #![doc = tutorial!("node/dial")]
-//!### Serving incoming connections
+//!
+//! ### Serving incoming connections
 //!
 #![doc = tutorial!("node/serve")]
-//!## Starting the node
+//!
+//! ## Starting the node
 //!
 #![doc = tutorial!("node/start")]
-//!## Stopping the node
 //!
-//!### Preserving "identity space" during retirement
+//! ## Stopping the node
+//!
+//! ### Preserving "identity space" during retirement
 //!
 #![doc = tutorial!("node/retire")]
-//!### It is now safe to turn off your computer
+//!
+//! ### It is now safe to turn off your computer
 //!
 #![doc = tutorial!("node/shutdown")]
-//!# A RESTful HTTP API for each and every node
 //!
-//!## Read operations
+//! # A RESTful HTTP API for each and every node
 //!
-//!### Getting the whole table
+//! ## Read operations
+//!
+//! ### Getting the whole table
 //!
 #![doc = tutorial!("api/list")]
-//!### Reading a specific key
+//!
+//! ### Reading a specific key
 //!
 #![doc = tutorial!("api/read")]
-//!## Write operations
+//!
+//! ## Write operations
 //!
 #![doc = tutorial!("api/update")]
-//!### Setting the value for a key (or the values for several keys)
+//!
+//! ### Setting the value for a key (or the values for several keys)
 //!
 #![doc = tutorial!("api/set")]
-//!### Deleting keys
+//!
+//! ### Deleting keys
 //!
 #![doc = tutorial!("api/delete")]
-//!## Putting the whole API together
+//!
+//! ## Putting the whole API together
 //!
 #![doc = tutorial!("api")]
-//!# A command-line interface for the node
+//!
+//! # A command-line interface for the node
 //!
 #![doc = tutorial!("cli")]
-//!# Configuring `tracing`
+//!
+//! # Configuring `tracing`
 //!
 #![doc = tutorial!("log_to_stderr")]
-//!# And finally... `main()`
+//!
+//! # And finally... `main()`
 //!
 //!Okay, we're *almost* at `main()`, just one more helper function:
 //!
 #![doc = tutorial!("listen")]
-//!And, if you've made it this far, here we have it: a *proper* `main()`
-//!function, which --- if you've been following along this whole time --- you
-//!can paste over that stub `main() {}` at the bottom of your `main.rs`.
 //!
-//!This function shouldn't be particularly surprising. It just puts together all
-//!the top-level bits we've built so far:
+//! And, if you've made it this far, here we have it: a *proper* `main()`
+//! function, which --- if you've been following along this whole time --- you
+//! can paste over that stub `main() {}` at the bottom of your `main.rs`.
 //!
-//!- Install our `tracing` subscriber so that our logs print to the console;
-//!- Parse the provided command-line options into our `Cli` struct;
-//!- Start listening on both the gossip and HTTP addresses specified on the CLI;
-//!- Load (or create) our self-signed mTLS credentials from/to disk;
-//!- Start the node, configured with those credentials;
-//!- Serve the HTTP API, waiting for Ctrl-C to gracefully shut down the API
-//!  server;
-//!- Finally, gracefully shut down the gossip node.
+//! This function shouldn't be particularly surprising. It just puts together all
+//! the top-level bits we've built so far:
+//!
+//! - Install our `tracing` subscriber so that our logs print to the console;
+//! - Parse the provided command-line options into our `Cli` struct;
+//! - Start listening on both the gossip and HTTP addresses specified on the CLI;
+//! - Load (or create) our self-signed mTLS credentials from/to disk;
+//! - Start the node, configured with those credentials;
+//! - Serve the HTTP API, waiting for Ctrl-C to gracefully shut down the API
+//!   server;
+//! - Finally, gracefully shut down the gossip node.
 //!
 #![doc = tutorial!("main")]
+//!
 //! # What have we built?

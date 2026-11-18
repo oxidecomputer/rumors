@@ -210,8 +210,9 @@ pub enum Led {
 /// The policy by which a stream item for
 /// [`Peer::gossip_when`](crate::Peer::gossip_when) requests a gossip round.
 ///
-/// Note that `()` is [`Into`]`<`[`WhenChanged`](Self::WhenChanged)`>`, so a
-/// stream of `()` acts as a stream of requests to gossip-on-change.
+/// Note that `(): Into<Gossip>` where `().into() == Gossip::WhenChanged`, so an
+/// ordinary stream of `()` acts as a sequence of "ticks" which initiate gossip
+/// only if there are known changes to broadcast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Gossip {
     /// Initiate a round of gossip only if the local set of messages has changed

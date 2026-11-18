@@ -88,8 +88,9 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     ///
     /// Order is unspecified, and in particular does *not* follow causal order:
     /// a message may be yielded before another that causally precedes it. Sort
-    /// the result by [`Version::rank`] if you want a deterministic order that
-    /// places causes before their effects.
+    /// the result by [`Version::rank`] (i.e. using
+    /// [`sort_by_cached_key`](slice::sort_by_cached_key)) if you want an order
+    /// that places causes before their effects.
     pub fn versions(
         &self,
     ) -> impl DoubleEndedIterator<Item = &Version> + ExactSizeIterator + Send + Sync {
@@ -100,8 +101,9 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     ///
     /// Order is unspecified, and in particular does *not* follow causal order:
     /// a message may be yielded before another that causally precedes it. Sort
-    /// the result by [`Version::rank`] if you want a deterministic order that
-    /// places causes before their effects.
+    /// the result by [`Version::rank`] (i.e. using
+    /// [`sort_by_cached_key`](slice::sort_by_cached_key)) if you want an order
+    /// that places causes before their effects.
     ///
     /// ```
     /// let rumors = rumors::Peer::<String>::seed().into_rumors();
@@ -133,8 +135,9 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     ///
     /// As with [`iter`](Self::iter), order is unspecified and does *not* follow
     /// causal order. This method filters by versions, but does not yield them
-    /// in version-order. Sort the result by [`Version::rank`] if you want a
-    /// deterministic order that places causes before their effects.
+    /// in version-order. Sort the result by [`Version::rank`] (i.e. using
+    /// [`sort_by_cached_key`](slice::sort_by_cached_key)) if you want an order
+    /// that places causes before their effects.
     ///
     /// # Examples
     ///
@@ -153,7 +156,7 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// // Everything `then` already contained.
     /// assert_eq!(snapshot.range(causally::before(&then)).count(), 1);
     /// // The two partition the set of messages.
-    /// assert_eq!(snapshot.range(causally::all()).count(), 3);
+    /// assert_eq!(snapshot.range(causally::all()).count(), 2 + 1);
     /// # Ok::<(), rumors::error::EncodeError>(())
     /// ```
     pub fn range<'q, P: causally::Polarity>(

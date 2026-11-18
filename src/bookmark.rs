@@ -91,8 +91,8 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 ///
 /// A bookmark can retain many identity fragments from any [`Network`]s a peer
 /// might have joined. To prevent indefinite growth, bookmarks are size-limited,
-/// discarding least-recently-used information. The default size limit is 16
-/// MiB, which is configurable with
+/// discarding least-recently-used information. The default size limit is
+/// [`default::BOOKMARK_SIZE_LIMIT`], which is configurable with
 /// [`Peer::bookmark_size_limit`](crate::Peer::bookmark_size_limit) or
 /// [`Joining::bookmark_size_limit`](crate::Joining::bookmark_size_limit).
 ///
@@ -136,9 +136,9 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// use rumors::{FileBookmark, Peer, TokioBlocking};
 ///
 /// # #[expect(dead_code)]
-/// # async fn attach(peer: Peer<String>) -> Result<(), std::fs::TryLockError> {
+/// # async fn attach(peer: Peer<String>) -> Result<(), Box<dyn std::error::Error>> {
 /// let bookmark = FileBookmark::new("peer.bookmark", TokioBlocking).await?;
-/// let peer = peer.bookmark(bookmark).await;
+/// let peer = peer.bookmark(bookmark).await?;
 /// # let _ = peer;
 /// # Ok(())
 /// # }

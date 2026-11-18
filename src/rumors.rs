@@ -376,9 +376,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// ```no_run
     /// # #[expect(dead_code)]
-    /// # async fn example(rumors: &rumors::Rumors<String>, connection: tokio::net::TcpStream)
-    /// # -> Result<(), rumors::Error> {
-    /// let (read, write) = connection.into_split();
+    /// # async fn example(
+    /// #     rumors: &rumors::Rumors<String>,
+    /// #     connection: impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
+    /// # ) -> Result<(), rumors::Error> {
+    /// let (read, write) = tokio::io::split(connection);
     /// let read = tokio::io::BufReader::new(read);
     ///
     /// rumors.gossip(read, write).await
@@ -412,11 +414,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     ///
     /// ```no_run
     /// # #[expect(dead_code)]
-    /// # async fn example(rumors: &rumors::Rumors<String>, connection: tokio::net::TcpStream)
-    /// # -> Result<(), rumors::Error> {
+    /// # async fn example(
+    /// #     rumors: &rumors::Rumors<String>,
+    /// #     connection: impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
+    /// # ) -> Result<(), rumors::Error> {
     /// use futures::StreamExt;
     ///
-    /// let (read, write) = connection.into_split();
+    /// let (read, write) = tokio::io::split(connection);
     /// let read = tokio::io::BufReader::new(read);
     ///
     /// let mut sessions = rumors.gossip_stream(read, write);

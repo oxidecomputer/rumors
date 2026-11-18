@@ -12,9 +12,10 @@
 //! An observer is defined in terms of hooks at three levels of granularity, and
 //! every level can return `None` to skip the levels below:
 //!
-//! - **Peer**: each [`Observer`] follows the peer through cloning, bookmarking,
-//!   and reunion. It is asked to produce a session handler for every gossip
-//!   round the peer enters.
+//! - **Peer**: each [`Observer`] is preserved indefinitely throughout the
+//!   lifecycle of the [`Peer`](crate::Peer), and all [`Rumors`](crate::Rumors)
+//!   clones inherit it. It is asked to produce a session handler for every
+//!   gossip round the peer enters.
 //! - **Session**: a [`SessionObserver`] receives the peer's elected role for
 //!   this round of gossip. It is asked to produce a handler for each logical
 //!   directed stream as it first carries an item in the gossip protocol.

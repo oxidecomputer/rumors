@@ -52,8 +52,9 @@
 //! - **Network latency is largely irrelevant.** During gossip, neither peer
 //!   waits for the other to finish responding: both keep messages in flight
 //!   towards the other at once. A high-latency link therefore adds a small,
-//!   roughly fixed number of round trips to the duration of gossip, rather than
-//!   stretching its total duration multiplicatively.
+//!   roughly fixed number of round trips to the duration of gossip, provided
+//!   that `rumors` is configured with an adequate memory budget to permit the
+//!   requisite pipelining (by default, it is).
 //! - **Memory stays bounded by a budget you can set.** In order to pipeline
 //!   messages during gossip, peers store some information about messages in
 //!   flight in memory. However, *you* can control the budget for the maximum
