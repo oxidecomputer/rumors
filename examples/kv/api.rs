@@ -1,8 +1,8 @@
 mod list;
 mod read;
 mod update;
-mod set;
-mod delete;
+mod insert;
+mod remove;
 
 use std::sync::Arc;
 
@@ -11,14 +11,14 @@ use axum::routing::get;
 
 use crate::node::Node;
 
-use delete::delete;
+use insert::insert;
 use list::list;
 use read::read;
-use set::set;
+use remove::remove;
 
 pub fn router(node: Arc<Node>) -> Router {
     Router::new()
-        .route("/", get(list).post(set))
-        .route("/{key}", get(read).delete(delete))
+        .route("/", get(list).post(insert))
+        .route("/{key}", get(read).delete(remove))
         .with_state(node)
 }

@@ -1,9 +1,4 @@
-use std::cmp::Ordering;
-use std::collections::btree_map::Entry;
-
-use rumors::Version;
-
-use super::{Key, Table, Value};
+use super::{Key, Value};
 
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Update {
@@ -11,20 +6,13 @@ pub struct Update {
     pub value: Option<Value>,
 }
 
-impl Table {
-    pub fn update(&mut self, version: Version, update: &Update) -> Option<Version> {
-        self.applied |= &version;
-        let value = update.value.clone();
-        match self.entries.entry(update.key.clone()) {
-            Entry::Vacant(entry) => {
-                entry.insert((version, value));
-                None
-            }
-            Entry::Occupied(mut entry) => match version.ranked().cmp(&entry.get().0.ranked()) {
-                Ordering::Greater => Some(entry.insert((version, value)).0),
-                Ordering::Equal => None,
-                Ordering::Less => Some(version),
-            },
-        }
+impl Update {
+    pub fn insert(key: Key, value: Value) -> Self {
+        let value = Some(value);
+        Self { key, value }
+    }
+
+    pub fn remove(key: Key) -> Self {
+        Self { key, value: None }
     }
 }

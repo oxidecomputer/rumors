@@ -131,13 +131,15 @@
 //!
 #![doc = tutorial!("table/value")]
 //!
+#![doc = tutorial!("table/update")]
+//!
 //! ## A table is a map from keys to values
 //!
 #![doc = tutorial!("table")]
 //!
 //! ## Updating the table
 //!
-#![doc = tutorial!("table/update")]
+#![doc = tutorial!("table/apply")]
 //!
 //! ## Reading the table
 //!
@@ -271,11 +273,11 @@
 //!
 //! ### Setting the value for a key (or the values for several keys)
 //!
-#![doc = tutorial!("api/set")]
+#![doc = tutorial!("api/insert")]
 //!
 //! ### Deleting keys
 //!
-#![doc = tutorial!("api/delete")]
+#![doc = tutorial!("api/remove")]
 //!
 //! ## Putting the whole API together
 //!

@@ -8,9 +8,9 @@ use crate::table::{Key, Update};
 
 use super::update::update;
 
-pub async fn delete(
+pub async fn remove(
     State(node): State<Arc<Node>>,
     extract::Path(key): extract::Path<Key>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    update(&node, &[Update { key, value: None }]).await
+    update(&node, &[Update::remove(key)]).await
 }
