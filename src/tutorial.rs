@@ -86,15 +86,6 @@
 //! HTTP/1.1 404 Not Found
 //! ```
 //!
-//! ## What you might learn
-//!
-//! If this tutorial is successful, *you will know how to use `rumors` to make
-//! this application work*, from the bottom to the top.
-//!
-//! Hopefully, you'll also understand how to extend and modify this simple
-//! example to add your own functionality. Feel free to take this tutorial and
-//! bend it to your own needs --- that's what it's for.
-//!
 //! # How to read this tutorial
 //!
 //! The rest of this document is a kind of "literate Rust program": each code
@@ -172,34 +163,6 @@
 //!
 #![doc = tutorial!("replica/read")]
 //!
-//! # mTLS: authentication and authorization between replicas
-//!
-//! ## Credentials for membership in the gossip network
-//!
-#![doc = tutorial!("credentials")]
-//!
-//! ### Generating a self-signed certificate
-//!
-#![doc = tutorial!("credentials/generate")]
-//!
-//! ### Storing credentials on disk
-//!
-#![doc = tutorial!("credentials/store")]
-//!
-//! ### Loading credentials from disk
-//!
-#![doc = tutorial!("credentials/load")]
-//!
-//! ## Configuring mTLS using our credentials
-//!
-#![doc = tutorial!("tls")]
-//!
-//! ## Connecting, and accepting connections
-//!
-#![doc = tutorial!("tls/connect")]
-//!
-#![doc = tutorial!("tls/accept")]
-//!
 //! # A node is a replica which can talk to peers
 //!
 #![doc = tutorial!("node")]
@@ -236,29 +199,59 @@
 //!
 #![doc = tutorial!("node/gossip_over")]
 //!
+//! # mTLS: authentication and authorization between replicas
+//!
+//! ## Credentials for membership in the gossip network
+//!
+#![doc = tutorial!("credentials")]
+//!
+//! ### Generating a self-signed certificate
+//!
+#![doc = tutorial!("credentials/generate")]
+//!
+//! ### Storing credentials on disk
+//!
+#![doc = tutorial!("credentials/store")]
+//!
+//! ### Loading credentials from disk
+//!
+#![doc = tutorial!("credentials/load")]
+//!
+//! ## Configuring mTLS using our credentials
+//!
+#![doc = tutorial!("tls")]
+//!
+//! ## Connecting, and accepting connections
+//!
+#![doc = tutorial!("tls/connect")]
+//!
+#![doc = tutorial!("tls/accept")]
+//!
+//! # The lifecycle of a node in terms of its transport
+//!
 //! ## A node is a server *and* a client
 //!
 //! ### Dialing other nodes
 //!
-#![doc = tutorial!("node/dial")]
+#![doc = tutorial!("transport/dial")]
 //!
 //! ### Serving incoming connections
 //!
-#![doc = tutorial!("node/serve")]
+#![doc = tutorial!("transport/serve")]
 //!
 //! ## Starting the node
 //!
-#![doc = tutorial!("node/start")]
+#![doc = tutorial!("transport/start")]
 //!
 //! ## Stopping the node
 //!
 //! ### Preserving "identity space" during retirement
 //!
-#![doc = tutorial!("node/retire")]
+#![doc = tutorial!("transport/retire")]
 //!
 //! ### It is now safe to turn off your computer
 //!
-#![doc = tutorial!("node/shutdown")]
+#![doc = tutorial!("transport/shutdown")]
 //!
 //! # A RESTful HTTP API for each and every node
 //!

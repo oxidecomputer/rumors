@@ -1,15 +1,17 @@
+use http::uri::Authority;
 use tokio::io::AsyncWriteExt;
 
-use super::Node;
+use crate::node::Node;
+use crate::tls::Tls;
 
 impl Node {
-    pub async fn retire(&self) {
+    pub async fn retire(&self, tls: &Tls, peers: &[Authority]) {
         let replica = self.current.lock().await.send_replace(None);
         if let Some(replica) = replica
             && let Some(mut peer) = replica.rumors.try_into_peer().await
         {
-            for address in &self.peers {
-                if let Ok((read, write)) = self.tls.connect(address).await {
+            for address in peers {
+                if let Ok((read, write)) = tls.connect(address).await {
                     use rumors::Retire::*;
                     peer = match peer.retire(read, write).await {
                         Retired { connection } => {

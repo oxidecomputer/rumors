@@ -2,9 +2,10 @@
 
 mod table;
 mod replica;
+mod node;
 mod credentials;
 mod tls;
-mod node;
+mod transport;
 mod api;
 mod cli;
 mod log_to_stderr;
@@ -34,8 +35,8 @@ async fn main() -> Result<()> {
     let (http_addr, http) = listen(options.http).await?;
 
     let tls = Tls::new(Credentials::load_or_create(&options.credentials)?)?;
-    let node = Node::new(tls, options.bookmarks_dir, options.peers);
-    node.start(gossip).await?;
+    let node = Node::new(options.bookmarks_dir);
+    node.start(&tls, gossip, &options.peers).await?;
 
     info!(gossip = %gossip_addr, http = %http_addr, "listening");
     axum::serve(http, router(node.clone()))
@@ -49,6 +50,6 @@ async fn main() -> Result<()> {
         })
         .await?;
 
-    node.shutdown().await;
+    node.shutdown(&tls, &options.peers).await;
     Ok(())
 }

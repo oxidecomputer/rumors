@@ -7,14 +7,15 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::sleep;
 use tracing::warn;
 
-use super::Node;
+use crate::node::Node;
+use crate::tls::Tls;
 
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(500);
 
 impl Node {
-    async fn accept(&self, tcp: TcpStream, address: SocketAddr) {
+    async fn accept(&self, tls: &Tls, tcp: TcpStream, address: SocketAddr) {
         let accepted = async {
-            let handshake = self.tls.accept(tcp);
+            let handshake = tls.accept(tcp);
             let Some(halves) = self.stop.run_until_cancelled(handshake).await else {
                 return Ok(());
             };
@@ -26,7 +27,7 @@ impl Node {
         }
     }
 
-    pub async fn serve(self: Arc<Self>, listener: TcpListener) {
+    pub async fn serve(self: Arc<Self>, tls: Tls, listener: TcpListener) {
         while let Some(accepted) = self.stop.run_until_cancelled(listener.accept()).await {
             let (tcp, address) = match accepted {
                 Ok(accepted) => accepted,
@@ -38,7 +39,8 @@ impl Node {
             };
             self.tasks.spawn({
                 let node = self.clone();
-                async move { node.accept(tcp, address).await }
+                let tls = tls.clone();
+                async move { node.accept(&tls, tcp, address).await }
             });
         }
     }
