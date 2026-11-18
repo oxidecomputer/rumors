@@ -2,7 +2,7 @@
 
 /// The wire protocol version used by this version of Rumors.
 ///
-/// Peers exchange their protocol version during each gossip round. Different
+/// Peers exchange their protocol version during each gossip session. Different
 /// versions result in [`Mismatch::Protocol`](crate::error::Mismatch::Protocol).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]

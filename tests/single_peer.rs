@@ -1,4 +1,4 @@
-//! Single-peer write correctness for a lone rumor set, with no gossip.
+//! Single-peer write correctness for a lone set of messages, with no gossip.
 //!
 //! Exercises individual send versions and the [`Batch`](rumors::Batch) commit
 //! surface: live-leaf fan-out, distinct versions within a batch, and strict

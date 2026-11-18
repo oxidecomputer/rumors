@@ -79,7 +79,7 @@ pub const PATH_LEN: usize = 32;
 /// than the 32 bytes which would decisively prevent such attacks even without a
 /// keyed hash: we near-halve the metadata bandwidth required for
 /// synchronization in so doing, and the keyed hash is a patch to raise the bar
-/// back up to "you must compromise a peer to compromise the rumor set".
+/// back up to "you must compromise a peer to compromise the set of messages".
 ///
 /// Leaf paths instead keep the full 32-byte [`PathHash`]. A path is a storage
 /// address: a collision between *any* two versions would make them occupy the

@@ -57,7 +57,7 @@ pub struct ShadowFinal {
     /// would have appended to its observation vector.
     pub observed_log: Vec<Vec<EventIdx>>,
     /// Per-peer set of `EventIdx`s the shadow predicts the live peer still has
-    /// *live* in its rumor set at the end of the schedule.
+    /// *live* in its set of messages at the end of the schedule.
     pub live: Vec<BTreeSet<EventIdx>>,
     /// Whether each peer is still in the fleet at the end of the schedule.
     /// Always all-true for the membership-free strategy.
@@ -241,7 +241,7 @@ where
 ///
 /// * `ever_known[p]` is every `EventIdx` whose message `p` has ever held
 ///   (whether it currently holds it or has since redacted it).
-/// * `live[p]` is the subset currently in `p`'s live rumor set.
+/// * `live[p]` is the subset currently in `p`'s live set of messages.
 /// * `observed_log[p]` is the exact sequence of `EventIdx`s that the live
 ///   `Peer<T>` would have appended to its observation vector by this point —
 ///   driven by both local inserts and gossip events.

@@ -1,9 +1,9 @@
 //! Measurements from a completed synchronization session.
 //!
-//! [`SessionStats`] reports latency, changes to the rumor set, and the traffic
-//! of the session's data frames while joining, gossiping, or leaving a network;
-//! the items before and after those frames are not counted. It is returned on
-//! [`Gossiped`](crate::Gossiped) and sent to
+//! [`SessionStats`] reports latency, changes to the set of messages, and the
+//! traffic of the session's data frames while joining, gossiping, or retiring
+//! from a network; the items before and after those frames are not counted. It
+//! is returned on [`Gossiped`](crate::Gossiped) and sent to
 //! [`SessionObserver::finished`](crate::observe::SessionObserver::finished).
 //! Each peer measures its own side, and collection adds no protocol traffic.
 //! [`Recorder`] is the internal counter shared by the reconciliation layers.
@@ -19,18 +19,18 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::counter::widen;
 
-/// Local metrics from one completed gossip round.
+/// Local metrics from one completed gossip session.
 ///
 /// The two peers may report different values because each measures its own work
 /// and traffic.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SessionStats {
-    /// Time from the start to the end of the round of gossip.
+    /// Time from the start to the end of the gossip session.
     ///
-    /// This does not include time spent waiting for the next round of gossip.
+    /// This does not include time spent waiting for the next gossip session.
     pub elapsed: Duration,
-    /// Portions of the message set this peer compared where both peers had
+    /// Portions of the set of messages this peer compared where both peers had
     /// messages but their contents differed.
     ///
     /// This can serve as a proxy for how much work was required to isolate
@@ -42,16 +42,16 @@ pub struct SessionStats {
     /// New messages learned from the peer.
     ///
     /// Together with [`messages_shed`](Self::messages_shed), this shows how the
-    /// round of gossip altered the local message set. Modulo concurrent gossip
-    /// sessions, the net size change effected by this round of gossip is
+    /// gossip session altered the local set of messages. Modulo concurrent
+    /// gossip sessions, the net size change effected by this gossip session is
     /// `messages_gained - messages_shed`.
     pub messages_gained: u64,
     /// Existing messages removed because the peer had already seen and redacted
     /// them.
     ///
     /// Together with [`messages_gained`](Self::messages_gained), this shows how
-    /// the round of gossip altered the local message set. Modulo concurrent
-    /// gossip sessions, the net size change effected by this round of gossip is
+    /// the gossip session altered the local set of messages. Modulo concurrent
+    /// gossip sessions, the net size change effected by this gossip session is
     /// `messages_gained - messages_shed`.
     pub messages_shed: u64,
     /// Bytes sent to compare and transfer messages *specifically*.
@@ -88,12 +88,12 @@ pub struct SessionStats {
     /// [memory budget](crate::Peer::sync_memory_budget) had room to continue.
     ///
     /// This measure shows whether (and to what extent) the configured budget
-    /// limited pipelining during the round of gossip. At zero, the session kept
+    /// limited pipelining during the gossip session. At zero, the session kept
     /// in flight everything it was ready to send, behaving identically to a
     /// session with unlimited budget. The greater this value is, the more the
     /// pipeline stalled to prevent exceeding the memory budget.
     ///
-    /// It is not necessarily the case that a round of gossip with a lot of
+    /// It is not necessarily the case that a gossip session with a lot of
     /// budget waits was *actually much slower* than it would have been with a
     /// higher memory budget. The speed of a session slowly decreases as the
     /// budget constricts it, so a session with a medium number of scattered

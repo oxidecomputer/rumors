@@ -362,8 +362,8 @@ divided_proptest! {
         );
 
         // The recovered retiree still owns its live region: a clean retire (whose
-        // gossip round re-carries the divergent content) succeeds. The survivor's
-        // party then normalizes back to the whole identity space.
+        // gossip session re-carries the divergent content) succeeds. The
+        // survivor's party then normalizes back to the whole identity space.
         let survivor = retire_child_into(survivor, child);
         assert_eq!(
             party_of(&survivor),

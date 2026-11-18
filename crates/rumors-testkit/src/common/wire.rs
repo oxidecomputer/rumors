@@ -122,7 +122,7 @@ fn unread_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
 }
 
 /// Gossip two async `Rumors` through the on-wire protocol. After this returns,
-/// the two rumor sets hold the same live content and version.
+/// the two sets of messages hold the same live content and version.
 ///
 /// Both ends drive `gossip_once` concurrently over the two ends of one
 /// in-memory connection, so the session makes real bidirectional progress

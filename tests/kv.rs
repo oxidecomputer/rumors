@@ -489,7 +489,7 @@ fn interrupting_a_node_whose_peer_never_answers_exits_cleanly() {
     assert!(status.success(), "{status}");
 }
 
-/// A node that departs cleanly gives its peer nothing to report: b dials a
+/// A node that retires cleanly gives its peer nothing to report: b dials a
 /// and replicates a write, b is interrupted and retires to a, and once a shuts
 /// down too, a's log holds no line about a connection ending.
 #[test]

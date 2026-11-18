@@ -1,8 +1,8 @@
 //! Pairwise gossip semantics for `Rumors::gossip_once`, the wire merge
 //! primitive.
 //!
-//! With the shared-state rumor set, wire gossip *is* the merge: there is no
-//! in-process `join`. These properties pin the algebraic laws of one
+//! With the shared-state set of messages, wire gossip *is* the merge: there is
+//! no in-process `join`. These properties pin the algebraic laws of one
 //! bidirectional session — convergence, side-symmetry, idempotence,
 //! order-independence across three peers, and the union of live content — plus
 //! the causal-concurrency basics the merge rests on.

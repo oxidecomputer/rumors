@@ -27,7 +27,7 @@ fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync +
 divided_proptest! {
     #![divisor(LOCAL_DIVISOR)]
 
-    /// Every handle on one rumor set belongs to the same network.
+    /// Every handle on one set of messages belongs to the same network.
     ///
     /// A [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
     /// [`Peer`]'s [`Network`](rumors::Network) unchanged, and the reclaimed

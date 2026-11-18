@@ -60,7 +60,7 @@ pub fn payloads() -> impl Strategy<Value = Vec<Vec<u8>>> + Clone {
     vec(vec(any::<u8>(), 0..48), 0..12)
 }
 
-/// Shared and per-peer payloads for equal or divergent message sets.
+/// Shared and per-peer payloads for equal or divergent sets of messages.
 #[allow(clippy::type_complexity)]
 pub fn corpora() -> impl Strategy<Value = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>)> {
     (payloads(), payloads(), payloads())

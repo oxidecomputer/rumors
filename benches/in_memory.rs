@@ -3,7 +3,7 @@
 
 //! In-memory benchmarks for the public single-set surface.
 //!
-//! These cover the operations that mutate or read a rumor set entirely in
+//! These cover the operations that mutate or read a set of messages entirely in
 //! memory: everything except [`gossip`](rumors::Rumors::gossip), which
 //! serializes onto the wire (see `gossip_grid.rs` and `gossip_fixed.rs`). The
 //! message payload is `()`, whose encoding is one CBOR null byte, so each
@@ -15,8 +15,8 @@
 //!
 //! # What's measured
 //!
-//! - `batch_insert`: build a rumor set of size N from empty in one batch commit
-//!   (insert throughput, averaged over the 0..N growth curve).
+//! - `batch_insert`: build a set of messages of size N from empty in one batch
+//!   commit (insert throughput, averaged over the 0..N growth curve).
 //! - `iter`: a full live-message traversal of a size-N snapshot.
 //! - `redact`: forget all N messages of a size-N set in one batch commit.
 //! - `range_delta`: iterate the causal delta of size D above a checkpoint in a
@@ -51,7 +51,7 @@ fn empty_set() -> Rumors<()> {
     Peer::seed_rng(&mut rng).into_rumors()
 }
 
-/// Build a deterministic rumor set holding `n` messages.
+/// Build a deterministic set of `n` messages.
 fn build(n: usize) -> Rumors<()> {
     let rumors = empty_set();
     send_units(&rumors, n);

@@ -166,7 +166,7 @@ pub struct Session {
 /// indices), the retiree's endpoint faulted by `fault`.
 #[derive(Debug, Clone, Copy)]
 pub struct RetireOp {
-    /// Fleet index of the peer leaving the network.
+    /// Fleet index of the peer retiring from the network.
     pub retiree: usize,
     /// Fleet index of the peer accepting its state.
     pub absorber: usize,

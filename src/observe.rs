@@ -15,9 +15,9 @@
 //! - **Peer**: each [`Observer`] is preserved indefinitely throughout the
 //!   lifecycle of the [`Peer`](crate::Peer), and all [`Rumors`](crate::Rumors)
 //!   clones inherit it. It is asked to produce a session handler for every
-//!   gossip round the peer enters.
+//!   gossip session the peer enters.
 //! - **Session**: a [`SessionObserver`] receives the peer's elected role for
-//!   this round of gossip. It is asked to produce a handler for each logical
+//!   this gossip session. It is asked to produce a handler for each logical
 //!   directed stream as it first carries an item in the gossip protocol.
 //!   Finally, it receives the session's completion, failure category, or
 //!   cancellation information.
@@ -204,7 +204,7 @@ pub struct StreamInfo {
 pub enum StreamId {
     /// All the items before and after data frames.
     ///
-    /// This encompasses session setup, network joins and departures, and
+    /// This encompasses session setup, network joins and retirements, and
     /// completion confirmation.
     Control,
     /// One logical reconciliation data stream.

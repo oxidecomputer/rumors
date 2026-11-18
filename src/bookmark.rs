@@ -1,7 +1,7 @@
 //! Restart bookkeeping that limits growth of message versions.
 //!
 //! Applications provide opaque byte storage through [`Bookmark`]. The crate
-//! owns the record format and the rules for recycling a departed peer's
+//! owns the record format and the rules for recycling a retired peer's
 //! identity.
 //!
 //! A peer's identity is lost when it crashes, and everyone's versions grow
@@ -83,8 +83,8 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// peer is now bookmarked; you don't need to do anything else.
 ///
 /// Using a [`Bookmark`] does not allow a peer to persist the contents of the
-/// gossip set; it solely recovers the peer's internal identity, which is not
-/// directly visible to your application. Peers with and without a bookmark
+/// set of messages; it solely recovers the peer's internal identity, which is
+/// not directly visible to your application. Peers with and without a bookmark
 /// behave the same.
 ///
 /// # Size limits
@@ -112,7 +112,8 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// <div class="warning">
 ///
 /// Sharing, duplicating, or rolling back bookmarks can introduce violations of
-/// causality which can corrupt the contents of the gossip set across all peers.
+/// causality which can corrupt the contents of the set of messages across all
+/// peers.
 ///
 /// </div>
 ///

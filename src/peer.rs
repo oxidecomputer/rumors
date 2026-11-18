@@ -1,6 +1,6 @@
-//! The local rumor set: [`Peer`] and its synchronized state, plus the local API
-//! for sending, redacting, and observing messages. The wire-session drivers
-//! (join, gossip, retire) live in [`gossip`].
+//! The local set of messages: [`Peer`] and its synchronized state, plus the
+//! local API for sending, redacting, and observing messages. The wire-session
+//! drivers (join, gossip, retire) live in [`gossip`].
 
 use std::{
     borrow::Borrow,
@@ -273,7 +273,7 @@ pub use join::{Join, Joining};
 ///
 /// To use and clone the replica, convert the [`Peer`] into a [`Rumors`] using
 /// [`into_rumors`](Peer::into_rumors), then use the [`Rumors`] API to interact
-/// with the message set and gossip with other peers.
+/// with the set of messages and gossip with other peers.
 ///
 /// When finished, convert any
 /// [`Rumors`] clone back into a [`Peer`] using
@@ -334,7 +334,7 @@ pub use join::{Join, Joining};
 /// #     counterparty.gossip_once(far_read, far_write).await.unwrap();
 /// # });
 /// let retry = match peer.retire(read, write).await {
-///     // We have now left the gossip network.
+///     // We have now retired from the gossip network.
 ///     Retire::Retired { connection } => {
 ///         if let Connection::Lost { error } = connection {
 ///             eprintln!("error after retiring: {error}");
@@ -769,9 +769,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [`Version`]s efficient as peers come and go.
     ///
     /// The outcome of this function, [`Retire`], reports whether this peer
-    /// successfully left the network, or whether it remains (e.g. due to a
-    /// failure which could be retried), and whether the connection can carry
-    /// another session.
+    /// successfully retired from the network, or whether it remains (e.g. due
+    /// to a failure which could be retried), and whether the connection can
+    /// carry another session.
     pub async fn retire<R, W>(self, read: R, write: W) -> Retire<T, R, W, B>
     where
         R: AsyncBufRead + Unpin + Send,
@@ -842,7 +842,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// If you return [`Gossip::WhenChanged`] from
     /// your stream, gossip will only happen if there have been changes since
-    /// the last gossip round with this peer; if you return
+    /// the last gossip session with this peer; if you return
     /// [`Gossip::Unconditionally`], gossip will
     /// happen regardless of local changes. Note that `(): Into<Gossip>` where
     /// `().into() == Gossip::WhenChanged`, so an ordinary stream of `()` acts
@@ -890,7 +890,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Impose a timeout on the completion of each round of gossip. This is
+    /// Impose a timeout on the completion of each gossip session. This is
     /// disabled by default.
     ///
     /// Because Rumors is runtime-independent, the application owns whatever
@@ -1049,9 +1049,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// "recursion step" is internal to `rumors`, but is guaranteed to remain
     /// stable within a single wire protocol.
     ///
-    /// Applying such a limit prevents a peer from "poisoning" the gossip set
-    /// with an excessively nested encoded message, which otherwise could
-    /// trigger a stack overflow on receipt by other peers.
+    /// Applying such a limit prevents a peer from "poisoning" the set of
+    /// messages with an excessively nested encoded message, which otherwise
+    /// could trigger a stack overflow on receipt by other peers.
     ///
     /// This limit is checked by peers both prior to
     /// [`send`](crate::Rumors::send), and also during message decoding, so that

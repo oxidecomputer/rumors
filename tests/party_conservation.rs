@@ -53,7 +53,7 @@ use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 ///
 /// Up to fifteen messages put two in the same first radix byte of the content
 /// trie in about a third of the largest cases, so retirements also reconcile a
-/// second trie level. A case runs two sessions per departing peer, so its cost
+/// second trie level. A case runs two sessions per retiring peer, so its cost
 /// grows with the fleet, and this cap keeps the test's time at high case counts
 /// in line with the suite's other end-to-end properties. Larger sets, deeper
 /// parties, and budget pressure have suites of their own: the multi-peer gossip
@@ -421,7 +421,7 @@ proptest! {
             expected.insert(version.as_bytes().to_vec(), i as u64);
         }
 
-        // There is exactly one retirement per departing peer, so every step
+        // There is exactly one retirement per retiring peer, so every step
         // has a distinct absorber and the schedule ends with one survivor.
         for &(retiree, off) in &retirements {
             apply(&mut fleet, Op::Retire { retiree, off });

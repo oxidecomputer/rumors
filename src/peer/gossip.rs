@@ -77,9 +77,9 @@ type RemoteParticipant<'a> = streaming_remote::Handshaking<Local, DynRead<'a>, D
 
 /// The result of [`Peer::retire`].
 ///
-/// - [`Retired`](Self::Retired) means this peer successfully left the network,
-///   and carries a [`Connection`] that indicates whether the connection can be
-///   safely reused.
+/// - [`Retired`](Self::Retired) means this peer successfully retired from the
+///   network, and carries a [`Connection`] that indicates whether the
+///   connection can be safely reused.
 /// - [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered) both
 ///   represent failures to retire, and both return the original
 ///   [`Peer`], so it can retry retirement; dropping either result
@@ -93,7 +93,7 @@ type RemoteParticipant<'a> = streaming_remote::Handshaking<Local, DynRead<'a>, D
 ///     counterparty in some circumstances.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
 pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
-    /// This [`Peer`] has successfully left the gossip network.
+    /// This [`Peer`] has successfully retired from the gossip network.
     ///
     /// The peer cannot resume gossip or retry. With [`Connection::Reusable`],
     /// the remote peer confirmed completion and the session finished. With
@@ -153,12 +153,12 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W,
     }
 }
 
-/// Information about one completed round of gossip.
+/// Information about one completed gossip session.
 ///
 /// This is returned by [`gossip_once`](crate::Rumors::gossip_once) or yielded
 /// by [`gossip_stream`](crate::Rumors::gossip_stream) repeatedly.
 ///
-/// This report originates only from successful gossip rounds; failures report
+/// This report originates only from successful gossip sessions; failures report
 /// an `Err` instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -175,9 +175,9 @@ pub struct Gossiped {
     /// gossip.
     ///
     /// Both sides may believe they initiated: if both race to initiate, the two
-    /// symmetrical initiations merge into one round of gossip.
+    /// symmetrical initiations merge into one gossip session.
     pub led: Led,
-    /// Local statistics about the round of gossip, useful for reporting
+    /// Local statistics about the gossip session, useful for reporting
     /// metrics.
     ///
     /// See [`SessionStats`] for each field's meaning.
@@ -188,12 +188,12 @@ pub struct Gossiped {
 /// gossip.
 ///
 /// If both peers race to initiate, each one may believe that it
-/// [`Led::Local`], because simultaneous gossip rounds merge.
+/// [`Led::Local`], because simultaneous gossip sessions merge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Led {
     /// The local [`gossip_when`](crate::Peer::gossip_when) policy or an
     /// explicit call to [`gossip_once`](crate::Rumors::gossip_once) initiated
-    /// this round of gossip.
+    /// this gossip session.
     ///
     /// If the local peer reports that it [`Led::Local`], the
     /// remote peer may or may not also believe the same.
@@ -208,14 +208,14 @@ pub enum Led {
 }
 
 /// The policy by which a stream item for
-/// [`Peer::gossip_when`](crate::Peer::gossip_when) requests a gossip round.
+/// [`Peer::gossip_when`](crate::Peer::gossip_when) requests a gossip session.
 ///
 /// Note that `(): Into<Gossip>` where `().into() == Gossip::WhenChanged`, so an
 /// ordinary stream of `()` acts as a sequence of "ticks" which initiate gossip
 /// only if there are known changes to broadcast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Gossip {
-    /// Initiate a round of gossip only if the local set of messages has changed
+    /// Initiate a gossip session only if the local set of messages has changed
     /// since this connection last [`converged`](Gossiped::converged).
     WhenChanged,
     /// Initiate a session whether or not the local set of messages has changed.
@@ -453,7 +453,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         }
     }
 
-    /// Gossip with a remote peer to synchronize rumor sets.
+    /// Gossip with a remote peer to synchronize sets of messages.
     pub(crate) async fn gossip_once<R, W>(
         &self,
         mut read: R,

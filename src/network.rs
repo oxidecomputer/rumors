@@ -113,7 +113,7 @@ impl<'de> Deserialize<'de> for Network {
 
 impl Network {
     /// The all-zero placeholder a joining peer sends in the handshake: it
-    /// has no rumor set yet, hence no real network.
+    /// has no set of messages yet, hence no real network.
     ///
     /// It is the one value no network's identifier takes
     /// ([`NetworkSecret::from_rng`] redraws a secret that would derive it), so

@@ -34,7 +34,7 @@
 //! slope as latency sensitivity: the slope at one-way delay `d`, divided by
 //! `d`, is the session's serialized one-way hop count. `I = 0` is the identical
 //! corner — the steady-state "nothing changed" handshake a production peer pays
-//! every gossip round.
+//! every gossip session.
 //!
 //! Read the slopes for regressions: a hop count scaling with disputed scopes
 //! rather than tree depth is the serialized regime the memory budget exists to

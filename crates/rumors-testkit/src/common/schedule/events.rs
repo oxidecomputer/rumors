@@ -54,7 +54,7 @@ pub enum Event<T> {
     /// Emitted only by the membership strategy; the strategy guarantees both
     /// peers are alive and distinct.
     Retire {
-        /// Fleet index of the peer leaving the network.
+        /// Fleet index of the peer retiring from the network.
         retiree: usize,
         /// Fleet index of the peer accepting its state.
         absorber: usize,

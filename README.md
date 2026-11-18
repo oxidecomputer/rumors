@@ -82,10 +82,10 @@ means:
   causally concurrent messages) may be observed by different peers in
   arbitrary order.
 - **If peers may be malicious.** The `rumors` protocol assumes that all
-  peers are authorized to make *any changes whatsoever* to the gossip set.
-  It is not Byzantine fault-tolerant, and is not meant to be. In order to
-  ensure the integrity of the gossip set, any application using `rumors`
-  *must* [authenticate connections between
+  peers are authorized to make *any changes whatsoever* to the set of
+  messages. It is not Byzantine fault-tolerant, and is not meant to be. In
+  order to ensure the integrity of the set of messages, any application
+  using `rumors` *must* [authenticate connections between
   peers](#how-should-peers-talk-to-one-another).
 - **If bandwidth is very scarce.** `rumors` buys low latency in part by
   spending bandwidth. If your messages are very small (on the order of less
@@ -148,8 +148,8 @@ let Join::Connected { peer: bob, .. } = Peer::<String>::join(bob_read, bob_write
 };
 
 // This gives Bob a `Peer`, which he converts into a `Rumors`, just like Alice
-// did when she seeded the initial network. But now Bob's rumor set is linked
-// to Alice's, because he joined from her.
+// did when she seeded the initial network. But now Bob's set of messages is
+// linked to Alice's, because he joined from her.
 let bob = bob.into_rumors();
 
 // Now, Bob immediately has the message Alice sent before they ever met.

@@ -1,4 +1,4 @@
-//! Report whether a joining or departing session left its connection reusable.
+//! Report whether a joining or retiring session left its connection reusable.
 
 use std::fmt;
 

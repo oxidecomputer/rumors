@@ -1,4 +1,4 @@
-//! Spec-shaped oracle for the gossip-set semantics, plus a `readout` lens that
+//! Spec-shaped oracle for the set semantics, plus a `readout` lens that
 //! projects a [`Snapshot<T>`] back into its currently-live map from message
 //! identity (a version's canonical bytes) to value.
 //!

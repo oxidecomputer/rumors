@@ -24,8 +24,13 @@
 //!
 //! This tutorial is included in the `rumors` crate as
 //! [`examples/kv`](https://github.com/oxidecomputer/rumors/tree/main/examples/kv),
-//! so you can run it immediately. Let's take a peek at what we'll be
-//! building...
+//! so you can run it immediately.
+//!
+//! ```bash
+//! $ git clone https://github.com/oxidecomputer/rumors && cd rumors
+//! ```
+//!
+//! Let's take a peek at what we'll be building...
 //!
 //! ## Running KV nodes
 //!

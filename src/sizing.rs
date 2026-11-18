@@ -92,8 +92,8 @@
 //!
 //! The minimum is about **36.4 MiB**. Any specified budget below the minimum is
 //! implicitly rounded up to the minimum. This will constrain the speed of
-//! gossip in some situations, especially as latency, mutual divergence, and
-//! message set size increase, and as mean message size decreases.
+//! gossip in some situations, especially as latency, mutual divergence, and the
+//! size of the set of messages increase, and as mean message size decreases.
 //!
 //! Read on to understand what happens in between these extremes.
 //!
@@ -180,7 +180,7 @@
 //!
 //! - **Near BDP = 125 kB** (i.e. 1 ms latency at 1 Gb/s), the minimum budget
 //!   will exert essentially no backpressure.
-//! - **Near 1.25 MB** (i.e. 10 ms latency at 1 Gb/s), large message sets will
-//!   see noticeable slowdown, especially when divergent.
+//! - **Near 1.25 MB** (i.e. 10 ms latency at 1 Gb/s), large sets of messages
+//!   will see noticeable slowdown, especially when divergent.
 //! - **Near 12.5 MB** (i.e. 100 ms latency 1 Gb/s), medium and especially large
-//!   message sets will see significant slowdown.
+//!   sets of messages will see significant slowdown.

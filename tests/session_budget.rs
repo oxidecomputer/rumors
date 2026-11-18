@@ -50,7 +50,7 @@
 //! The budget binds when two large replicas differ throughout. A peer catching
 //! up from nothing disputes no subtree: it receives the set as supplies, and
 //! with nothing disputed the budget barely binds the session, so each fixture
-//! is two forks of one network holding equal, disjoint message sets.
+//! is two forks of one network holding equal, disjoint sets of messages.
 //!
 //! A leaf's tree path is its version's hash keyed by the network's secret, so
 //! the suite cannot place leaves: two hashed sets of `n` messages each

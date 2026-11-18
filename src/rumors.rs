@@ -368,7 +368,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
 impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Gossip over one connection until it ends.
     ///
-    /// To observe details about each completed round of gossip, use
+    /// To observe details about each completed gossip session, use
     /// [`gossip_stream`](Rumors::gossip_stream) and iterate over its returned
     /// stream of [`Gossiped`] status reports.
     ///
@@ -399,13 +399,13 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     }
 
     /// Gossip over one connection until it ends, yielding a report after each
-    /// round of gossip.
+    /// gossip session.
     ///
     /// Each successful [`Gossiped`] reports the converged [`Version`], and
     /// various statistics about the session. **You must keep polling the
     /// resultant stream to drive the connection.**
     ///
-    /// To force one immediate round of gossip regardless of the configured
+    /// To force one immediate gossip session regardless of the configured
     /// policies on the [`Peer`], use [`gossip_once`](Self::gossip_once). To
     /// drive the connection without inspecting each session, use
     /// [`gossip`](Self::gossip).
@@ -445,10 +445,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
         self.peer.gossip_driver(read, write)
     }
 
-    /// Run a single round of gossip with a remote peer.
+    /// Run a single gossip session with a remote peer.
     ///
     /// The configured [`Peer::gossip_timeout`] applies to this exchange. The
-    /// initiation policy does not: this call always starts a round of gossip,
+    /// initiation policy does not: this call always starts a gossip session,
     /// regardless of [`Peer::gossip_when`](crate::Peer::gossip_when) and
     /// [`Peer::gossip_until`](crate::Peer::gossip_until).
     pub async fn gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error<B>>

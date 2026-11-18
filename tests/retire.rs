@@ -2,16 +2,16 @@
 //! a counterparty, so the identity space it held is reclaimed rather than
 //! leaked.
 //!
-//! A retire session begins with a round of gossip — the ordinary mirror descent
-//! — so the absorbing peer comes to causally dominate the retiree before the
-//! party changes hands, and nothing the retiree held is lost. The assertions
-//! here are about *outcomes* (the [`Retire`] variants), content survival across
-//! the hand-off, and the invariants the absorbing peer must preserve when the
-//! retiree is already converged (its tree and version are untouched). Declines
-//! remain only for a counterparty that is itself retiring; a joining
-//! counterparty *absorbs* the retiree — it receives the whole tree through the
-//! descent and the whole party as the trailing frame, becoming the retiree's
-//! successor.
+//! A retire session begins with the reconciliation part of the protocol — the
+//! ordinary mirror descent — so the absorbing peer comes to causally dominate
+//! the retiree before the party changes hands, and nothing the retiree held is
+//! lost. The assertions here are about *outcomes* (the [`Retire`] variants),
+//! content survival across the hand-off, and the invariants the absorbing peer
+//! must preserve when the retiree is already converged (its tree and version
+//! are untouched). Declines remain only for a counterparty that is itself
+//! retiring; a joining counterparty *absorbs* the retiree — it receives the
+//! whole tree through the descent and the whole party as the trailing frame,
+//! becoming the retiree's successor.
 //!
 //! Retirement consumes the unique `Peer`, excluding concurrent writers.
 //! Snapshot and message observers may remain and drain its final state.
@@ -200,9 +200,10 @@ divided_proptest! {
         );
     }
 
-    /// A redaction the retiree performed locally propagates through retirement's
-    /// gossip round: the absorber evicts the message before absorbing the party,
-    /// exactly as a plain gossip session would have spread it.
+    /// A redaction the retiree performed locally propagates through the
+    /// reconciliation part of the protocol: the absorber evicts the message
+    /// before absorbing the party, exactly as a plain gossip session would have
+    /// spread it.
     ///
     /// The claim holds for every network seed.
     #[test]
@@ -343,9 +344,10 @@ divided_proptest! {
     }
 
     /// Ordinary `gossip` learns a divergent retiree's novel content through the
-    /// session's gossip round — the messages land above the absorber's
-    /// pre-session frontier, observable to any checkpoint — before absorbing the
-    /// party.
+    /// reconciliation part of the protocol before absorbing the party.
+    ///
+    /// The messages land above the absorber's pre-session frontier, observable
+    /// to any checkpoint.
     ///
     /// The claim holds for every network seed.
     #[test]
@@ -500,8 +502,8 @@ proptest! {
     }
 
     /// Retiring A into B with *no prior synchronization* also matches the
-    /// plain-gossip oracle: the gossip round inside the retire session
-    /// performs the reconciliation itself.
+    /// plain-gossip oracle: the reconciliation part of the protocol inside the
+    /// retire session performs the synchronization itself.
     #[test]
     fn unsynchronized_retire_matches_plain_gossip(
         a_actions in arb_local_actions(),
