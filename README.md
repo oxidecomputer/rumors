@@ -70,9 +70,6 @@ means:
 
 ## When *shouldn't* you use it?
 
-- **If the set of messages is larger than any one peer can store.** Every
-  peer stores a full replica of all the messages; `rumors` is not a sharded
-  database, and its design is fundamentally incompatible with sharding.
 - **If you need consistent total ordering of messages.** `rumors` assigns a
   `Version` to each message which is `PartialOrd` but *not* `Ord`, and
   each peer may observe a different linear sequence of messages. This
@@ -87,6 +84,13 @@ means:
   order to ensure the integrity of the set of messages, any application
   using `rumors` *must* [authenticate connections between
   peers](#how-should-peers-talk-to-one-another).
+- **If the set of messages is larger than any one peer can store in
+  memory.** Every peer stores a full replica of all the messages; `rumors`
+  is not a sharded database, and its design is fundamentally incompatible
+  with sharding.
+- **If you need persistent storage for messages.** Peers store their sets of
+  messages in memory only; if all peers restart with none left alive to
+  bridge the gap, all messages will be lost.
 - **If bandwidth is very scarce.** `rumors` buys low latency in part by
   spending bandwidth. If your messages are very small (on the order of less
   than 100 B), the overhead of the protocol can exceed your messages

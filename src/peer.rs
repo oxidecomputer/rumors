@@ -1071,7 +1071,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// **This setting must be *exactly the same* for all peers in the gossip
     /// network.** Peers will refuse to gossip with one another if they are
     /// configured with different message depth limits, *even if they have
-    /// ostensibly compatible sets of messages.*
+    /// ostensibly compatible sets of messages.* As a result, this setting
+    /// cannot be changed after creating a gossip network.
     ///
     /// </div>
     #[must_use]

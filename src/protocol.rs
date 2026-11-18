@@ -4,6 +4,9 @@
 ///
 /// Peers exchange their protocol version during each gossip session. Different
 /// versions result in [`Mismatch::Protocol`](crate::error::Mismatch::Protocol).
+///
+/// Live migration or cross-compatibility between different protocol versions
+/// is not possible.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum Protocol {
