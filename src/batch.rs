@@ -8,7 +8,7 @@ use crate::{Inner, Version};
 
 /// Sent and redacted messages queued up for one atomic commit.
 ///
-/// [`Rumors::batch`](crate::Rumors::batch) takes a closure and provides it with
+/// [`Peer::batch`](crate::Peer::batch) takes a closure and provides it with
 /// a [`Batch`] to manipulate using [`send`](Self::send) and
 /// [`redact`](Self::redact). If the closure returns `Ok`, all queued changes
 /// are committed atomically; if it returns `Err` or panics, nothing is
@@ -49,7 +49,7 @@ impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
     /// Queue a message for this batch.
     ///
     /// The message is validated immediately, following the rules of
-    /// [`Rumors::send`](crate::Rumors::send). A rejected message is not queued
+    /// [`Peer::send`](crate::Peer::send). A rejected message is not queued
     /// for the batch.
     ///
     /// If you propagate the potential
@@ -138,7 +138,7 @@ pub(crate) struct Commit {
     pub(crate) redacted: usize,
 }
 
-/// The result of a committed [`Rumors::batch`](crate::Rumors::batch).
+/// The result of a committed [`Peer::batch`](crate::Peer::batch).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Committed<R> {

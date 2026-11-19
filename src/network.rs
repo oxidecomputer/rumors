@@ -71,12 +71,12 @@ const HASH_KEY_LABEL: &[u8] = b"rumors tree hash key";
 /// The key schedule's info label for the network identifier ([`NetworkKeys`]).
 const NETWORK_ID_LABEL: &[u8] = b"rumors network id";
 
-/// The globally unique identifier shared by every [`Rumors`](crate::Rumors)
+/// The globally unique identifier shared by every [`Peer`](crate::Peer)
 /// descending from the same [`seed`](crate::Peer::seed).
 ///
-/// When two [`Rumors`](crate::Rumors) [`gossip`](crate::Rumors::gossip), they
+/// When two [`Peer`](crate::Peer)s [`gossip`](crate::Peer::gossip), they
 /// must descend from the same [`seed`](crate::Peer::seed) by a transitive chain
-/// of [`joining`](crate::Peer::joining)s. This is required to ensure that
+/// of [`joining`](crate::Peer::join)s. This is required to ensure that
 /// [`Version`](crate::Version)s for messages across an entire network are
 /// causally comparable in a meaningful way.
 ///

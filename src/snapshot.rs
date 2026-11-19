@@ -7,11 +7,11 @@ use crate::{Network, Version, causally, tree::Tree};
 pub use crate::tree::Iter;
 
 /// An atomic point-in-time view of the content in a set of
-/// [`Rumors`](crate::Rumors).
+/// [`Peer`](crate::Peer).
 ///
-/// Taking one via [`Rumors::snapshot`](crate::Rumors::snapshot) is cheap: it
+/// Taking one via [`Peer::snapshot`](crate::Peer::snapshot) is cheap: it
 /// shares structure rather than copying, and can be kept alive independently of
-/// its underlying [`Rumors`](crate::Rumors) or [`Peer`](crate::Peer).
+/// its underlying [`Peer`](crate::Peer).
 pub struct Snapshot<T: Send + Sync + 'static> {
     /// The immutable live set and causal frontier, with its network's keys.
     tree: Tree<T>,
@@ -106,10 +106,10 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// that places causes before their effects.
     ///
     /// ```
-    /// let rumors = rumors::Peer::<String>::seed().into_rumors();
-    /// rumors.send("first".into())?;
-    /// rumors.send("second".into())?;
-    /// let snapshot = rumors.snapshot();
+    /// let peer = rumors::Peer::<String>::seed();
+    /// peer.send("first".into())?;
+    /// peer.send("second".into())?;
+    /// let snapshot = peer.snapshot();
     /// let mut messages: Vec<_> = snapshot.iter().collect();
     /// messages.sort_by_cached_key(|(version, _)| version.rank());
     /// # Ok::<(), rumors::error::EncodeError>(())
@@ -144,13 +144,13 @@ impl<T: Send + Sync + 'static> Snapshot<T> {
     /// ```
     /// use rumors::{Peer, causally};
     ///
-    /// let rumors = Peer::<String>::seed().into_rumors();
-    /// rumors.send("first".to_string())?;
-    /// let then = rumors.snapshot().latest().clone();
-    /// rumors.send("second".to_string())?;
-    /// rumors.send("third".to_string())?;
+    /// let peer = Peer::<String>::seed();
+    /// peer.send("first".to_string())?;
+    /// let then = peer.snapshot().latest().clone();
+    /// peer.send("second".to_string())?;
+    /// peer.send("third".to_string())?;
     ///
-    /// let snapshot = rumors.snapshot();
+    /// let snapshot = peer.snapshot();
     /// // Everything not already contained in `then`.
     /// assert_eq!(snapshot.range(causally::since(&then)).count(), 2);
     /// // Everything `then` already contained.

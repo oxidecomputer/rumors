@@ -75,7 +75,7 @@ impl Default for MessageDepthLimit {
     }
 }
 
-/// Why [`Rumors::send`](crate::Rumors::send) rejected a message, before any
+/// Why [`Peer::send`](crate::Peer::send) rejected a message, before any
 /// replica stored or gossiped it.
 ///
 /// Before accepting a message, `send` checks that every receiver would decode

@@ -13,7 +13,7 @@
 //! every level can return `None` to skip the levels below:
 //!
 //! - **Peer**: each [`Observer`] is preserved indefinitely throughout the
-//!   lifecycle of the [`Peer`](crate::Peer), and all [`Rumors`](crate::Rumors)
+//!   lifecycle of the [`Peer`](crate::Peer), and all [`Peer`](crate::Peer)
 //!   clones inherit it. It is asked to produce a session handler for every
 //!   gossip session the peer enters.
 //! - **Session**: a [`SessionObserver`] receives the peer's elected role for
@@ -180,9 +180,9 @@ pub enum SessionKind {
     /// The local peer is joining the gossip network
     /// ([`Peer::join`](crate::Peer::join)).
     Join,
-    /// The local peer is gossiping ([`Rumors::gossip`](crate::Rumors::gossip),
-    /// [`Rumors::gossip_stream`](crate::Rumors::gossip_stream), and
-    /// [`Rumors::gossip_once`](crate::Rumors::gossip_once)).
+    /// The local peer is gossiping ([`Peer::gossip`](crate::Peer::gossip),
+    /// [`Peer::gossip_stream`](crate::Peer::gossip_stream), and
+    /// [`Peer::gossip_once`](crate::Peer::gossip_once)).
     Gossip,
     /// The local peer is retiring ([`Peer::retire`](crate::Peer::retire)).
     Retire,
