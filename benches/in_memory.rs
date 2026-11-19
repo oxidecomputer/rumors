@@ -4,13 +4,13 @@
 //! In-memory benchmarks for the public single-set surface.
 //!
 //! These cover the operations that mutate or read a set of messages entirely in
-//! memory: everything except [`gossip`](rumors::Rumors::gossip), which
+//! memory: everything except [`gossip`](rumors::Peer::gossip), which
 //! serializes onto the wire (see `gossip_grid.rs` and `gossip_fixed.rs`). The
 //! message payload is `()`, whose encoding is one CBOR null byte, so each
 //! measurement reflects the tree / clock / hashing work rather than the cost of
 //! serializing a payload.
 //!
-//! Although [`rumors::Rumors`] also drives asynchronous synchronization, every
+//! Although [`rumors::Peer`] also drives asynchronous synchronization, every
 //! operation measured here completes synchronously and needs no runtime.
 //!
 //! # What's measured
@@ -37,7 +37,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 use futures::{FutureExt, Stream, StreamExt};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors, Version, causally};
+use rumors::{Peer, Version, causally};
 use rumors_testkit::bench::grid;
 
 use grid::{SIZES, sample_size_for, send_units};
@@ -46,21 +46,21 @@ use grid::{SIZES, sample_size_for, send_units};
 const DELTAS: &[usize] = &[1, 100, 10_000];
 
 /// Create an empty set with a stable network identifier.
-fn empty_set() -> Rumors<()> {
+fn empty_set() -> Peer<()> {
     let mut rng = ChaChaRng::seed_from_u64(0x8c6c_c850_62c7_c5b6);
-    Peer::seed_rng(&mut rng).into_rumors()
+    Peer::builder().dangerously_override_rng(&mut rng).seed()
 }
 
 /// Build a deterministic set of `n` messages.
-fn build(n: usize) -> Rumors<()> {
-    let rumors = empty_set();
-    send_units(&rumors, n);
-    rumors
+fn build(n: usize) -> Peer<()> {
+    let peer = empty_set();
+    send_units(&peer, n);
+    peer
 }
 
-/// Copy the live versions from `rumors` for a consuming benchmark.
-fn versions_of(rumors: &Rumors<()>) -> Vec<Version> {
-    rumors.snapshot().versions().cloned().collect()
+/// Copy the live versions from `peer` for a consuming benchmark.
+fn versions_of(peer: &Peer<()>) -> Vec<Version> {
+    peer.snapshot().versions().cloned().collect()
 }
 
 /// Drain everything `observer` has pending, without blocking, returning how
@@ -86,9 +86,9 @@ fn bench_batch_insert(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter_batched(
                 empty_set,
-                |rumors| {
-                    send_units(&rumors, black_box(n));
-                    rumors
+                |peer| {
+                    send_units(&peer, black_box(n));
+                    peer
                 },
                 BatchSize::PerIteration,
             )
@@ -107,8 +107,8 @@ fn bench_iter(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let rumors = build(n);
-        let snapshot = rumors.snapshot();
+        let peer = build(n);
+        let snapshot = peer.snapshot();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut count = 0usize;
@@ -135,13 +135,13 @@ fn bench_redact(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter_batched(
                 || {
-                    let rumors = build(n);
-                    let versions = versions_of(&rumors);
-                    (rumors, versions)
+                    let peer = build(n);
+                    let versions = versions_of(&peer);
+                    (peer, versions)
                 },
-                |(rumors, versions)| {
-                    rumors.redact_all(versions.iter().map(black_box));
-                    rumors
+                |(peer, versions)| {
+                    peer.redact_all(versions.iter().map(black_box));
+                    peer
                 },
                 BatchSize::PerIteration,
             )
@@ -152,12 +152,12 @@ fn bench_redact(c: &mut Criterion) {
 
 /// A size-`n` set whose last `delta` messages sit above the returned
 /// checkpoint.
-fn build_with_checkpoint(n: usize, delta: usize) -> (Rumors<()>, Version) {
-    let rumors = empty_set();
-    send_units(&rumors, n - delta);
-    let checkpoint = rumors.snapshot().latest().clone();
-    send_units(&rumors, delta);
-    (rumors, checkpoint)
+fn build_with_checkpoint(n: usize, delta: usize) -> (Peer<()>, Version) {
+    let peer = empty_set();
+    send_units(&peer, n - delta);
+    let checkpoint = peer.snapshot().latest().clone();
+    send_units(&peer, delta);
+    (peer, checkpoint)
 }
 
 /// `range_delta`: iterate the causal delta above a checkpoint.
@@ -176,8 +176,8 @@ fn bench_range_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (rumors, checkpoint) = build_with_checkpoint(n, delta);
-            let snapshot = rumors.snapshot();
+            let (peer, checkpoint) = build_with_checkpoint(n, delta);
+            let snapshot = peer.snapshot();
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
@@ -205,10 +205,10 @@ fn bench_observer_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let rumors = build(n);
+        let peer = build(n);
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
-                let mut observer = rumors.unordered_messages();
+                let mut observer = peer.unordered_messages();
                 black_box(drain(&mut observer))
             })
         });
@@ -230,12 +230,12 @@ fn bench_observer_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (rumors, checkpoint) = build_with_checkpoint(n, delta);
+            let (peer, checkpoint) = build_with_checkpoint(n, delta);
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = rumors.unordered_messages_since(checkpoint.clone());
+                        let mut observer = peer.unordered_messages_since(checkpoint.clone());
                         black_box(drain(&mut observer))
                     })
                 },
@@ -257,10 +257,10 @@ fn bench_causal_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let rumors = build(n);
+        let peer = build(n);
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
-                let mut observer = rumors.causal_messages();
+                let mut observer = peer.causal_messages();
                 black_box(drain(&mut observer))
             })
         });
@@ -280,12 +280,12 @@ fn bench_causal_delta(c: &mut Criterion) {
             }
             group.sample_size(sample_size_for(n));
             group.throughput(Throughput::Elements(delta as u64));
-            let (rumors, checkpoint) = build_with_checkpoint(n, delta);
+            let (peer, checkpoint) = build_with_checkpoint(n, delta);
             group.bench_function(
                 BenchmarkId::from_parameter(format!("n={n},delta={delta}")),
                 |b| {
                     b.iter(|| {
-                        let mut observer = rumors.causal_messages_since(checkpoint.clone());
+                        let mut observer = peer.causal_messages_since(checkpoint.clone());
                         black_box(drain(&mut observer))
                     })
                 },
@@ -297,21 +297,21 @@ fn bench_causal_delta(c: &mut Criterion) {
 
 /// `get`: a point lookup by version — one `O(depth)` descent, never a scan.
 ///
-/// Lookups go through [`snapshot`](Rumors::snapshot), so the timed body pays
+/// Lookups go through [`snapshot`](Peer::snapshot), so the timed body pays
 /// for acquiring the root handle plus the descent: the whole per-call cost of a
 /// point read through the public API.
 fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
-        let rumors = build(n);
-        let versions = versions_of(&rumors);
+        let peer = build(n);
+        let versions = versions_of(&peer);
         // A fixed version from the middle of the stable iteration order;
         // any live version costs the same depth-bounded descent.
         let version = versions[versions.len() / 2].clone();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
-                let snapshot = rumors.snapshot();
+                let snapshot = peer.snapshot();
                 black_box(snapshot.get(black_box(&version)));
             })
         });

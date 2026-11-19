@@ -6,7 +6,7 @@
 //! Every fixture starts with a total of `N = 10_000` possible
 //! actions and varies only where the work lands: shared pre-fork insertions,
 //! post-fork divergent insertions, or post-fork redactions. Each benchmark
-//! drives [`Rumors::gossip`] over one persistent in-memory connection, so the
+//! drives [`Peer::gossip`] over one persistent in-memory connection, so the
 //! timed body pays for the gossip session rather than transport allocation.
 //!
 //! The fixed-size groups measure the wire protocol on the same fixtures. Their
@@ -47,7 +47,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::{Peer, Rumors, Version};
+use rumors::{Peer, Version};
 use rumors_testkit::bench::{grid, latency};
 
 /// Total actions represented by every fixed-size fixture.
@@ -125,7 +125,7 @@ impl Scenario {
     }
 
     /// Build peers with `param` total divergent actions.
-    fn build(self, param: usize) -> (Rumors<u8>, Rumors<u8>) {
+    fn build(self, param: usize) -> (Peer<u8>, Peer<u8>) {
         match self {
             Scenario::BidirInsertions => build_bidir_insertions(param),
             Scenario::BidirRedactions => build_bidir_redactions(param),
@@ -219,7 +219,7 @@ fn bench_gossip_latency(c: &mut Criterion) {
 }
 
 /// Build peers that independently add half of `total_insertions` each.
-fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_bidir_insertions(total_insertions: usize) -> (Peer<u8>, Peer<u8>) {
     assert!(total_insertions <= N);
     assert_eq!(total_insertions % 2, 0);
 
@@ -243,7 +243,7 @@ fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
 }
 
 /// Build peers where only the left adds `total_insertions` messages.
-fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_unilateral_insertions(total_insertions: usize) -> (Peer<u8>, Peer<u8>) {
     assert!(total_insertions <= N);
 
     let left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
@@ -259,7 +259,7 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u
 }
 
 /// Build peers that redact disjoint halves of `total_redactions`.
-fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_bidir_redactions(total_redactions: usize) -> (Peer<u8>, Peer<u8>) {
     assert!(total_redactions <= N / 2);
     assert_eq!(total_redactions % 2, 0);
 
@@ -275,7 +275,7 @@ fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
 }
 
 /// Build peers where only the left redacts `total_redactions` messages.
-fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_unilateral_redactions(total_redactions: usize) -> (Peer<u8>, Peer<u8>) {
     assert!(total_redactions <= N / 2);
 
     let (left, versions) = seeded_with_versions(N, 0x2526_34f4_918f_e1c7);
@@ -289,29 +289,27 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u
 
 /// A seed peer measuring shipped behavior: the default memory budget in every
 /// build shape.
-fn production_seed() -> Rumors<u8> {
+fn production_seed() -> Peer<u8> {
     // Fixed, so every run benchmarks the same network.
     let mut rng = ChaChaRng::seed_from_u64(0xe9f4_fc18_d119_7299);
-    Peer::seed_rng(&mut rng).into_rumors()
+    Peer::builder().dangerously_override_rng(&mut rng).seed()
 }
 
 /// Create a production-configured set containing `n` deterministic bytes.
-fn seeded_with_messages(n: usize, seed: u64) -> Rumors<u8> {
-    let rumors = production_seed();
-    rumors
-        .send_all(random_bytes(n, seed))
+fn seeded_with_messages(n: usize, seed: u64) -> Peer<u8> {
+    let peer = production_seed();
+    peer.send_all(random_bytes(n, seed))
         .expect("flat test payloads are within any depth limit");
-    rumors
+    peer
 }
 
 /// Create a deterministic set and copy its live versions for redaction.
-fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
-    let rumors = production_seed();
-    rumors
-        .send_all(random_bytes(n, seed))
+fn seeded_with_versions(n: usize, seed: u64) -> (Peer<u8>, Vec<Version>) {
+    let peer = production_seed();
+    peer.send_all(random_bytes(n, seed))
         .expect("flat test payloads are within any depth limit");
-    let versions = rumors.snapshot().versions().cloned().collect();
-    (rumors, versions)
+    let versions = peer.snapshot().versions().cloned().collect();
+    (peer, versions)
 }
 
 /// Generate `n` reproducible payload bytes.
