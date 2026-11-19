@@ -564,8 +564,7 @@ struct Cache {
     durable: Option<Checkpoint>,
 }
 
-/// A live party and its frontier at a checkpoint, and the limit the
-/// checkpoint's record was encoded under.
+/// A live party and its frontier at a checkpoint.
 struct Checkpoint {
     /// The exact live party.
     party: Party,
@@ -573,12 +572,6 @@ struct Checkpoint {
     ///
     /// Only an individual party's own region is ever compared.
     frontier: Version,
-    /// The size limit the checkpoint's record was encoded under.
-    ///
-    /// Encoding the same record under another limit can keep a different set of
-    /// identities, so a checkpoint is current only under the limit it was
-    /// stored under.
-    size_limit: usize,
 }
 
 /// Construct an unloaded bookmark cache.
@@ -664,11 +657,9 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
             record.reclaim(party, frontier);
         }
         record.record(party, frontier);
-        let size_limit = self.size_limit;
         Some(self.store(Some(Checkpoint {
             party: party.dangerously_alias(),
             frontier: frontier.clone(),
-            size_limit,
         })))
     }
 
@@ -706,13 +697,10 @@ impl<'a, B: Bookmark> Loaded<'a, B> {
         self.store(None)
     }
 
-    /// Whether the last store checkpointed exactly this live state, under this
-    /// update's size limit.
+    /// Whether the last store checkpointed exactly this live state.
     fn checkpointed(&self, party: &Party, frontier: &Version) -> bool {
         self.cache().durable.as_ref().is_some_and(|checkpoint| {
-            checkpoint.size_limit == self.size_limit
-                && checkpoint.party == *party
-                && &checkpoint.frontier / party == frontier / party
+            checkpoint.party == *party && &checkpoint.frontier / party == frontier / party
         })
     }
 
