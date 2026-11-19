@@ -75,9 +75,9 @@ justfile's `nightly_toolchain` give the reason and the bump procedure.
 `examples/kv` is the source of the tutorial in `src/tutorial.rs`, which the
 build script renders chunk by chunk (`build/tutorial.rs` explains how). The
 tutorial's prose documents it, so the example carries no comments of any kind,
-doc comments included, and its tests stand inline beside the code they check,
-as the tutorial's checkpoints. The rules on test files, test doc comments, and
-item doc comments in the sections around this one do not apply to it.
+doc comments included, and its tests stand inline beside the code they check, as
+the tutorial's checkpoints. The rules on test files, test doc comments, and item
+doc comments in the sections around this one do not apply to it.
 
 ## Writing documentation
 
@@ -88,11 +88,10 @@ item doc comments in the sections around this one do not apply to it.
   the source can see. Write private docs and comments for the maintainer who
   needs to *understand*, *orient*, and *modify*.
 - Describe public lifecycle operations as joining, gossiping, and retiring
-  from a network. Call the replicated set a *set of messages*, one peer's
-  copy of it a *replica*, and one exchange between two peers a *gossip
-  session*. Internal peer identity is explained in `Bookmark` and in maintainer
-  or protocol docs that need the mechanism; ordinary API use should not require
-  it.
+  from a network. Call the replicated set a *set of messages*, one peer's copy
+  of it a *replica*, and one exchange between two peers a *gossip session*.
+  Internal peer identity is explained in `Bookmark` and in maintainer or
+  protocol docs that need the mechanism; ordinary API use should not require it.
 - Document a module's purpose, invariants, and guarantees without binding the
   reader to its internal structure.
 - Prefer plain, teaching-register prose (_Style: Lessons in Clarity and
