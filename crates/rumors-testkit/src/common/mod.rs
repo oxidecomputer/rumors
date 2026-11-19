@@ -33,6 +33,7 @@ pub mod overlap;
 pub mod peer;
 pub mod property;
 pub mod schedule;
+pub mod scoped;
 pub mod seed;
 pub mod shape;
 pub mod sim;

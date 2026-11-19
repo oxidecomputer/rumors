@@ -9,30 +9,30 @@
 //! versions, same winners, every run: the searches here are deterministic, and
 //! each fixture's self-checks still verify the landed shape.
 
-use rumors::{Rumors, Version};
+use rumors::{Peer, Version};
 
 /// A leaf's tree path in `network`'s network: its version's hash, keyed by the
 /// network's secret, as the library computes it.
-pub fn leaf_path(network: &Rumors<u64>, version: &Version) -> [u8; 32] {
+pub fn leaf_path(network: &Peer<u64>, version: &Version) -> [u8; 32] {
     rumors::testing::leaf_path(&network.snapshot(), version)
 }
 
 /// The root radix of a leaf's path in `network`'s network: its first byte.
-pub fn path_radix(network: &Rumors<u64>, version: &Version) -> u8 {
+pub fn path_radix(network: &Peer<u64>, version: &Version) -> u8 {
     leaf_path(network, version)[0]
 }
 
 /// Send `count` messages carrying the payloads `from..from + count`, as one
 /// batch: one fresh version per payload, in payload order.
-pub fn send_pool(rumors: &Rumors<u64>, from: u64, count: u64) {
-    rumors.send_all(from..from + count).unwrap();
+pub fn send_pool(peer: &Peer<u64>, from: u64, count: u64) {
+    peer.send_all(from..from + count).unwrap();
 }
 
 /// The live pool as `(payload, version)` in ascending payload order, restricted
 /// to payloads in `from..from + count`: the deterministic search order for the
 /// shape searches.
-pub fn pool(rumors: &Rumors<u64>, from: u64, count: u64) -> Vec<(u64, Version)> {
-    let mut pool: Vec<(u64, Version)> = rumors
+pub fn pool(peer: &Peer<u64>, from: u64, count: u64) -> Vec<(u64, Version)> {
+    let mut pool: Vec<(u64, Version)> = peer
         .snapshot()
         .iter()
         .filter(|(_, m)| (from..from + count).contains(m))
@@ -44,14 +44,14 @@ pub fn pool(rumors: &Rumors<u64>, from: u64, count: u64) -> Vec<(u64, Version)> 
 
 /// Redact every live message whose payload lies in `from..from + count` but is
 /// not listed in `keep`: the pool cleanup after a shape search.
-pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
-    let losers: Vec<Version> = rumors
+pub fn keep_only(peer: &Peer<u64>, from: u64, count: u64, keep: &[u64]) {
+    let losers: Vec<Version> = peer
         .snapshot()
         .iter()
         .filter(|(_, m)| (from..from + count).contains(m) && !keep.contains(m))
         .map(|(v, _)| v.clone())
         .collect();
-    rumors.redact_all(&losers);
+    peer.redact_all(&losers);
 }
 
 /// The first pool pair (in payload order) whose paths in `network`'s network
@@ -63,7 +63,7 @@ pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
 /// Panics if the pool holds no such pair: enlarge the pool — the verdict is
 /// deterministic, never flaky.
 pub fn shaped_pair(
-    network: &Rumors<u64>,
+    network: &Peer<u64>,
     pool: &[(u64, Version)],
     shared: usize,
     distinct_next: bool,
@@ -86,7 +86,7 @@ pub fn shaped_pair(
 /// Panics if the pool runs dry: enlarge it — the verdict is deterministic,
 /// never flaky.
 pub fn ballast_avoiding(
-    network: &Rumors<u64>,
+    network: &Peer<u64>,
     pool: &[(u64, Version)],
     avoid: u8,
     count: usize,

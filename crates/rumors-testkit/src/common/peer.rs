@@ -1,4 +1,4 @@
-//! A simulated peer: a `Rumors<T>` paired with its observation log, plus
+//! A simulated peer: a `Peer<T>` paired with its observation log, plus
 //! helpers for the schedule executor (`gossip_step` for one bidirectional wire
 //! gossip session, `quiesce` for full-mesh convergence to a fixed point).
 //!
@@ -8,7 +8,7 @@
 //! message redacted before a drain is never observed, matching both the
 //! observer's contract and the shadow simulator's model in `schedule::arb`.
 
-use rumors::{Rumors, TryNext, UnorderedMessages, Version};
+use rumors::{TryNext, UnorderedMessages, Version};
 
 use crate::common::wire::{block_on, wire_gossip_async};
 
@@ -17,8 +17,8 @@ use serde::de::DeserializeOwned;
 
 /// One simulated peer.
 pub struct Peer<T: Send + Sync + 'static> {
-    /// The peer's live Rumors handle.
-    pub local: Rumors<T>,
+    /// The peer's live `rumors::Peer` handle.
+    pub local: rumors::Peer<T>,
     /// The public observer drained into `observations` after each operation.
     observer: UnorderedMessages<T>,
     /// All observations this peer has accumulated, across `insert_one`,
@@ -31,7 +31,7 @@ pub struct Peer<T: Send + Sync + 'static> {
 }
 
 impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T> {
-    /// Wrap an already-forked `Rumors` as a simulated peer. Observation starts
+    /// Wrap an already-forked `Peer` as a simulated peer. Observation starts
     /// at the wrapped set's current frontier: content already present is never
     /// logged, only what arrives afterwards.
     ///
@@ -39,7 +39,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
     /// seed (directly, or via another peer), never as the first peer of another
     /// network: only then are all peers pairwise disjoint, the precondition for
     /// [`gossip_step`] to succeed.
-    pub fn new(local: Rumors<T>) -> Self {
+    pub fn new(local: rumors::Peer<T>) -> Self {
         let since = local.snapshot().latest().clone();
         let observer = local.unordered_messages_since(since);
         Self {
@@ -68,7 +68,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
                 }
                 TryNext::Quiet => return new,
                 TryNext::Ended => {
-                    panic!("the observer cannot end while its Rumors handle is alive")
+                    panic!("the observer cannot end while its `rumors::Peer` handle is alive")
                 }
             }
         }

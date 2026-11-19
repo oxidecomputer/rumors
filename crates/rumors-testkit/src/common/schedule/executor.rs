@@ -185,10 +185,7 @@ where
     let mut slots: Vec<Option<Peer<T>>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            budgets
-                .choice(0)
-                .apply(schedule.network.peer())
-                .into_rumors()
+            budgets.choice(0).seed(schedule.network.builder())
         } else {
             let parent = slots[schedule.fork_parents[i]]
                 .as_ref()
@@ -255,8 +252,7 @@ where
                 let absorbing = slots[*absorber]
                     .as_mut()
                     .expect("retire names an alive absorber");
-                let retiring_peer = block_on(retiring.local.try_into_peer())
-                    .expect("the executor holds the only handle");
+                let retiring_peer = retiring.local;
                 let (mut retiring_end, mut absorbing_end) =
                     rumors::testing::memory_connection(MEMORY_CAPACITY);
                 let (outcome, absorbed) = block_on(async {

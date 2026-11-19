@@ -5,7 +5,7 @@
 //! Where the `schedule` machinery executes one gossip session at a time, this
 //! engine spawns everything at once onto a multi-thread runtime: overlapping
 //! sessions between arbitrary pairs (including several sessions involving the
-//! same peer simultaneously, through cloned [`Rumors`] handles), concurrent
+//! same peer simultaneously, through cloned [`Peer`] handles), concurrent
 //! local sends and redactions, joins served over lossy wires, and a prober
 //! that re-checks global party disjointness while the chaos is in flight. Task
 //! interleaving is genuinely nondeterministic; the invariants asserted here
@@ -72,7 +72,7 @@ use std::sync::Arc;
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::{Error, Gossiped, Peer, Retire, Rumors, Version};
+use rumors::{Error, Gossiped, Peer, Retire, Version};
 use tokio::sync::SetOnce;
 
 use crate::common::budget::{BudgetAssignment, BudgetChoice, arb_budget_choice};
@@ -252,7 +252,7 @@ pub fn lost_custody(n_founders: usize, transfers: &[(usize, usize, Transfer)]) -
 /// What a [`run_plan`] execution leaves behind for the caller's assertions.
 pub struct SimOutcome {
     /// Every peer still alive: the fleet minus retired/consumed members.
-    pub peers: Vec<Rumors<u64>>,
+    pub peers: Vec<Peer<u64>>,
     /// Conservative count of hand-offs in which an id-region *may* have been
     /// lost in flight; see the module docs. Zero enables the sharp
     /// seed-reconstitution and value-multiset checks.
@@ -456,12 +456,7 @@ pub fn assert_survivor(out: &Result<Gossiped, Error>) {
 /// Each side's halves are owned by its own task, so the failing side's drop
 /// surfaces as EOF to its counterparty instead of wedging the session. A side
 /// that vanishes leaves its counterparty to end alone, with an honest error.
-async fn run_session(
-    a: Rumors<u64>,
-    b: Rumors<u64>,
-    fault_a: FaultPlan,
-    fault_b: FaultPlan,
-) -> usize {
+async fn run_session(a: Peer<u64>, b: Peer<u64>, fault_a: FaultPlan, fault_b: FaultPlan) -> usize {
     let (end_a, end_b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let task_a = tokio::spawn(fault::drive(end_a, fault_a, async move |end| {
         a.gossip_once(end.read, end.write)
@@ -493,7 +488,7 @@ async fn run_session(
 ///
 /// This is the most delicate intra-set race the engine exercises: serving a
 /// join must snapshot the tree and speculatively fork the party in one
-/// critical section, while sibling `Rumors` clones of the same set concurrently
+/// critical section, while sibling `Peer` clones of the same set concurrently
 /// send, redact, and gossip. A torn snapshot/fork would hand the newcomer a
 /// version exceeding what its party slice justifies — surfacing downstream as a
 /// disjointness or convergence failure.
@@ -503,7 +498,7 @@ async fn run_session(
 /// flight). A joiner that fails or vanishes may or may not have cost the server
 /// its donated fork, so it conservatively counts as a possible loss either way.
 async fn run_join(
-    server: Rumors<u64>,
+    server: Peer<u64>,
     fault: FaultPlan,
     budget: BudgetChoice,
 ) -> (Option<Peer<u64>>, usize) {
@@ -517,7 +512,10 @@ async fn run_join(
             .map(|(gossiped, ..)| gossiped)
     });
     let joiner = tokio::spawn(fault::drive(joiner_side, fault, async move |end| {
-        Peer::<u64>::join(end.read, end.write).await
+        budget
+            .configure(Peer::<u64>::builder())
+            .join(end.read, end.write)
+            .await
     }));
     let (served, driven) = tokio::join!(serve, joiner);
     let served = served.expect("join serve task");
@@ -534,7 +532,7 @@ async fn run_join(
             if let rumors::Connection::Lost { error } = &connection {
                 assert_honest_error(error);
             }
-            Some(budget.apply(peer))
+            Some(peer)
         }
         rumors::Join::Bounced { .. } => {
             unreachable!("the serving peer is never itself joining")
@@ -559,7 +557,7 @@ async fn run_join(
 /// A logged redaction may race a sibling's redaction of the same message;
 /// either way the message ends redacted network-wide, so the log stays sound
 /// and [`run_plan`] deduplicates by version.
-async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Version, u64)> {
+async fn run_activity(handle: Peer<u64>, script: Vec<Activity>) -> Vec<(Version, u64)> {
     let mut redacted = Vec::new();
     for op in script {
         match op {
@@ -598,7 +596,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
 /// handles, this is the only exercise of the observers' watch-coalescing path
 /// (`send_if_modified` racing `borrow_and_update`) outside single-threaded
 /// tests.
-async fn run_observers(handle: Rumors<u64>, done: Arc<SetOnce<()>>) {
+async fn run_observers(handle: Peer<u64>, done: Arc<SetOnce<()>>) {
     use futures::{FutureExt, StreamExt};
 
     let mut plain = handle.unordered_messages();
@@ -669,7 +667,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<SetOnce<()>>) {
 /// sampled founders to newcomers this loop never samples, and retirements begin
 /// only after `done`. A prober over a phase with founder-to-founder transfers
 /// needs a consistent snapshot, or a re-read that confirms an overlap persists.
-async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<SetOnce<()>>) {
+async fn probe_disjointness(handles: Vec<Peer<u64>>, done: Arc<SetOnce<()>>) {
     loop {
         let finished = done.initialized();
         let parties: Vec<(usize, Party)> = handles
@@ -715,15 +713,11 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     // Phase 1: fleet. The seed's content predates every fork. Each
     // founder runs at its planned budget choice, so the chaos phase mixes
     // zero, explicit, and default budgets across concurrent sessions.
-    let seed = plan
-        .budgets
-        .choice(0)
-        .apply(plan.network.peer::<u64>())
-        .into_rumors();
+    let seed = plan.budgets.choice(0).seed(plan.network.builder::<u64>());
     {
         seed.send_all(plan.seed_messages.iter().copied()).unwrap();
     }
-    let mut fleet: Vec<Rumors<u64>> = vec![seed];
+    let mut fleet: Vec<Peer<u64>> = vec![seed];
     for i in 1..plan.n_peers {
         let child =
             crate::common::wire::join_fork_with_budget_async(&fleet[0], plan.budgets.choice(i))
@@ -793,17 +787,10 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         observer.await.expect("observer task");
     }
 
-    // Phase 3: reunite, then run the planned retirements. Retirement
-    // requires the unique `Peer` (the Peer/Rumors XOR), so parties
-    // move only now — over wires that may still drop mid-hand-off.
-    let mut slots: Vec<Option<Peer<u64>>> = Vec::with_capacity(casts.len());
-    for cast in casts {
-        slots.push(Some(
-            cast.try_into_peer()
-                .await
-                .expect("every chaos task dropped its handles"),
-        ));
-    }
+    // Phase 3: run the planned retirements. Every chaos task has ended and
+    // dropped its handles, so no retirement waits on them, and parties move
+    // only now — over wires that may still drop mid-hand-off.
+    let mut slots: Vec<Option<Peer<u64>>> = casts.into_iter().map(Some).collect();
     // Newcomers born mid-chaos hold live id-regions, so they face the same
     // heal and party audit as the founding fleet. Appended after the
     // founders, they sit above every index a `RetireOp` can name.
@@ -823,9 +810,6 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             slots[op.retiree] = Some(retiree);
             continue;
         };
-        // The absorber's side of a retirement is plain gossip, which lives
-        // on `Rumors`; it converts back the moment the session ends.
-        let absorber = absorber.into_rumors();
         let (retiree_side, absorber_side) =
             rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let retiring = tokio::spawn(fault::drive(retiree_side, op.fault, async move |end| {
@@ -858,12 +842,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             vanished += 1;
             possible_losses += 1;
             transfers.push((op.retiree, op.absorber, Transfer::Lost));
-            slots[op.absorber] = Some(
-                absorber
-                    .try_into_peer()
-                    .await
-                    .expect("the absorber's sole handle reclaims the Peer"),
-            );
+            slots[op.absorber] = Some(absorber);
             continue;
         };
         match outcome {
@@ -894,12 +873,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
                 unreachable!("the absorber runs plain gossip and never declines")
             }
         }
-        slots[op.absorber] = Some(
-            absorber
-                .try_into_peer()
-                .await
-                .expect("the absorber's sole handle reclaims the Peer"),
-        );
+        slots[op.absorber] = Some(absorber);
     }
 
     // Deduplicate the redaction ledger by version: racing redactors of one
@@ -926,7 +900,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     }
 
     SimOutcome {
-        peers: slots.into_iter().flatten().map(Peer::into_rumors).collect(),
+        peers: slots.into_iter().flatten().collect(),
         possible_losses,
         inserted,
         redactions: by_version.into_values().collect(),
@@ -938,12 +912,12 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
 
 /// Drive the survivors to a full-mesh fixed point over clean wires, as
 /// `peer::quiesce` does for the schedule tests.
-pub async fn quiesce(peers: &[Rumors<u64>]) {
+pub async fn quiesce(peers: &[Peer<u64>]) {
     let n = peers.len();
     if n < 2 {
         return;
     }
-    let fingerprint = |p: &Rumors<u64>| p.snapshot();
+    let fingerprint = |p: &Peer<u64>| p.snapshot();
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
         // Identical snapshots are the fixed point itself, so no confirming
@@ -966,7 +940,7 @@ pub async fn quiesce(peers: &[Rumors<u64>]) {
 ///
 /// Compute once after the heal and thread through [`assert_converged`],
 /// [`assert_deletion_honored`], and [`assert_value_oracle`].
-pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Vec<u8>, u64>> {
+pub fn survivor_readouts(peers: &[Peer<u64>]) -> Vec<BTreeMap<Vec<u8>, u64>> {
     peers.iter().map(|p| readout(&p.snapshot())).collect()
 }
 
@@ -974,7 +948,7 @@ pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Vec<u8>, u64>> {
 /// value readouts and equal snapshots.
 ///
 /// `readouts` is the fleet's [`survivor_readouts`], indexed like `peers`.
-pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Vec<u8>, u64>]) {
+pub fn assert_converged(peers: &[Peer<u64>], readouts: &[BTreeMap<Vec<u8>, u64>]) {
     assert_eq!(peers.len(), readouts.len(), "one readout per survivor");
     let Some(first) = peers.first() else { return };
     let expected = (&readouts[0], first.snapshot());
@@ -1071,7 +1045,7 @@ pub fn assert_value_oracle(
 ///    in-flight losses, fold-joining every live party reconstitutes exactly
 ///    [`Party::seed`] — every id-region is held by exactly one live peer, and
 ///    none leaked.
-pub fn assert_party_invariants(peers: &[Rumors<u64>], possible_losses: usize) {
+pub fn assert_party_invariants(peers: &[Peer<u64>], possible_losses: usize) {
     assert_parties_partition(
         peers.iter().map(|k| k.dangerously_alias_party()).collect(),
         possible_losses,

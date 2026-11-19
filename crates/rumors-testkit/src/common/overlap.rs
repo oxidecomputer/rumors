@@ -19,8 +19,8 @@ use std::task::{Context, Poll, Waker};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
+use rumors::Version;
 use rumors::testing::memory_connection;
-use rumors::{Rumors, Version};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -48,7 +48,7 @@ pub struct Session {
 }
 
 /// Open a wire gossip session between `a` and `b` without polling it.
-pub fn open<T>(a: &Rumors<T>, b: &Rumors<T>) -> Session
+pub fn open<T>(a: &rumors::Peer<T>, b: &rumors::Peer<T>) -> Session
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -229,7 +229,7 @@ where
     let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            schedule.network.peer().sync_memory_budget(0).into_rumors()
+            schedule.network.builder().sync_memory_budget(0).seed()
         } else {
             join_fork(&peers[schedule.fork_parents[i]].local)
         };

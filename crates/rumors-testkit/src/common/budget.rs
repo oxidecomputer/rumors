@@ -8,8 +8,8 @@
 //! on at its most serial, and suites must keep it exercised. A session raises
 //! every public budget to
 //! [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET), so this choice
-//! is set through the test path
-//! ([`serial_budget`](rumors::testing::serial_budget)). The sweep adds explicit
+//! is set through the test-only builder setting
+//! ([`serial_budget`](rumors::PeerBuilder::serial_budget)). The sweep adds explicit
 //! byte budgets and the production default on top. Every budget sets aside the
 //! floor allowance ([`FLOOR_ALLOWANCE`](rumors::testing::FLOOR_ALLOWANCE)) for
 //! what each kind and depth of unit holds within its bound, and the session
@@ -26,8 +26,8 @@ use proptest::prelude::*;
 /// One peer's memory budget in the sweep population.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BudgetChoice {
-    /// The serial configuration, set through the test path
-    /// ([`serial_budget`](rumors::testing::serial_budget)): each walk admits
+    /// The serial configuration, set through the test-only builder setting
+    /// ([`serial_budget`](rumors::PeerBuilder::serial_budget)): each walk admits
     /// one unit of each kind and depth at a time.
     ///
     /// First variant, so failures shrink toward the serial-everywhere baseline.
@@ -36,24 +36,37 @@ pub enum BudgetChoice {
     /// allowances and the bytes the ledgers admit work against beside them,
     /// raised to [`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET).
     Bytes(usize),
-    /// An explicit ledger budget in bytes, set through the test path
-    /// ([`ledger_budget`](rumors::testing::ledger_budget)), below the public
-    /// minimum included: at zero, sessions pipeline within the walk's bounds
-    /// alone.
+    /// An explicit ledger budget in bytes, below the public minimum included.
+    ///
+    /// It is set through the test-only builder setting
+    /// ([`ledger_budget`](rumors::PeerBuilder::ledger_budget)). At zero,
+    /// sessions pipeline within the walk's bounds alone.
     Ledger(usize),
     /// The production default: no configuration call at all.
     Default,
 }
 
 impl BudgetChoice {
-    /// Apply this choice to a peer under construction.
-    pub fn apply<T: Send + Sync + 'static>(self, peer: rumors::Peer<T>) -> rumors::Peer<T> {
+    /// Apply this choice to a builder, so that the peer it builds takes it
+    /// from construction.
+    pub fn configure<T: Send + Sync + 'static, B>(
+        self,
+        builder: rumors::PeerBuilder<T, B>,
+    ) -> rumors::PeerBuilder<T, B> {
         match self {
-            Self::Serial => rumors::testing::serial_budget(peer),
-            Self::Bytes(bytes) => peer.sync_memory_budget(bytes),
-            Self::Ledger(bytes) => rumors::testing::ledger_budget(peer, bytes),
-            Self::Default => peer,
+            Self::Serial => builder.serial_budget(),
+            Self::Ledger(bytes) => builder.ledger_budget(bytes),
+            Self::Bytes(bytes) => builder.sync_memory_budget(bytes),
+            Self::Default => builder,
         }
+    }
+
+    /// Seed `builder` under this choice.
+    pub fn seed<T>(self, builder: rumors::PeerBuilder<T>) -> rumors::Peer<T>
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
+    {
+        self.configure(builder).seed()
     }
 }
 

@@ -1,6 +1,6 @@
 //! Wire helpers for gossip sessions.
 //!
-//! These drive `rumors::Rumors::gossip_once` over an in-memory connection
+//! These drive `rumors::Peer::gossip_once` over an in-memory connection
 //! ([`rumors::testing::memory_connection`]) with both peers polled concurrently
 //! via `tokio::join!`. The two tasks progress directly against each other
 //! through the connection's pipes; no runtime is required unless a caller
@@ -12,7 +12,9 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use rumors::testing::{MEMORY_CAPACITY, MemoryEnd, memory_connection};
-use rumors::{Joining, Peer, Rumors, testing::run_to_quiescence};
+use rumors::{Peer, PeerBuilder, testing::run_to_quiescence};
+
+use crate::common::scoped::scoped_observer;
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
@@ -121,14 +123,14 @@ fn unread_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
     }
 }
 
-/// Gossip two async `Rumors` through the on-wire protocol. After this returns,
+/// Gossip two async `Peer` through the on-wire protocol. After this returns,
 /// the two sets of messages hold the same live content and version.
 ///
 /// Both ends drive `gossip_once` concurrently over the two ends of one
 /// in-memory connection, so the session makes real bidirectional progress
 /// rather than serializing one peer behind the other.
 #[track_caller]
-pub fn wire_gossip<T>(a: &Rumors<T>, b: &Rumors<T>)
+pub fn wire_gossip<T>(a: &Peer<T>, b: &Peer<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -137,7 +139,7 @@ where
 
 /// Awaitable core of [`wire_gossip`], for callers already inside an async block
 /// on this thread's runtime (where a nested [`block_on`] would panic).
-pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
+pub async fn wire_gossip_async<T>(a: &Peer<T>, b: &Peer<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -148,10 +150,7 @@ where
 /// can assert on [`SessionStats`](rumors::SessionStats).
 ///
 /// Checks the connection drained, like every successful in-memory session.
-pub async fn gossip_pair_async<T>(
-    a: &Rumors<T>,
-    b: &Rumors<T>,
-) -> (rumors::Gossiped, rumors::Gossiped)
+pub async fn gossip_pair_async<T>(a: &Peer<T>, b: &Peer<T>) -> (rumors::Gossiped, rumors::Gossiped)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -170,7 +169,7 @@ where
 /// Give each side `values_per_side` values the other lacks: `a` draws from one
 /// range, `b` from a disjoint one, so the pair ends fully divergent (every leaf
 /// disputed in their next session).
-pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
+pub fn diverge(a: &Peer<u64>, b: &Peer<u64>, values_per_side: u64) {
     a.send_all(0..values_per_side).unwrap();
     b.send_all((0..values_per_side).map(|v| 1_000_000 + v))
         .unwrap();
@@ -182,7 +181,7 @@ pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
 /// exercise backpressure. The shared driver checks that join completes and
 /// drains the connection.
 #[track_caller]
-pub fn join_fork<T>(parent: &Rumors<T>) -> Rumors<T>
+pub fn join_fork<T>(parent: &Peer<T>) -> Peer<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -190,16 +189,16 @@ where
 }
 
 /// Awaitable [`join_fork`], for composing join with other work.
-pub async fn join_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
+pub async fn join_fork_async<T>(parent: &Peer<T>) -> Peer<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    join_fork_configured(parent, Peer::joining(), BudgetChoice::Serial).await
+    join_fork_configured(parent, Peer::builder(), BudgetChoice::Serial).await
 }
 
-/// Join the parent's network, then configure the new peer's budget.
+/// Join the parent's network with a peer under `budget`.
 #[track_caller]
-pub fn join_fork_with_budget<T>(parent: &Rumors<T>, budget: BudgetChoice) -> Rumors<T>
+pub fn join_fork_with_budget<T>(parent: &Peer<T>, budget: BudgetChoice) -> Peer<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -207,39 +206,26 @@ where
 }
 
 /// Awaitable [`join_fork_with_budget`].
-pub async fn join_fork_with_budget_async<T>(parent: &Rumors<T>, budget: BudgetChoice) -> Rumors<T>
+pub async fn join_fork_with_budget_async<T>(parent: &Peer<T>, budget: BudgetChoice) -> Peer<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    join_fork_configured(parent, Peer::joining(), budget).await
+    join_fork_configured(parent, Peer::builder(), budget).await
 }
 
-/// Join through a configured builder, check the connection drained, and set the
-/// budget.
+/// Join through a configured builder under `budget`, and check the connection
+/// drained.
 ///
 /// Accepting a builder lets suites observe join itself. The budget governs
 /// later sessions; join has no disputed subtrees to pipeline.
-pub async fn join_fork_configured<T>(
-    parent: &Rumors<T>,
-    joining: Joining<T>,
-    budget: BudgetChoice,
-) -> Rumors<T>
-where
-    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
-{
-    join_fork_then(parent, joining, |peer| budget.apply(peer)).await
-}
-
-/// Join through a configured builder, check the connection drained, and
-/// configure the new peer with `configure` before it starts gossiping.
 ///
-/// The general form of [`join_fork_configured`], for a suite that sets
-/// more of the peer than its budget.
-pub async fn join_fork_then<T>(
-    parent: &Rumors<T>,
-    joining: Joining<T>,
-    configure: impl FnOnce(Peer<T>) -> Peer<T>,
-) -> Rumors<T>
+/// The joined peer also selects [`scoped_observer`], so a capture can observe
+/// its later sessions.
+pub async fn join_fork_configured<T>(
+    parent: &Peer<T>,
+    joining: PeerBuilder<T>,
+    budget: BudgetChoice,
+) -> Peer<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -247,17 +233,19 @@ where
 
     let (server_out, join_out) = tokio::join!(
         parent.gossip_once(&mut parent_end.read, &mut parent_end.write),
-        joining.join(&mut joiner_end.read, &mut joiner_end.write),
+        budget
+            .configure(joining)
+            .observe(scoped_observer())
+            .join(&mut joiner_end.read, &mut joiner_end.write),
     );
     server_out.expect("join server gossip");
-    let forked = configure(match join_out {
+    let forked = match join_out {
         rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
         _ => panic!("parent served the join"),
-    })
-    .into_rumors();
+    };
     assert_connection_drained(parent_end, joiner_end);
     forked
 }

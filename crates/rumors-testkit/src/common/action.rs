@@ -50,7 +50,7 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
 }
 
 /// Apply a `LocalAction` sequence to an already-joined local replica.
-pub fn build_local<T>(local: rumors::Rumors<T>, actions: &[LocalAction<T>]) -> rumors::Rumors<T>
+pub fn build_local<T>(local: rumors::Peer<T>, actions: &[LocalAction<T>]) -> rumors::Peer<T>
 where
     T: Send + Sync + Clone + Serialize + DeserializeOwned + Eq + 'static,
 {

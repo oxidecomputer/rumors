@@ -29,7 +29,7 @@ use rumors::observe::{
     Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
 use rumors::{
-    Rumors,
+    Peer,
     testing::{
         HookCapture, HookStream, MemoryEnd, PipeCapture, assert_items_account_for,
         memory_connection, render_hook_capture,
@@ -37,6 +37,7 @@ use rumors::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, BufReader, DuplexStream, ReadBuf};
 
+use crate::common::scoped::{in_scope, scoped_observer};
 use crate::common::seed::NetworkSeed;
 use crate::common::wire::block_on;
 
@@ -48,11 +49,12 @@ use serde::de::DeserializeOwned;
 pub const SNAPSHOT_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0);
 
 /// Create the snapshots' first peer from [`SNAPSHOT_NETWORK_SEED`].
-pub fn seeded<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static>() -> Rumors<T> {
+pub fn seeded<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static>() -> Peer<T> {
     SNAPSHOT_NETWORK_SEED
-        .peer()
+        .builder()
         .sync_memory_budget(0)
-        .into_rumors()
+        .observe(scoped_observer())
+        .seed()
 }
 
 /// Short byte-payload collections, including empty sets, for wire tests.
@@ -275,21 +277,6 @@ impl StreamObserver for RecordStream {
     }
 }
 
-/// Attach `hook` to a sole-handle [`Rumors`], for drivers whose peer is already
-/// past its builder. Panics if other clones are live: capture drivers own their
-/// peers.
-pub async fn observed<T>(rumors: Rumors<T>, hook: Arc<HookRecorder>) -> Rumors<T>
-where
-    T: Send + Sync + 'static,
-{
-    rumors
-        .try_into_peer()
-        .await
-        .expect("capture drivers hold the sole handle")
-        .observe(hook)
-        .into_rumors()
-}
-
 /// Harvest one side's [`HookCapture`], held to the transport oracle.
 ///
 /// Every observed item, control and frame alike, taken in observation order,
@@ -345,8 +332,11 @@ fn hook_capture(recorder: &HookRecorder, transport: &PipeCapture) -> HookCapture
 /// Capture and render an arbitrary pair of V2 protocol sessions.
 ///
 /// Each side is a closure handed its recorded connection end and its hook
-/// recorder; it attaches the recorder to its peer (or builder) and returns the
-/// future that drives its role (`gossip`, `join`, `retire`, …). Rendering
+/// recorder; it returns the future that drives its role (`gossip`, `join`,
+/// `retire`, …), which the capture polls with the recorder in scope
+/// ([`in_scope`]), so the sessions of a peer built with [`scoped_observer`]
+/// go to the recorder. A driver that builds its peer may attach the recorder
+/// to that builder instead. Rendering
 /// consumes the observation hook's items — the instrument enters through the
 /// public door — while the transport capture stays as the totality oracle
 /// behind the byte-pin claim. The renderer preserves exact items per logical
@@ -368,8 +358,8 @@ where
     let (a, b) = {
         let (hook_a, hook_b) = (hook_a.clone(), hook_b.clone());
         capture_sides(
-            move |end| drive_a(end, hook_a),
-            move |end| drive_b(end, hook_b),
+            move |end| in_scope(hook_a.clone(), drive_a(end, hook_a)),
+            move |end| in_scope(hook_b.clone(), drive_b(end, hook_b)),
         )
     };
     render_hook_capture(&hook_capture(&hook_a, &a), &hook_capture(&hook_b, &b))
@@ -429,7 +419,7 @@ fn assert_capture_drained(events: &[Event]) {
 /// Gossip `a` and `b` through recording connections (the gossip/gossip
 /// specialization of [`capture_session`]). The two sets are expected to
 /// reconcile cleanly; a gossip error panics the helper.
-pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
+pub fn capture_gossip<T>(a: Peer<T>, b: Peer<T>) -> String
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -439,12 +429,9 @@ where
 /// [`capture_gossip`], handing the two live handles back after the session, for
 /// tests that assert on post-session replica state.
 ///
-/// The hook attaches by briefly reclaiming each `Peer` (the observation hook's
-/// attach point), which requires the passed handle to be its peer's sole one —
-/// so a caller wanting post-state must take its handles back here rather than
-/// holding clones across the capture (a held clone stalls the reclaim, and the
-/// deterministic executor reports the whole session stalled).
-pub fn capture_gossip_returning<T>(a: Rumors<T>, b: Rumors<T>) -> (String, Rumors<T>, Rumors<T>)
+/// Both peers must be built with [`scoped_observer`], so that the capture
+/// observes their sessions.
+pub fn capture_gossip_returning<T>(a: Peer<T>, b: Peer<T>) -> (String, Peer<T>, Peer<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -453,15 +440,13 @@ where
     let rendered = {
         let (a_out, b_out) = (a_out.clone(), b_out.clone());
         capture_session(
-            move |mut end, hook| async move {
-                let a = observed(a, hook).await;
+            move |mut end, _hook| async move {
                 a.gossip_once(&mut end.read, &mut end.write)
                     .await
                     .expect("gossip A");
                 *a_out.lock().unwrap() = Some(a);
             },
-            move |mut end, hook| async move {
-                let b = observed(b, hook).await;
+            move |mut end, _hook| async move {
                 b.gossip_once(&mut end.read, &mut end.write)
                     .await
                     .expect("gossip B");

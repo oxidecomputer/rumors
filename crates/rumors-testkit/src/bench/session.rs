@@ -37,17 +37,17 @@ use std::ops::Range;
 use std::pin::pin;
 use std::thread;
 
-use rumors::Rumors;
 use rumors::testing::{
     Admission, ChargeUnit, Holding, LedgerChange, PLACES, SharePeak, grant_bound,
     memory_budget_admitting, observe_admissions, observe_ledgers,
 };
+use rumors::{Peer, PeerBuilder};
 
 use crate::bench::link::{Link, LinkConfig, Report, SEGMENT_BYTES, Side, drive};
 use crate::common::seed::NetworkSeed;
 use crate::common::{
     budget::BudgetChoice,
-    wire::{block_on, join_fork_with_budget_async},
+    wire::{block_on, join_fork_configured},
 };
 
 /// The seed of every fixture's network, unless its shape names another.
@@ -268,7 +268,7 @@ pub fn admitting(bytes: usize) -> usize {
 
 /// Builds a pair of the given shape, both peers on a memory budget of `budget`
 /// bytes, set through the public setter ([`pair_at`]).
-pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
+pub fn pair(shape: Shape, budget: usize) -> (Peer<String>, Peer<String>) {
     pair_at(shape, BudgetChoice::Bytes(budget))
 }
 
@@ -277,9 +277,19 @@ pub fn pair(shape: Shape, budget: usize) -> (Rumors<String>, Rumors<String>) {
 /// The shared messages, and those either side goes on to redact, are sent
 /// before either side joins, so both receive them while joining; each side then
 /// redacts its own, numbered after the shared ones.
-pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<String>) {
+pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Peer<String>, Peer<String>) {
+    pair_with(shape, budget, |builder| builder)
+}
+
+/// Like [`pair_at`], with each side's builder also configured by `configure`
+/// before it joins.
+pub fn pair_with(
+    shape: Shape,
+    budget: BudgetChoice,
+    configure: impl Fn(PeerBuilder<String>) -> PeerBuilder<String>,
+) -> (Peer<String>, Peer<String>) {
     block_on(async {
-        let root = shape.network.peer::<String>().into_rumors();
+        let root = shape.network.peer::<String>();
         if shape.draw > 0 {
             root.send_all((0..shape.draw).map(|index| message('d', index, shape.message_bytes)))
                 .expect("fixture messages encode");
@@ -293,8 +303,8 @@ pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<St
         let received = shape.shared + shape.redacted_a + shape.redacted_b;
         root.send_all((0..received).map(|index| message('s', index, shape.message_bytes)))
             .expect("fixture messages encode");
-        let a = join_fork_with_budget_async(&root, budget).await;
-        let b = join_fork_with_budget_async(&root, budget).await;
+        let a = join_fork_configured(&root, configure(Peer::builder()), budget).await;
+        let b = join_fork_configured(&root, configure(Peer::builder()), budget).await;
         let redacted_by_a = shape.shared..shape.shared + shape.redacted_a;
         let redacted_by_b = redacted_by_a.end..received;
         redact(&a, redacted_by_b.clone(), redacted_by_a.clone(), shape);
@@ -313,7 +323,7 @@ pub fn pair_at(shape: Shape, budget: BudgetChoice) -> (Rumors<String>, Rumors<St
 /// # Panics
 ///
 /// If the replica does not hold every message in both ranges, each once.
-fn redact(replica: &Rumors<String>, kept: Range<u64>, redacted: Range<u64>, shape: Shape) {
+fn redact(replica: &Peer<String>, kept: Range<u64>, redacted: Range<u64>, shape: Shape) {
     let snapshot = replica.snapshot();
     let numbered = |range: Range<u64>| -> BTreeSet<String> {
         range

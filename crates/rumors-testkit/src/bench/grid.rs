@@ -28,7 +28,7 @@
 
 use std::iter;
 
-use rumors::{Rumors, Version};
+use rumors::{Peer, Version};
 
 use crate::common::seed::NetworkSeed;
 
@@ -54,12 +54,11 @@ pub const DIFFERING: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// (see the module docs). Bounded per cell by `common / 2`.
 pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 
-/// Commit `n` unit payloads to `rumors` as one batch. `()` encodes as one CBOR
+/// Commit `n` unit payloads to `peer` as one batch. `()` encodes as one CBOR
 /// null byte, so fixtures measure tree / clock / hashing work, not payload
 /// serialization.
-pub fn send_units(rumors: &Rumors<()>, n: usize) {
-    rumors
-        .send_all(iter::repeat_n((), n))
+pub fn send_units(peer: &Peer<()>, n: usize) {
+    peer.send_all(iter::repeat_n((), n))
         .expect("flat test payloads are within any depth limit");
 }
 
@@ -152,14 +151,14 @@ const GRID_NETWORK_SEED: NetworkSeed = NetworkSeed::new(0x36f7_bde7_e10e_5c65);
 /// are disjoint (the precondition for `gossip`). The shared prefix is inserted
 /// before the split; the `differing` messages and `redacted` deletions are
 /// applied independently to each side after it.
-pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
+pub fn build(cell: Cell) -> (Peer<()>, Peer<()>) {
     let Cell {
         common,
         differing,
         redacted,
     } = cell;
 
-    let left: Rumors<()> = GRID_NETWORK_SEED.peer().into_rumors();
+    let left: Peer<()> = GRID_NETWORK_SEED.peer();
     send_units(&left, common);
     let shared = (redacted > 0).then(|| {
         // Capture the shared prefix before either peer adds its own messages.

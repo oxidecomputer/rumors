@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use futures::{FutureExt, Stream, StreamExt};
 use proptest::{collection::vec, prelude::*};
-use rumors::{Rumors, Version};
+use rumors::{Peer, Version};
 
 use super::seed::NetworkSeed;
 use super::wire::{join_fork, wire_gossip};
@@ -48,9 +48,8 @@ pub fn drain(
 }
 
 /// Live messages keyed by version bytes, independent of iteration order.
-pub fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
-    rumors
-        .snapshot()
+pub fn live_map(peer: &Peer<u64>) -> BTreeMap<Vec<u8>, u64> {
+    peer.snapshot()
         .iter()
         .map(|(v, m)| (v.as_bytes().to_vec(), *m))
         .collect()
@@ -102,12 +101,12 @@ pub fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 pub fn interleave<S>(
     network: NetworkSeed,
     ops: &[Op],
-    subscribe: impl FnOnce(&Rumors<u64>) -> S,
+    subscribe: impl FnOnce(&Peer<u64>) -> S,
 ) -> Result<Vec<(Version, u64)>, TestCaseError>
 where
     S: Stream<Item = (Version, Arc<u64>)> + Unpin,
 {
-    let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+    let a = network.builder::<u64>().sync_memory_budget(0).seed();
     let sibling = a.clone();
     let b = join_fork(&a);
     let mut obs = subscribe(&a);
@@ -191,12 +190,12 @@ pub fn redact_during_pass<S>(
     taken: prop::sample::Index,
     redactions: Vec<prop::sample::Index>,
     remote: bool,
-    subscribe: impl FnOnce(&Rumors<u64>) -> S,
+    subscribe: impl FnOnce(&Peer<u64>) -> S,
 ) -> Result<(), TestCaseError>
 where
     S: Stream<Item = (Version, Arc<u64>)> + Unpin,
 {
-    let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+    let a = network.builder::<u64>().sync_memory_budget(0).seed();
     let b = join_fork(&a);
     b.send_all(values).unwrap();
     wire_gossip(&a, &b);

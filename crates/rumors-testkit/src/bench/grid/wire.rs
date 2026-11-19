@@ -3,8 +3,8 @@
 //! Benchmarks measure what ships: peers created here run at the default memory
 //! budget in every build shape.
 
+use rumors::Peer;
 use rumors::testing::MemoryEnd;
-use rumors::{Peer, Rumors};
 
 /// Bounded transport capacity; concurrent polling supplies the backpressure.
 const CAPACITY: usize = 64 * 1024;
@@ -31,7 +31,7 @@ impl Wire {
     }
 
     /// Reconcile one pair while driving both endpoints concurrently.
-    pub fn round_trip<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> (Rumors<T>, Rumors<T>)
+    pub fn round_trip<T>(&mut self, a: Peer<T>, b: Peer<T>) -> (Peer<T>, Peer<T>)
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
     {
@@ -49,7 +49,7 @@ impl Wire {
 
 /// Create one disjoint replica by serving a join over an ephemeral
 /// connection.
-pub fn join_fork<T>(parent: &Rumors<T>) -> Rumors<T>
+pub fn join_fork<T>(parent: &Peer<T>) -> Peer<T>
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -60,13 +60,12 @@ where
             Peer::<T>::join(&mut newcomer_end.read, &mut newcomer_end.write),
         );
         served.expect("serve join");
-        (match newcomer {
+        match newcomer {
             rumors::Join::Connected {
                 peer,
                 connection: rumors::Connection::Reusable { .. },
             } => peer,
             _ => panic!("provider is established"),
-        })
-        .into_rumors()
+        }
     })
 }

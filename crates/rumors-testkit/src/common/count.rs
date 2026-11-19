@@ -1,6 +1,6 @@
 //! Count the bytes each end of an in-memory session writes.
 
-use rumors::Rumors;
+use rumors::Peer;
 use rumors::testing::memory_connection;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -17,7 +17,7 @@ const CONNECTION_CAPACITY: usize = 8 * 1024 * 1024;
 /// Each count is every byte one end wrote to its write half: the preamble, the
 /// greeting, every frame, and the closing items. The counts come from
 /// [`metered`] ends, whose budgets never run out.
-pub fn session_wire_bytes<T>(left: &Rumors<T>, right: &Rumors<T>) -> (usize, usize)
+pub fn session_wire_bytes<T>(left: &Peer<T>, right: &Peer<T>) -> (usize, usize)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {

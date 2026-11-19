@@ -75,7 +75,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use rumors::Rumors;
+use rumors::Peer;
 use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
 use tokio::time::{Instant, Sleep};
 
@@ -364,11 +364,7 @@ impl DelayedWire {
     /// epistemic status. On a [`new_wall_clock`](Self::new_wall_clock) wire the
     /// virtual clock tracks the real one — the two components overlap instead
     /// of partitioning — so the report is real elapsed time alone.
-    pub fn round_trip<T>(
-        &mut self,
-        a: Rumors<T>,
-        b: Rumors<T>,
-    ) -> ((Rumors<T>, Rumors<T>), Duration)
+    pub fn round_trip<T>(&mut self, a: Peer<T>, b: Peer<T>) -> ((Peer<T>, Peer<T>), Duration)
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
     {
@@ -401,9 +397,9 @@ impl DelayedWire {
     /// it must refuse loudly.
     pub fn round_trip_virtual<T>(
         &mut self,
-        a: Rumors<T>,
-        b: Rumors<T>,
-    ) -> ((Rumors<T>, Rumors<T>), Duration)
+        a: Peer<T>,
+        b: Peer<T>,
+    ) -> ((Peer<T>, Peer<T>), Duration)
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
     {
@@ -422,7 +418,7 @@ impl DelayedWire {
     ///
     /// If either peer's session fails, with that peer's panic; and on a wire
     /// whose earlier session panicked, which kept the connection's ends.
-    fn reconcile<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> ((Rumors<T>, Rumors<T>), Duration)
+    fn reconcile<T>(&mut self, a: Peer<T>, b: Peer<T>) -> ((Peer<T>, Peer<T>), Duration)
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
     {
@@ -450,10 +446,10 @@ impl DelayedWire {
 ///
 /// If the session fails, with `peer_name` in the message.
 async fn gossip<T>(
-    peer: Rumors<T>,
+    peer: Peer<T>,
     mut end: DelayedEnd,
     peer_name: &'static str,
-) -> (Rumors<T>, DelayedEnd)
+) -> (Peer<T>, DelayedEnd)
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -478,7 +474,7 @@ fn finished<O>(joined: Result<O, tokio::task::JoinError>) -> O {
 /// per-direction `capacity` and one-way `delay`, and reads the virtual wire
 /// cost as serialized one-way hops: deterministic and load-independent (see the
 /// [module docs](self) for the argument).
-pub fn session_hops<T>(capacity: usize, delay: Duration, (a, b): (Rumors<T>, Rumors<T>)) -> u32
+pub fn session_hops<T>(capacity: usize, delay: Duration, (a, b): (Peer<T>, Peer<T>)) -> u32
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
