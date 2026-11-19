@@ -59,14 +59,16 @@ fn small_replicas() -> impl Strategy<Value = Replicas> {
 /// reproduces the build.
 async fn seeded_build(point: &Point, network: NetworkSeed) -> Pair {
     let mut rng = network.rng();
-    let root = Peer::seed_rng(&mut rng);
-    build_from(point, root, &mut rng).await.unwrap()
+    let root = Peer::builder().dangerously_override_rng(&mut rng);
+    build_from(point, root, network_builder(point), &mut rng)
+        .await
+        .unwrap()
 }
 
 /// Builds the pair for `point` in the network `network` names and joins side
 /// B's process's copy from it over an in-memory pipe, as the two peer processes
 /// do over TCP.
-async fn build_and_join(point: &Point, network: NetworkSeed) -> (Pair, Rumors<Payload>) {
+async fn build_and_join(point: &Point, network: NetworkSeed) -> (Pair, Peer<Payload>) {
     let pair = seeded_build(point, network).await;
     let (near, far) = duplex(1 << 16);
     let (near_read, near_write) = split(near);
@@ -136,11 +138,11 @@ divided_proptest! {
         block_on(async {
             let x = seeded_build(&point, x_network).await;
             let mut y_rng = y_network.rng();
-            let mut y = build_from(&point, Peer::seed_rng(&mut y_rng), &mut y_rng)
+            let mut y = build_from(&point, Peer::builder().dangerously_override_rng(&mut y_rng), network_builder(&point), &mut y_rng)
                 .await
                 .unwrap();
             while y.report.offset == x.report.offset {
-                y = build_from(&point, Peer::seed_rng(&mut y_rng), &mut y_rng)
+                y = build_from(&point, Peer::builder().dangerously_override_rng(&mut y_rng), network_builder(&point), &mut y_rng)
                     .await
                     .unwrap();
             }

@@ -13,13 +13,13 @@ use rumors_testkit::common;
 use ciborium::value::Value;
 use futures::StreamExt;
 use proptest::prelude::*;
-use rumors::{Led, Rumors, SessionStats};
+use rumors::{Participant, Peer, SessionStats};
 
 use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{CaptureEnd, capture_sides};
 use crate::common::oracle::readout;
 use crate::common::wire::{
-    assert_connection_drained, block_on, gossip_pair_async, join_fork_async,
+    assert_connection_drained, block_on, gossip_pair_async, join_fork_async, join_fork_configured,
     join_fork_with_budget_async,
 };
 use rumors::testing::MEMORY_CAPACITY;
@@ -83,14 +83,14 @@ divided_proptest! {
     #[test]
     fn catchup_gains_the_providers_count_without_disputes(network in network_seed()) {
         block_on(async {
-            let provider: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let provider: Peer<u64> = network.builder().sync_memory_budget(0).seed();
             // Join before any sends so the next session transfers the whole set.
             let empty = join_fork_async(&provider).await;
             provider.send_all([1, 2, 3]).unwrap();
 
             let (p, e) = gossip_pair_async(&provider, &empty).await;
-            assert_eq!(p.led, Led::Local, "a one-shot call is this side's trigger");
-            assert_eq!(e.led, Led::Local);
+            assert_eq!(p.led, Participant::Local, "a one-shot call is this side's trigger");
+            assert_eq!(e.led, Participant::Local);
             assert_eq!(p.converged, e.converged, "one session, one frontier");
 
             assert_eq!(e.stats.messages_gained, 3, "the catch-up learns everything");
@@ -115,7 +115,7 @@ divided_proptest! {
     #[test]
     fn converged_replicas_report_zero_stats(network in network_seed()) {
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
             let b = join_fork_async(&a).await;
             a.send_all([7]).unwrap();
             let _ = gossip_pair_async(&a, &b).await;
@@ -132,7 +132,7 @@ divided_proptest! {
     #[test]
     fn honored_redaction_counts_as_shed(network in network_seed()) {
         block_on(async {
-            let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let a = network.builder::<u64>().sync_memory_budget(0).seed();
             a.send_all([10, 20]).unwrap();
             let b = join_fork_async(&a).await;
             let version = a.snapshot().versions().next().unwrap().clone();
@@ -155,26 +155,25 @@ divided_proptest! {
     #[test]
     fn gossip_stream_reports_session_stats(network in network_seed()) {
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let b = join_fork_async(&a).await;
+            let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
+            // The serving side's policy stream stays quiet, so its session is
+            // remote-led (a `changes()` stream's first tick would initiate).
+            let b = join_fork_configured(
+                &a,
+                Peer::builder().gossip_when(|_| futures::stream::pending::<()>()),
+                BudgetChoice::Serial,
+            )
+            .await;
             a.send_all([42]).unwrap();
 
             let (mut a_end, mut b_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
-            let mut a_drive = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            // The serving side's policy stream stays quiet, so its session is
-            // remote-led (a `changes()` stream's first tick would initiate).
-            let b = b
-                .try_into_peer()
-                .await
-                .unwrap()
-                .gossip_when(|_| futures::stream::pending::<()>())
-                .into_rumors();
-            let mut b_drive = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut a_drive = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let mut b_drive = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
             let (pushed, served) = tokio::join!(a_drive.next(), b_drive.next());
             let pushed = pushed.expect("driver running").expect("push succeeds");
             let served = served.expect("driver running").expect("serve succeeds");
 
-            assert_eq!(served.led, Led::Remote);
+            assert_eq!(served.led, Participant::Remote);
             assert_eq!(served.stats.messages_gained, 1);
             assert_eq!(pushed.stats.messages_gained, 0);
             assert_eq!(pushed.stats.bytes_sent, served.stats.bytes_received);
@@ -186,7 +185,7 @@ divided_proptest! {
 
 /// Capture three divergent sessions over one reused connection.
 async fn record_sessions(
-    peer: &Rumors<Vec<u8>>,
+    peer: &Peer<Vec<u8>>,
     mut end: CaptureEnd,
     sends: &[Vec<u8>],
     stats: &mut Vec<SessionStats>,
@@ -215,7 +214,7 @@ proptest! {
         b_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
         network in network_seed(),
     ) {
-        let a = network.peer().sync_memory_budget(0).into_rumors();
+        let a = network.builder().sync_memory_budget(0).seed();
         let b = block_on(join_fork_async(&a));
         let (mut a_stats, mut b_stats) = (Vec::new(), Vec::new());
         let (a_capture, b_capture) = capture_sides(
@@ -255,7 +254,7 @@ proptest! {
     ) {
         block_on(async {
             let unlimited = BudgetChoice::Bytes(usize::MAX);
-            let a = unlimited.apply(network.peer()).into_rumors();
+            let a = unlimited.seed(network.builder());
             a.send_all(shared).unwrap();
             let b = join_fork_with_budget_async(&a, unlimited).await;
             a.send_all(a_sends).unwrap();
@@ -281,7 +280,7 @@ proptest! {
         network in network_seed(),
     ) {
         block_on(async {
-            let a = network.peer().sync_memory_budget(0).into_rumors();
+            let a = network.builder().sync_memory_budget(0).seed();
             a.send_all(shared).unwrap();
             let b = join_fork_async(&a).await;
             let shared_versions: Vec<_> = a.snapshot().versions().cloned().collect();

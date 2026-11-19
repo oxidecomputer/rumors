@@ -1,4 +1,4 @@
-//! Byte snapshots of gossip sessions between two [`rumors::Rumors`] replicas.
+//! Byte snapshots of gossip sessions between two [`rumors::Peer`] replicas.
 //!
 //! Each scenario records every wire byte through [`common::gossip_snapshot`].
 //! Frames are grouped by logical stream so scheduling between streams does not
@@ -14,20 +14,20 @@
 
 use rumors_testkit::common;
 
-use rumors::{Rumors, Version};
+use rumors::{Peer, PeerBuilder, Version};
 
+use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{capture_gossip, capture_gossip_returning, seeded};
 use crate::common::shape::{
     ballast_avoiding, keep_only, leaf_path, path_radix, pool, send_pool, shaped_pair,
 };
-use crate::common::wire::{block_on, join_fork, join_fork_async};
+use crate::common::wire::{block_on, join_fork, join_fork_async, join_fork_configured};
 
 /// The version of the live message holding `value`: how a scenario picks out a
 /// specific message for redaction. The scenarios use distinct payloads, so the
 /// lookup is unambiguous.
-fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
-    rumors
-        .snapshot()
+fn version_for(peer: &Peer<u64>, value: u64) -> Version {
+    peer.snapshot()
         .iter()
         .find_map(|(v, m)| (*m == value).then_some(v.clone()))
         .unwrap_or_else(|| panic!("no live message holds {value}"))
@@ -40,7 +40,7 @@ fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
 /// protocol's shortest possible conversation.
 #[test]
 fn empty_pair_converges_immediately() {
-    let a: Rumors<u64> = seeded();
+    let a: Peer<u64> = seeded();
     let b = join_fork(&a);
     insta::assert_snapshot!(capture_gossip(a, b));
 }
@@ -55,7 +55,7 @@ fn empty_pair_converges_immediately() {
 #[test]
 fn one_sided_transfer() {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         // B is a genuine disjoint fork of A, created while A is still empty, so
         // it is an empty peer in the same network.
         let b = join_fork_async(&a).await;
@@ -79,10 +79,15 @@ const COLLIDING_POOL: u64 = 1024;
 /// `common::shape`). The shared leading byte places both leaves inside one
 /// supplied root child (the two-byte agreement is stronger than that supply
 /// needs, and keeps the pair inside one subtree at height 30 as well).
-fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
+fn colliding_pair() -> (Peer<u64>, Peer<u64>) {
+    colliding_pair_with(Peer::builder())
+}
+
+/// [`colliding_pair`], with the joining peer `b` configured by `b_builder`.
+fn colliding_pair_with(b_builder: PeerBuilder<u64>) -> (Peer<u64>, Peer<u64>) {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
-        let b = join_fork_async(&a).await;
+        let a: Peer<u64> = seeded();
+        let b = join_fork_configured(&a, b_builder, BudgetChoice::Serial).await;
         send_pool(&a, 0, COLLIDING_POOL);
         (a, b)
     });
@@ -131,14 +136,7 @@ fn batched_supply_run() {
 /// greeting carried it, and the session ran at the minimum of the two settings.
 #[test]
 fn asymmetric_message_targets_unbatch_the_run() {
-    let (a, b) = colliding_pair();
-    let b = block_on(async {
-        b.try_into_peer()
-            .await
-            .expect("the joined handle is sole")
-            .target_message_size(0)
-            .into_rumors()
-    });
+    let (a, b) = colliding_pair_with(Peer::builder().target_message_size(0));
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
@@ -279,7 +277,7 @@ fn bulk_initiator_supplies_its_exclusive_child_on_request() {
     // holds three ballast leaves outside that radix, making it the larger
     // set so the subtree holder initiates.
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         let b = join_fork_async(&a).await;
         send_pool(&a, 0, RADIX_POOL);
         (a, b)
@@ -357,7 +355,7 @@ fn requested_supplies_honor_redactions() {
     // the first and keeps three ballast leaves outside that radix, making
     // it the larger set.
     let (a, b, first) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         let first = a.send(1).unwrap();
         let b = join_fork_async(&a).await;
         b.redact(&first);
@@ -446,7 +444,7 @@ fn requested_supplies_honor_redactions() {
 #[test]
 fn fork_insert_redact() {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
 
         // (1) Two distinct common messages.
         a.send_all([1, 2]).unwrap();
@@ -478,7 +476,7 @@ fn fork_insert_redact() {
 #[test]
 fn converged_forks_noop() {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         a.send_all([1, 2]).unwrap();
         let b = join_fork_async(&a).await;
         (a, b)
@@ -495,7 +493,7 @@ fn converged_forks_noop() {
 #[test]
 fn redaction_only() {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         a.send_all([1, 2]).unwrap();
         let b = join_fork_async(&a).await;
         a.redact(&version_for(&a, 1));
@@ -511,7 +509,7 @@ const DEEP_TRIE_PER_SIDE: u64 = 18;
 #[test]
 fn deep_trie_divergence() {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         let b = join_fork_async(&a).await;
         a.send_all(0..DEEP_TRIE_PER_SIDE).unwrap();
         b.send_all(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE)
@@ -553,7 +551,7 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
     // second byte (pool-search-and-redact, see `common::shape`),
     // staged before the fork so both peers hold the branch
     // identically.
-    let a: Rumors<u64> = seeded();
+    let a: Peer<u64> = seeded();
     send_pool(&a, 0, RADIX_POOL);
     let (first, second) = shaped_pair(&a, &pool(&a, 0, RADIX_POOL), 1, true);
     keep_only(&a, 0, RADIX_POOL, &[first, second]);
@@ -572,12 +570,11 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
 
     // Fixture self-checks: the two-child shared branch, the
     // divergence, and the election.
-    let paths = |rumors: &Rumors<u64>| -> Vec<[u8; 2]> {
-        rumors
-            .snapshot()
+    let paths = |peer: &Peer<u64>| -> Vec<[u8; 2]> {
+        peer.snapshot()
             .versions()
             .map(|v| {
-                let path = leaf_path(rumors, v);
+                let path = leaf_path(peer, v);
                 [path[0], path[1]]
             })
             .collect()
@@ -630,7 +627,7 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
 #[test]
 fn string_payload() {
     let (a, b) = block_on(async {
-        let a: Rumors<String> = seeded();
+        let a: Peer<String> = seeded();
         let b = join_fork_async(&a).await;
         a.send("hello".to_string()).unwrap();
         b.send("world".to_string()).unwrap();
@@ -652,7 +649,7 @@ fn string_payload() {
 #[test]
 fn same_live_content_divergent_versions() {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         a.send(1).unwrap();
         let b = join_fork_async(&a).await;
 
@@ -675,7 +672,7 @@ fn same_live_content_divergent_versions() {
 #[test]
 fn both_redact_the_same_message() {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         a.send_all([1, 2]).unwrap();
         let b = join_fork_async(&a).await;
         let v1 = version_for(&a, 1);

@@ -31,7 +31,7 @@
 //! slice.
 
 use std::io::IoSlice;
-use std::ops::{Bound, RangeBounds};
+use std::ops::RangeBounds;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -42,8 +42,10 @@ use rumors::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamInfo, StreamObserver,
 };
 use rumors::testing::{CUTS_TO_GROW, MemoryEnd, memory_connection};
-use rumors::{Rumors, default};
-use rumors_testkit::bench::session::{Shape, pair};
+use rumors::{Peer, default};
+use rumors_testkit::bench::session::{Shape, pair_with};
+use rumors_testkit::common::budget::BudgetChoice;
+use rumors_testkit::common::scoped::in_scope;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, BufReader, ReadBuf};
 
 /// Bytes each direction of the connection buffers: more than any fixture sends
@@ -273,31 +275,21 @@ impl StreamObserver for ItemLog {
     }
 }
 
-/// Gossip once over `end` through counting halves, with the write batch range
-/// `batch`, returning the calls, the frames this side sent, and, if `traced`,
-/// what it wrote item by item and flush by flush.
+/// Gossip once over `end` through counting halves, at the write batch range the
+/// peer was built with, returning the calls, the frames this side sent, and, if
+/// `traced`, what it wrote item by item and flush by flush.
 ///
 /// The read half's buffer is rebuilt over a counted transport, as
 /// `memory_connection` builds it (a `BufReader` of Tokio's default capacity),
 /// so the reads it makes of the transport are counted apart from the session's
 /// calls on it. Only a traced session is observed.
 async fn gossip(
-    peer: Rumors<String>,
+    peer: Peer<String>,
     end: MemoryEnd,
     vectored: bool,
-    batch: (Bound<usize>, Bound<usize>),
     traced: bool,
 ) -> (Calls, Trace) {
-    let mut peer = peer
-        .try_into_peer()
-        .await
-        .expect("a fixture peer has one handle")
-        .write_batch_range(batch);
     let items = ItemLog::default();
-    if traced {
-        peer = peer.observe(Arc::new(items.clone()));
-    }
-    let peer = peer.into_rumors();
     let counters = Arc::new(Counters::default());
     let beneath = Arc::new(Counters::default());
     let transport = Counted {
@@ -315,10 +307,13 @@ async fn gossip(
         counters: Arc::clone(&counters),
         vectored,
     };
-    let (gossiped, ..) = peer
-        .gossip_once(read, write)
-        .await
-        .expect("an in-memory session completes");
+    let session = peer.gossip_once(read, write);
+    let (gossiped, ..) = if traced {
+        in_scope(Arc::new(items.clone()), session).await
+    } else {
+        session.await
+    }
+    .expect("an in-memory session completes");
     let load = |count: &AtomicU64| count.load(Ordering::Relaxed);
     let calls = Calls {
         transport_reads: load(&beneath.reads),
@@ -371,14 +366,20 @@ fn session_traced(
     traced: bool,
 ) -> (Calls, [Trace; 2]) {
     let batch = (batch.start_bound().cloned(), batch.end_bound().cloned());
-    let (a, b) = pair(shape, default::SYNC_MEMORY_BUDGET);
+    // Both peers select the batch range before they join; counting starts
+    // after the joins.
+    let (a, b) = pair_with(
+        shape,
+        BudgetChoice::Bytes(default::SYNC_MEMORY_BUDGET),
+        |builder| builder.write_batch_range(batch),
+    );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build a current-thread runtime");
     let (a_end, b_end) = memory_connection(CAPACITY);
     let ((a, a_trace), (b, b_trace)) = runtime.block_on(async {
-        let a = tokio::spawn(gossip(a, a_end, vectored, batch, traced));
-        let b = tokio::spawn(gossip(b, b_end, vectored, batch, traced));
+        let a = tokio::spawn(gossip(a, a_end, vectored, traced));
+        let b = tokio::spawn(gossip(b, b_end, vectored, traced));
         (
             a.await.expect("peer A's task completes"),
             b.await.expect("peer B's task completes"),

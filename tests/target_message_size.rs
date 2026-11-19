@@ -1,4 +1,4 @@
-//! End-to-end coverage of [`rumors::Peer::target_message_size`] and its
+//! End-to-end coverage of [`rumors::PeerBuilder::target_message_size`] and its
 //! join-time twin [`rumors::Join::target_message_size`].
 //!
 //! The target threads from the public builders into the greeting, lowered to
@@ -12,10 +12,12 @@ use rumors_testkit::common;
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::{Joining, Peer, Rumors, default};
+use rumors::{Peer, PeerBuilder, default};
 
-use crate::common::gossip_snapshot::{capture_gossip, capture_session, observed};
-use crate::common::wire::{block_on, join_fork_async, wire_gossip_async};
+use crate::common::budget::BudgetChoice;
+use crate::common::gossip_snapshot::{capture_gossip, capture_session};
+use crate::common::scoped::scoped_observer;
+use crate::common::wire::{block_on, join_fork_configured, wire_gossip_async};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 
 /// Messages each side originates after the fork: enough for multi-leaf supplied
@@ -49,20 +51,20 @@ fn diverged_pair(
     left_target: usize,
     right_target: usize,
     (left_payloads, right_payloads): (Vec<u64>, Vec<u64>),
-) -> (Rumors<u64>, Rumors<u64>) {
+) -> (Peer<u64>, Peer<u64>) {
     block_on(async {
         let left = network
-            .peer()
+            .builder()
             .sync_memory_budget(0)
             .target_message_size(left_target)
-            .into_rumors();
-        let right = join_fork_async(&left).await;
-        let right = right
-            .try_into_peer()
-            .await
-            .expect("the fresh fork has a single handle")
-            .target_message_size(right_target)
-            .into_rumors();
+            .observe(scoped_observer())
+            .seed();
+        let right = join_fork_configured(
+            &left,
+            Peer::builder().target_message_size(right_target),
+            BudgetChoice::Serial,
+        )
+        .await;
 
         left.send_all(left_payloads).unwrap();
         right.send_all(right_payloads).unwrap();
@@ -71,7 +73,7 @@ fn diverged_pair(
 }
 
 /// Assert one gossip session converges the pair to identical live sets.
-fn assert_converges(pair: (Rumors<u64>, Rumors<u64>)) {
+fn assert_converges(pair: (Peer<u64>, Peer<u64>)) {
     let (left, right) = pair;
     block_on(wire_gossip_async(&left, &right));
     let (left, right) = (left.snapshot(), right.snapshot());
@@ -111,20 +113,20 @@ fn seeded_diverged_pair(
     left_target: usize,
     right_target: usize,
     (left_messages, right_messages): (usize, usize),
-) -> (Rumors<u64>, Rumors<u64>) {
+) -> (Peer<u64>, Peer<u64>) {
     block_on(async {
         let left = COUNTED_NETWORK
-            .peer()
+            .builder()
             .sync_memory_budget(0)
             .target_message_size(left_target)
-            .into_rumors();
-        let right = join_fork_async(&left).await;
-        let right = right
-            .try_into_peer()
-            .await
-            .expect("the fresh fork has a single handle")
-            .target_message_size(right_target)
-            .into_rumors();
+            .observe(scoped_observer())
+            .seed();
+        let right = join_fork_configured(
+            &left,
+            Peer::builder().target_message_size(right_target),
+            BudgetChoice::Serial,
+        )
+        .await;
 
         let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..left_messages {
@@ -304,8 +306,12 @@ fn nonzero_minimum_binds_both_encoders() {
 
 /// A deterministically seeded, populated provider: the same corpus for every
 /// join capture, so their supply-frame counts are comparable.
-fn seeded_provider() -> Rumors<u64> {
-    let provider = COUNTED_NETWORK.peer().sync_memory_budget(0).into_rumors();
+fn seeded_provider() -> Peer<u64> {
+    let provider = COUNTED_NETWORK
+        .builder()
+        .sync_memory_budget(0)
+        .observe(scoped_observer())
+        .seed();
     let mut rng = ChaChaRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
     for _ in 0..DIVERGENT_PER_SIDE {
         provider.send(rng.next_u64()).unwrap();
@@ -315,10 +321,9 @@ fn seeded_provider() -> Rumors<u64> {
 
 /// Capture one join session's wire traffic: `provider` serves via `gossip`
 /// while a newcomer joins under `config`.
-fn capture_join(provider: Rumors<u64>, config: Joining<u64>) -> String {
+fn capture_join(provider: Peer<u64>, config: PeerBuilder<u64>) -> String {
     capture_session(
-        move |mut end, hook| async move {
-            let provider = observed(provider, hook).await;
+        move |mut end, _hook| async move {
             provider
                 .gossip_once(&mut end.read, &mut end.write)
                 .await
@@ -358,10 +363,10 @@ const OFF_DEFAULT_BUDGET: usize = 1024 * 1024;
 /// itself (the message-size target) must change the capture.
 #[test]
 fn sync_memory_budget_never_reaches_the_wire() {
-    let default_budget = capture_join(seeded_provider(), Peer::<u64>::joining());
+    let default_budget = capture_join(seeded_provider(), Peer::<u64>::builder());
     let custom_budget = capture_join(
         seeded_provider(),
-        Peer::<u64>::joining().sync_memory_budget(OFF_DEFAULT_BUDGET),
+        Peer::<u64>::builder().sync_memory_budget(OFF_DEFAULT_BUDGET),
     );
     assert_eq!(
         default_budget, custom_budget,
@@ -371,7 +376,7 @@ fn sync_memory_budget_never_reaches_the_wire() {
     // Negative control: the same harness must be able to see a difference.
     let custom_target = capture_join(
         seeded_provider(),
-        Peer::<u64>::joining().target_message_size(0),
+        Peer::<u64>::builder().target_message_size(0),
     );
     assert_ne!(
         default_budget, custom_target,
@@ -396,9 +401,9 @@ fn sync_memory_budget_never_reaches_the_wire() {
 fn join_advertisement_binds_the_provider() {
     let unbatched = capture_join(
         seeded_provider(),
-        Peer::<u64>::joining().target_message_size(0),
+        Peer::<u64>::builder().target_message_size(0),
     );
-    let batched = capture_join(seeded_provider(), Peer::<u64>::joining());
+    let batched = capture_join(seeded_provider(), Peer::<u64>::builder());
     let (unbatched_frames, batched_frames) = (supply_frames(&unbatched), supply_frames(&batched));
     assert!(
         batched_frames > 0,
@@ -428,9 +433,10 @@ const AFFORDING_BUDGET: usize = 64 * 1024 * 1024;
 #[test]
 fn a_lowered_target_reaches_the_greeting() {
     let lowered = COUNTED_NETWORK
-        .peer::<u64>()
+        .builder::<u64>()
         .sync_memory_budget(AFFORDING_BUDGET)
         .target_message_size(usize::MAX)
+        .seed()
         .settings()
         .target_message_size;
     assert!(
@@ -438,7 +444,7 @@ fn a_lowered_target_reaches_the_greeting() {
         "the budget must lower the largest target, but not to the default: {lowered} B",
     );
     let newcomer = |budget: usize, target: usize| {
-        let config = Peer::<u64>::joining()
+        let config = Peer::<u64>::builder()
             .sync_memory_budget(budget)
             .target_message_size(target);
         capture_join(seeded_provider(), config)
