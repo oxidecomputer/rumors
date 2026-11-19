@@ -4,7 +4,7 @@
 
 use std::{
     borrow::Borrow,
-    ops::{Bound, RangeBounds},
+    ops::Bound,
     sync::{Arc, PoisonError, RwLock},
 };
 
@@ -19,7 +19,7 @@ use crate::counter::widen;
 use crate::default;
 use crate::message::{EncodeError, MessageDepthLimit, PayloadCodec};
 use crate::network::{NetworkKeys, NetworkSecret};
-use crate::observe::{Attachment, Observer};
+use crate::observe::Attachment;
 use crate::tree::mirror::streaming::remote::{RunBudget, WriteBatch};
 use crate::tree::mirror::streaming::{
     Local,
@@ -803,7 +803,7 @@ impl<T: Send + Sync + 'static, B: MaybeBookmark> Peer<T, B> {
     }
 }
 
-/// Inspect and configure settings for gossip.
+/// Inspect settings for gossip.
 impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
     /// Return the gossip network to which this replica belongs.
     pub(crate) fn network(&self) -> Network {
@@ -833,245 +833,6 @@ impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
             .field("write_batch_range", &settings.write_batch_range)
             .field("message_depth_limit", &settings.message_depth_limit)
             .finish_non_exhaustive()
-    }
-
-    /// Set the policy for when each [`Rumors`] will initiate
-    /// gossip with a peer during [`Rumors::gossip`](crate::Rumors::gossip) or
-    /// [`Rumors::gossip_stream`](crate::Rumors::gossip_stream).
-    ///
-    /// By default, gossip will initiate immediately any time the local set of
-    /// messages changes.
-    ///
-    /// You might want to alter this policy if you want to debounce or
-    /// rate-limit gossip, or gossip only on an interval or in response to some
-    /// external, application-specified event.
-    ///
-    /// To set this policy, provide a function `when`, which accepts a stream of
-    /// [`Changes`] and returns a stream of [`Gossip`]. Your
-    /// function can adapt that stream, combine it with another, or ignore it
-    /// entirely and provide its own policy.
-    ///
-    /// If you return [`Gossip::WhenChanged`] from
-    /// your stream, gossip will only happen if there have been changes since
-    /// the last gossip session with this peer; if you return
-    /// [`Gossip::Unconditionally`], gossip will
-    /// happen regardless of local changes. Note that `(): Into<Gossip>` where
-    /// `().into() == Gossip::WhenChanged`, so an ordinary stream of `()` acts
-    /// as a sequence of "ticks" which initiate gossip only if there are known
-    /// changes to broadcast.
-    ///
-    /// Two extremes to be aware of:
-    ///
-    /// - A stream which always pends and never yields an item will only gossip
-    ///   if the remote side initiates; if everyone has this policy, nobody will
-    ///   ever gossip.
-    /// - A stream which immediately yields every time it is polled will cause a
-    ///   busy-loop. Don't do this!
-    ///
-    /// When the stream of [`Gossip`] ends, `rumors` will stop
-    /// each gossip connection cleanly after any active session. That said, to
-    /// end every driver's policy on a shared signal, use
-    /// [`gossip_until`](Self::gossip_until) rather than building the signal
-    /// into the factory.
-    pub fn gossip_when<F, S>(mut self, when: F) -> Self
-    where
-        F: Fn(crate::Changes<T>) -> S + Send + Sync + 'static,
-        S: futures::Stream + Send + 'static,
-        S::Item: Into<crate::Gossip>,
-    {
-        self.settings.gossip_policy.set_when(when);
-        self
-    }
-
-    /// Impose a timeout on the completion of each gossip session. This is
-    /// disabled by default.
-    ///
-    /// Because Rumors is runtime-independent, the application owns whatever
-    /// clock is used for the deadline.
-    ///
-    /// For example, a one-second deadline with Tokio could be configured by
-    /// passing the gossip timeout of:
-    /// `|| tokio::time::sleep(Duration::from_secs(1))`.
-    ///
-    /// Before [`joining`](Peer::joining), configure
-    /// [`Joining::gossip_timeout`]; it will apply to the initial joining
-    /// session, and the returned [`Peer`] will inherit it henceforth.
-    pub fn gossip_timeout<D, F>(mut self, timeout: D) -> Self
-    where
-        D: Fn() -> F + Send + Sync + 'static,
-        F: Future<Output = ()> + Send + 'static,
-    {
-        self.settings.gossip_policy.set_deadline(timeout);
-        self
-    }
-
-    /// Impose a maximum size limit on a stored [`Bookmark`].
-    ///
-    /// The default is [`default::BOOKMARK_SIZE_LIMIT`].
-    ///
-    /// Updates to a bookmark discard the oldest and least recently-used
-    /// information once the size of the bookmark hits this capacity.
-    ///
-    ///
-    /// Use [`Joining::bookmark_size_limit`] to configure this setting
-    /// explicitly before joining a gossip network.
-    pub fn bookmark_size_limit(mut self, bytes: usize) -> Self {
-        self.bookmark.set_size_limit(bytes);
-        self
-    }
-
-    /// Constrain the memory budget for each synchronization session.
-    ///
-    /// The default is [`default::SYNC_MEMORY_BUDGET`], and the minimum is about
-    /// 36.4 MiB.
-    ///
-    /// This setting is preserved indefinitely throughout the lifecycle of the
-    /// [`Peer`], and all [`Rumors`] clones inherit it.
-    ///
-    /// For more guidance on how to configure this parameter, read the [guide to
-    /// picking a memory budget](crate::sizing).
-    #[must_use]
-    pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
-        self.settings.sizing.sync_memory_budget = MemoryBudget::Requested(budget_bytes);
-        self
-    }
-
-    /// Add a wire [`Observer`] to this peer's gossip
-    /// sessions.
-    ///
-    /// For every session the peer enters, each [`Observer`] is given the
-    /// capability to see each directed stream's protocol messages as raw CBOR
-    /// items. This can be useful to debug, test, or instrument the `rumors`
-    /// protocol itself.
-    ///
-    /// Calling `observe` again adds another, and observers are invoked in
-    /// registration order. To observe the session in which a peer joins,
-    /// attach it instead using [`Joining::observe`].
-    #[must_use]
-    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
-        self.settings.observe.attach(observer);
-        self
-    }
-
-    /// Tune the target encoded size of the batched messages this peer sends.
-    ///
-    /// When a peer supplies messages which its counterparty lacks, those
-    /// messages are coalesced into batches which are flushed if appending the
-    /// next message would push the batch's size past the specified target
-    /// `bytes`.
-    ///
-    /// Adjusting this setting can subtly trade between latency, CPU
-    /// utilization, and memory. It is recommended to stick with the
-    /// default, [`default::TARGET_MESSAGE_SIZE`], unless there is a compelling
-    /// reason to differ. Any value is safe: zero degrades to one message per
-    /// batch, and any limit above the maximum possible ~4 GiB saturates.
-    ///
-    /// If two peers configure this differently, they interoperate by
-    /// negotiating the minimum of their two target message sizes, so that the
-    /// lesser-configured peer receives batches sized according to its own
-    /// desires.
-    ///
-    /// This setting is preserved indefinitely throughout the lifecycle of the
-    /// [`Peer`], and all [`Rumors`] clones inherit it.
-    #[must_use]
-    pub fn target_message_size(mut self, bytes: usize) -> Self {
-        self.settings.sizing.run_budget = RunBudget::from_bytes(bytes);
-        self
-    }
-
-    /// Tune write-batching to optimize for your underlying transport.
-    ///
-    /// This range should usually run from the "largest smallest frame" to the
-    /// "largest single frame" your transport allows, which economizes on system
-    /// calls and optimizes the fullness of each individual transport frame.
-    ///
-    /// The default, [`default::tls::WRITE_BATCH_RANGE`], is tuned for TLS over
-    /// TCP on a 1,500-byte MTU Ethernet link.
-    ///
-    /// This setting is preserved indefinitely throughout the lifecycle of the
-    /// [`Peer`], and all [`Rumors`] clones inherit it.
-    ///
-    /// # When and how to change this
-    ///
-    /// Keeping the default will never cause correctness issues, but in other
-    /// contexts, you may see improved performance by changing it.
-    ///
-    /// By way of example:
-    ///
-    /// - **Plain TCP** does not have a separate record framing layer.
-    ///   Consequently, the write batch range should start at the TCP segment
-    ///   payload size, 1,448 bytes, and can end wherever you choose. No record
-    ///   limit applies in this setting, so a larger maximum will make fewer
-    ///   writes, but may increase latency and memory usage if set exceptionally
-    ///   high.
-    /// - **IPv6** headers are 20 bytes longer than IPv4's, so subtract 20 bytes
-    ///   from the minimum of the range, giving 1,406 bytes as an optimal
-    ///   minimum for gossip over TLS.
-    ///
-    /// - **Larger MTUs**, such as 9,000-byte jumbo frames, should raise the
-    ///   minimum by the same amount, for example 8,926 bytes as an optimal
-    ///   minimum for gossip over TLS.
-    ///
-    /// # Settings to (probably) avoid
-    ///
-    /// - A crossed range like `hi..low` is corrected internally to `low..low`.
-    ///   You're probably doing something wrong if you do this.
-    /// - An unbounded-below range like `..max` or `0..max` means a "largest
-    ///   smallest frame" of zero. This means every batch will try to grow to
-    ///   the maximum size, rather than dispatching small batches quickly. This
-    ///   usually harms performance!
-    /// - A maximum set to zero, as in `..=0` or the empty `..0`, turns batching
-    ///   off entirely. Sessions will flush immediately when they find no
-    ///   message ready. This usually harms performance!
-    /// - An unbounded maximum, or a maximum set above the internal write buffer
-    ///   size, saturates at this inner capacity. A batch of small messages
-    ///   still will flush when it reaches the minimum size, but any batch that
-    ///   accumulates past this will continue to grow until the session has
-    ///   nothing more ready to send, only flushing when the internal write
-    ///   buffer fills. This usually harms performance!
-    #[must_use]
-    pub fn write_batch_range(mut self, range: impl RangeBounds<usize>) -> Self {
-        self.settings.sizing.write_batch = WriteBatch::from_range(range);
-        self
-    }
-
-    /// Bound the depth of the messages this peer sends and accepts.
-    ///
-    /// A message value is accepted only if decoding its CBOR encoding as the
-    /// peer's message type recurs at most `limit` steps. The meaning of such a
-    /// "recursion step" is internal to `rumors`, but is guaranteed to remain
-    /// stable within a single wire protocol.
-    ///
-    /// Applying such a limit prevents a peer from "poisoning" the set of
-    /// messages with an excessively nested encoded message, which otherwise
-    /// could trigger a stack overflow on receipt by other peers.
-    ///
-    /// This limit is checked by peers both prior to
-    /// [`send`](crate::Rumors::send), and also during message decoding, so that
-    /// a conforming peer cannot even send a too-deep message, and a
-    /// non-conforming peer which bypasses the internal check will succeed only
-    /// at isolating itself from gossip, since everyone else will reject its bad
-    /// message.
-    ///
-    /// The default is [`default::MESSAGE_DEPTH_LIMIT`], which should be ample
-    /// for almost any type.
-    ///
-    /// This setting is preserved indefinitely throughout the lifecycle of the
-    /// [`Peer`], and all [`Rumors`] clones inherit it.
-    ///
-    /// <div class="warning">
-    ///
-    /// **This setting must be *exactly the same* for all peers in the gossip
-    /// network.** Peers will refuse to gossip with one another if they are
-    /// configured with different message depth limits, *even if they have
-    /// ostensibly compatible sets of messages.* As a result, this setting
-    /// cannot be changed after creating a gossip network.
-    ///
-    /// </div>
-    #[must_use]
-    pub fn message_depth_limit(mut self, limit: u64) -> Self {
-        self.codec = self.codec.with_limit(MessageDepthLimit::new(limit));
-        self
     }
 
     /// Create an empty batch against this replica.

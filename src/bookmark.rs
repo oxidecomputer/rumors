@@ -468,16 +468,6 @@ impl<B> BookmarkHandle<B> {
         }
     }
 
-    /// Select the store limit, raised to the size of an empty record.
-    ///
-    /// The limit takes effect at the next store, so until then the stored
-    /// record may exceed it. A checkpoint stored under another limit is not
-    /// current (see [`Checkpoint::size_limit`]), so the next session stores
-    /// under this one instead of skipping its store.
-    pub(crate) fn set_size_limit(&mut self, bytes: usize) {
-        self.size_limit = bytes.max(format::record_size(0, 0));
-    }
-
     /// The configured limit.
     pub(crate) fn size_limit(&self) -> usize {
         self.size_limit

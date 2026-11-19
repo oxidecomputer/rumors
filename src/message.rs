@@ -251,12 +251,6 @@ impl PayloadCodec {
         self.limit
     }
 
-    /// Replace the carried depth limit, keeping the codec's fn pointers.
-    #[must_use]
-    pub(crate) fn with_limit(self, limit: MessageDepthLimit) -> Self {
-        PayloadCodec { limit, ..self }
-    }
-
     /// Decode one exact CBOR payload encoding into a type-erased payload value,
     /// bounded at the carried depth limit.
     pub(crate) fn decode(
