@@ -213,9 +213,9 @@ async fn run(control_in: &mut impl BufRead, control_out: &mut impl Write) -> Res
     else {
         bail!("a peer's first command must be `setup`");
     };
-    let rumors = match side {
+    let peer = match side {
         Side::A => {
-            let pair = fixture::build(&point).await?;
+            let pair = fixture::build(&point, fixture::network_builder(&point)).await?;
             send(
                 control_out,
                 &Reply::Built {
@@ -257,8 +257,8 @@ async fn run(control_in: &mut impl BufRead, control_out: &mut impl Write) -> Res
             })?;
             stream.set_nodelay(true)?;
             let (read, write) = stream.into_split();
-            let rumors = fixture::join_from(BufReader::new(read), write, &point).await?;
-            let fingerprint = fixture::fingerprint(&rumors.snapshot());
+            let peer = fixture::join_from(BufReader::new(read), write, &point).await?;
+            let fingerprint = fixture::fingerprint(&peer.snapshot());
             send(
                 control_out,
                 &Reply::Fetched {
@@ -266,7 +266,7 @@ async fn run(control_in: &mut impl BufRead, control_out: &mut impl Write) -> Res
                     seconds: began.elapsed().as_secs_f64(),
                 },
             )?;
-            rumors
+            peer
         }
     };
 
@@ -280,7 +280,7 @@ async fn run(control_in: &mut impl BufRead, control_out: &mut impl Write) -> Res
                 },
             )?;
             let (stream, _) = listener.accept().await.context("accepting side B")?;
-            session(&rumors, stream, &point, warm_bytes, Side::A, 0.0).await
+            session(&peer, stream, &point, warm_bytes, Side::A, 0.0).await
         }
         (Side::B, Command::Connect { address }) => {
             let began = Instant::now();
@@ -288,21 +288,13 @@ async fn run(control_in: &mut impl BufRead, control_out: &mut impl Write) -> Res
                 .await
                 .with_context(|| format!("connecting to side A at {address}"))?;
             let connect_seconds = began.elapsed().as_secs_f64();
-            session(
-                &rumors,
-                stream,
-                &point,
-                warm_bytes,
-                Side::B,
-                connect_seconds,
-            )
-            .await
+            session(&peer, stream, &point, warm_bytes, Side::B, connect_seconds).await
         }
         (side, command) => bail!("side {side:?} cannot follow its replica with {command:?}"),
     };
     let outcome = Outcome {
-        live_after: rumors.snapshot().len() as u64,
-        effective_budget: u64::try_from(rumors.settings().sync_memory_budget).unwrap_or(u64::MAX),
+        live_after: peer.snapshot().len() as u64,
+        effective_budget: u64::try_from(peer.settings().sync_memory_budget).unwrap_or(u64::MAX),
         ..outcome
     };
     send(
@@ -331,7 +323,7 @@ async fn bind(address: SocketAddr) -> Result<TcpListener> {
 /// the read buffer, and both clocks start after them ([`establish`] orders the
 /// warm-up so the socket's tally counts none of it).
 async fn session(
-    rumors: &rumors::Rumors<fixture::Payload>,
+    peer: &rumors::Peer<fixture::Payload>,
     stream: TcpStream,
     point: &Point,
     warm_bytes: u64,
@@ -360,7 +352,7 @@ async fn session(
     outcome.connect_seconds = prior;
     let mark = meter::start();
     let began = Instant::now();
-    let result = rumors.gossip_once(&mut read, &mut write).await;
+    let result = peer.gossip_once(&mut read, &mut write).await;
     outcome.wall_seconds = prior + began.elapsed().as_secs_f64();
     outcome.usage = mark.usage();
     outcome.socket = tally.counts();

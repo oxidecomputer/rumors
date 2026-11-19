@@ -86,7 +86,7 @@
 //! has carried a bulk transfer each way so its congestion window is open, and
 //! the session's clock starts after that setup. That is the session an
 //! application sees when it keeps a connection to each partner with
-//! `Rumors::gossip`, as it should. Choose `fresh` instead if your application
+//! `Peer::gossip`, as it should. Choose `fresh` instead if your application
 //! connects in order to synchronize: the session then opens its connection, and
 //! its time includes connecting, with the TLS handshake over TLS, and slow
 //! start.
@@ -493,7 +493,7 @@ struct GridArgs {
     /// Message-size cap; larger draws are redrawn (default 64KiB).
     #[arg(long)]
     max_message_size: Option<String>,
-    /// Peer::sync_memory_budget for both sides, `default`, or `unlimited`.
+    /// PeerBuilder::sync_memory_budget for both sides, `default`, or `unlimited`.
     #[arg(long)]
     budget: Option<String>,
     /// Side A's sync_memory_budget.
@@ -502,7 +502,7 @@ struct GridArgs {
     /// Side B's sync_memory_budget.
     #[arg(long)]
     budget_b: Option<String>,
-    /// Peer::target_message_size for both sides, or `default`.
+    /// PeerBuilder::target_message_size for both sides, or `default`.
     #[arg(long)]
     target_message_size: Option<String>,
     /// Side A's target_message_size.
@@ -511,10 +511,10 @@ struct GridArgs {
     /// Side B's target_message_size.
     #[arg(long)]
     target_message_size_b: Option<String>,
-    /// Peer::message_depth_limit, or `default`.
+    /// PeerBuilder::message_depth_limit, or `default`.
     #[arg(long)]
     message_depth_limit: Option<String>,
-    /// Peer::gossip_timeout, such as `60s`, or `none`.
+    /// PeerBuilder::gossip_timeout, such as `60s`, or `none`.
     #[arg(long)]
     session_deadline: Option<String>,
     /// Link rate per direction: `100Mbit`, `uncapped`, or `A/B`.

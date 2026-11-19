@@ -29,7 +29,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, ensure};
-use rumors::{Rumors, SessionStats};
+use rumors::{Peer, SessionStats};
 use rustls::pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, DuplexStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -54,7 +54,7 @@ struct Side {
     ended: Instant,
     /// The replica, handed back so that dropping its tree falls outside every
     /// measurement.
-    replica: Rumors<Payload>,
+    replica: Peer<Payload>,
 }
 
 /// What a session cost the whole process: user, then system CPU time.
@@ -110,15 +110,14 @@ pub fn run(points: &[(String, Point)], repetitions: u32, capacity: usize) -> Res
 }
 
 /// Builds `point`'s pair, both sides configured with the point's settings.
-fn build(point: &Point) -> Result<(Rumors<Payload>, Rumors<Payload>)> {
+fn build(point: &Point) -> Result<(Peer<Payload>, Peer<Payload>)> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()
         .context("starting the fixture's runtime")?;
     runtime.block_on(async {
-        let pair = fixture::build(point).await?;
-        let b = fixture::configure(pair.b, &point.settings.b, point).await?;
-        Ok((pair.a, b))
+        let pair = fixture::build(point, fixture::builder(&point.settings.b, point)).await?;
+        Ok((pair.a, pair.b))
     })
 }
 
@@ -129,8 +128,8 @@ fn build(point: &Point) -> Result<(Rumors<Payload>, Rumors<Payload>)> {
 /// The wall time runs from the first side's start to the last side's end; the
 /// process's CPU time from the start until both sessions have ended.
 fn session(
-    a: Rumors<Payload>,
-    b: Rumors<Payload>,
+    a: Peer<Payload>,
+    b: Peer<Payload>,
     point: &Point,
     capacity: usize,
 ) -> Result<(Duration, ProcessCpu, [Side; 2])> {
@@ -155,7 +154,7 @@ fn session(
 /// Runs one side on a thread of its own: completes its end of the TLS handshake
 /// as `role` (none for plain streams), waits at `start`, and gossips once.
 fn spawn(
-    peer: Rumors<Payload>,
+    peer: Peer<Payload>,
     stream: DuplexStream,
     role: Option<transport::Role>,
     start: &Arc<Barrier>,
@@ -197,7 +196,7 @@ fn spawn(
 /// Gossips once over `stream`, after every side has reached `start`, reading
 /// this thread's CPU clock, the time, and `tally` around the session alone:
 /// dropping the replica afterwards is not the session's.
-async fn gossip<S>(peer: Rumors<Payload>, stream: S, tally: &Tally, start: &Barrier) -> Result<Side>
+async fn gossip<S>(peer: Peer<Payload>, stream: S, tally: &Tally, start: &Barrier) -> Result<Side>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {

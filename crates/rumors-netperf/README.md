@@ -90,7 +90,7 @@ By default each session runs on a *warm* connection: one already open, which
 has carried a bulk transfer each way so its congestion window is open, and
 the session's clock starts after that setup. That is the session an
 application sees when it keeps a connection to each partner with
-`Rumors::gossip`, as it should. Choose `fresh` instead if your application
+`Peer::gossip`, as it should. Choose `fresh` instead if your application
 connects in order to synchronize: the session then opens its connection, and
 its time includes connecting, with the TLS handshake over TLS, and slow
 start.

@@ -726,7 +726,7 @@ fn write_reading_guide(md: &mut String) -> Result<()> {
          - **Use** is each direction's bytes over *T* times its rate: how busy the session kept the link.\n\
          - **Heap** is the largest live heap either process held during the session beyond both its \
            start and its end, which excludes the replica's own growth; the budget bounds the session's \
-           pipelining memory, and `Peer::sync_memory_budget` lists what lies outside it.\n"
+           pipelining memory, and `PeerBuilder::sync_memory_budget` lists what lies outside it.\n"
     )?;
     Ok(())
 }
@@ -938,7 +938,7 @@ fn write_memory(md: &mut String, summaries: &[(String, PointSummary)]) -> Result
         md,
         "The heap column is the larger process's session heap beyond both its start and its end. The \
          budget bounds the memory a session spends on pipelining; beside it a session keeps a fixed amount \
-         per level of its comparison and wire buffers, which `Peer::sync_memory_budget` documents. The \
+         per level of its comparison and wire buffers, which `PeerBuilder::sync_memory_budget` documents. The \
          resident peak is what a memory limit meets, allocator slack included.\n\n\
          A budget below the minimum, {} in this build, runs at the minimum: the budget column then shows \
          the request and \"→ minimum\", and the ratio is against the minimum. An unlimited budget has \

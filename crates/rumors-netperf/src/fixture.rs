@@ -40,7 +40,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail, ensure};
 use rand::{Rng, RngExt};
-use rumors::{Join, Peer, Rumors, Snapshot, Version};
+use rumors::{Join, Peer, PeerBuilder, Snapshot, Version};
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use sha3::{Digest, Sha3_256};
@@ -107,9 +107,9 @@ impl BuildReport {
 #[derive(Debug)]
 pub struct Pair {
     /// Side A's replica, configured with the point's settings for A.
-    pub a: Rumors<Payload>,
+    pub a: Peer<Payload>,
     /// Side B's replica as the history left it.
-    pub b: Rumors<Payload>,
+    pub b: Peer<Payload>,
     /// What building measured and drew.
     pub report: BuildReport,
 }
@@ -121,8 +121,8 @@ pub struct Pair {
 /// If a fixture session fails, or a side does not hold the live messages the
 /// point's counts require; either is a defect in the library or in this tool,
 /// and the error names it.
-pub async fn build(point: &Point) -> Result<Pair> {
-    build_from(point, Peer::seed(), &mut rand::rng()).await
+pub async fn build(point: &Point, b: PeerBuilder<Payload>) -> Result<Pair> {
+    build_from(point, Peer::builder(), b, &mut rand::rng()).await
 }
 
 /// Builds the pair `point` describes in the network `root` founds, drawing the
@@ -135,7 +135,12 @@ pub async fn build(point: &Point) -> Result<Pair> {
 /// # Errors
 ///
 /// As [`build`].
-async fn build_from(point: &Point, root: Peer<Payload>, rng: &mut impl Rng) -> Result<Pair> {
+async fn build_from(
+    point: &Point,
+    root: PeerBuilder<Payload>,
+    b: PeerBuilder<Payload>,
+    rng: &mut impl Rng,
+) -> Result<Pair> {
     let began = Instant::now();
     let replicas = point.replicas;
     let mut sampler = point.sizes.sampler();
@@ -143,19 +148,19 @@ async fn build_from(point: &Point, root: Peer<Payload>, rng: &mut impl Rng) -> R
         offset: rng.random_range(OFFSET_RANGE),
         ..BuildReport::default()
     };
-    let root = root.into_rumors();
+    let root = with_network_settings(root, point).seed();
     root.send_all((0..report.offset).map(|_| ByteBuf::new()))
         .context("sending the root's offset messages")?;
     let offset_versions: Vec<Version> = root.snapshot().versions().cloned().collect();
     root.redact_all(&offset_versions);
 
-    let a = join_in_memory(&root)
+    let a = join_in_memory(&root, builder(&point.settings.a, point))
         .await
         .context("joining A from the root")?;
     drop(root);
     send_drawn(&a, replicas.common(), &mut sampler, rng, &mut report)
         .context("sending the common messages")?;
-    let b = join_in_memory(&a).await.context("joining B from A")?;
+    let b = join_in_memory(&a, b).await.context("joining B from A")?;
 
     let ranked = ranked_versions(&a.snapshot());
     let (redacted_by_a, rest) = ranked.split_at(to_index(replicas.redact_a)?);
@@ -169,11 +174,11 @@ async fn build_from(point: &Point, root: Peer<Payload>, rng: &mut impl Rng) -> R
     b.redact_all(redacted_by_b);
     drop(ranked);
 
-    for (side, rumors, expected) in [
+    for (side, peer, expected) in [
         (Side::A, &a, replicas.live_a()),
         (Side::B, &b, replicas.live_b()),
     ] {
-        let live = rumors.snapshot().len() as u64;
+        let live = peer.snapshot().len() as u64;
         ensure!(
             live == expected,
             "side {side:?} holds {live} live messages after building, but the point requires {expected}"
@@ -183,7 +188,6 @@ async fn build_from(point: &Point, root: Peer<Payload>, rng: &mut impl Rng) -> R
     report.b_fingerprint = fingerprint(&b.snapshot());
     report.redrawn_above_cap = sampler.redrawn_above_cap;
     report.redrawn_below_one_byte = sampler.redrawn_below_one_byte;
-    let a = configure(a, &point.settings.a, point).await?;
     report.seconds = began.elapsed().as_secs_f64();
     Ok(Pair { a, b, report })
 }
@@ -199,7 +203,7 @@ fn to_index(count: u64) -> Result<usize> {
 /// Messages go out in batches of [`SEND_BATCH`], so the pending batch, not the
 /// whole set, is what sits in memory twice.
 fn send_drawn(
-    rumors: &Rumors<Payload>,
+    peer: &Peer<Payload>,
     count: u64,
     sampler: &mut Sampler,
     rng: &mut impl Rng,
@@ -217,7 +221,7 @@ fn send_drawn(
             messages.push(ByteBuf::from(bytes));
             report.message_bytes += size;
         }
-        rumors.send_all(messages)?;
+        peer.send_all(messages)?;
         report.messages += batch;
         remaining -= batch;
     }
@@ -255,32 +259,35 @@ pub fn fingerprint(snapshot: &Snapshot<Payload>) -> [u8; 32] {
 }
 
 /// Joins a new peer from `server` over an in-memory pipe.
-async fn join_in_memory(server: &Rumors<Payload>) -> Result<Rumors<Payload>> {
+async fn join_in_memory(
+    server: &Peer<Payload>,
+    builder: PeerBuilder<Payload>,
+) -> Result<Peer<Payload>> {
     let (near, far) = duplex(PIPE_BYTES);
     let (far_read, far_write) = split(far);
     let (near_read, near_write) = split(near);
     let (served, joined) = tokio::join!(
         server.gossip_once(BufReader::new(far_read), far_write),
-        join(BufReader::new(near_read), near_write)
+        join(builder, BufReader::new(near_read), near_write)
     );
     served.context("the serving side of a fixture join failed")?;
     joined
 }
 
 /// Joins a new peer over `read` and `write`.
-async fn join<R, W>(read: R, write: W) -> Result<Rumors<Payload>>
+async fn join<R, W>(builder: PeerBuilder<Payload>, read: R, write: W) -> Result<Peer<Payload>>
 where
     R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
-    match Peer::<Payload>::join(read, write).await {
+    match builder.join(read, write).await {
         // The fixture's own connection failed after the identity arrived;
         // a measurement never runs on a session that did not complete.
         Join::Connected {
             connection: rumors::Connection::Lost { error },
             ..
         } => Err(error).context("a join's completion was not confirmed"),
-        Join::Connected { peer, .. } => Ok(peer.into_rumors()),
+        Join::Connected { peer, .. } => Ok(peer),
         Join::Failed { error, .. } => Err(error).context("a join failed"),
         Join::Bounced { .. } => bail!("a join ended without joining: the server bailed"),
         Join::Unbookmarked { .. } => {
@@ -295,38 +302,42 @@ where
 /// # Errors
 ///
 /// If the join fails.
-pub async fn join_from<R, W>(read: R, write: W, point: &Point) -> Result<Rumors<Payload>>
+pub async fn join_from<R, W>(read: R, write: W, point: &Point) -> Result<Peer<Payload>>
 where
     R: AsyncBufRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
-    let joined = join(read, write).await?;
-    configure(joined, &point.settings.b, point).await
+    join(builder(&point.settings.b, point), read, write).await
 }
 
-/// Applies the point's `Peer` settings for one side.
-pub async fn configure(
-    rumors: Rumors<Payload>,
-    side: &SideSettings,
-    point: &Point,
-) -> Result<Rumors<Payload>> {
-    let mut peer = rumors
-        .try_into_peer()
-        .await
-        .context("the built replica still had another handle")?;
+/// Applies the point's `PeerBuilder` settings for one side.
+pub fn builder(side: &SideSettings, point: &Point) -> PeerBuilder<Payload> {
+    let mut builder = network_builder(point);
     if let Some(budget) = side.budget {
-        peer = peer.sync_memory_budget(usize::try_from(budget).unwrap_or(usize::MAX));
+        builder = builder.sync_memory_budget(usize::try_from(budget).unwrap_or(usize::MAX));
     }
     if let Some(bytes) = side.target_message_size {
-        peer = peer.target_message_size(usize::try_from(bytes).unwrap_or(usize::MAX));
-    }
-    if let Some(limit) = point.settings.message_depth_limit {
-        peer = peer.message_depth_limit(limit);
+        builder = builder.target_message_size(usize::try_from(bytes).unwrap_or(usize::MAX));
     }
     if let Some(deadline) = point.settings.session_deadline {
-        peer = peer.gossip_timeout(move || tokio::time::sleep(deadline));
+        builder = builder.gossip_timeout(move || tokio::time::sleep(deadline));
     }
-    Ok(peer.into_rumors())
+    builder
+}
+
+/// A builder carrying only the point's settings every peer of its network
+/// must share.
+pub fn network_builder(point: &Point) -> PeerBuilder<Payload> {
+    with_network_settings(Peer::builder(), point)
+}
+
+/// Applies the point's settings every peer of its network must share to
+/// `builder`.
+fn with_network_settings(builder: PeerBuilder<Payload>, point: &Point) -> PeerBuilder<Payload> {
+    match point.settings.message_depth_limit {
+        Some(limit) => builder.message_depth_limit(limit),
+        None => builder,
+    }
 }
 
 #[cfg(test)]

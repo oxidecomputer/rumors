@@ -67,23 +67,23 @@ pub const AXES: &[(&str, &str)] = &[
     ),
     (
         "budget",
-        "Peer::sync_memory_budget for both sides, bytes, `default`, or `unlimited`",
+        "PeerBuilder::sync_memory_budget for both sides, bytes, `default`, or `unlimited`",
     ),
     ("budget_a", "side A's sync_memory_budget"),
     ("budget_b", "side B's sync_memory_budget"),
     (
         "target_message_size",
-        "Peer::target_message_size for both sides, bytes or `default`",
+        "PeerBuilder::target_message_size for both sides, bytes or `default`",
     ),
     ("target_message_size_a", "side A's target_message_size"),
     ("target_message_size_b", "side B's target_message_size"),
     (
         "message_depth_limit",
-        "Peer::message_depth_limit, or `default`",
+        "PeerBuilder::message_depth_limit, or `default`",
     ),
     (
         "session_deadline",
-        "Peer::gossip_timeout, a duration such as `60s`, or `none`",
+        "PeerBuilder::gossip_timeout, a duration such as `60s`, or `none`",
     ),
     (
         "rate",

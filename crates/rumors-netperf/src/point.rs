@@ -108,7 +108,7 @@ pub fn compact_count(count: u64) -> String {
 /// The budget a grid's `unlimited` spelling requests: the largest byte count.
 ///
 /// The run passes it to
-/// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) as
+/// [`PeerBuilder::sync_memory_budget`](rumors::PeerBuilder::sync_memory_budget) as
 /// `usize::MAX`, so the session's pipelining memory has no bound below what the
 /// host can allocate.
 pub const UNLIMITED_BUDGET: u64 = u64::MAX;
@@ -121,8 +121,9 @@ pub const UNLIMITED_BUDGET: u64 = u64::MAX;
 /// reads it, once, from a peer that requests a budget of zero.
 pub fn minimum_budget() -> u64 {
     static MINIMUM: LazyLock<u64> = LazyLock::new(|| {
-        let budget = Peer::<()>::seed()
+        let budget = Peer::<()>::builder()
             .sync_memory_budget(0)
+            .seed()
             .settings()
             .sync_memory_budget;
         u64::try_from(budget).unwrap_or(u64::MAX)
@@ -144,10 +145,10 @@ pub fn budget_text(budget: Option<u64>) -> String {
 /// default, which the record names as such.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct SideSettings {
-    /// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget), in
+    /// [`PeerBuilder::sync_memory_budget`](rumors::PeerBuilder::sync_memory_budget), in
     /// bytes.
     pub budget: Option<u64>,
-    /// [`Peer::target_message_size`](rumors::Peer::target_message_size), in
+    /// [`PeerBuilder::target_message_size`](rumors::PeerBuilder::target_message_size), in
     /// bytes.
     pub target_message_size: Option<u64>,
 }
@@ -157,7 +158,7 @@ pub struct SideSettings {
 /// The message depth limit and the session deadline apply to both sides: the
 /// library requires the depth limit to agree across a network, and the deadline
 /// is a property of the measurement, not of one side.
-/// [`Peer::bookmark_size_limit`](rumors::Peer::bookmark_size_limit) is not here
+/// [`PeerBuilder::bookmark_size_limit`](rumors::PeerBuilder::bookmark_size_limit) is not here
 /// because the tool's peers keep no bookmark, and the gossip policy and
 /// observers are not here because a measured session is one explicit exchange
 /// with nothing observing it.
@@ -167,9 +168,9 @@ pub struct Settings {
     pub a: SideSettings,
     /// Side B's settings.
     pub b: SideSettings,
-    /// [`Peer::message_depth_limit`](rumors::Peer::message_depth_limit).
+    /// [`PeerBuilder::message_depth_limit`](rumors::PeerBuilder::message_depth_limit).
     pub message_depth_limit: Option<u64>,
-    /// [`Peer::gossip_timeout`](rumors::Peer::gossip_timeout): a session
+    /// [`PeerBuilder::gossip_timeout`](rumors::PeerBuilder::gossip_timeout): a session
     /// running longer fails and is recorded as failed.
     pub session_deadline: Option<Duration>,
 }
@@ -208,7 +209,7 @@ pub enum Connection {
     /// for an application that connects in order to synchronize.
     Fresh,
     /// A TCP connection already open and warm, as on the long-lived connection
-    /// an application keeps with `Rumors::gossip`.
+    /// an application keeps with `Peer::gossip`.
     ///
     /// It has carried a bulk transfer each way, so its congestion window is
     /// open when the session starts, and the session's clock starts after setup
