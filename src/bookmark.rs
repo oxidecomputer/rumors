@@ -213,6 +213,81 @@ impl Bookmark for NoBookmark {
     }
 }
 
+/// Seal [`MaybeBookmark`] to [`NoBookmark`] and the [`Bookmark`]s.
+mod sealed {
+    /// The bookmark choices a peer can be built with.
+    pub trait Sealed {}
+
+    /// A bookmark.
+    impl<B: super::Bookmark> Sealed for B {}
+
+    /// Permission to call [`MaybeBookmark`](super::MaybeBookmark)'s hidden
+    /// methods, which only this crate can construct.
+    #[derive(Debug)]
+    pub struct Token(pub(crate) ());
+}
+
+pub(crate) use sealed::Token;
+
+/// Marker trait for whether a peer has a [`Bookmark`].
+///
+/// This is [`NoBookmark`] if not, or the selected [`Bookmark`] type.
+pub trait MaybeBookmark: sealed::Sealed + Sized {
+    /// The storage which backs a bookmark of this type.
+    #[doc(hidden)]
+    type Storage: Bookmark;
+
+    /// The payload of [`Join::Unbookmarked`](crate::Join::Unbookmarked) for
+    /// a bookmark of this type.
+    type Unbookmarked<T: Send + Sync + 'static>: std::fmt::Debug;
+
+    /// The payload of [`Error::Bookmark`](crate::Error::Bookmark) for this
+    /// choice.
+    type Failure: std::error::Error + Send + Sync + 'static;
+
+    /// The storage this choice holds.
+    #[doc(hidden)]
+    fn into_storage(self, token: Token) -> Self::Storage;
+
+    /// The choice whose storage is `storage`.
+    #[doc(hidden)]
+    fn from_storage(storage: Self::Storage, token: Token) -> Self;
+
+    /// Report a failure of this choice's storage as an [`Error`](crate::Error).
+    #[doc(hidden)]
+    fn failure(error: StorageIo<Self>, token: Token) -> Self::Failure;
+}
+
+/// A failure of the storage that `M` holds.
+pub(crate) type StorageIo<M> = BookmarkIo<<<M as MaybeBookmark>::Storage as Bookmark>::Error>;
+
+/// Any bookmark is [`MaybeBookmark`], because it is one.
+impl<B: Bookmark> MaybeBookmark for B {
+    /// The bookmark itself.
+    type Storage = B;
+
+    /// The peer without its bookmark, paired with the failure.
+    type Unbookmarked<T: Send + Sync + 'static> = crate::Unbookmarked<T, B>;
+
+    /// The failure to load, persist, or decode the stored record.
+    type Failure = BookmarkIo<B::Error>;
+
+    /// The bookmark itself.
+    fn into_storage(self, _: Token) -> B {
+        self
+    }
+
+    /// The bookmark itself.
+    fn from_storage(storage: B, _: Token) -> Self {
+        storage
+    }
+
+    /// The storage failure itself.
+    fn failure(error: BookmarkIo<B::Error>, _: Token) -> BookmarkIo<B::Error> {
+        error
+    }
+}
+
 /// The donation forks reserved for joining peers and not yet sent, which pause
 /// reclamation.
 ///
