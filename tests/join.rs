@@ -10,6 +10,7 @@ use proptest::prelude::*;
 use rumors::{Connection, Join, MaybeBookmark, Peer};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
+use crate::common::fault;
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_connection_drained, block_on, join_fork, wire_gossip};
@@ -493,5 +494,67 @@ divided_proptest! {
             readout(&provider.snapshot()),
             "the unbookmarked peer must hold the provider's whole set",
         );
+    }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// A joiner whose bookmark cannot be read or decoded learns so before the
+    /// session: it returns its builder and connection without writing or
+    /// reading a byte, and the serving counterparty donates nothing.
+    ///
+    /// The claim holds for every network seed, for a storage read failure, and
+    /// for any stored record that cannot begin a bookmark envelope.
+    #[test]
+    fn unreadable_bookmark_fails_before_the_session(
+        corrupt in proptest::option::of(any::<Vec<u8>>()),
+        network in network_seed(),
+    ) {
+        let provider = populated_provider(network);
+        let before = provider.dangerously_alias_party();
+        let (stored, reads) = match &corrupt {
+            None => (None, vec![true]),
+            // A CBOR break cannot begin the bookmark envelope, whatever follows.
+            Some(suffix) => (Some([&[0xff][..], suffix].concat()), Vec::new()),
+        };
+        let store = Arc::new(Mutex::new(stored.clone()));
+        let bookmark = FlakyInMemoryBookmark::new(
+            store.clone(),
+            Arc::new(Mutex::new(FaultFeed::new(reads, Vec::new()))),
+            0,
+        );
+        let (joiner_end, provider_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
+        let (joiner_end, meter) = fault::metered(joiner_end);
+        let server = provider.clone();
+        let (failed, served) = block_on(async move {
+            tokio::join!(
+                async move {
+                    let end = joiner_end;
+                    match Peer::<u64>::builder().bookmark(bookmark).join(end.read, end.write).await {
+                        // Hang up on the counterparty, so its session ends.
+                        Join::BookmarkFailed { builder, error, read, write } => {
+                            drop((read, write));
+                            Some((builder, error))
+                        }
+                        _ => None,
+                    }
+                },
+                async move {
+                    let end = provider_end;
+                    server.gossip_once(end.read, end.write).await
+                },
+            )
+        });
+        let (_builder, error) = failed.expect("an unreadable bookmark must fail the join before its session");
+        match corrupt {
+            None => prop_assert!(matches!(error, rumors::error::BookmarkIo::Io(_)), "{error:?}"),
+            Some(_) => prop_assert!(matches!(error, rumors::error::BookmarkIo::Format(_)), "{error:?}"),
+        }
+        prop_assert_eq!(meter.written(), 0, "the joiner must send nothing");
+        prop_assert_eq!(meter.read(), 0, "the joiner must read nothing");
+        prop_assert!(served.is_err(), "the counterparty's session ends when the joiner hangs up");
+        prop_assert_eq!(provider.dangerously_alias_party(), before, "the counterparty must donate nothing");
+        prop_assert_eq!(&*store.lock().unwrap(), &stored, "the failed load must leave storage untouched");
     }
 }
