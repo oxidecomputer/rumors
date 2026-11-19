@@ -31,6 +31,18 @@ pub enum Join<T: Send + Sync + 'static, R, W, B: MaybeBookmark = NoBookmark> {
         /// Whether the connection can be reused to carry another session.
         connection: Connection<R, W>,
     },
+    /// The selected bookmark could not be read or decoded, so the network was
+    /// not joined and nothing was sent on the connection.
+    BookmarkFailed {
+        /// The complete builder, ready to retry joining.
+        builder: PeerBuilder<T, B>,
+        /// The failure to read or decode the stored bookmark.
+        error: B::BookmarkFailed,
+        /// The connection's read half, unused.
+        read: R,
+        /// The connection's write half, unused.
+        write: W,
+    },
     /// Both endpoints were attempting to join each other, so neither could
     /// provide a gossip network to the other.
     Bounced {
@@ -65,6 +77,11 @@ impl<T: Send + Sync + 'static, R, W, B: MaybeBookmark> fmt::Debug for Join<T, R,
                 .field("peer", peer)
                 .field("connection", connection)
                 .finish(),
+            Self::BookmarkFailed { builder, error, .. } => f
+                .debug_struct("BookmarkFailed")
+                .field("builder", builder)
+                .field("error", error)
+                .finish_non_exhaustive(),
             Self::Bounced { builder, .. } => f
                 .debug_struct("Bounced")
                 .field("builder", builder)

@@ -569,6 +569,18 @@ where
             bookmark.into_storage(Token(())),
             builder.bookmark_size_limit,
         );
+        // We load the bookmark before the session sends anything, so that
+        // unreadable storage is discovered before the counterparty donates
+        // identity to this peer. The record loaded here is used after the
+        // initial session, so storage is read once per join.
+        if let Err(error) = handle.preload().await {
+            return Join::BookmarkFailed {
+                builder: builder.with_state(B::from_storage(handle.into_storage(), Token(()))),
+                error: B::bookmark_failed(error, Token(())),
+                read,
+                write,
+            };
+        }
         let (peer, completed) =
             Replica::join_inner(builder.session_config(), &mut read, &mut write).await;
         let Some(peer) = peer else {

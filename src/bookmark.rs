@@ -254,6 +254,11 @@ pub trait MaybeBookmark: sealed::Sealed + Sized {
     /// a bookmark of this type.
     type Unbookmarked<T: Send + Sync + 'static>: std::fmt::Debug;
 
+    /// The payload of
+    /// [`Join::BookmarkFailed`](crate::Join::BookmarkFailed) for this
+    /// choice.
+    type BookmarkFailed: std::fmt::Debug;
+
     /// The payload of [`Error::Bookmark`](crate::Error::Bookmark) for this
     /// choice.
     type Failure: std::error::Error + Send + Sync + 'static;
@@ -269,6 +274,10 @@ pub trait MaybeBookmark: sealed::Sealed + Sized {
     /// Report a failure of this choice's storage as an [`Error`](crate::Error).
     #[doc(hidden)]
     fn failure(error: StorageIo<Self>, token: Token) -> Self::Failure;
+
+    /// Report a failure to load this choice's storage before joining.
+    #[doc(hidden)]
+    fn bookmark_failed(error: StorageIo<Self>, token: Token) -> Self::BookmarkFailed;
 
     /// Report a failure to attach this choice's storage to `peer`.
     #[doc(hidden)]
@@ -289,6 +298,8 @@ impl MaybeBookmark for NoBookmark {
     type Storage = NullBookmark;
     /// Uninhabited: attaching no bookmark cannot fail.
     type Unbookmarked<T: Send + Sync + 'static> = std::convert::Infallible;
+    /// Uninhabited: storage that persists nothing cannot fail to load.
+    type BookmarkFailed = std::convert::Infallible;
     /// Uninhabited: storage that persists nothing cannot fail.
     type Failure = std::convert::Infallible;
 
@@ -304,6 +315,11 @@ impl MaybeBookmark for NoBookmark {
 
     /// Storage that persists nothing never fails.
     fn failure(error: StorageIo<Self>, _: Token) -> std::convert::Infallible {
+        null_failure(error)
+    }
+
+    /// Storage that persists nothing never fails.
+    fn bookmark_failed(error: StorageIo<Self>, _: Token) -> std::convert::Infallible {
         null_failure(error)
     }
 
@@ -338,6 +354,9 @@ impl<B: Bookmark> MaybeBookmark for B {
     /// The peer without its bookmark, paired with the failure.
     type Unbookmarked<T: Send + Sync + 'static> = crate::Unbookmarked<T, B>;
 
+    /// The failure to read or decode the stored record.
+    type BookmarkFailed = BookmarkIo<B::Error>;
+
     /// The failure to load, persist, or decode the stored record.
     type Failure = BookmarkIo<B::Error>;
 
@@ -353,6 +372,11 @@ impl<B: Bookmark> MaybeBookmark for B {
 
     /// The storage failure itself.
     fn failure(error: BookmarkIo<B::Error>, _: Token) -> BookmarkIo<B::Error> {
+        error
+    }
+
+    /// The storage failure itself.
+    fn bookmark_failed(error: BookmarkIo<B::Error>, _: Token) -> BookmarkIo<B::Error> {
         error
     }
 
@@ -531,6 +555,15 @@ pub(crate) struct LockedBookmark<'a, B> {
     state: MutexGuard<'a, Bookmarked<B>>,
     /// The limit that every store made through this lock encodes under.
     size_limit: usize,
+}
+
+/// Load the record before a peer holds the handle.
+impl<B: Bookmark> BookmarkHandle<B> {
+    /// Read and decode the stored record now, so that the next update uses it
+    /// without reading storage again.
+    pub(crate) async fn preload(&self) -> Result<(), BookmarkIo<B::Error>> {
+        self.lock().await.load().await.map(drop)
+    }
 }
 
 /// Load the record through the lock.
