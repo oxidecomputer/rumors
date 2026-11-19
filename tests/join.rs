@@ -7,7 +7,7 @@ use rumors_testkit::common::wire::ROOMY_CAPACITY;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Bookmark, Connection, Join, Peer, Rumors};
+use rumors::{Connection, Join, MaybeBookmark, Peer};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
@@ -25,14 +25,14 @@ use serde::de::DeserializeOwned;
 type Outcome<B> = Join<u64, (), (), B>;
 
 /// Release a join outcome's connection halves, keeping the outcome.
-fn released<B: Bookmark, R, W>(joined: Join<u64, R, W, B>) -> Outcome<B> {
+fn released<B: MaybeBookmark, R, W>(joined: Join<u64, R, W, B>) -> Outcome<B> {
     match joined {
         Join::Connected { peer, connection } => Join::Connected {
             peer,
             connection: released_connection(connection),
         },
-        Join::Bounced { joining, .. } => Join::Bounced {
-            joining,
+        Join::Bounced { builder, .. } => Join::Bounced {
+            builder,
             read: (),
             write: (),
         },
@@ -43,7 +43,13 @@ fn released<B: Bookmark, R, W>(joined: Join<u64, R, W, B>) -> Outcome<B> {
             unbookmarked,
             connection: released_connection(connection),
         },
-        Join::Failed { error, joining } => Join::Failed { error, joining },
+        Join::BookmarkFailed { builder, error, .. } => Join::BookmarkFailed {
+            builder,
+            error,
+            read: (),
+            write: (),
+        },
+        Join::Failed { error, builder } => Join::Failed { error, builder },
     }
 }
 
@@ -59,7 +65,7 @@ fn released_connection<R, W>(connection: Connection<R, W>) -> Connection<(), ()>
 }
 
 /// Join from an established provider and return the joined replica.
-fn wire_joiner<T>(provider: &Rumors<T>) -> Rumors<T>
+fn wire_joiner<T>(provider: &Peer<T>) -> Peer<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -68,17 +74,18 @@ where
 
         let (provider_out, join_out) = tokio::join!(
             provider.gossip_once(&mut a_end.read, &mut a_end.write),
-            Peer::<T>::join(&mut b_end.read, &mut b_end.write),
+            Peer::<T>::builder()
+                .sync_memory_budget(0)
+                .join(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("provider gossip");
         let Join::Connected {
-            peer,
+            peer: joined,
             connection: Connection::Reusable { .. },
         } = join_out
         else {
             panic!("an established provider must serve the join");
         };
-        let joined = peer.sync_memory_budget(0).into_rumors();
         assert_connection_drained(a_end, b_end);
         joined
     })
@@ -90,7 +97,7 @@ proptest! {
     /// showing that its inherited floor covers the provider's history.
     #[test]
     fn join_reproduces_a_fork(actions in arb_local_actions(), network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let provider = build_local(join_fork(&seed), &actions);
         let control = readout(&provider.snapshot());
 
@@ -121,7 +128,7 @@ proptest! {
         actions in arb_string_actions(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<String>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<String>().sync_memory_budget(0).seed();
         let provider = build_local(join_fork(&seed), &actions);
         let control = readout(&provider.snapshot());
 
@@ -156,7 +163,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn join_floor_rejects_stale_redacted_content(network in network_seed()) {
-        let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let provider = network.builder::<u64>().sync_memory_budget(0).seed();
         let version = provider.send(1).unwrap();
         let stale = join_fork(&provider);
         provider.redact(&version);
@@ -229,7 +236,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn zero_budget_join_converges(network in network_seed()) {
-        let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let provider = network.builder::<u64>().sync_memory_budget(0).seed();
         provider.send_all([1, 2, 3]).unwrap();
 
         let joiner = block_on(async {
@@ -237,16 +244,15 @@ divided_proptest! {
                 rumors::testing::memory_connection(ROOMY_CAPACITY);
             let (served, joined) = tokio::join!(
                 provider.gossip_once(&mut provider_end.read, &mut provider_end.write),
-                Peer::<u64>::joining()
+                Peer::<u64>::builder()
                     .sync_memory_budget(0)
                     .join(&mut newcomer_end.read, &mut newcomer_end.write),
             );
             served.expect("the provider serves the zero-budget join");
-            let newcomer = (match joined {
+            let newcomer = match joined {
                 rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the provider is established"),
-            })
-            .into_rumors();
+            };
             assert_connection_drained(provider_end, newcomer_end);
             newcomer
         });
@@ -285,8 +291,8 @@ fn durable_bookmark(writes: Vec<bool>) -> (DurableStore, FlakyInMemoryBookmark) 
 /// Drive a provider's `gossip` against a *bookmarked* join over an in-memory
 /// connection, returning the newcomer's [`Join`] outcome.
 fn wire_join(
-    provider: &Rumors<u64>,
-    joining: rumors::Joining<u64, FlakyInMemoryBookmark>,
+    provider: &Peer<u64>,
+    joining: rumors::PeerBuilder<u64, FlakyInMemoryBookmark>,
 ) -> Outcome<FlakyInMemoryBookmark> {
     block_on(async move {
         let (mut provider_end, mut newcomer_end) =
@@ -306,8 +312,8 @@ fn wire_join(
 
 /// The first peer of the network `network` names, holding three messages: the
 /// corpus the `Connected`-arm tests join from.
-fn populated_provider(network: NetworkSeed) -> Rumors<u64> {
-    let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+fn populated_provider(network: NetworkSeed) -> Peer<u64> {
+    let provider = network.builder::<u64>().sync_memory_budget(0).seed();
     provider.send_all([1, 2, 3]).unwrap();
     provider
 }
@@ -335,7 +341,7 @@ divided_proptest! {
             "the store must start empty for the persist to be attributable",
         );
 
-        let Join::Connected { peer, connection: Connection::Reusable { .. } } = wire_join(&provider, Peer::joining().bookmark(bookmark))
+        let Join::Connected { peer, connection: Connection::Reusable { .. } } = wire_join(&provider, Peer::builder().bookmark(bookmark))
         else {
             panic!("an established provider and healthy storage must produce a joined peer");
         };
@@ -349,7 +355,7 @@ divided_proptest! {
             "the joined network's entry must record the received identity",
         );
         assert_eq!(
-            readout(&peer.into_rumors().snapshot()),
+            readout(&peer.snapshot()),
             readout(&provider.snapshot()),
             "the bookmarked join must still deliver the provider's whole set",
         );
@@ -367,10 +373,10 @@ divided_proptest! {
             let (mut a_end, mut b_end) =
                 rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (a_out, b_out) = tokio::join!(
-                Peer::<u64>::joining()
+                Peer::<u64>::builder()
                     .bookmark(a_bookmark)
                     .join(&mut a_end.read, &mut a_end.write),
-                Peer::<u64>::joining()
+                Peer::<u64>::builder()
                     .bookmark(bookmark)
                     .join(&mut b_end.read, &mut b_end.write),
             );
@@ -379,7 +385,7 @@ divided_proptest! {
             outcome
         });
 
-        let Join::Bounced { joining, .. } = b_out else {
+        let Join::Bounced { builder: joining, .. } = b_out else {
             panic!("a mutually-joining bookmarked peer must bail");
         };
         assert!(
@@ -414,13 +420,13 @@ divided_proptest! {
             // The counterparty hangs up before the session begins: the join's
             // preamble exchange dies on the closed transport.
             drop(far);
-            Peer::<u64>::joining()
+            Peer::<u64>::builder()
                 .bookmark(bookmark)
                 .join(near.read, near.write)
                 .await
         });
 
-        let Join::Failed { joining, .. } = outcome else {
+        let Join::Failed { builder: joining, .. } = outcome else {
             panic!("a dead counterparty must fail the session before a peer exists");
         };
         assert!(
@@ -450,7 +456,7 @@ divided_proptest! {
         let (_control_store, control_bookmark) = durable_bookmark(Vec::new());
         assert!(
             matches!(
-                wire_join(&provider, Peer::joining().bookmark(control_bookmark)),
+                wire_join(&provider, Peer::builder().bookmark(control_bookmark)),
                 Join::Connected { connection: Connection::Reusable { .. }, .. }
             ),
             "with healthy storage the identical join must take the Joined arm",
@@ -462,7 +468,7 @@ divided_proptest! {
             unbookmarked,
             connection: Connection::Reusable { .. },
         } =
-            wire_join(&provider, Peer::joining().bookmark(bookmark))
+            wire_join(&provider, Peer::builder().bookmark(bookmark))
         else {
             panic!("a failed persist must surface the live peer as Unbookmarked");
         };
@@ -473,7 +479,7 @@ divided_proptest! {
 
         // The documented recovery: retry the attach against healthy storage.
         let (retry_store, retry_bookmark) = durable_bookmark(Vec::new());
-        let peer = block_on(unbookmarked.peer.bookmark(retry_bookmark))
+        let peer = block_on(unbookmarked.retry_bookmark(retry_bookmark))
             .expect("re-attaching against healthy storage must succeed");
         assert!(
             persisted_record(&retry_store).contains_key(&peer.network()),
@@ -483,7 +489,7 @@ divided_proptest! {
         // The peer is alive and complete: it holds everything the session
         // delivered, so the failure cost a persist attempt and nothing else.
         assert_eq!(
-            readout(&peer.into_rumors().snapshot()),
+            readout(&peer.snapshot()),
             readout(&provider.snapshot()),
             "the unbookmarked peer must hold the provider's whole set",
         );

@@ -21,7 +21,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Bookmark, Connection, Peer, Retire, Rumors, Version};
+use rumors::{Bookmark, Connection, Peer, Retire, Unbookmarked, Version};
 
 use crate::common::wire::block_on;
 use rumors::testing::MEMORY_CAPACITY;
@@ -77,7 +77,7 @@ impl Bookmark for Probe {
 }
 
 /// Reconcile the subject with a helper without transferring identity.
-async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
+async fn plain_gossip(subject: &Peer<u64, Probe>, helper: &Peer<u64>) {
     let (mut s_end, mut h_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, h) = tokio::join!(
         subject.gossip_once(&mut s_end.read, &mut s_end.write),
@@ -88,48 +88,70 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
 }
 
 /// Join a new helper through the subject, donating a fork of its identity.
-async fn serve_join(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
+async fn serve_join(subject: &Peer<u64, Probe>) -> Peer<u64> {
     let (mut s_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, n) = tokio::join!(
         subject.gossip_once(&mut s_end.read, &mut s_end.write),
-        Peer::<u64>::join(&mut n_end.read, &mut n_end.write),
+        Peer::<u64>::builder()
+            .sync_memory_budget(0)
+            .join(&mut n_end.read, &mut n_end.write),
     );
     s.expect("subject serve join");
-    (match n {
+    match n {
         rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
         _ => panic!("subject served the join"),
-    })
-    .sync_memory_budget(0)
-    .into_rumors()
+    }
 }
 
-/// Join through `origin`, returning a peer ready for bookmark attachment.
-async fn join_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
+/// Join through `origin` without a bookmark.
+async fn join_fork_peer(origin: &Peer<u64>) -> Peer<u64> {
     let (mut o_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (o, n) = tokio::join!(
         origin.gossip_once(&mut o_end.read, &mut o_end.write),
-        Peer::<u64>::join(&mut n_end.read, &mut n_end.write),
+        Peer::<u64>::builder()
+            .sync_memory_budget(0)
+            .join(&mut n_end.read, &mut n_end.write),
     );
     o.expect("origin serves the join");
-    (match n {
+    match n {
         rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
         _ => panic!("origin served the join"),
-    })
-    .sync_memory_budget(0)
+    }
+}
+
+/// Join through `origin` with `bookmark` selected, returning the joined peer,
+/// or the unbookmarked peer if attaching the bookmark failed after the session.
+async fn join_fork_bookmarked<B: Bookmark>(
+    origin: &Peer<u64>,
+    bookmark: B,
+) -> Result<Peer<u64, B>, Unbookmarked<u64, B>> {
+    let (mut o_end, mut n_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
+    let (o, n) = tokio::join!(
+        origin.gossip_once(&mut o_end.read, &mut o_end.write),
+        Peer::<u64>::builder()
+            .sync_memory_budget(0)
+            .bookmark(bookmark)
+            .join(&mut n_end.read, &mut n_end.write),
+    );
+    o.expect("origin serves the join");
+    match n {
+        rumors::Join::Connected {
+            peer,
+            connection: rumors::Connection::Reusable { .. },
+        } => Ok(peer),
+        rumors::Join::Unbookmarked { unbookmarked, .. } => Err(unbookmarked),
+        _ => panic!("origin served the join"),
+    }
 }
 
 /// Retire a helper into the subject, transferring its identity.
-async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
-    let retiree = retiree
-        .try_into_peer()
-        .await
-        .expect("the helper is the sole handle to its set");
+async fn absorb_retire(subject: &Peer<u64, Probe>, retiree: Peer<u64>) {
     let (mut s_end, mut r_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (s, outcome) = tokio::join!(
         subject.gossip_once(&mut s_end.read, &mut s_end.write),
@@ -145,11 +167,7 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
 }
 
 /// Consume the subject by retiring it into a helper.
-async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
-    let subject = subject
-        .try_into_peer()
-        .await
-        .expect("the subject is the sole handle to its set");
+async fn retire_subject(subject: Peer<u64, Probe>, absorber: &Peer<u64>) {
     let (mut s_end, mut a_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (outcome, a) = tokio::join!(
         subject.retire(&mut s_end.read, &mut s_end.write),
@@ -286,13 +304,13 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 /// A bookmarked subject, its storage history, and helpers in the same network.
 struct World {
     /// The peer whose I/O is checked.
-    subject: Rumors<u64, Probe>,
+    subject: Peer<u64, Probe>,
     /// A history retained even when retirement consumes the subject.
     log: Arc<Mutex<Vec<Io>>>,
     /// Expected storage state after the operations already applied.
     model: Model,
     /// Live counterparties available for gossip or retirement.
-    helpers: Vec<Rumors<u64>>,
+    helpers: Vec<Peer<u64>>,
     /// Fresh payloads shared by local and helper sends.
     next_msg: u64,
     /// An absent version for exercising repeated redactions.
@@ -306,18 +324,27 @@ impl World {
     async fn new(network: NetworkSeed, origin: Origin) -> Self {
         let probe = Probe::default();
         let log = Arc::clone(&probe.log);
-        let (peer, helpers, loaded) = match origin {
+        let (subject, helpers, loaded) = match origin {
             Origin::Seed => (
-                network.peer::<u64>().sync_memory_budget(0),
+                network
+                    .builder::<u64>()
+                    .sync_memory_budget(0)
+                    .bookmark(probe)
+                    .seed()
+                    .await,
                 Vec::new(),
                 false,
             ),
             Origin::Join => {
-                let origin = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-                (join_fork_peer(&origin).await, vec![origin], true)
+                let origin = network.builder::<u64>().sync_memory_budget(0).seed();
+                (
+                    join_fork_bookmarked(&origin, probe).await,
+                    vec![origin],
+                    true,
+                )
             }
         };
-        let subject = peer.bookmark(probe).await.expect("attach healthy storage");
+        let subject = subject.expect("attach healthy storage");
         assert_eq!(
             *log.lock().unwrap(),
             if loaded {
@@ -328,7 +355,7 @@ impl World {
             "attachment I/O for {origin:?}",
         );
         Self {
-            subject: subject.into_rumors(),
+            subject,
             log,
             // A seed has no record yet. Attaching to a fork records ownership
             // without reclaiming, leaving that to its first session. Both

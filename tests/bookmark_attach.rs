@@ -10,23 +10,32 @@ use rumors_testkit::common;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Peer, Rumors, Unbookmarked, error::BookmarkIo};
+use rumors::{Bookmark, MaybeBookmark, Peer, Unbookmarked, error::BookmarkIo};
 
-use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, persisted_record};
+use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, RecordThenFail, persisted_record};
 use crate::common::wire::block_on;
 use rumors::testing::MEMORY_CAPACITY;
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
 
-/// Join the server's network without attaching storage to the new peer.
-async fn join_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) -> Peer<String> {
+/// Join the server's network with `bookmark` selected, returning the joined
+/// peer, or the unbookmarked peer if attaching the bookmark failed after the
+/// session.
+async fn join_bookmarked<S: MaybeBookmark, B: Bookmark>(
+    server: &Peer<String, S>,
+    bookmark: B,
+) -> Result<Peer<String, B>, Unbookmarked<String, B>> {
     let server = server.clone();
     let (joiner_end, serve_end) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (join_out, serve_out) = tokio::join!(
         async move {
             let end = joiner_end;
-            Peer::<String>::join(end.read, end.write).await
+            Peer::<String>::builder()
+                .sync_memory_budget(0)
+                .bookmark(bookmark)
+                .join(end.read, end.write)
+                .await
         },
         async move {
             let end = serve_end;
@@ -34,14 +43,14 @@ async fn join_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) -> Pe
         },
     );
     serve_out.expect("serve the join");
-    (match join_out {
+    match join_out {
         rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
-        } => peer,
+        } => Ok(peer),
+        rumors::Join::Unbookmarked { unbookmarked, .. } => Err(unbookmarked),
         _ => panic!("got a peer"),
-    })
-    .sync_memory_budget(0)
+    }
 }
 
 divided_proptest! {
@@ -57,9 +66,9 @@ divided_proptest! {
             let faults = Arc::new(Mutex::new(FaultFeed::new(vec![true], vec![true])));
             let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults, 0);
 
-            let _peer = network.peer::<String>()
+            let _peer = network.builder::<String>()
                 .sync_memory_budget(0)
-                .bookmark(bookmark)
+                .bookmark(bookmark).seed()
                 .await
                 .expect("a pristine seed attaches without reading or writing");
 
@@ -76,22 +85,21 @@ divided_proptest! {
     #[test]
     fn failed_persist_returns_peer_for_retry(network in network_seed()) {
         block_on(async {
-            let rumors = network.peer::<String>().sync_memory_budget(0).into_rumors();
-            rumors.send("the meeting is at noon".to_string()).unwrap();
-            let peer = rumors.try_into_peer().await.expect("sole handle");
-            let network = peer.network();
+            let server = network.builder::<String>().sync_memory_budget(0).seed();
+            server.send("the meeting is at noon".to_string()).unwrap();
+            let network = server.network();
 
-            // Attach over a store whose first write is scheduled to fail.
+            // Join with a store whose first write is scheduled to fail.
             let store = Arc::new(Mutex::new(None));
             let failing = FlakyInMemoryBookmark::new(
                 store.clone(),
                 Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true]))),
                 0,
             );
-            let Unbookmarked { peer, error } = peer
-                .bookmark(failing)
+            let unbookmarked = join_bookmarked(&server, failing)
                 .await
                 .expect_err("the injected write failure must surface");
+            let error = &unbookmarked.error;
             assert!(matches!(error, BookmarkIo::Io(_)));
             assert_eq!(
                 error.to_string(),
@@ -109,8 +117,8 @@ divided_proptest! {
                 Arc::new(Mutex::new(FaultFeed::new(vec![], vec![]))),
                 0,
             );
-            let _peer = peer
-                .bookmark(healthy)
+            let _peer = unbookmarked
+                .retry_bookmark(healthy)
                 .await
                 .expect("the retry over healthy storage persists");
             assert!(
@@ -126,23 +134,28 @@ divided_proptest! {
     #[test]
     fn failed_load_returns_peer_for_retry(network in network_seed()) {
         block_on(async {
-            let rumors = network.peer::<String>().sync_memory_budget(0).into_rumors();
-            rumors.send("keep this message".into()).unwrap();
-            let hash = rumors.snapshot().hash();
-            let peer = rumors.try_into_peer().await.unwrap();
-            let party = peer.dangerously_alias_party();
-            let network = peer.network();
+            let server = network.builder::<String>().sync_memory_budget(0).seed();
+            server.send("keep this message".into()).unwrap();
+            let hash = server.snapshot().hash();
+            let network = server.network();
+            // The first attachment records the joined peer's identity and then
+            // fails, so the record names the peer each failure hands back.
+            let recorded = Arc::new(Mutex::new(None));
+            let unbookmarked = join_bookmarked(&server, RecordThenFail::new(recorded.clone()))
+                .await
+                .expect_err("the recording store fails");
+            let record = persisted_record(&recorded);
+            let party = record[&network][0].party();
+
             let store = Arc::new(Mutex::new(None));
             let failing = FlakyInMemoryBookmark::new(
                 store.clone(),
                 Arc::new(Mutex::new(FaultFeed::new(vec![true], vec![]))),
                 0,
             );
-            let Unbookmarked { peer, error } = peer.bookmark(failing).await.unwrap_err();
-            assert!(matches!(error, BookmarkIo::Io(_)));
-            assert_eq!(error.to_string(), "flaky bookmark: injected read failure");
-            assert_eq!(peer.dangerously_alias_party(), party);
-            assert_eq!(peer.network(), network);
+            let unbookmarked = unbookmarked.retry_bookmark(failing).await.unwrap_err();
+            assert!(matches!(unbookmarked.error, BookmarkIo::Io(_)));
+            assert_eq!(unbookmarked.error.to_string(), "flaky bookmark: injected read failure");
             assert!(store.lock().unwrap().is_none());
 
             let healthy = FlakyInMemoryBookmark::new(
@@ -150,8 +163,10 @@ divided_proptest! {
                 Arc::new(Mutex::new(FaultFeed::new(vec![], vec![]))),
                 0,
             );
-            let rumors = peer.bookmark(healthy).await.unwrap().into_rumors();
-            assert_eq!(rumors.snapshot().hash(), hash);
+            let peer = unbookmarked.retry_bookmark(healthy).await.unwrap();
+            assert_eq!(&peer.dangerously_alias_party(), party);
+            assert_eq!(peer.network(), network);
+            assert_eq!(peer.snapshot().hash(), hash);
             assert!(persisted_record(&store).contains_key(&network));
         });
     }
@@ -165,12 +180,18 @@ proptest! {
         network in network_seed(),
     ) {
         block_on(async {
-            let rumors = network.peer::<String>().sync_memory_budget(0).into_rumors();
-            rumors.send("keep this message".into()).unwrap();
-            let hash = rumors.snapshot().hash();
-            let peer = rumors.try_into_peer().await.unwrap();
-            let party = peer.dangerously_alias_party();
-            let network = peer.network();
+            let server = network.builder::<String>().sync_memory_budget(0).seed();
+            server.send("keep this message".into()).unwrap();
+            let hash = server.snapshot().hash();
+            let network = server.network();
+            // The first attachment records the joined peer's identity and then
+            // fails, so the record names the peer the format failure hands back.
+            let recorded = Arc::new(Mutex::new(None));
+            let unbookmarked = join_bookmarked(&server, RecordThenFail::new(recorded.clone()))
+                .await
+                .expect_err("the recording store fails");
+            let record = persisted_record(&recorded);
+            let party = record[&network][0].party();
             // A CBOR break cannot begin the bookmark envelope, regardless of
             // the suffix. No payload can accidentally turn this into a valid record.
             let mut bytes = vec![0xff];
@@ -181,12 +202,13 @@ proptest! {
                 Arc::new(Mutex::new(FaultFeed::new(vec![], vec![]))),
                 0,
             );
-            let Unbookmarked { peer, error } = peer.bookmark(bookmark).await.unwrap_err();
-            assert!(matches!(error, BookmarkIo::Format(_)));
-            assert_eq!(peer.dangerously_alias_party(), party);
+            let unbookmarked = unbookmarked.retry_bookmark(bookmark).await.unwrap_err();
+            assert!(matches!(unbookmarked.error, BookmarkIo::Format(_)));
+            let peer = unbookmarked.continue_unbookmarked();
+            assert_eq!(&peer.dangerously_alias_party(), party);
             assert_eq!(peer.network(), network);
             assert_eq!(*store.lock().unwrap(), Some(bytes));
-            assert_eq!(peer.into_rumors().snapshot().hash(), hash);
+            assert_eq!(peer.snapshot().hash(), hash);
         });
     }
 }
@@ -207,19 +229,16 @@ divided_proptest! {
         block_on(async {
             // A seeds network N over a reliable store and gossips it onward.
             let store_a = Arc::new(Mutex::new(None));
-            let a = network.peer::<String>()
+            let a = network.builder::<String>()
                 .sync_memory_budget(0)
-                .bookmark(FlakyInMemoryBookmark::new(store_a, reliable(), 0))
+                .bookmark(FlakyInMemoryBookmark::new(store_a, reliable(), 0)).seed()
                 .await
-                .expect("the seed attaches")
-                .into_rumors();
+                .expect("the seed attaches");
 
             // B joins a fork from A and records it durably, then "crashes":
             // its region survives only as a stranded entry in B's store.
             let store_b = Arc::new(Mutex::new(None));
-            let b = join_unbookmarked(&a)
-                .await
-                .bookmark(FlakyInMemoryBookmark::new(store_b.clone(), reliable(), 1))
+            let b = join_bookmarked(&a, FlakyInMemoryBookmark::new(store_b.clone(), reliable(), 1))
                 .await
                 .expect("B records its fork");
             let stranded = b.dangerously_alias_party();
@@ -230,9 +249,15 @@ divided_proptest! {
             // for `reclaim` to fold it in).
             a.send("tick".to_string()).unwrap();
 
-            // B' recovers: a *fresh* fork from A, disjoint from the stranded region.
-            let b_prime = join_unbookmarked(&a).await;
-            let fresh = b_prime.dangerously_alias_party();
+            // B' recovers: a *fresh* fork from A, disjoint from the stranded
+            // region. Its first attachment records that fork and then fails, so
+            // the record names it.
+            let store_c = Arc::new(Mutex::new(None));
+            let b_prime = join_bookmarked(&a, RecordThenFail::new(store_c.clone()))
+                .await
+                .expect_err("the recording store fails");
+            let record_c = persisted_record(&store_c);
+            let fresh = record_c[&a.network()][0].party();
             assert!(
                 fresh.is_disjoint(&stranded),
                 "the fresh fork must be disjoint from the stranded region",
@@ -245,10 +270,11 @@ divided_proptest! {
                 Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true]))),
                 1,
             );
-            let Unbookmarked { peer, error: _ } = b_prime
-                .bookmark(failing)
+            let peer = b_prime
+                .retry_bookmark(failing)
                 .await
-                .expect_err("the injected write must fail the attach");
+                .expect_err("the injected write must fail the attach")
+                .continue_unbookmarked();
 
             // These rights remain available to a future incarnation. Acquiring
             // them here would allow two peers to generate versions in the same region.
@@ -258,7 +284,7 @@ divided_proptest! {
                 "a failed attach must not reclaim the stranded region into the peer",
             );
             assert_eq!(
-                after, fresh,
+                &after, fresh,
                 "a failed attach must leave the live party untouched",
             );
             assert!(

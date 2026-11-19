@@ -224,3 +224,44 @@ impl Bookmark for FlakyInMemoryBookmark {
         Ok(())
     }
 }
+
+/// Storage whose every store replaces the stored record and then reports
+/// failure.
+///
+/// A failed attachment over this storage still leaves the attached peer's
+/// identity in the record, so a test can read the identity of the peer that
+/// the failure handed back.
+#[derive(Clone, Debug)]
+pub struct RecordThenFail {
+    /// The record each store replaces before failing.
+    store: DurableStore,
+}
+
+/// Construct storage that records and then fails.
+impl RecordThenFail {
+    /// Record into `store`, failing every store after replacing it.
+    pub fn new(store: DurableStore) -> Self {
+        Self { store }
+    }
+}
+
+/// Replace the record, then fail.
+impl Bookmark for RecordThenFail {
+    /// The injected failure.
+    type Error = FlakyError;
+    /// An owned snapshot of the stored record.
+    type Reader = std::io::Cursor<Vec<u8>>;
+
+    /// Return the stored record.
+    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
+        Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
+    }
+
+    /// Replace the stored record, then report failure.
+    async fn store(&self, bytes: Vec<u8>) -> Result<(), Self::Error> {
+        *self.store.lock().unwrap() = Some(bytes);
+        Err(FlakyError {
+            op: "write after replacement",
+        })
+    }
+}
