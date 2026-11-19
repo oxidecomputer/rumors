@@ -261,3 +261,27 @@ divided_proptest! {
         assert_ne!(saturated.settings.sizing.run_budget.bytes(), usize::MAX);
     }
 }
+
+proptest! {
+    /// A builder reports exactly the settings of the peer it seeds.
+    ///
+    /// The two agree on the memory budget raised to its target's minimum, the
+    /// target as the budget clamps it, the normalized write batch range, and
+    /// the depth limit, for budgets below the minimum, saturating targets,
+    /// crossed ranges, and any limit.
+    #[test]
+    fn builder_settings_match_seeded_peer(
+        budget in prop_oneof![0usize..(64 << 20), any::<usize>()],
+        target in prop_oneof![0usize..(1 << 20), any::<usize>()],
+        batch in (any::<usize>(), any::<usize>()),
+        depth in any::<u64>(),
+    ) {
+        let builder = PeerBuilder::<u64>::new()
+            .sync_memory_budget(budget)
+            .target_message_size(target)
+            .write_batch_range(batch.0..batch.1)
+            .message_depth_limit(depth);
+        let expected = builder.settings();
+        prop_assert_eq!(builder.seed().settings(), expected);
+    }
+}
