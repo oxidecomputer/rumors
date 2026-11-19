@@ -8,10 +8,10 @@
 //! awaiting — so a regression to a `!Send` return fails this crate's
 //! compilation.
 
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use rumors::{
-    Batch, Bookmark, CausalMessages, Changes, Error, Gossip, Join, Led, Peer, Protocol, Retire,
-    Rumors, Snapshot, TryTick, Unbookmarked, UnorderedMessages,
+    Batch, Bookmark, CausalMessages, Changes, Error, Gossip, Join, Participant, Peer, Protocol,
+    Retire, Snapshot, TryTick, Unbookmarked, UnorderedMessages,
 };
 use rumors_testkit::common::seed::NetworkSeed;
 use serde::{Deserialize, Serialize};
@@ -76,7 +76,6 @@ impl Bookmark for SilentBookmark {
 #[test]
 fn handle_types_are_send_sync() {
     require_send_sync::<Peer<String>>();
-    require_send_sync::<Rumors<String>>();
     require_send_sync::<Snapshot<String>>();
     // `UnorderedMessages` is an exclusively-driven observer: it must move
     // into a spawned task (`Send`), but `&UnorderedMessages` has no
@@ -107,19 +106,18 @@ fn wrapper_traits_do_not_inspect_payloads_bookmarks_or_halves() {
 #[test]
 fn public_value_traits_are_complete() {
     require_hash_eq::<TryTick>();
-    require_hash_eq::<Led>();
+    require_hash_eq::<Participant>();
     require_hash_eq::<Gossip>();
     require_hash_eq::<Protocol>();
     require_ord::<Protocol>();
 }
 
-/// `Rumors::gossip_once`'s future is `Send`: a session can be `tokio::spawn`ed.
+/// `Peer::gossip_once`'s future is `Send`: a session can be `tokio::spawn`ed.
 #[test]
 fn gossip_once_future_is_send() {
-    let alice = NETWORK.peer::<String>().sync_memory_budget(0);
+    let alice = NETWORK.builder::<String>().sync_memory_budget(0).seed();
     let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let rumors = alice.into_rumors();
-    let fut = rumors.gossip_once(&mut end.read, &mut end.write);
+    let fut = alice.gossip_once(&mut end.read, &mut end.write);
     require_send(&fut);
     drop(fut);
 }
@@ -136,20 +134,9 @@ fn join_future_is_send() {
 /// `Peer::retire`'s future is `Send`: leaving can be `tokio::spawn`ed.
 #[test]
 fn retire_future_is_send() {
-    let alice = NETWORK.peer::<String>().sync_memory_budget(0);
+    let alice = NETWORK.builder::<String>().sync_memory_budget(0).seed();
     let (mut end, _peer) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let fut = alice.retire(&mut end.read, &mut end.write);
-    require_send(&fut);
-    drop(fut);
-}
-
-/// `Rumors::try_into_peer`'s future is `Send`: the reunite wait can run in a
-/// spawned task.
-#[test]
-fn try_into_peer_future_is_send() {
-    let alice = NETWORK.peer::<String>().sync_memory_budget(0);
-    let rumors = alice.into_rumors();
-    let fut = rumors.try_into_peer();
     require_send(&fut);
     drop(fut);
 }
@@ -158,7 +145,7 @@ fn try_into_peer_future_is_send() {
 /// consumers.
 #[test]
 fn observer_futures_are_send() {
-    let alice = NETWORK.peer::<String>().sync_memory_budget(0).into_rumors();
+    let alice = NETWORK.builder::<String>().sync_memory_budget(0).seed();
     let mut messages = alice.unordered_messages();
     // The `Stream` face's item future must be `Send`, for
     // `tokio::spawn`d `select!` consumers.
@@ -167,20 +154,25 @@ fn observer_futures_are_send() {
     drop(fut);
 }
 
-/// Custom peer policies retain Send for the continuous driver, the future
-/// that drives it to its end, and the one-shot future.
+/// Custom peer policies retain Send for the future that creates the continuous
+/// driver, the driver, the future that drives it to its end, and the one-shot
+/// future.
 #[test]
 fn configured_gossip_is_send() {
-    let rumors = NETWORK
-        .peer::<String>()
+    let peer = NETWORK
+        .builder::<String>()
         .gossip_when(|changes| changes)
-        .gossip_until(std::future::pending::<()>())
+        .gossip_until(std::future::pending::<()>)
         .gossip_timeout(std::future::pending)
-        .into_rumors();
+        .seed();
     let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-    let driver = rumors.gossip_stream(&mut end.read, &mut end.write);
+    let creating = peer.gossip_stream(&mut end.read, &mut end.write);
+    require_send(&creating);
+    let driver = creating
+        .now_or_never()
+        .expect("creating a driver completes at once");
     require_send(&driver);
     drop(driver);
-    require_send(&rumors.gossip(&mut end.read, &mut end.write));
-    require_send(&rumors.gossip_once(&mut end.read, &mut end.write));
+    require_send(&peer.gossip(&mut end.read, &mut end.write));
+    require_send(&peer.gossip_once(&mut end.read, &mut end.write));
 }

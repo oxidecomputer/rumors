@@ -20,15 +20,18 @@ use futures::stream::FusedStream;
 use futures::{FutureExt, StreamExt};
 use proptest::prelude::*;
 use rumors::{
-    Error, Gossip, Gossiped, Led, Rumors,
+    Error, Gossip, Gossiped, Participant, Peer, PeerBuilder,
     testing::{Quiescence, run_to_quiescence},
 };
 use tokio::io::{AsyncWriteExt, BufReader, DuplexStream};
 use tokio::time::timeout;
 
+use crate::common::budget::BudgetChoice;
 use crate::common::fault::{self, FaultPlan, faulty};
-use crate::common::wire::{join_fork_async, tokio_block_on as block_on, wire_gossip_async};
-use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
+use crate::common::wire::{
+    join_fork_async, join_fork_configured, tokio_block_on as block_on, wire_gossip_async,
+};
+use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
@@ -39,9 +42,19 @@ const DEADLINE: Duration = Duration::from_secs(10);
 
 /// A connected, party-disjoint pair: the first peer of the network `network`
 /// names and a join fork of it.
-async fn pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-    let b = join_fork_async(&a).await;
+async fn pair(network: NetworkSeed) -> (Peer<u64>, Peer<u64>) {
+    pair_with(network, |builder| builder, |builder| builder).await
+}
+
+/// Like [`pair`], with each peer's builder configured by `configure_a` and
+/// `configure_b` before it seeds or joins.
+async fn pair_with(
+    network: NetworkSeed,
+    configure_a: impl FnOnce(PeerBuilder<u64>) -> PeerBuilder<u64>,
+    configure_b: impl FnOnce(PeerBuilder<u64>) -> PeerBuilder<u64>,
+) -> (Peer<u64>, Peer<u64>) {
+    let a: Peer<u64> = configure_a(network.builder().sync_memory_budget(0)).seed();
+    let b = join_fork_configured(&a, configure_b(Peer::builder()), BudgetChoice::Serial).await;
     (a, b)
 }
 
@@ -68,27 +81,21 @@ fn assert_stalled(future: impl Future, failure: &str) {
     }
 }
 
-/// Install a hand-driven stream on a fixture that owns its sole gossip handle.
-/// The fixture permits exactly one driver to consume this stream.
-fn with_policy_stream<S>(rumors: Rumors<u64>, policy: S) -> Rumors<u64>
+/// Install a hand-driven stream as `builder`'s gossip policy. The peer it
+/// builds permits exactly one driver to consume this stream.
+fn with_policy_stream<S>(builder: PeerBuilder<u64>, policy: S) -> PeerBuilder<u64>
 where
     S: stream::Stream + Send + 'static,
     S::Item: Into<Gossip>,
 {
     let policy = std::sync::Mutex::new(Some(policy));
-    rumors
-        .try_into_peer()
-        .now_or_never()
-        .expect("fixture owns the only gossip handle")
-        .expect("fixture reclaims its peer")
-        .gossip_when(move |_| {
-            policy
-                .lock()
-                .unwrap()
-                .take()
-                .expect("one driver per policy stream")
-        })
-        .into_rumors()
+    builder.gossip_when(move |_| {
+        policy
+            .lock()
+            .unwrap()
+            .take()
+            .expect("one driver per policy stream")
+    })
 }
 
 /// One session under two hand-driven drivers: tick one (or both) sides, then
@@ -121,16 +128,14 @@ divided_proptest! {
     #[test]
     fn single_tick_reduces_to_gossip(network in network_seed()) {
         block_on(async {
-            let (a, b) = pair(network).await;
+            let once = || stream::once(std::future::ready(()));
+            let (a, b) = pair_with(network, |builder| with_policy_stream(builder, once()), |builder| with_policy_stream(builder, once())).await;
             a.send(1).unwrap();
             b.send(2).unwrap();
 
             let (mut a_end, mut b_end) = connection();
-            let once = || stream::once(std::future::ready(()));
-            let a = with_policy_stream(a, once());
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            let b = with_policy_stream(b, once());
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
             assert_eq!(a_session.converged, b_session.converged);
@@ -157,21 +162,19 @@ divided_proptest! {
     #[test]
     fn pending_when_serves_remote_initiations(network in network_seed()) {
         block_on(async {
-            let (a, b) = pair(network).await;
+            let (a_tx, a_when) = ticks();
+            let (a, b) = pair_with(network, |builder| with_policy_stream(builder, a_when), |builder| with_policy_stream(builder, stream::pending::<()>())).await;
             let (mut a_end, mut b_end) = connection();
 
-            let (a_tx, a_when) = ticks();
-            let a = with_policy_stream(a, a_when);
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             for round in 0..3u64 {
                 a.send(round).unwrap();
                 a_tx.unbounded_send(()).expect("driver alive");
                 let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
-                assert_eq!(a_session.led, Led::Local, "round {round}: A initiated");
-                assert_eq!(b_session.led, Led::Remote, "round {round}: B responded");
+                assert_eq!(a_session.led, Participant::Local, "round {round}: A initiated");
+                assert_eq!(b_session.led, Participant::Remote, "round {round}: B responded");
                 assert_eq!(a.snapshot().hash(), b.snapshot().hash());
             }
         });
@@ -181,7 +184,7 @@ divided_proptest! {
     ///
     /// A tick with nothing new since this
     /// connection converged initiates nothing — the echo tick that
-    /// [`rumors::Rumors::changes`] fires after a session's own join produces no
+    /// [`rumors::Peer::changes`] fires after a session's own join produces no
     /// second session — while a tick after a real change always initiates.
     /// Wired with `changes()` itself, the way a real driver is.
     ///
@@ -193,8 +196,8 @@ divided_proptest! {
             let (mut a_end, mut b_end) = connection();
 
             // Real drivers: each side's policy stream is its own change signal.
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             // Round 1: the initial `changes()` yield on both sides drives the
             // reconnect-convergence session (both led locally; one session total).
@@ -218,8 +221,8 @@ divided_proptest! {
             // session, B-led.
             b.send(2).unwrap();
             let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
-            assert_eq!(b_session.led, Led::Local, "B had the news");
-            assert_eq!(a_session.led, Led::Remote, "A only served");
+            assert_eq!(b_session.led, Participant::Local, "B had the news");
+            assert_eq!(a_session.led, Participant::Remote, "A only served");
             assert_eq!(a.snapshot().hash(), b.snapshot().hash());
             assert_eq!(a.snapshot().len(), 2);
         });
@@ -236,14 +239,12 @@ divided_proptest! {
     #[test]
     fn heartbeat_ticks_are_free_until_divergence(network in network_seed()) {
         block_on(async {
-            let (a, b) = pair(network).await;
+            let (a_tx, a_when) = ticks();
+            let (a, b) = pair_with(network, |builder| with_policy_stream(builder, a_when), |builder| with_policy_stream(builder, stream::pending::<()>())).await;
             let (mut a_end, mut b_end) = connection();
 
-            let (a_tx, a_when) = ticks();
-            let a = with_policy_stream(a, a_when);
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             // First tick: fresh driver, no token yet — the unconditional first
             // session (reconnect convergence).
@@ -266,7 +267,7 @@ divided_proptest! {
             a.send(7).unwrap();
             a_tx.unbounded_send(()).expect("driver alive");
             let (a_session, _) = one_round(&mut a_sessions, &mut b_sessions).await;
-            assert_eq!(a_session.led, Led::Local);
+            assert_eq!(a_session.led, Participant::Local);
             assert_eq!(a.snapshot().hash(), b.snapshot().hash());
         });
     }
@@ -284,14 +285,12 @@ divided_proptest! {
     #[test]
     fn unconditional_requests_probe_a_converged_connection(network in network_seed()) {
         block_on(async {
-            let (a, b) = pair(network).await;
+            let (a_tx, a_when) = ticks();
+            let (a, b) = pair_with(network, |builder| with_policy_stream(builder, a_when), |builder| with_policy_stream(builder, stream::pending::<Gossip>())).await;
             let (mut a_end, mut b_end) = connection();
 
-            let (a_tx, a_when) = ticks();
-            let a = with_policy_stream(a, a_when);
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            let b = with_policy_stream(b, stream::pending::<Gossip>());
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             // Converge the pair: the fresh driver's first policy item always initiates
             // (reconnect convergence).
@@ -314,8 +313,8 @@ divided_proptest! {
                 a_tx.unbounded_send(Gossip::Unconditionally)
                     .expect("driver alive");
                 let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
-                assert_eq!(a_session.led, Led::Local, "probe {probe}: A initiated");
-                assert_eq!(b_session.led, Led::Remote, "probe {probe}: B served");
+                assert_eq!(a_session.led, Participant::Local, "probe {probe}: A initiated");
+                assert_eq!(b_session.led, Participant::Remote, "probe {probe}: B served");
                 assert_eq!(a_session.converged, first.converged, "probe {probe}");
                 assert_eq!(b_session.converged, first.converged, "probe {probe}");
             }
@@ -345,7 +344,7 @@ divided_proptest! {
     #[test]
     fn changes_propagate_transitively_through_a_chain(network in network_seed()) {
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
             let b = join_fork_async(&a).await;
             let c = join_fork_async(&b).await;
 
@@ -357,10 +356,10 @@ divided_proptest! {
             // Four drivers, every policy stream a real change signal. Consume
             // session items in the background of the convergence check: the
             // drivers only progress while polled.
-            let a_drv = a.gossip_stream(&mut ab_a_end.read, &mut ab_a_end.write);
-            let b_ab_drv = b.gossip_stream(&mut ab_b_end.read, &mut ab_b_end.write);
-            let b_bc_drv = b.gossip_stream(&mut bc_b_end.read, &mut bc_b_end.write);
-            let c_drv = c.gossip_stream(&mut bc_c_end.read, &mut bc_c_end.write);
+            let a_drv = a.gossip_stream(&mut ab_a_end.read, &mut ab_a_end.write).await;
+            let b_ab_drv = b.gossip_stream(&mut ab_b_end.read, &mut ab_b_end.write).await;
+            let b_bc_drv = b.gossip_stream(&mut bc_b_end.read, &mut bc_b_end.write).await;
+            let c_drv = c.gossip_stream(&mut bc_c_end.read, &mut bc_c_end.write).await;
             let drive_all = futures::future::join4(
                 a_drv.for_each(|item| async move {
                     item.expect("A driver session");
@@ -419,17 +418,17 @@ divided_proptest! {
     #[test]
     fn a_redaction_frontier_propagates_transitively_through_a_chain(network in network_seed()) {
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
             let b = join_fork_async(&a).await;
             let c = join_fork_async(&b).await;
 
             let (mut ab_a_end, mut ab_b_end) = connection();
             let (mut bc_b_end, mut bc_c_end) = connection();
 
-            let mut a_drv = a.gossip_stream(&mut ab_a_end.read, &mut ab_a_end.write);
-            let mut b_ab_drv = b.gossip_stream(&mut ab_b_end.read, &mut ab_b_end.write);
-            let mut b_bc_drv = b.gossip_stream(&mut bc_b_end.read, &mut bc_b_end.write);
-            let mut c_drv = c.gossip_stream(&mut bc_c_end.read, &mut bc_c_end.write);
+            let mut a_drv = a.gossip_stream(&mut ab_a_end.read, &mut ab_a_end.write).await;
+            let mut b_ab_drv = b.gossip_stream(&mut ab_b_end.read, &mut ab_b_end.write).await;
+            let mut b_bc_drv = b.gossip_stream(&mut bc_b_end.read, &mut bc_b_end.write).await;
+            let mut c_drv = c.gossip_stream(&mut bc_c_end.read, &mut bc_c_end.write).await;
 
             // The unconditional first sessions converge both connections.
             let initial =
@@ -489,12 +488,11 @@ divided_proptest! {
     #[test]
     fn when_exhaustion_then_hangup_both_end_cleanly(network in network_seed()) {
         block_on(async {
-            let (a, b) = pair(network).await;
+            let (a, b) = pair_with(network, |builder| with_policy_stream(builder, stream::empty::<()>()), |builder| with_policy_stream(builder, stream::pending::<()>())).await;
             let (mut a_end, mut b_end) = connection();
 
             // A's `when` is already exhausted: its driver ends without a session.
-            let a = with_policy_stream(a, stream::empty::<()>());
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
             assert!(
                 timeout(DEADLINE, a_sessions.next())
                     .await
@@ -502,8 +500,7 @@ divided_proptest! {
                     .is_none()
             );
             drop(a_sessions);
-            let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             // Dropping A's end hangs the connection up at a session
             // boundary; B's responder ends cleanly.
@@ -529,19 +526,17 @@ divided_proptest! {
     #[test]
     fn dropping_a_driver_mid_session_commits_nothing(network in network_seed()) {
         pollster::block_on(async {
-            let (a, b) = pair(network).await;
+            let (a_tx, a_when) = ticks();
+            let (a, b) = pair_with(network, |builder| with_policy_stream(builder, a_when), |builder| with_policy_stream(builder, stream::pending::<()>())).await;
             a.send(1).unwrap();
             b.send(2).unwrap();
             let a_before = (a.snapshot().hash(), a.snapshot().latest().clone());
             let b_before = (b.snapshot().hash(), b.snapshot().latest().clone());
 
             let (mut a_end, mut b_end) = connection();
-            let (a_tx, a_when) = ticks();
-            let a = with_policy_stream(a, a_when);
-            let b = with_policy_stream(b, stream::pending::<()>());
             {
-                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-                let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+                let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
                 // Freeze the session mid-flight: a couple of single polls per side
                 // get the preambles (and the first protocol frames) onto the wire,
@@ -586,13 +581,11 @@ divided_proptest! {
         // Deliberately use a minimal executor rather than Tokio: besides avoiding
         // Tokio's cooperative task budget in this manual-poll test, this pins the
         // public driver's promise that it does not require a Tokio runtime.
-        let (a, b) = pollster::block_on(pair(network));
-        let (mut a_end, mut b_end) = connection();
         let (a_tx, a_when) = ticks();
-        let a = with_policy_stream(a, a_when);
-        let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-        let b = with_policy_stream(b, stream::pending::<()>());
-        let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+        let (a, b) = pollster::block_on(pair_with(network, |builder| with_policy_stream(builder, a_when), |builder| with_policy_stream(builder, stream::pending::<()>())));
+        let (mut a_end, mut b_end) = connection();
+        let mut a_sessions = pollster::block_on(a.gossip_stream(&mut a_end.read, &mut a_end.write));
+        let mut b_sessions = pollster::block_on(b.gossip_stream(&mut b_end.read, &mut b_end.write));
 
         a.send(1).unwrap();
         a_tx.unbounded_send(()).expect("driver alive");
@@ -629,21 +622,19 @@ divided_proptest! {
     #[test]
     fn a_clean_end_leaves_the_connection_reusable(network in network_seed()) {
         block_on(async {
-            let (a, b) = pair(network).await;
-            let a = a
-                .try_into_peer()
-                .await
-                .unwrap()
-                .gossip_when(|_| stream::once(std::future::ready(())))
-                .into_rumors();
+            let (a, b) = pair_with(
+                network,
+                |builder| builder.gossip_when(|_| stream::once(std::future::ready(()))),
+                |builder| with_policy_stream(builder, stream::pending::<()>()),
+            )
+            .await;
             let (mut a_end, mut b_end) = connection();
-            let b = with_policy_stream(b, stream::pending::<()>());
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             // Phase 1: a single-tick driver runs one session and ends cleanly.
             a.send(1).unwrap();
             {
-                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
                 let (a_item, b_item) = timeout(
                     DEADLINE,
                     futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -678,7 +669,7 @@ divided_proptest! {
             // Phase 3: and then a second driver.
             a.send(3).unwrap();
             {
-                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
                 let (a_item, b_item) = timeout(
                     DEADLINE,
                     futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -695,24 +686,33 @@ divided_proptest! {
     }
 }
 
-divided_proptest! {
-    #![divisor(LOCAL_DIVISOR)]
+/// A stop factory whose signals the test resolves by creation order.
+#[derive(Clone, Default)]
+struct StopSignals(
+    std::sync::Arc<std::sync::Mutex<Vec<Option<futures::channel::oneshot::Sender<()>>>>>,
+);
 
-    /// Dropping a driver releases its `Rumors` clone like any other: the
-    /// remaining handle reclaims the `Peer`.
-    ///
-    /// The claim holds for every network seed.
-    #[test]
-    fn a_dropped_driver_does_not_block_peer_reclaim(network in network_seed()) {
-        pollster::block_on(async {
-            let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-            let (mut a_end, _b_end) = connection();
-            let rumors = with_policy_stream(rumors, stream::pending::<()>());
-            {
-                let _driver = rumors.gossip_stream(&mut a_end.read, &mut a_end.write);
-            }
-            assert!(rumors.try_into_peer().await.is_some());
-        });
+/// Create, count, and resolve stop signals.
+impl StopSignals {
+    /// Create the next signal, keeping its sender so that only
+    /// [`resolve`](Self::resolve) resolves it.
+    fn next(&self) -> futures::channel::oneshot::Receiver<()> {
+        let (stop, stopped) = futures::channel::oneshot::channel();
+        self.0.lock().unwrap().push(Some(stop));
+        stopped
+    }
+
+    /// Resolve the signal created `nth`, counting from zero.
+    fn resolve(&self, nth: usize) {
+        let stop = self.0.lock().unwrap()[nth]
+            .take()
+            .expect("each signal resolves once");
+        stop.send(()).unwrap();
+    }
+
+    /// How many signals the factory has created.
+    fn created(&self) -> usize {
+        self.0.lock().unwrap().len()
     }
 }
 
@@ -731,8 +731,8 @@ const MAX_SEVER_CUT: usize = 256;
 struct Severed {
     a_items: Vec<Result<Gossiped, Error>>,
     b_items: Vec<Result<Gossiped, Error>>,
-    a: Rumors<u64>,
-    b: Rumors<u64>,
+    a: Peer<u64>,
+    b: Peer<u64>,
 }
 
 /// Run the severed-connection fixture: the [`pair`] with one send on each side,
@@ -742,24 +742,29 @@ struct Severed {
 /// Each side's end is owned by its future, so the failing side's drop surfaces
 /// as EOF to the other rather than deadlocking the join.
 async fn run_severed(network: NetworkSeed, a_fault: FaultPlan, b_fault: FaultPlan) -> Severed {
-    let (a, b) = pair(network).await;
+    let (a, b) = pair_with(
+        network,
+        |builder| with_policy_stream(builder, stream::once(std::future::ready(()))),
+        |builder| with_policy_stream(builder, stream::pending::<()>()),
+    )
+    .await;
     a.send(1).unwrap();
     b.send(2).unwrap();
 
     let (a_side, b_side) = connection();
     let a_end = faulty(a_side, a_fault);
     let b_end = faulty(b_side, b_fault);
-    let a = with_policy_stream(a, stream::once(std::future::ready(())));
-    let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
         let mut a_end = a_end;
         a.gossip_stream(&mut a_end.read, &mut a_end.write)
+            .await
             .collect::<Vec<_>>()
             .await
     };
     let b_task = async {
         let mut b_end = b_end;
         b.gossip_stream(&mut b_end.read, &mut b_end.write)
+            .await
             .collect::<Vec<_>>()
             .await
     };
@@ -835,24 +840,29 @@ async fn check_severed(run: &Severed) {
 /// from one network seed, which lets [`a_lost_marker_certifies_one_side`] place
 /// a cut one byte short of a clean session.
 async fn fixture_session_bytes(network: NetworkSeed) -> (usize, usize, usize) {
-    let (a, b) = pair(network).await;
+    let (a, b) = pair_with(
+        network,
+        |builder| with_policy_stream(builder, stream::once(std::future::ready(()))),
+        |builder| with_policy_stream(builder, stream::pending::<()>()),
+    )
+    .await;
     a.send(1).unwrap();
     b.send(2).unwrap();
 
     let (a_side, b_side) = connection();
     let (a_end, a_meter) = fault::metered(a_side);
     let (b_end, b_meter) = fault::metered(b_side);
-    let a = with_policy_stream(a, stream::once(std::future::ready(())));
-    let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
         let mut a_end = a_end;
         a.gossip_stream(&mut a_end.read, &mut a_end.write)
+            .await
             .collect::<Vec<_>>()
             .await
     };
     let b_task = async {
         let mut b_end = b_end;
         b.gossip_stream(&mut b_end.read, &mut b_end.write)
+            .await
             .collect::<Vec<_>>()
             .await
     };
@@ -1040,15 +1050,13 @@ proptest! {
         network in network_seed(),
     ) {
         block_on(async {
-            let (a, b) = pair(network).await;
-            let (mut a_end, mut b_end) = connection();
             let (a_tx, a_when) = ticks();
             let (b_tx, b_when) = ticks();
+            let (a, b) = pair_with(network, |builder| with_policy_stream(builder, a_when), |builder| with_policy_stream(builder, b_when)).await;
+            let (mut a_end, mut b_end) = connection();
 
-            let a = with_policy_stream(a, a_when);
-            let a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            let b = with_policy_stream(b, b_when);
-            let b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
 
             // Collectors poll the drivers to completion; any session error
             // panics, which is the test's core assertion.
@@ -1135,7 +1143,9 @@ proptest! {
     #[test]
     fn truncated_initiation_is_a_terminal_error(network in network_seed()) {
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let a: Peer<u64> =
+                with_policy_stream(network.builder().sync_memory_budget(0), stream::pending::<()>())
+                    .seed();
             let (mut a_end, b) = rumors::testing::memory_connection(ROOMY_CAPACITY);
             // Drive the counterparty by hand: keep its read half alive so A's own
             // writes succeed, while its write half toward A carries only a partial
@@ -1143,8 +1153,7 @@ proptest! {
             let mut b_write = b.write;
             let _b_read = b.read;
 
-            let a = with_policy_stream(a, stream::pending::<()>());
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
 
             // Four bytes of a preamble, then hang up mid-preamble. Closing the
             // write half toward A signals end-of-stream on A's read half.
@@ -1185,7 +1194,9 @@ proptest! {
     #[test]
     fn a_read_error_on_the_idle_boundary_is_terminal(network in network_seed()) {
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let a: Peer<u64> =
+                with_policy_stream(network.builder().sync_memory_budget(0), stream::pending::<()>())
+                    .seed();
             let (a_end, _b_end) = connection();
             let mut a_end = faulty(
                 a_end,
@@ -1196,9 +1207,8 @@ proptest! {
                 },
             );
 
-            let a = with_policy_stream(a, stream::pending::<()>());
             {
-                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+                let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
                 let item = timeout(DEADLINE, a_sessions.next())
                     .await
                     .expect("error never surfaced")
@@ -1247,17 +1257,16 @@ async fn arrange_ending(
     network: NetworkSeed,
     ending: Ending,
 ) -> (
-    Rumors<u64>,
+    Peer<u64>,
     rumors::testing::MemoryEnd,
     (Option<BufReader<DuplexStream>>, Option<DuplexStream>),
 ) {
-    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-    let (a_end, b_end) = connection();
     let policy = match ending {
         Ending::PolicyEnds => stream::empty::<()>().left_stream(),
         Ending::HangUp | Ending::TerminalError => stream::pending::<()>().right_stream(),
     };
-    let a = with_policy_stream(a, policy);
+    let a: Peer<u64> = with_policy_stream(network.builder().sync_memory_budget(0), policy).seed();
+    let (a_end, b_end) = connection();
     let kept_open = match ending {
         Ending::PolicyEnds => (Some(b_end.read), Some(b_end.write)),
         Ending::HangUp => (None, None),
@@ -1290,7 +1299,7 @@ divided_proptest! {
     ) {
         block_on(async {
             let (a, mut a_end, _kept_open) = arrange_ending(network, ending).await;
-            let mut sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
+            let mut sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
             if let Ending::TerminalError = ending {
                 assert!(
                     matches!(next_item(&mut sessions).await, Some(Err(_))),
@@ -1340,41 +1349,44 @@ divided_proptest! {
     }
 
     /// A resolved `gossip_until` signal ends a driver at its next session
-    /// boundary, even under a policy that never ends, and every driver started
-    /// after it resolves ends at once, without a session.
+    /// boundary, even under a policy that never ends, and a driver started
+    /// after it resolves runs under a fresh signal from the factory.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn gossip_until_ends_every_driver_under_any_policy(network in network_seed()) {
         block_on(async {
-            let (a, b) = pair(network).await;
-            let (stop, stopped) = futures::channel::oneshot::channel::<()>();
-            let a = a
-                .try_into_peer()
-                .now_or_never()
-                .expect("fixture owns the only gossip handle")
-                .expect("fixture reclaims its peer")
-                .gossip_when(|_| stream::pending::<()>())
-                .gossip_until(stopped)
-                .into_rumors();
+            let signals = StopSignals::default();
+            let factory = signals.clone();
+            let (a, b) = pair_with(
+                network,
+                |builder| {
+                    builder
+                        .gossip_when(|_| stream::pending::<()>())
+                        .gossip_until(move || factory.next())
+                },
+                |builder| builder,
+            )
+            .await;
             b.send(1).unwrap();
 
             // B's default policy initiates; A only serves, and converges.
             let (mut a_end, mut b_end) = connection();
-            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write);
-            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write);
+            let mut a_sessions = a.gossip_stream(&mut a_end.read, &mut a_end.write).await;
+            let mut b_sessions = b.gossip_stream(&mut b_end.read, &mut b_end.write).await;
             one_round(&mut a_sessions, &mut b_sessions).await;
             assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 
-            stop.send(()).unwrap();
+            signals.resolve(0);
             assert!(next_item(&mut a_sessions).await.is_none(), "the stopped driver ends");
 
             let (mut later_end, _remote) = connection();
-            let mut later = a.gossip_stream(&mut later_end.read, &mut later_end.write);
+            let mut later = a.gossip_stream(&mut later_end.read, &mut later_end.write).await;
             assert!(
-                next_item(&mut later).await.is_none(),
-                "a driver started after the stop ends at once"
+                later.next().now_or_never().is_none(),
+                "a driver started after the stop waits under a fresh signal"
             );
+            assert_eq!(signals.created(), 2, "the later driver called the factory");
         });
     }
 }
