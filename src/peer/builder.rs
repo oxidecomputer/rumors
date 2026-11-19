@@ -231,6 +231,30 @@ impl<T: Send + Sync + 'static, B> PeerBuilder<T, B> {
         self
     }
 
+    /// Set the policy for when each [`Peer`] will stop gossiping, i.e. graceful
+    /// shutdown.
+    ///
+    /// This cleanly terminates gossip with a peer during
+    /// [`Peer::gossip`](crate::Peer::gossip) or
+    /// [`Peer::gossip_stream`](crate::Peer::gossip_stream) once the signal from
+    /// `stop` resolves.
+    ///
+    /// [`Peer::retire`] waits for every other handle to be dropped or to retire
+    /// too, so resolving the signal allows it to proceed once the gossiping
+    /// clones have dropped.
+    ///
+    /// Gossip sessions share the signal `stop` last created until it resolves;
+    /// a gossip session started after that calls `stop` for a fresh signal, so
+    /// gossip can be restarted without reconfiguring the peer.
+    pub fn gossip_until<F, S>(mut self, stop: F) -> Self
+    where
+        F: Fn() -> S + Send + Sync + 'static,
+        S: Future + Send + 'static,
+    {
+        self.settings.gossip_policy.set_until(stop);
+        self
+    }
+
     /// Impose a timeout on the completion of each gossip session. This is
     /// disabled by default.
     ///

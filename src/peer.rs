@@ -883,24 +883,6 @@ impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
         self
     }
 
-    /// Graceful shutdown: end every gossip driver's initiation policy once
-    /// `stop` resolves.
-    ///
-    /// [`Rumors::try_into_peer`] waits for every other handle to be dropped, so
-    /// invoking `stop` allows it to resolve and collect all the disparate
-    /// gossiping clones back into a single [`Peer`].
-    ///
-    /// Once `stop` has resolved, it stays in effect: a driver started later
-    /// ends at once. Replace it (e.g. with [`std::future::pending`] to reset
-    /// the policy entirely) before restarting gossip.
-    pub fn gossip_until<F>(mut self, stop: F) -> Self
-    where
-        F: Future + Send + 'static,
-    {
-        self.settings.gossip_policy.set_until(stop);
-        self
-    }
-
     /// Impose a timeout on the completion of each gossip session. This is
     /// disabled by default.
     ///

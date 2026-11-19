@@ -1,7 +1,7 @@
 //! Application factories for connection initiation and gossip timeouts.
 
 use std::future::{Future, pending};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use futures::future::{BoxFuture, Either, FutureExt, Shared};
 use futures::stream::BoxStream;
@@ -15,6 +15,45 @@ type Initiation<T> = dyn Fn(Changes<T>) -> BoxStream<'static, Gossip> + Send + S
 /// A new deadline future for one active session.
 type Deadline = dyn Fn() -> BoxFuture<'static, ()> + Send + Sync;
 
+/// A new stop signal.
+type Stop = dyn Fn() -> BoxFuture<'static, ()> + Send + Sync;
+
+/// The stop factory and the current signal.
+struct Until {
+    /// Creates each signal.
+    factory: Box<Stop>,
+    /// The signal the drivers share.
+    current: Mutex<Option<Shared<BoxFuture<'static, ()>>>>,
+}
+
+/// Hand each starting driver the current signal.
+impl Until {
+    /// Return the current signal, or a fresh one if it has resolved.
+    fn current(&self) -> Shared<BoxFuture<'static, ()>> {
+        let observed = self.lock().clone();
+        if let Some(stop) = &observed
+            && stop.clone().now_or_never().is_none()
+        {
+            return stop.clone();
+        }
+        let fresh = (self.factory)().shared();
+        let mut current = self.lock();
+        match (&*current, &observed) {
+            (Some(installed), Some(observed)) if !installed.ptr_eq(observed) => installed.clone(),
+            (Some(installed), None) => installed.clone(),
+            _ => {
+                *current = Some(fresh.clone());
+                fresh
+            }
+        }
+    }
+
+    /// Lock the current signal.
+    fn lock(&self) -> MutexGuard<'_, Option<Shared<BoxFuture<'static, ()>>>> {
+        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// Immutable factories shared by a replica's handles; each driver owns its
 /// state.
 pub(crate) struct Policy<T: Send + Sync + 'static> {
@@ -24,7 +63,7 @@ pub(crate) struct Policy<T: Send + Sync + 'static> {
     deadline: Option<Arc<Deadline>>,
     /// None lets the policy stream run until it ends on its own; once this
     /// resolves, it ends every driver's policy stream.
-    until: Option<Shared<BoxFuture<'static, ()>>>,
+    until: Option<Arc<Until>>,
 }
 
 /// Default to push-on-change with no gossip timeout.
@@ -75,11 +114,15 @@ impl<T: Send + Sync + 'static> Policy<T> {
     }
 
     /// Replace the signal that ends every driver's policy stream.
-    pub(super) fn set_until<F>(&mut self, until: F)
+    pub(super) fn set_until<F, S>(&mut self, until: F)
     where
-        F: Future + Send + 'static,
+        F: Fn() -> S + Send + Sync + 'static,
+        S: Future + Send + 'static,
     {
-        self.until = Some(until.map(drop).boxed().shared());
+        self.until = Some(Arc::new(Until {
+            factory: Box::new(move || until().map(drop).boxed()),
+            current: Mutex::new(None),
+        }));
     }
 
     /// Race a complete wire exchange against one application-owned deadline. A
@@ -112,7 +155,7 @@ impl<T: Send + Sync + 'static> Policy<T> {
             None => Box::pin(changes.map(Into::into)),
         };
         match &self.until {
-            Some(until) => Box::pin(when.take_until(until.clone())),
+            Some(until) => Box::pin(when.take_until(until.current())),
             None => when,
         }
     }
