@@ -21,7 +21,7 @@ use rumors_testkit::divided_proptest;
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>(
     network: NetworkSeed,
 ) -> Peer<T> {
-    network.peer().sync_memory_budget(0)
+    network.builder().sync_memory_budget(0).seed()
 }
 
 divided_proptest! {
@@ -29,27 +29,20 @@ divided_proptest! {
 
     /// Every handle on one set of messages belongs to the same network.
     ///
-    /// A [`Rumors`](rumors::Rumors) (and its clones) inherits the originating
-    /// [`Peer`]'s [`Network`](rumors::Network) unchanged, and the reclaimed
-    /// `Peer` carries it back out.
+    /// A [`Peer`]'s clones and snapshots carry its
+    /// [`Network`](rumors::Network) unchanged.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn rumors_preserves_network(network in network_seed()) {
-        let parent = network.peer::<u64>().sync_memory_budget(0);
-        let network = parent.network();
-
-        let rumors = parent.into_rumors();
-        assert_eq!(rumors.network(), network);
-        assert_eq!(rumors.clone().network(), network);
+    fn clones_preserve_network(network in network_seed()) {
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        let network = peer.network();
+        assert_eq!(peer.clone().network(), network);
         assert_eq!(
-            rumors.snapshot().network(),
+            peer.snapshot().network(),
             network,
             "a snapshot carries its set's network"
         );
-
-        let parent = block_on(rumors.try_into_peer()).expect("the sole reuniter reclaims the Peer");
-        assert_eq!(parent.network(), network);
     }
 
     /// Independent [`seed`](Peer::seed)s create distinct networks — the positive
@@ -83,8 +76,8 @@ divided_proptest! {
     fn gossip_rejects_foreign_network(
         (network, other_network) in distinct_network_seeds(),
     ) {
-        let alice = seeded::<u64>(network).into_rumors();
-        let bob = seeded::<u64>(other_network).into_rumors();
+        let alice = seeded::<u64>(network);
+        let bob = seeded::<u64>(other_network);
         alice.send(1).unwrap();
         bob.send(2).unwrap();
         let alice_hash = alice.snapshot().hash();
@@ -115,16 +108,11 @@ divided_proptest! {
             (alice_out, alice.network(), bob.network()),
             (bob_out, bob.network(), alice.network()),
         ] {
-            let Err(Error::Mismatch(Mismatch::Network {
-                local_network,
-                remote_network,
-                ..
-            })) = outcome
-            else {
+            let Err(Error::Mismatch(Mismatch::Network(mismatch))) = outcome else {
                 panic!("expected a network mismatch, got {outcome:?}");
             };
-            assert_eq!(local_network, ours);
-            assert_eq!(remote_network, theirs);
+            assert_eq!(mismatch.local.network(), ours);
+            assert_eq!(mismatch.remote.network(), theirs);
         }
         assert_eq!(alice.snapshot().hash(), alice_hash);
         assert_eq!(bob.snapshot().hash(), bob_hash);
@@ -144,13 +132,12 @@ divided_proptest! {
     fn retire_rejects_foreign_network_without_consuming_the_peer(
         (network, other_network) in distinct_network_seeds(),
     ) {
-        let donor = seeded::<u64>(network).into_rumors();
+        let donor = seeded::<u64>(network);
         donor.send(1).unwrap();
         let donor_hash = donor.snapshot().hash();
         let donor_party = donor.dangerously_alias_party();
-        let donor = block_on(donor.try_into_peer()).expect("the sole handle reclaims the peer");
 
-        let absorber = seeded::<u64>(other_network).into_rumors();
+        let absorber = seeded::<u64>(other_network);
         absorber.send(2).unwrap();
         let absorber_hash = absorber.snapshot().hash();
 
@@ -163,16 +150,15 @@ divided_proptest! {
             )
         });
 
-        let Retire::Recovered { peer, error } = retired else {
+        let Retire::Recovered { peer: donor, error } = retired else {
             panic!("a network mismatch must return the donor, got {retired:?}");
         };
-        assert!(matches!(error, Error::Mismatch(Mismatch::Network { .. })));
+        assert!(matches!(error, Error::Mismatch(Mismatch::Network(_))));
         assert!(matches!(
             served,
-            Err(Error::Mismatch(Mismatch::Network { .. }))
+            Err(Error::Mismatch(Mismatch::Network(_)))
         ));
 
-        let donor = peer.into_rumors();
         assert_eq!(donor.snapshot().hash(), donor_hash);
         assert_eq!(donor.dangerously_alias_party(), donor_party);
         assert_eq!(absorber.snapshot().hash(), absorber_hash);
@@ -184,7 +170,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn join_adopts_provider_network(network in network_seed()) {
-        let provider = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let provider = network.builder::<u64>().sync_memory_budget(0).seed();
         provider.send_all([1, 2, 3]).unwrap();
         let provider_network = provider.network();
 

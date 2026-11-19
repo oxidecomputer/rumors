@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Rumors, Version, causally};
+use rumors::{Peer, Retire, Version, causally};
 
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
@@ -38,12 +38,12 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn genesis_replay_observes_the_live_set_once(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
         {
-            rumors.send_all(0..8u64).unwrap();
+            peer.send_all(0..8u64).unwrap();
         }
 
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let (items, ended) = drain(&mut obs);
         assert!(
             !ended,
@@ -57,7 +57,7 @@ divided_proptest! {
         assert_eq!(observed.len(), items.len(), "no message is observed twice");
         assert_eq!(
             observed,
-            live_map(&rumors),
+            live_map(&peer),
             "exactly the live set is observed"
         );
 
@@ -75,12 +75,12 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn checkpoint_start_observes_only_what_it_does_not_contain(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send_all([1, 2, 3]).unwrap();
-        let v_mid = rumors.snapshot().latest().clone();
-        rumors.send_all([4, 5, 6]).unwrap();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send_all([1, 2, 3]).unwrap();
+        let v_mid = peer.snapshot().latest().clone();
+        peer.send_all([4, 5, 6]).unwrap();
 
-        let mut obs = rumors.unordered_messages_since(v_mid.clone());
+        let mut obs = peer.unordered_messages_since(v_mid.clone());
         let (items, _) = drain(&mut obs);
 
         let observed: BTreeSet<u64> = items.iter().map(|(_, m)| *m).collect();
@@ -103,13 +103,13 @@ divided_proptest! {
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// Live delivery: messages sent through a sibling `Rumors` clone
+    /// Live delivery: messages sent through a sibling `Peer` clone
     /// after subscription are observed, as are messages learned via gossip.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn live_sends_and_gossip_learned_messages_are_observed(network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let b = join_fork(&a);
 
         let sibling = a.clone();
@@ -146,26 +146,26 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn redactions_are_honored_silently(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
 
         // Redacted before subscription: never fires.
-        let version_1 = rumors.send(1).unwrap();
-        rumors.redact(&version_1);
-        let mut obs = rumors.unordered_messages();
+        let version_1 = peer.send(1).unwrap();
+        peer.redact(&version_1);
+        let mut obs = peer.unordered_messages();
         let (items, _) = drain(&mut obs);
         assert!(items.is_empty(), "a pre-subscription redaction never fires");
 
         // Observed, then redacted: nothing further fires.
-        let version_2 = rumors.send(2).unwrap();
+        let version_2 = peer.send(2).unwrap();
         let (items, _) = drain(&mut obs);
         assert_eq!(items.len(), 1, "the live message fires once");
-        rumors.redact(&version_2);
+        peer.redact(&version_2);
         let (items, _) = drain(&mut obs);
         assert!(items.is_empty(), "a redaction fires no further observation");
 
         // Inserted and redacted wholly between passes: never delivered.
-        let version_3 = rumors.send(3).unwrap();
-        rumors.redact(&version_3);
+        let version_3 = peer.send(3).unwrap();
+        peer.redact(&version_3);
         let (items, _) = drain(&mut obs);
         assert!(
             items.is_empty(),
@@ -173,11 +173,11 @@ divided_proptest! {
         );
 
         // A from-now observer does not see pre-subscription content.
-        rumors.send(4).unwrap();
-        let mut from_now = rumors.unordered_messages_since(rumors.snapshot().latest().clone());
+        peer.send(4).unwrap();
+        let mut from_now = peer.unordered_messages_since(peer.snapshot().latest().clone());
         let (items, _) = drain(&mut from_now);
         assert!(items.is_empty(), "a from-now observer starts quiet");
-        rumors.send(5).unwrap();
+        peer.send(5).unwrap();
         let (items, _) = drain(&mut from_now);
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].1, 5, "only post-subscription content fires");
@@ -189,12 +189,12 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn observer_drains_the_final_state_then_ends(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send_all([1, 2]).unwrap();
-        let expected = live_map(&rumors);
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send_all([1, 2]).unwrap();
+        let expected = live_map(&peer);
 
-        let mut obs = rumors.unordered_messages();
-        drop(rumors);
+        let mut obs = peer.unordered_messages();
+        drop(peer);
 
         let (items, ended) = drain(&mut obs);
         assert!(ended, "with every sender gone the observer ends");
@@ -217,15 +217,15 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn observer_stays_quiet_while_actors_live(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send(1).unwrap();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send(1).unwrap();
 
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let (_, ended) = drain(&mut obs);
         assert!(!ended, "a live handle keeps the observer open");
 
-        let sibling = rumors.clone();
-        drop(rumors);
+        let sibling = peer.clone();
+        drop(peer);
         let (_, ended) = drain(&mut obs);
         assert!(!ended, "a surviving clone keeps the observer open");
 
@@ -239,36 +239,40 @@ divided_proptest! {
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// Reunite non-interference: an outstanding observer is not an actor —
-    /// it neither blocks [`Rumors::try_into_peer`](rumors::Rumors::try_into_peer)
-    /// nor is ended by it, and it keeps observing across the round-trip.
+    /// Retirement non-interference: an outstanding observer is not an actor.
+    ///
+    /// It neither blocks [`Peer::retire`](rumors::Peer::retire) nor is ended
+    /// by a failed retirement, and it keeps observing through the handle that
+    /// failure returns.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn observer_does_not_block_reunite_and_survives_it(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+    fn observer_does_not_block_retirement_and_survives_its_failure(network in network_seed()) {
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
 
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let (_, ended) = drain(&mut obs);
         assert!(!ended);
 
-        // Reuniting resolves immediately despite the outstanding observer.
-        let peer = rumors
-            .try_into_peer()
+        // Retiring over a dead connection fails at once despite the
+        // outstanding observer.
+        let retired = peer
+            .retire(tokio::io::empty(), tokio::io::sink())
             .now_or_never()
-            .expect("an observer does not count against quiescence")
-            .expect("the sole reuniter reclaims the Peer");
+            .expect("an observer does not count against quiescence");
+        let Retire::Recovered { peer: returned, .. } = retired else {
+            panic!("a dead connection fails before the point of no return");
+        };
 
-        // The round-trip neither ended the observer nor closed the set: a send
-        // through a fresh handle is still observed.
-        let rumors = peer.into_rumors();
-        rumors.send(42).unwrap();
+        // The failure neither ended the observer nor closed the set: a send
+        // through the returned handle is still observed.
+        returned.send(42).unwrap();
         let (items, ended) = drain(&mut obs);
-        assert!(!ended, "the reclaimed Peer keeps the set open");
+        assert!(!ended, "the returned handle keeps the set open");
         assert_eq!(
             items.len(),
             1,
-            "the observer keeps observing across reunite"
+            "the observer keeps observing across the failed retirement"
         );
         assert_eq!(items[0].1, 42);
     }
@@ -284,16 +288,16 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn lent_borrows_do_not_block_senders(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send_all([1, 2]).unwrap();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send_all([1, 2]).unwrap();
 
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let lent = block_on(obs.next()).expect("first item of the pass");
         let lent_value = *lent.1;
 
         // With the yielded item outstanding (the observer is mid-pass), a
         // send must not deadlock.
-        rumors.send(3).unwrap();
+        peer.send(3).unwrap();
 
         let (rest, _) = drain(&mut obs);
         assert!(
@@ -313,15 +317,15 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn checkpoint_round_trips_on_an_unchanged_set(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send_all([1, 2, 3]).unwrap();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send_all([1, 2, 3]).unwrap();
 
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let (items, _) = drain(&mut obs);
         assert_eq!(items.len(), 3);
         let checkpoint = obs.checkpoint().clone();
 
-        let mut resumed = rumors.unordered_messages_since(checkpoint.clone());
+        let mut resumed = peer.unordered_messages_since(checkpoint.clone());
         let (items, _) = drain(&mut resumed);
         assert!(items.is_empty(), "nothing fires on an unchanged set");
         assert_eq!(
@@ -342,7 +346,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn checkpoint_is_portable_across_replicas(network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let b = join_fork(&a);
 
         a.send(1).unwrap();
@@ -376,10 +380,10 @@ divided_proptest! {
     fn try_next_distinguishes_quiet_from_ended(network in network_seed()) {
         use rumors::TryNext;
 
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send_all([1, 2]).unwrap();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send_all([1, 2]).unwrap();
 
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let mut seen = BTreeSet::new();
         while let TryNext::Message((_, m)) = obs.try_next() {
             seen.insert(*m);
@@ -390,13 +394,13 @@ divided_proptest! {
             "with a handle live, a drained observer is quiet, not ended"
         );
 
-        rumors.send(3).unwrap();
+        peer.send(3).unwrap();
         let TryNext::Message((_, m)) = obs.try_next() else {
             panic!("the new send is immediately available");
         };
         assert_eq!(*m, 3);
 
-        drop(rumors);
+        drop(peer);
         assert!(matches!(obs.try_next(), TryNext::Ended));
         assert!(
             matches!(obs.try_next(), TryNext::Ended),
@@ -410,18 +414,18 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn stream_face_matches_and_terminates(network in network_seed()) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send_all([1, 2]).unwrap();
-        let expected = live_map(&rumors);
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send_all([1, 2]).unwrap();
+        let expected = live_map(&peer);
 
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let mut items = BTreeMap::new();
         while let Some(Some((v, m))) = obs.next().now_or_never() {
             items.insert(v.as_bytes().to_vec(), *m);
         }
         assert_eq!(items, expected, "the Stream face yields the live set");
 
-        drop(rumors);
+        drop(peer);
         assert_eq!(
             obs.next().now_or_never(),
             Some(None),
@@ -464,21 +468,21 @@ fn folding_delivered_versions_can_lose_a_message() {
     // Send until it puts a later version first.
     const MAX_SENDS: u64 = 16;
     const EARLIEST: u64 = 0;
-    let rumors = COUNTEREXAMPLE_NETWORK
-        .peer::<u64>()
+    let peer = COUNTEREXAMPLE_NETWORK
+        .builder::<u64>()
         .sync_memory_budget(0)
-        .into_rumors();
+        .seed();
     let sent = (EARLIEST..MAX_SENDS)
         .find_map(|value| {
-            rumors.send(value).unwrap();
-            let snapshot = rumors.snapshot();
+            peer.send(value).unwrap();
+            let snapshot = peer.snapshot();
             let (_, first) = snapshot.iter().next().expect("a live message");
             (*first != EARLIEST).then_some(value + 1)
         })
         .expect("within a few sends, a later version's path sorts first");
 
     // Deliver exactly one item — a later version — and stop mid-pass.
-    let mut obs = rumors.unordered_messages();
+    let mut obs = peer.unordered_messages();
     let Step::Item((delivered_version, delivered_value)) = step(&mut obs) else {
         panic!("the populated set delivers an item");
     };
@@ -490,7 +494,7 @@ fn folding_delivered_versions_can_lose_a_message() {
         fold |= &delivered_version;
         fold
     };
-    let mut resumed_from_fold = rumors.unordered_messages_since(fold);
+    let mut resumed_from_fold = peer.unordered_messages_since(fold);
     let (items, _) = drain(&mut resumed_from_fold);
     assert!(
         items.iter().all(|(_, value)| *value != EARLIEST),
@@ -499,7 +503,7 @@ fn folding_delivered_versions_can_lose_a_message() {
 
     // The sound resume: the observer's pass checkpoint (genesis — no pass
     // completed) re-delivers every message. At-least-once, never loss.
-    let mut resumed_from_checkpoint = rumors.unordered_messages_since(obs.checkpoint().clone());
+    let mut resumed_from_checkpoint = peer.unordered_messages_since(obs.checkpoint().clone());
     let (items, _) = drain(&mut resumed_from_checkpoint);
     assert_eq!(
         items.len() as u64,
@@ -519,14 +523,14 @@ proptest! {
         remote in any::<bool>(),
         network in network_seed(),
     ) {
-        redact_during_pass(network, values, taken, redactions, remote, Rumors::unordered_messages)?;
+        redact_during_pass(network, values, taken, redactions, remote, Peer::unordered_messages)?;
     }
 
     /// Delivery remains duplicate-free and covers the final live set across
     /// sends, local and remote redactions, gossip, and partially drained passes.
     #[test]
     fn exactly_once_under_interleaving(ops in arb_ops(), network in network_seed()) {
-        interleave(network, &ops, Rumors::unordered_messages)?;
+        interleave(network, &ops, Peer::unordered_messages)?;
     }
 
     /// Stopping and resuming loses no final live message; each run is duplicate-free.
@@ -539,12 +543,12 @@ proptest! {
         complete_pass in any::<bool>(),
         network in network_seed(),
     ) {
-        let rumors = network.peer::<u64>().sync_memory_budget(0).into_rumors();
-        rumors.send_all(phase_one.iter().copied()).unwrap();
+        let peer = network.builder::<u64>().sync_memory_budget(0).seed();
+        peer.send_all(phase_one.iter().copied()).unwrap();
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
         // drain to quiescence so the pass commits into the checkpoint.
-        let mut obs = rumors.unordered_messages();
+        let mut obs = peer.unordered_messages();
         let mut first_run: Vec<(Version, u64)> = Vec::new();
         if complete_pass {
             let (items, _) = drain(&mut obs);
@@ -561,12 +565,12 @@ proptest! {
         drop(obs);
 
         // More traffic after the stop.
-        rumors.send_all(phase_two.iter().copied()).unwrap();
+        peer.send_all(phase_two.iter().copied()).unwrap();
 
         // Resume from the persisted checkpoint and drain to the end.
-        let mut resumed = rumors.unordered_messages_since(checkpoint);
-        let final_live = live_map(&rumors);
-        drop(rumors);
+        let mut resumed = peer.unordered_messages_since(checkpoint);
+        let final_live = live_map(&peer);
+        drop(peer);
         let (second_run, ended) = drain(&mut resumed);
         prop_assert!(ended);
 

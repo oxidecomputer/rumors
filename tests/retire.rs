@@ -13,8 +13,9 @@
 //! whole tree through the descent and the whole party as the trailing frame,
 //! becoming the retiree's successor.
 //!
-//! Retirement consumes the unique `Peer`, excluding concurrent writers.
-//! Snapshot and message observers may remain and drain its final state.
+//! Retirement consumes the retiring handle, and waits until every other handle
+//! has dropped or is also retiring, excluding concurrent writers. Snapshot and
+//! message observers may remain and drain its final state.
 
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
@@ -22,7 +23,7 @@ use rumors_testkit::common::wire::ROOMY_CAPACITY;
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
-use rumors::{Connection, Peer, Retire, Rumors, causally};
+use rumors::{Connection, Peer, Retire, causally};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::fault::{self, FaultPlan};
@@ -35,7 +36,7 @@ use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 use rumors_testkit::divided_proptest;
 
 /// Send a fixed fixture's messages and return the same handle.
-fn with_messages(peer: Rumors<u64>, messages: &[u64]) -> Rumors<u64> {
+fn with_messages(peer: Peer<u64>, messages: &[u64]) -> Peer<u64> {
     peer.send_all(messages.iter().copied()).unwrap();
     peer
 }
@@ -54,7 +55,7 @@ struct Fingerprint {
 }
 
 /// Capture the live content and causal frontier of a replica.
-fn fingerprint(peer: &Rumors<u64>) -> Fingerprint {
+fn fingerprint(peer: &Peer<u64>) -> Fingerprint {
     let snapshot = peer.snapshot();
     Fingerprint {
         content: readout(&snapshot),
@@ -69,7 +70,7 @@ fn plain_gossip_fingerprint(
     a_actions: &[LocalAction<u64>],
     b_actions: &[LocalAction<u64>],
 ) -> Fingerprint {
-    let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+    let seed = network.builder::<u64>().sync_memory_budget(0).seed();
     let a = build_local(join_fork(&seed), a_actions);
     let b = build_local(seed, b_actions);
     wire_gossip(&a, &b);
@@ -107,15 +108,11 @@ fn released<T: Send + Sync + 'static, R, W>(outcome: Retire<T, R, W>) -> Outcome
 
 /// Retire the sole handle into a gossiping peer and check the session boundary.
 /// Message observers may outlive the retiring replica.
-fn retire_into_gossip<T>(retiree: Rumors<T>, peer: &Rumors<T>) -> Outcome<T>
+fn retire_into_gossip<T>(retiree: Peer<T>, peer: &Peer<T>) -> Outcome<T>
 where
     T: Send + Sync + 'static,
 {
     block_on(async move {
-        let retiree = retiree
-            .try_into_peer()
-            .await
-            .expect("the sole handle reclaims the Peer");
         let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (retire_out, gossip_out) = tokio::join!(
             retiree.retire(&mut a_end.read, &mut a_end.write),
@@ -131,7 +128,7 @@ where
 /// Like [`retire_into_gossip`], but also counts the novel messages the session
 /// delivered into the gossiping peer (the live leaves above the peer's
 /// pre-session frontier).
-fn retire_into_counting_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> (Outcome<u64>, usize) {
+fn retire_into_counting_gossip(retiree: Peer<u64>, peer: &Peer<u64>) -> (Outcome<u64>, usize) {
     let pre = peer.snapshot().latest().clone();
     let outcome = retire_into_gossip(retiree, peer);
     let novel = peer.snapshot().range(causally::since(&pre)).count();
@@ -139,10 +136,8 @@ fn retire_into_counting_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> (Out
 }
 
 /// Drive `a.retire` against `b.retire` concurrently: a mutual retirement.
-fn retire_into_retire(a: Rumors<u64>, b: Rumors<u64>) -> (Outcome<u64>, Outcome<u64>) {
+fn retire_into_retire(a: Peer<u64>, b: Peer<u64>) -> (Outcome<u64>, Outcome<u64>) {
     block_on(async move {
-        let a = a.try_into_peer().await.expect("a's sole handle");
-        let b = b.try_into_peer().await.expect("b's sole handle");
         let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (a_out, b_out) = tokio::join!(
             a.retire(&mut a_end.read, &mut a_end.write),
@@ -156,16 +151,14 @@ fn retire_into_retire(a: Rumors<u64>, b: Rumors<u64>) -> (Outcome<u64>, Outcome<
 
 /// Drive `retiree.retire` against a fresh `join`. Returns the retiree's
 /// outcome and the joiner's successor (as a data-plane handle).
-fn retire_into_join(retiree: Rumors<u64>) -> (Outcome<u64>, Rumors<u64>) {
+fn retire_into_join(retiree: Peer<u64>) -> (Outcome<u64>, Peer<u64>) {
     block_on(async move {
-        let retiree = retiree
-            .try_into_peer()
-            .await
-            .expect("the sole handle reclaims the Peer");
         let (mut a_end, mut b_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (retire_out, join_out) = tokio::join!(
             retiree.retire(&mut a_end.read, &mut a_end.write),
-            Peer::<u64>::join(&mut b_end.read, &mut b_end.write),
+            Peer::<u64>::builder()
+                .sync_memory_budget(0)
+                .join(&mut b_end.read, &mut b_end.write),
         );
         let retire_out = released(retire_out);
         let rumors::Join::Connected {
@@ -176,7 +169,7 @@ fn retire_into_join(retiree: Rumors<u64>) -> (Outcome<u64>, Rumors<u64>) {
             panic!("the retiree must serve the join");
         };
         assert_connection_drained(a_end, b_end);
-        (retire_out, peer.sync_memory_budget(0).into_rumors())
+        (retire_out, peer)
     })
 }
 
@@ -189,7 +182,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn empty_equal_version_retire_succeeds(network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = join_fork(&seed);
         let b = seed;
 
@@ -211,7 +204,7 @@ divided_proptest! {
         // Both peers hold 1 and 2 (inserted before the fork, so the messages
         // and their versions are shared); the retiree then redacts 1 while the
         // peer inserts 3.
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         seed.send_all([1, 2]).unwrap();
         let version_of_1 = seed
             .snapshot()
@@ -248,7 +241,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn retiree_redaction_of_previously_shared_message_propagates(network in network_seed()) {
-        let seed = network.peer::<String>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<String>().sync_memory_budget(0).seed();
         let retiree = join_fork(&seed);
         let absorber = seed;
         let version = retiree.send("presence".to_owned()).unwrap();
@@ -272,7 +265,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn mutual_retire_declines(network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = with_messages(join_fork(&seed), &[1, 2]);
         let b = with_messages(seed, &[3, 4]);
 
@@ -282,7 +275,7 @@ divided_proptest! {
         let (Retire::Declined { peer: a, .. }, Retire::Declined { peer: b, .. }) = (ra, rb) else {
             panic!("mutual retirement must decline both sides intact");
         };
-        let (a, b) = (a.into_rumors(), b.into_rumors());
+        let (a, b) = (a, b);
         assert_eq!(
             a.snapshot().hash(),
             a_hash,
@@ -312,7 +305,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn retire_into_joiner_hands_off_the_identity(network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let retiree = with_messages(join_fork(&seed), &[1, 2]);
         let network = retiree.network();
         let content = readout(&retiree.snapshot());
@@ -352,7 +345,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn gossip_learns_content_from_divergent_retiree(network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = with_messages(join_fork(&seed), &[1, 2]);
         let b = with_messages(seed, &[3]);
 
@@ -377,7 +370,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn gossip_absorbs_retiree_without_observations(network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = with_messages(join_fork(&seed), &[1, 2]);
         let b = with_messages(seed, &[3, 4]);
 
@@ -414,7 +407,7 @@ proptest! {
         redactions in prop::collection::vec((any::<bool>(), any::<prop::sample::Index>()), 0..10),
         network in network_seed(),
     ) {
-        let survivor = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let survivor = network.builder::<u64>().sync_memory_budget(0).seed();
         survivor.send_all(shared).unwrap();
         let retiree = join_fork(&survivor);
         let shared_versions: Vec<_> = survivor.snapshot().versions().cloned().collect();
@@ -482,7 +475,7 @@ proptest! {
     ) {
         // Wire path: converge, then retire A into B.
         let actual = {
-            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let seed = network.builder::<u64>().sync_memory_budget(0).seed();
             let a = build_local(join_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             wire_gossip(&a, &b);
@@ -512,7 +505,7 @@ proptest! {
     ) {
         // Wire path: retire A into B directly, while they may still diverge.
         let actual = {
-            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let seed = network.builder::<u64>().sync_memory_budget(0).seed();
             let a = build_local(join_fork(&seed), &a_actions);
             let b = build_local(seed, &b_actions);
             let outcome = retire_into_gossip(a, &b);
@@ -535,12 +528,11 @@ proptest! {
 /// clean send or severing it at `cut`. Any returned peer must remain usable and
 /// disjoint from the absorber.
 fn retirement_cut(network: NetworkSeed, cut: Option<usize>, initial: usize) -> usize {
-    let absorber = network.peer::<u64>().into_rumors();
+    let absorber = network.peer::<u64>();
     absorber.send_all(0..initial as u64).unwrap();
     let retiree = join_fork(&absorber);
     let original = retiree.dangerously_alias_party();
     run_to_quiescence(async {
-        let retiree = retiree.try_into_peer().await.unwrap();
         let (retiring, mut receiving) =
             rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let (end, meter) = if let Some(cut) = cut {
@@ -575,10 +567,9 @@ fn retirement_cut(network: NetworkSeed, cut: Option<usize>, initial: usize) -> u
             );
         }
         match retired {
-            Retire::Recovered { peer, .. } => {
-                assert_eq!(peer.dangerously_alias_party(), original);
+            Retire::Recovered { peer: live, .. } => {
+                assert_eq!(live.dangerously_alias_party(), original);
                 assert!(original.is_disjoint(&absorber.dangerously_alias_party()));
-                let live = peer.into_rumors();
                 live.send(999).unwrap();
                 assert_eq!(live.snapshot().len(), initial + 1);
             }

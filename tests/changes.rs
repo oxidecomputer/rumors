@@ -16,9 +16,9 @@ use std::task::{Context, Poll, Wake, Waker};
 
 use futures::{FutureExt, Stream, StreamExt};
 use proptest::{collection::vec, prelude::*};
-use rumors::{Changes, Rumors, TryTick, Version};
+use rumors::{Changes, Peer, Retire, TryTick, Version};
 
-use crate::common::wire::{block_on, join_fork, wire_gossip};
+use crate::common::wire::{join_fork, wire_gossip};
 use rumors_testkit::common::property::{LOCAL_DIVISOR, SESSION_DIVISOR};
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -32,8 +32,8 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn first_poll_yields_immediately(network in network_seed()) {
-        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-        let mut changes = rumors.changes();
+        let peer: Peer<u64> = network.builder().sync_memory_budget(0).seed();
+        let mut changes = peer.changes();
         assert_eq!(changes.next().now_or_never(), Some(Some(())));
         // And with nothing further committed, the stream is quiet.
         assert_eq!(changes.next().now_or_never(), None);
@@ -49,7 +49,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn gossip_frontier_only_advance_ticks_the_observer(network in network_seed()) {
-        let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+        let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
         let b = join_fork(&a);
 
         // Register the wait before the update, as an idle gossip driver would.
@@ -84,34 +84,39 @@ divided_proptest! {
 divided_proptest! {
     #![divisor(LOCAL_DIVISOR)]
 
-    /// The stream ends once the set closes: with the `Peer` and every `Rumors`
-    /// gone no further change is possible, and a tick still owed (committed
+    /// The stream ends once the set closes: with every `Peer` handle gone no
+    /// further change is possible, and a tick still owed (committed
     /// after the last poll) is delivered before the end.
     ///
     /// The claim holds for every network seed.
     #[test]
     fn set_closure_ends_the_stream(network in network_seed()) {
-        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-        let mut changes = rumors.changes();
+        let peer: Peer<u64> = network.builder().sync_memory_budget(0).seed();
+        let mut changes = peer.changes();
         assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
-        rumors.send(1).unwrap();
-        drop(rumors);
+        peer.send(1).unwrap();
+        drop(peer);
 
         // The final commit is still reported, then the stream ends.
         assert_eq!(changes.next().now_or_never(), Some(Some(())));
         assert_eq!(changes.next().now_or_never(), Some(None));
     }
 
-    /// Holding a `Changes` does not count against the quiescence that lets
-    /// [`Rumors::try_into_peer`] reclaim the `Peer`.
+    /// Holding a `Changes` does not count against the quiescence that
+    /// [`Peer::retire`] waits for: retiring the sole handle over a dead
+    /// connection fails at once and returns the handle.
     ///
     /// The claim holds for every network seed.
     #[test]
-    fn observer_does_not_block_peer_reclaim(network in network_seed()) {
-        let rumors: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
-        let _changes = rumors.changes();
-        assert!(block_on(rumors.try_into_peer()).is_some());
+    fn observer_does_not_block_retirement(network in network_seed()) {
+        let peer: Peer<u64> = network.builder().sync_memory_budget(0).seed();
+        let _changes = peer.changes();
+        let retired = peer
+            .retire(tokio::io::empty(), tokio::io::sink())
+            .now_or_never()
+            .expect("an observer does not count against quiescence");
+        assert!(matches!(retired, Retire::Recovered { .. }));
     }
 }
 
@@ -179,7 +184,7 @@ proptest! {
     /// coalesces unread changes, and reports the final state before ending.
     #[test]
     fn changes_follow_history_under_interleaving(ops in arb_ops(), network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let b = join_fork(&a);
         let mut changes = a.changes();
         let mut reported = None;
@@ -224,7 +229,7 @@ proptest! {
     /// Empty batches and absent or repeated redactions do not wake a parked task.
     #[test]
     fn noop_commits_do_not_wake_observers(ops in vec(0u8..3, 1..40), network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let removed = a.send(7).unwrap();
         a.redact(&removed);
         let latest = a.snapshot().latest().clone();
