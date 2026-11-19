@@ -43,8 +43,7 @@ use proptest::prelude::*;
 use rand_chacha::ChaChaRng;
 use rumors::error::{Mismatch, ProtocolViolation};
 use rumors::{
-    Bookmark, Connection, Error, Network, Peer, Retire, Rumors, Snapshot, Version,
-    error::BookmarkIo,
+    Connection, Error, MaybeBookmark, Network, Peer, Retire, Snapshot, Version, error::BookmarkIo,
 };
 
 use crate::common::fault::{self, FaultPlan};
@@ -189,19 +188,43 @@ fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
 /// indicate bugs, regardless of the types used by their diagnostic sources.
 fn assert_not_codec_bug<B>(step: &str, error: &Error<B>)
 where
-    B: Bookmark + std::fmt::Debug,
-    B::Error: std::fmt::Debug,
+    B: MaybeBookmark,
+    B::Failure: InjectedIo,
 {
     let transport = |io: &std::io::Error| io.kind() != std::io::ErrorKind::InvalidData;
     let admitted = match error {
         Error::Transport(error) => transport(&error.source),
-        Error::Mismatch(Mismatch::Network { .. }) | Error::Bookmark(BookmarkIo::Io(_)) => true,
+        Error::Mismatch(Mismatch::Network(_)) => true,
+        Error::Bookmark(failure) => failure.injected_io(),
         _ => false,
     };
     assert!(
         admitted,
         "{step}: a protocol, codec, or bookmark-format bug, not an injected disruption: {error:?}",
     );
+}
+
+/// Whether a bookmark failure is storage I/O, which this harness injects,
+/// rather than a format error, which would be a bug.
+trait InjectedIo {
+    /// Whether this failure is storage I/O.
+    fn injected_io(&self) -> bool;
+}
+
+/// A peer without a bookmark has no bookmark failures.
+impl InjectedIo for std::convert::Infallible {
+    /// Uninhabited.
+    fn injected_io(&self) -> bool {
+        match *self {}
+    }
+}
+
+/// A bookmark failure is injected when it is storage I/O.
+impl<E> InjectedIo for BookmarkIo<E> {
+    /// Whether this is the storage's own I/O failure.
+    fn injected_io(&self) -> bool {
+        matches!(self, BookmarkIo::Io(_))
+    }
 }
 
 /// Why a joiner came up without a live peer.
@@ -212,6 +235,8 @@ enum JoinFailure {
     /// The join ended without a peer, which only a server that was itself
     /// joining could cause.
     NoPeer,
+    /// The bookmark load before the session failed, so nothing was donated.
+    Load(BookmarkIo<FlakyError>),
     /// The eager attach persist failed; the handed-back peer is dropped.
     Attach(BookmarkIo<FlakyError>),
 }
@@ -250,7 +275,7 @@ struct Node {
 /// Whether the participant currently owns a live replica.
 enum NodeState {
     /// The running replica; boxed to keep dormant participants small.
-    Live(Box<Rumors<Msg, FlakyInMemoryBookmark>>),
+    Live(Box<Peer<Msg, FlakyInMemoryBookmark>>),
     /// No live replica remains after a crash or retirement.
     Dormant,
 }
@@ -263,9 +288,9 @@ impl Node {
     }
 
     /// Borrow the running replica, if any.
-    fn live(&self) -> Option<&Rumors<Msg, FlakyInMemoryBookmark>> {
+    fn live(&self) -> Option<&Peer<Msg, FlakyInMemoryBookmark>> {
         match &self.state {
-            NodeState::Live(rumors) => Some(rumors),
+            NodeState::Live(peer) => Some(peer),
             NodeState::Dormant => None,
         }
     }
@@ -369,9 +394,11 @@ impl World {
         bookmark: FlakyInMemoryBookmark,
     ) -> Peer<Msg, FlakyInMemoryBookmark> {
         let peer = block_on(
-            Peer::<Msg>::seed_rng(&mut self.rng)
+            Peer::<Msg>::builder()
+                .dangerously_override_rng(&mut self.rng)
                 .sync_memory_budget(0)
-                .bookmark(bookmark),
+                .bookmark(bookmark)
+                .seed(),
         )
         .expect("a pristine seed attaches its bookmark without touching storage");
         assert!(
@@ -401,7 +428,7 @@ impl World {
             let peer = world.seed_network(bookmark);
             let network = peer.network();
             world.nodes.push(Node {
-                state: NodeState::Live(Box::new(peer.into_rumors())),
+                state: NodeState::Live(Box::new(peer)),
                 store,
                 faults,
                 network,
@@ -437,7 +464,7 @@ impl World {
         let peer = world.seed_network(bookmark);
         let network = peer.network();
         world.nodes.push(Node {
-            state: NodeState::Live(Box::new(peer.into_rumors())),
+            state: NodeState::Live(Box::new(peer)),
             store,
             faults,
             network,
@@ -475,7 +502,7 @@ impl World {
     fn holds(&self, who: usize, seq: u64) -> bool {
         self.nodes[who]
             .live()
-            .is_some_and(|rumors| rumors.snapshot().iter().any(|(_, value)| *value == seq))
+            .is_some_and(|peer| peer.snapshot().iter().any(|(_, value)| *value == seq))
     }
 
     /// The version stamped on message `seq` at live node `who`.
@@ -507,7 +534,7 @@ impl World {
     fn live_ids(&self, who: usize) -> BTreeSet<u64> {
         self.nodes[who]
             .live()
-            .map(|rumors| rumors.snapshot().iter().map(|(_, value)| *value).collect())
+            .map(|peer| peer.snapshot().iter().map(|(_, value)| *value).collect())
             .unwrap_or_default()
     }
 
@@ -579,16 +606,16 @@ impl World {
         self.revive(who);
         let id = self.next_seq;
         self.next_seq += 1;
-        let Some(rumors) = self.nodes[who].live() else {
+        let Some(peer) = self.nodes[who].live() else {
             return;
         };
-        let network = rumors.network();
-        rumors.send(id).unwrap(); // one commit per send
+        let network = peer.network();
+        peer.send(id).unwrap(); // one commit per send
         // Read back the leaf's version. Nothing else runs between the commit
         // and here (every session is its own single-threaded `block_on`), so
         // the lookup is race-free and the just-sent unique id is present
         // exactly once.
-        let snapshot = rumors.snapshot();
+        let snapshot = peer.snapshot();
         let mut version = None;
         for (leaf_version, value) in snapshot.iter() {
             if *value == id {
@@ -597,7 +624,7 @@ impl World {
             }
         }
         let version = version.expect("a just-sent message is live on its sender");
-        let own = (snapshot.latest() / &rumors.dangerously_alias_party()).to_version();
+        let own = (snapshot.latest() / &peer.dangerously_alias_party()).to_version();
         self.nodes[who].pending.push(Emission {
             network,
             seq: id,
@@ -614,11 +641,11 @@ impl World {
     /// fleet.
     fn redact(&mut self, who: usize, which: usize) {
         self.revive(who);
-        let Some(rumors) = self.nodes[who].live() else {
+        let Some(peer) = self.nodes[who].live() else {
             return;
         };
-        let network = rumors.network();
-        let snapshot = rumors.snapshot();
+        let network = peer.network();
+        let snapshot = peer.snapshot();
         let leaves: Vec<(Version, u64)> = snapshot
             .iter()
             .map(|(version, value)| (version.clone(), *value))
@@ -627,9 +654,9 @@ impl World {
             return;
         }
         let (version, seq) = leaves[which % leaves.len()].clone();
-        rumors.redact(&version);
-        let frontier = rumors.snapshot().latest().clone();
-        let own = (&frontier / &rumors.dangerously_alias_party()).to_version();
+        peer.redact(&version);
+        let frontier = peer.snapshot().latest().clone();
+        let own = (&frontier / &peer.dangerously_alias_party()).to_version();
         self.nodes[who].pending_redactions.push(Redacted {
             network,
             seq,
@@ -674,7 +701,7 @@ impl World {
             .filter_map(|k| {
                 self.nodes[k]
                     .live()
-                    .map(|rumors| (rumors.network(), rumors.snapshot().latest().clone()))
+                    .map(|peer| (peer.network(), peer.snapshot().latest().clone()))
             })
             .collect();
 
@@ -780,12 +807,12 @@ impl World {
         self.secure(a);
         self.secure(b);
 
-        let mismatched = matches!(out_a, Err(Error::Mismatch(Mismatch::Network { .. })))
-            || matches!(out_b, Err(Error::Mismatch(Mismatch::Network { .. })));
+        let mismatched = matches!(out_a, Err(Error::Mismatch(Mismatch::Network(_))))
+            || matches!(out_b, Err(Error::Mismatch(Mismatch::Network(_))));
         for (side, out) in [(a, &out_a), (b, &out_b)] {
             match out {
                 Ok(_) => {}
-                Err(Error::Mismatch(Mismatch::Network { .. })) => assert!(
+                Err(Error::Mismatch(Mismatch::Network(_))) => assert!(
                     !same_network,
                     "gossip {a}<->{b}: node {side} reported a network mismatch inside one network",
                 ),
@@ -837,8 +864,8 @@ impl World {
     /// This live peer's tie-break key: its frontier's minimum event count, then
     /// its network identifier. `None` while dormant.
     fn tuple(&self, who: usize) -> Option<(rumors::Count, Network)> {
-        let rumors = self.nodes[who].live()?;
-        Some((rumors.snapshot().latest().min_ticks(), rumors.network()))
+        let peer = self.nodes[who].live()?;
+        Some((peer.snapshot().latest().min_ticks(), peer.network()))
     }
 
     /// (Re)create `who` as a fresh replica in `server`'s network by
@@ -855,10 +882,10 @@ impl World {
     /// left dormant for a later attempt. Over reliable bookmarks nothing can
     /// fail, and the step asserts that both sides succeed.
     fn join_into(&mut self, who: usize, server: usize) -> bool {
-        let Some(server_rumors) = self.nodes[server].live() else {
+        let Some(serving) = self.nodes[server].live() else {
             return false;
         };
-        let server_rumors = server_rumors.clone();
+        let serving = serving.clone();
         let may_fail = self.bookmark_may_fail(who) || self.bookmark_may_fail(server);
         let network = self.nodes[server].network;
         let served: BTreeSet<u64> = self.live_ids(server);
@@ -876,27 +903,27 @@ impl World {
             tokio::join!(
                 async move {
                     let mut end = joiner_side;
-                    let peer = match Peer::<Msg>::join(&mut end.read, &mut end.write).await {
+                    let joined = Peer::<Msg>::builder()
+                        .sync_memory_budget(0)
+                        .bookmark(bookmark)
+                        .join(&mut end.read, &mut end.write)
+                        .await;
+                    match joined {
                         // A joiner that received its whole party keeps it,
                         // whether or not its connection survived to confirm
                         // completion.
-                        rumors::Join::Connected { peer, .. } => peer,
-                        rumors::Join::Bounced { .. } => return Err(JoinFailure::NoPeer),
-                        rumors::Join::Failed { error, .. } => {
-                            return Err(JoinFailure::Join(error));
+                        rumors::Join::Connected { peer, .. } => Ok(peer),
+                        rumors::Join::Bounced { .. } => Err(JoinFailure::NoPeer),
+                        rumors::Join::Failed { error, .. } => Err(JoinFailure::Join(error)),
+                        rumors::Join::BookmarkFailed { error, .. } => Err(JoinFailure::Load(error)),
+                        rumors::Join::Unbookmarked { unbookmarked, .. } => {
+                            Err(JoinFailure::Attach(unbookmarked.error))
                         }
-                        rumors::Join::Unbookmarked { .. } => {
-                            unreachable!("no bookmark was selected")
-                        }
-                    };
-                    peer.sync_memory_budget(0)
-                        .bookmark(bookmark)
-                        .await
-                        .map_err(|unbookmarked| JoinFailure::Attach(unbookmarked.error))
+                    }
                 },
                 async move {
                     let end = serve_side;
-                    server_rumors.gossip_once(end.read, end.write).await
+                    serving.gossip_once(end.read, end.write).await
                 },
             )
         });
@@ -904,8 +931,10 @@ impl World {
         // The wire is clean, so each side fails only through the bookmarks:
         // the server through its own donating persist, whose abort closes
         // the wire on the newcomer (a truncated hand-off), and the newcomer
-        // through its own eager attach persist after the session. Neither
-        // can fail over reliable bookmarks.
+        // through its bookmark load before the session, whose abort closes the
+        // wire on the server before anything is donated, or through its own
+        // eager attach persist after the session. Neither can fail over
+        // reliable bookmarks.
         let step = format!("join of {who} from {server}");
         if let Err(error) = &serve_out {
             assert_not_codec_bug(&format!("{step}, serving side"), error);
@@ -924,6 +953,17 @@ impl World {
                 assert!(
                     may_fail,
                     "{step}: the join failed on a clean wire over reliable bookmarks: {error:?}",
+                );
+                None
+            }
+            Err(JoinFailure::Load(error)) => {
+                assert!(
+                    !matches!(error, BookmarkIo::Format(_)),
+                    "{step}: the load rejected a bookmark file the crate wrote: {error:?}",
+                );
+                assert!(
+                    may_fail,
+                    "{step}: the bookmark load failed over a reliable bookmark: {error:?}",
                 );
                 None
             }
@@ -948,7 +988,7 @@ impl World {
         match joined {
             Some(peer) => {
                 self.nodes[who].network = peer.network();
-                self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
+                self.nodes[who].state = NodeState::Live(Box::new(peer));
                 // The eager join persist secures `who`'s reclaimed identity;
                 // the server's donating persist secures its emissions too.
                 self.secure(who);
@@ -994,7 +1034,7 @@ impl World {
         let bookmark = self.nodes[who].bookmark();
         let peer = self.seed_network(bookmark);
         self.nodes[who].network = peer.network();
-        self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
+        self.nodes[who].state = NodeState::Live(Box::new(peer));
     }
 
     /// Retire `retiree` into `absorber`, donating its identity.
@@ -1014,15 +1054,15 @@ impl World {
         if self.nodes[retiree].network != self.nodes[absorber].network {
             return;
         }
-        let Some(absorber_rumors) = self.nodes[absorber].live() else {
+        let Some(absorbing) = self.nodes[absorber].live() else {
             return;
         };
-        let absorber_rumors = absorber_rumors.clone();
+        let absorbing = absorbing.clone();
         let may_fail = self.session_may_fail(retiree, absorber, FaultPlan::NONE, FaultPlan::NONE);
         let network = self.nodes[absorber].network;
         let held_before: BTreeSet<u64> = &self.live_ids(retiree) | &self.live_ids(absorber);
-        // Take the retiree's sole handle so it can become a `Peer` immediately.
-        let NodeState::Live(retiree_rumors) =
+        // Take the retiree's sole handle, so its retirement waits on no other handle.
+        let NodeState::Live(retiring) =
             std::mem::replace(&mut self.nodes[retiree].state, NodeState::Dormant)
         else {
             return;
@@ -1031,21 +1071,16 @@ impl World {
         let (outcome, absorbed) = block_on(async {
             let (ret_side, abs_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
             // Each side owns its end inside its block so a failing one drops
-            // it (see `gossip`). The retiree becomes a `Peer` inside its
-            // block: it holds the sole handle to its set, so `try_into_peer`
-            // resolves at once.
+            // it (see `gossip`). The retiree holds the sole handle to its set,
+            // so its retirement waits on no other handle.
             tokio::join!(
                 async move {
                     let end = ret_side;
-                    let peer = retiree_rumors
-                        .try_into_peer()
-                        .await
-                        .expect("the node holds the sole handle to its set");
-                    peer.retire(end.read, end.write).await
+                    retiring.retire(end.read, end.write).await
                 },
                 async move {
                     let end = abs_side;
-                    absorber_rumors.gossip_once(end.read, end.write).await
+                    absorbing.gossip_once(end.read, end.write).await
                 },
             )
         });
@@ -1096,7 +1131,7 @@ impl World {
             // Unchanged: hand the intact peer back to life; its persisted
             // emissions are durable, its unpersisted ones remain pending.
             Retire::Recovered { peer, .. } => {
-                self.nodes[retiree].state = NodeState::Live(Box::new(peer.into_rumors()));
+                self.nodes[retiree].state = NodeState::Live(Box::new(peer));
                 self.secure(retiree);
             }
             // The absorber gossips; only a retiring counterparty declines.
@@ -1146,9 +1181,8 @@ impl World {
         let live_at_start: BTreeSet<u64> = (0..self.n())
             .filter(|&k| self.nodes[k].network == winning_network)
             .filter_map(|k| self.nodes[k].live())
-            .flat_map(|rumors| {
-                rumors
-                    .snapshot()
+            .flat_map(|peer| {
+                peer.snapshot()
                     .iter()
                     .map(|(_, value)| *value)
                     .collect::<Vec<_>>()
@@ -1223,7 +1257,7 @@ impl World {
     /// Each live peer's state, for fixed-point detection.
     fn fingerprints(&self) -> Vec<Option<Snapshot<u64>>> {
         (0..self.n())
-            .map(|k| self.nodes[k].live().map(Rumors::snapshot))
+            .map(|k| self.nodes[k].live().map(Peer::snapshot))
             .collect()
     }
 
@@ -1275,11 +1309,11 @@ impl World {
     /// leave the record only through the size limit.
     fn assert_reclaimed(&self) {
         for node in &self.nodes {
-            let Some(rumors) = node.live() else { continue };
-            let party = rumors.dangerously_alias_party();
-            let frontier = rumors.snapshot().latest().clone();
+            let Some(peer) = node.live() else { continue };
+            let party = peer.dangerously_alias_party();
+            let frontier = peer.snapshot().latest().clone();
             let record = persisted_record(&node.store);
-            let Some(clocks) = record.get(&rumors.network()) else {
+            let Some(clocks) = record.get(&peer.network()) else {
                 continue;
             };
             for clock in clocks {
@@ -1371,9 +1405,9 @@ impl World {
     fn assert_live_content_is_durable(&self, live: &[usize]) {
         let mut live_leaves = 0;
         for &k in live {
-            let rumors = self.nodes[k].live().unwrap();
-            let network = rumors.network();
-            let snapshot = rumors.snapshot();
+            let peer = self.nodes[k].live().unwrap();
+            let network = peer.network();
+            let snapshot = peer.snapshot();
             for (leaf_version, value) in snapshot.iter() {
                 live_leaves += 1;
                 let seq = *value;
@@ -1419,7 +1453,7 @@ impl World {
         // A single-network fleet converges to one network; any live peer names
         // it. The heal guarantees at least one live peer.
         let network = (0..self.n())
-            .find_map(|k| self.nodes[k].live().map(Rumors::network))
+            .find_map(|k| self.nodes[k].live().map(Peer::network))
             .expect("a healed fleet has at least one live peer");
 
         // Gather every region the fleet can still account for: each live peer's
@@ -1427,8 +1461,8 @@ impl World {
         // in this network.
         let mut held: Vec<Party> = Vec::new();
         for k in 0..self.n() {
-            if let Some(rumors) = self.nodes[k].live() {
-                held.push(rumors.dangerously_alias_party());
+            if let Some(live) = self.nodes[k].live() {
+                held.push(live.dangerously_alias_party());
             }
             held.extend(store_parties(&self.nodes[k].store, network));
         }
@@ -1635,12 +1669,12 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         // A seeds, B joins from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; rejoin = revive).
         let a = SCENARIO_NETWORK_SEED
-            .peer::<Msg>()
+            .builder::<Msg>()
             .sync_memory_budget(0)
             .bookmark(bm_a())
+            .seed()
             .await
-            .expect("a pristine seed attaches its bookmark without touching storage")
-            .into_rumors();
+            .expect("a pristine seed attaches its bookmark without touching storage");
         let b = join_from_async(&a, bm_b()).await;
         drop(a);
         let a = join_from_async(&b, bm_a()).await; // A reclaims
@@ -1663,8 +1697,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         let (retire_out, absorb_out) = tokio::join!(
             async move {
                 let end = ret_side;
-                let peer = b.try_into_peer().await.expect("sole handle");
-                peer.retire(end.read, end.write).await
+                b.retire(end.read, end.write).await
             },
             async move {
                 let end = abs_side;
@@ -1691,29 +1724,29 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
 }
 
 /// Join a fresh peer with bookmark `bm` from `server` over a clean
-/// in-memory end, returning the joined peer's [`Rumors`]. Diagnostic helper.
+/// in-memory end, returning the joined peer's [`Peer`]. Diagnostic helper.
 async fn join_from_async(
-    server: &Rumors<Msg, FlakyInMemoryBookmark>,
+    server: &Peer<Msg, FlakyInMemoryBookmark>,
     bm: FlakyInMemoryBookmark,
-) -> Rumors<Msg, FlakyInMemoryBookmark> {
+) -> Peer<Msg, FlakyInMemoryBookmark> {
     let server = server.clone();
     let (joiner_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (join_out, serve_out) = tokio::join!(
         async move {
             let mut end = joiner_side;
-            let peer = (match Peer::<Msg>::join(&mut end.read, &mut end.write).await {
+            // Clean wires, reliable store: the bookmark load and the eager
+            // persist of the reclaimed identity must succeed.
+            match Peer::<Msg>::builder()
+                .sync_memory_budget(0)
+                .bookmark(bm)
+                .join(&mut end.read, &mut end.write)
+                .await
+            {
                 rumors::Join::Connected {
                     peer,
                     connection: rumors::Connection::Reusable { .. },
                 } => peer,
-                _ => panic!("got a peer"),
-            })
-            .sync_memory_budget(0);
-            // Clean wires, reliable store: the eager persist of the reclaimed
-            // identity must succeed.
-            match peer.bookmark(bm).await {
-                Ok(peer) => peer,
-                Err(_) => panic!("bookmark ok"),
+                _ => panic!("got a bookmarked peer"),
             }
         },
         async move {
@@ -1722,7 +1755,7 @@ async fn join_from_async(
         },
     );
     serve_out.expect("serve join");
-    join_out.into_rumors()
+    join_out
 }
 
 /// Execute a reliable-recovery plan to its post-heal end state.
@@ -1765,8 +1798,9 @@ fn run_reliable_plan(plan: Plan) -> World {
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
     let network = SCENARIO_NETWORK_SEED
-        .peer::<Msg>()
+        .builder::<Msg>()
         .sync_memory_budget(0)
+        .seed()
         .network();
     let mut version = Version::new();
     version.tick(&Party::seed());
@@ -1801,7 +1835,7 @@ fn negative_control_classifier_rejects_codec_bugs() {
     }
     let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     drop(remote);
-    let replica = SCENARIO_NETWORK_SEED.peer::<u64>().into_rumors();
+    let replica = SCENARIO_NETWORK_SEED.peer::<u64>();
     let failure =
         rumors::testing::run_to_quiescence(replica.gossip_once(&mut end.read, &mut end.write))
             .expect("a closed connection must not deadlock")

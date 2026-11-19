@@ -10,7 +10,15 @@ use rumors_testkit::common::seed::network_seed;
 struct Attempt {
     /// The newcomer owns its connection end until joining completes or is
     /// cancelled.
-    joining: LocalBoxFuture<'static, rumors::Join<Msg, BufReader<DuplexStream>, DuplexStream>>,
+    joining: LocalBoxFuture<
+        'static,
+        rumors::Join<Msg, BufReader<DuplexStream>, DuplexStream, FlakyInMemoryBookmark>,
+    >,
+    /// The newcomer's durable store, selected with its bookmark when the join
+    /// starts.
+    store: DurableStore,
+    /// The newcomer's bookmark fail schedule, shared with its bookmark.
+    faults: Arc<Mutex<FaultFeed>>,
     /// The provider owns its connection end and the pending donation guard.
     serving: LocalBoxFuture<'static, Result<rumors::Gossiped, Error<FlakyInMemoryBookmark>>>,
     /// The reserved region, used only to check that live peers cannot reclaim
@@ -22,12 +30,24 @@ struct Attempt {
 impl Attempt {
     /// Exchange the preamble and stop before the newcomer continues
     /// reconciliation.
-    fn reserve(server: &Rumors<Msg, FlakyInMemoryBookmark>) -> Self {
+    ///
+    /// The newcomer's bookmark is selected here, as the join starts, and
+    /// labeled `label` for diagnostics.
+    fn reserve(server: &Peer<Msg, FlakyInMemoryBookmark>, label: usize) -> Self {
         let before = server.dangerously_alias_party();
         let serving = server.clone();
+        let store = DurableStore::default();
+        let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
+        let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
         let (near, far) = rumors::testing::memory_connection(MEMORY_CAPACITY);
-        let mut joining =
-            async move { Peer::<Msg>::join(near.read, near.write).await }.boxed_local();
+        let mut joining = async move {
+            Peer::<Msg>::builder()
+                .sync_memory_budget(0)
+                .bookmark(bookmark)
+                .join(near.read, near.write)
+                .await
+        }
+        .boxed_local();
         let mut serving = async move {
             serving
                 .gossip_once(far.read, far.write)
@@ -44,6 +64,8 @@ impl Attempt {
         let reserved = before.without(&after).expect("a nonempty donation");
         Self {
             joining,
+            store,
+            faults,
             serving,
             reserved,
         }
@@ -63,15 +85,11 @@ impl Attempt {
                 connection: rumors::Connection::Reusable { .. },
             } => {
                 let label = world.n();
-                let store = DurableStore::default();
-                let faults = Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
-                let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-                let peer = block_on(peer.sync_memory_budget(0).bookmark(bookmark)).unwrap();
                 world.nodes.push(Node {
                     network: peer.network(),
-                    state: NodeState::Live(Box::new(peer.into_rumors())),
-                    store,
-                    faults,
+                    state: NodeState::Live(Box::new(peer)),
+                    store: self.store,
+                    faults: self.faults,
                     label,
                     pending: Vec::new(),
                     pending_redactions: Vec::new(),
@@ -136,17 +154,14 @@ proptest! {
         finish in proptest::collection::vec(any::<bool>(), 1..4),
         steps in proptest::collection::vec(arb_step(4, true), 0..18),
         write_faults in arb_fault_bits(true),
-        limit in prop_oneof![Just(rumors::default::BOOKMARK_SIZE_LIMIT), 0usize..2000],
         network in network_seed(),
     ) {
         let mut world = World::single_network(4, network);
-        let NodeState::Live(peer) = std::mem::replace(&mut world.nodes[2].state, NodeState::Dormant) else {
-            unreachable!("the initial fleet is live");
-        };
-        let peer = block_on(peer.try_into_peer()).unwrap().bookmark_size_limit(limit);
-        world.nodes[2].state = NodeState::Live(Box::new(peer.into_rumors()));
         world.gossip(2, 0, FaultPlan::NONE, FaultPlan::NONE);
-        let mut pending: Vec<_> = finish.iter().map(|_| Attempt::reserve(world.nodes[2].live().unwrap())).collect();
+        let first_label = world.n();
+        let mut pending: Vec<_> = (0..finish.len())
+            .map(|attempt| Attempt::reserve(world.nodes[2].live().unwrap(), first_label + attempt))
+            .collect();
         // Keep node 0 behind while node 1 witnesses a write from the remaining
         // identity. This prefix guarantees the schedule exercises a checkpoint
         // with overlapping claims, even when the generated suffix is empty.
