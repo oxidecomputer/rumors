@@ -357,7 +357,9 @@ use reunion::Reunion;
 /// whether it or its peer should dominate.
 ///
 /// A reasonable such metric is provided by metrics provided in the error
-/// itself: compare its `local_min_events` against the `remote_min_events`. Let
+/// itself: compare its local
+/// [`min_events`](crate::error::NetworkPrecedence::min_events) against the
+/// remote one. Let
 /// the greater count win, with ties broken by comparing the two [`Network`]
 /// identifiers. The winner then stays in its network, and the loser drops its
 /// [`Peer`] and attempts to re-[`join`](Peer::join) from the winning peer.

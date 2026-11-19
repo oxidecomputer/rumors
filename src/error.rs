@@ -18,7 +18,7 @@
 use std::fmt;
 
 use crate::{
-    Count, Network, Protocol,
+    Count, Network, Participant, Protocol,
     bookmark::{MaybeBookmark, NoBookmark},
     observe::SessionErrorKind,
     tree::mirror::preamble,
@@ -61,23 +61,16 @@ pub enum Mismatch {
 
     /// The remote peer belongs to a different gossip network.
     ///
-    /// Optionally, use these event bounds to apply the dominance rule described
+    /// Optionally, use the [`NetworkMismatch`]'s event bounds to apply the
+    /// dominance rule described
     /// by [`Peer`](crate::Peer)'s "Bootstrapping a network without consensus"
     /// section.
-    #[error("peer belongs to network {remote_network:?}, ours is {local_network:?}")]
-    #[non_exhaustive]
-    Network {
-        /// The local peer's network identifier.
-        local_network: Network,
-        /// A lower bound on the total number of events in the local peer's
-        /// gossip network.
-        local_min_events: Count,
-        /// The remote peer's network identifier.
-        remote_network: Network,
-        /// A lower bound on the total number of events in the remote peer's
-        /// gossip network.
-        remote_min_events: Count,
-    },
+    #[error(
+        "peer belongs to network {:?}, ours is {:?}",
+        .0.remote.network,
+        .0.local.network
+    )]
+    Network(NetworkMismatch),
 
     /// The peers have different configured message depth limits, and are thus
     /// incompatible.
@@ -92,6 +85,76 @@ pub enum Mismatch {
         /// The remote peer's advertised message depth limit.
         remote: u64,
     },
+}
+
+/// The two differing networks of a gossip session which failed because these
+/// networks differed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct NetworkMismatch {
+    /// The local peer's network.
+    pub local: NetworkPrecedence,
+    /// The remote peer's network.
+    pub remote: NetworkPrecedence,
+}
+
+/// A ranking to help determine a network's precedence when two networks
+/// collide.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NetworkPrecedence {
+    /// A lower bound on the total number of messages ever sent in the network.
+    min_events: Count,
+    /// The network's identifier.
+    network: Network,
+}
+
+/// Policy for whether a peer may yield to another network when doing so could
+/// discard data.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum DataLoss {
+    /// Yield only without losing data.
+    #[default]
+    Forbid,
+    /// Yield even if that loses data.
+    Allow,
+}
+
+/// Examine a network's precedence.
+impl NetworkPrecedence {
+    /// Pair a network with its event bound.
+    pub(crate) fn new(network: Network, min_events: Count) -> Self {
+        Self {
+            min_events,
+            network,
+        }
+    }
+
+    /// A lower bound on the total number of messages ever sent in the network.
+    pub fn min_events(&self) -> &Count {
+        &self.min_events
+    }
+
+    /// The network's identifier.
+    pub fn network(&self) -> Network {
+        self.network
+    }
+}
+
+/// Decide which peer should yield to the other, under the specified data loss
+/// policy.
+impl NetworkMismatch {
+    /// Which peer should yield to the other's network, if either.
+    pub fn yielding_peer(&self, data_loss: DataLoss) -> Option<Participant> {
+        let (lesser, yielding) = if self.local < self.remote {
+            (&self.local, Participant::Local)
+        } else {
+            (&self.remote, Participant::Remote)
+        };
+        match data_loss {
+            DataLoss::Allow => Some(yielding),
+            DataLoss::Forbid => (lesser.min_events == Count::ZERO).then_some(yielding),
+        }
+    }
 }
 
 /// A failure returned during reconciliation.
@@ -200,3 +263,6 @@ impl Error {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

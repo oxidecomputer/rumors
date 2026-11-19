@@ -17,7 +17,7 @@ use tokio::{
     sync::watch,
 };
 
-use crate::error::{Mismatch, Phase, TransportOperation as Op};
+use crate::error::{Mismatch, NetworkMismatch, NetworkPrecedence, Phase, TransportOperation as Op};
 use crate::message::PayloadCodec;
 use crate::network::NetworkKeys;
 use crate::observe::{SessionCompletion, SessionHandle, SessionKind, SessionOutcome};
@@ -968,12 +968,12 @@ impl RemoteRole {
                 remote_network,
                 local_network,
                 local_min_events,
-            } if remote_network != local_network => Err(Error::Mismatch(Mismatch::Network {
-                local_network,
-                local_min_events,
-                remote_network,
-                remote_min_events: remote_version.min_ticks(),
-            })),
+            } if remote_network != local_network => {
+                Err(Error::Mismatch(Mismatch::Network(NetworkMismatch {
+                    local: NetworkPrecedence::new(local_network, local_min_events),
+                    remote: NetworkPrecedence::new(remote_network, remote_version.min_ticks()),
+                })))
+            }
             RemoteRole::Gossiping { .. } => Ok(()),
         }
     }

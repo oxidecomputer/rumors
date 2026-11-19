@@ -34,5 +34,4 @@ mod seed;
 mod join;
 mod wait_for_replica;
 mod update;
-mod give_way;
 mod gossip_over;

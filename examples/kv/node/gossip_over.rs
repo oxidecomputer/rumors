@@ -3,8 +3,10 @@ use std::io;
 use anyhow::Result;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
+use rumors::Participant;
+use rumors::error::{DataLoss, Mismatch};
+
 use super::Node;
-use super::give_way::{GiveWay, give_way};
 
 impl Node {
     pub async fn gossip_over(
@@ -28,10 +30,16 @@ impl Node {
         if let Some(replica) = replica
             && let Err(error) = replica.rumors.gossip(&mut read, &mut write).await
         {
-            match give_way(&error) {
+            let yielding = match &error {
+                rumors::Error::Mismatch(Mismatch::Network(mismatch)) => {
+                    mismatch.yielding_peer(DataLoss::Forbid)
+                }
+                _ => None,
+            };
+            match yielding {
                 None => return Err(error.into()),
-                Some(GiveWay::Them) => {}
-                Some(GiveWay::Us) => {
+                Some(Participant::Remote) => {}
+                Some(Participant::Local) => {
                     let current = self.current.lock().await;
                     let abandoning = current.borrow().as_ref().is_some_and(|held| {
                         held.rumors.network() == replica.rumors.network()

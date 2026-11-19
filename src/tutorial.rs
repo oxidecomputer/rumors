@@ -195,10 +195,6 @@
 //!
 //! ## Gossiping with other nodes
 //!
-//! ### When two gossip networks collide, whose "wins"?
-//!
-#![doc = tutorial!("node/give_way")]
-//!
 //! ### Gossip, built to converge on one "winning" network
 //!
 #![doc = tutorial!("node/gossip_over")]
