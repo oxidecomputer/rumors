@@ -15,12 +15,12 @@
 //!
 //! Every cell builds a fresh network. A join changes the parties that
 //! stamp later messages, so reusing a corpus would change their versions and
-//! paths. A `Rumors` clone shares the same replica and cannot serve as a copy.
+//! paths. A `Peer` clone shares the same replica and cannot serve as a copy.
 
 use rumors_testkit::common;
 
 use bytes::Bytes;
-use rumors::{Rumors, Version};
+use rumors::{Peer, Version};
 use rumors_testkit::common::seed::NetworkSeed;
 
 /// The seed of every independently built network, fixed so the pinned byte
@@ -108,12 +108,12 @@ impl Cell {
 }
 
 /// Build a deterministic pair with the requested divergence.
-fn build(shape: Shape) -> (Rumors<Bytes>, Rumors<Bytes>) {
+fn build(shape: Shape) -> (Peer<Bytes>, Peer<Bytes>) {
     assert!(
         shape.left_redacts + shape.right_redacts <= shape.shared,
         "redaction sets must be disjoint subsets of the shared set",
     );
-    let left = NETWORK_SEED.peer().sync_memory_budget(0).into_rumors();
+    let left = NETWORK_SEED.builder().sync_memory_budget(0).seed();
     left.send_all((0..shape.shared).map(|_| Bytes::new()))
         .expect("send shared messages");
     let mut shared: Vec<Version> = left

@@ -38,7 +38,7 @@ divided_proptest! {
         value in any::<u64>(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let mut peers: Vec<Peer<u64>> = (0..n_peers)
             .map(|_| Peer::new(join_fork(&seed)))
             .collect();
@@ -78,7 +78,7 @@ divided_proptest! {
         network in network_seed(),
     ) {
         let run = |a_first: bool| -> BTreeMap<u64, usize> {
-            let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let seed = network.builder::<u64>().sync_memory_budget(0).seed();
             let mut a = Peer::new(join_fork(&seed));
             let mut b = Peer::new(join_fork(&seed));
             let mut a_versions: Vec<rumors::Version> = Vec::new();
@@ -113,7 +113,7 @@ divided_proptest! {
     fn absent_redactions_are_noops(value in any::<u64>(), network in network_seed()) {
         for already_redacted in [false, true] {
             for retain_unrelated in [false, true] {
-                let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+                let seed = network.builder::<u64>().sync_memory_budget(0).seed();
                 let subject = join_fork(&seed);
                 let absent = if already_redacted {
                     let version = subject.send(value).unwrap();
@@ -144,11 +144,11 @@ divided_proptest! {
 /// `redact_all`, or a batch that also sends around its redactions.
 #[derive(Debug, Clone, Copy)]
 enum Redacting {
-    /// One `Rumors::redact` per requested version, in order.
+    /// One `Peer::redact` per requested version, in order.
     OneByOne,
-    /// One `Rumors::redact_all` of the whole request.
+    /// One `Peer::redact_all` of the whole request.
     All,
-    /// One `Rumors::batch` sending a message, redacting the request, and
+    /// One `Peer::batch` sending a message, redacting the request, and
     /// sending another.
     Batch,
 }
@@ -178,7 +178,7 @@ divided_proptest! {
         ],
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let subject = join_fork(&seed);
         let held: Vec<Version> = (0..held as u64).map(|i| subject.send(i).unwrap()).collect();
         let already_redacted: Vec<Version> = (0..already_redacted as u64)

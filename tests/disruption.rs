@@ -21,7 +21,7 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rumors::Rumors;
+use rumors::Peer;
 use rumors::testing::{COMPLETION_MARKER, PREAMBLE_LEN, run_to_quiescence};
 
 use crate::common::budget::{BudgetAssignment, BudgetChoice};
@@ -95,7 +95,7 @@ divided_proptest! {
     /// ledger independent of the merge machinery.
     ///
     /// The chaos: overlapping sessions through
-    /// cloned [`Rumors`] handles, concurrent sends and redactions,
+    /// cloned [`Peer`] handles, concurrent sends and redactions,
     /// joins served mid-chaos against the same shared state,
     /// retirements, and endpoints that vanish mid-protocol (their session
     /// dropped with its connection, its remaining frames never written).
@@ -171,8 +171,8 @@ fn vanishes_fire_in_the_generated_population() {
 /// Every call with one `network` constructs the same replicas, and a session
 /// between them writes the same bytes, so an offset measured on one pair lands
 /// at the same point in another's session.
-fn vanish_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+fn vanish_pair(network: NetworkSeed) -> (Peer<u64>, Peer<u64>) {
+    let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
     a.send_all(0..8).unwrap();
     let b = join_fork(&a);
     a.send_all(8..16).unwrap();
@@ -591,9 +591,7 @@ const ENVELOPE_VALUES_PER_SIDE: u64 =
 /// the constant tracking reality. Metered with the same counters the fault cuts
 /// spend, so the result is directly comparable to cut offsets.
 async fn envelope_session_bytes(network: NetworkSeed) -> usize {
-    let seed = BudgetChoice::Default
-        .apply(network.peer::<u64>())
-        .into_rumors();
+    let seed = BudgetChoice::Default.seed(network.builder::<u64>());
     let mut fleet = vec![seed];
     for _ in 1..MAX_PLAN_PEERS {
         fleet.push(

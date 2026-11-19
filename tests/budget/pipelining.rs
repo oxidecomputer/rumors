@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::Rumors;
+use rumors::Peer;
 use rumors_testkit::bench::latency;
 use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::FLEET_DIVISOR;
@@ -64,8 +64,8 @@ divided_proptest! {
 
 /// Two peers of the network `network` names, with shared history and concurrent
 /// additions, both on `budget`.
-fn diverged_pair(network: NetworkSeed, budget: BudgetChoice) -> (Rumors<u64>, Rumors<u64>) {
-    let left = budget.apply(network.peer()).into_rumors();
+fn diverged_pair(network: NetworkSeed, budget: BudgetChoice) -> (Peer<u64>, Peer<u64>) {
+    let left = budget.seed(network.builder());
     // Fixed, so the hop ceiling is judged on the same corpus every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
@@ -76,6 +76,6 @@ fn diverged_pair(network: NetworkSeed, budget: BudgetChoice) -> (Rumors<u64>, Ru
 }
 
 /// Commit `n` random payloads as one batch.
-fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
-    rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
+fn send_random(peer: &Peer<u64>, n: usize, rng: &mut ChaChaRng) {
+    peer.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }

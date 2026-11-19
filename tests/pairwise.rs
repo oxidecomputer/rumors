@@ -1,4 +1,4 @@
-//! Pairwise gossip semantics for `Rumors::gossip_once`, the wire merge
+//! Pairwise gossip semantics for `Peer::gossip_once`, the wire merge
 //! primitive.
 //!
 //! With the shared-state set of messages, wire gossip *is* the merge: there is
@@ -25,7 +25,7 @@ use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestCaseResult;
 use proptest::test_runner::TestRunner;
-use rumors::{Rumors, Snapshot, causally};
+use rumors::{Peer, Snapshot, causally};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -39,7 +39,7 @@ const MAX_CARRIER_VALUES: usize = 8;
 
 /// A genuine, party-disjoint copy of `k`'s content: a fresh originator that
 /// holds the same live messages but ticks its own party region.
-fn dup<T>(k: &Rumors<T>) -> Rumors<T>
+fn dup<T>(k: &Peer<T>) -> Peer<T>
 where
     T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -47,7 +47,7 @@ where
 }
 
 /// The state used for fixed-point checks: equal snapshots make gossip a no-op.
-fn fingerprint<T: Send + Sync + 'static>(k: &Rumors<T>) -> Snapshot<T> {
+fn fingerprint<T: Send + Sync + 'static>(k: &Peer<T>) -> Snapshot<T> {
     k.snapshot()
 }
 
@@ -61,7 +61,7 @@ fn assert_gossip_unions<T>(
 where
     T: Clone + Debug + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    let seed = network.peer::<T>().sync_memory_budget(0).into_rumors();
+    let seed = network.builder::<T>().sync_memory_budget(0).seed();
     let a = build_local(dup(&seed), a_actions);
     let b = build_local(dup(&seed), b_actions);
 
@@ -85,7 +85,7 @@ proptest! {
         b_actions in arb_local_actions(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = build_local(dup(&seed), &a_actions);
         let b = build_local(dup(&seed), &b_actions);
         wire_gossip(&a, &b);
@@ -103,7 +103,7 @@ proptest! {
         b_actions in arb_local_actions(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a0 = build_local(dup(&seed), &a_actions);
         let b0 = build_local(dup(&seed), &b_actions);
 
@@ -126,7 +126,7 @@ proptest! {
         b_actions in arb_local_actions(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = build_local(dup(&seed), &a_actions);
         let b = build_local(dup(&seed), &b_actions);
         wire_gossip(&a, &b);
@@ -156,7 +156,7 @@ proptest! {
         c_actions in arb_local_actions(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a0 = build_local(dup(&seed), &a_actions);
         let b0 = build_local(dup(&seed), &b_actions);
         let c0 = build_local(dup(&seed), &c_actions);
@@ -210,7 +210,7 @@ proptest! {
     /// changes neither side. The "true" idempotence of the merge.
     #[test]
     fn gossip_with_own_fork_is_noop(actions in arb_local_actions(), network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = build_local(dup(&seed), &actions);
         let fork = dup(&a);
 
@@ -230,7 +230,7 @@ proptest! {
         actions in arb_local_actions(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let empty = dup(&seed);
         let a = build_local(dup(&seed), &actions);
 
@@ -255,7 +255,7 @@ proptest! {
         b_value in any::<u64>(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let alice = dup(&seed);
         let bob = dup(&seed);
 
@@ -303,7 +303,7 @@ proptest! {
         b_values in prop::collection::vec(any::<u64>(), 0..=MAX_CARRIER_VALUES),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let a = dup(&seed);
         a.send_all(a_values).unwrap();
         let b = dup(&seed);

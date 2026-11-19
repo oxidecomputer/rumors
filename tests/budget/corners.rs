@@ -21,8 +21,8 @@ use std::time::Duration;
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
+use rumors::Peer;
 use rumors::testing::run_to_quiescence;
-use rumors::{Peer, Rumors};
 use rumors_testkit::bench::latency;
 use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::FLEET_DIVISOR;
@@ -55,8 +55,8 @@ fn pair(
     common: usize,
     left_extra: usize,
     right_extra: usize,
-) -> (Rumors<u64>, Rumors<u64>) {
-    let left = budget.apply(network.peer()).into_rumors();
+) -> (Peer<u64>, Peer<u64>) {
+    let left = budget.seed(network.builder());
     // Fixed, so every run reconciles the same corpus.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_c07e_0003);
     send_random(&left, common.max(1), &mut rng);
@@ -65,18 +65,18 @@ fn pair(
         let (mut provider, mut newcomer) = rumors::testing::memory_connection(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip_once(&mut provider.read, &mut provider.write),
-            Peer::<u64>::join(&mut newcomer.read, &mut newcomer.write),
+            budget
+                .configure(Peer::<u64>::builder())
+                .join(&mut newcomer.read, &mut newcomer.write),
         );
         served.expect("serve join");
-        budget
-            .apply(match joined {
-                rumors::Join::Connected {
-                    peer,
-                    connection: rumors::Connection::Reusable { .. },
-                } => peer,
-                _ => panic!("provider is established"),
-            })
-            .into_rumors()
+        match joined {
+            rumors::Join::Connected {
+                peer,
+                connection: rumors::Connection::Reusable { .. },
+            } => peer,
+            _ => panic!("provider is established"),
+        }
     });
 
     send_random(&left, left_extra, &mut rng);
@@ -85,8 +85,8 @@ fn pair(
 }
 
 /// Commit `n` random payloads as one batch.
-fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
-    rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
+fn send_random(peer: &Peer<u64>, n: usize, rng: &mut ChaChaRng) {
+    peer.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
 /// Reconciles `pair` once over the delayed link on a paused clock, returning
@@ -94,7 +94,7 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut ChaChaRng) {
 ///
 /// Compute costs no virtual time on the paused clock, so the hop count is a
 /// deterministic function of the session's shape.
-fn reconcile(pair: (Rumors<u64>, Rumors<u64>)) -> ((Rumors<u64>, Rumors<u64>), u32) {
+fn reconcile(pair: (Peer<u64>, Peer<u64>)) -> ((Peer<u64>, Peer<u64>), u32) {
     let mut wire = latency::DelayedWire::new(LINK_CAPACITY, DELAY);
     let (pair, elapsed) = wire.round_trip_virtual(pair.0, pair.1);
     (pair, latency::hops_on_lattice(elapsed, DELAY))
@@ -102,7 +102,7 @@ fn reconcile(pair: (Rumors<u64>, Rumors<u64>)) -> ((Rumors<u64>, Rumors<u64>), u
 
 /// Asserts that one session over `pair` leaves both sides holding the same
 /// messages, printing the hops it spent under `label`.
-fn assert_converges(label: &str, pair: (Rumors<u64>, Rumors<u64>)) {
+fn assert_converges(label: &str, pair: (Peer<u64>, Peer<u64>)) {
     let ((left, right), hops) = reconcile(pair);
     eprintln!("{label}: {hops} hops");
     assert_eq!(

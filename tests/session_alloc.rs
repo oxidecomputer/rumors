@@ -11,7 +11,7 @@
 //! there serialize on each one.
 
 use alloc_meter::measure;
-use rumors::Rumors;
+use rumors::Peer;
 use rumors_testkit::common::{
     gossip_snapshot::seeded,
     wire::{diverge, join_fork, wire_gossip},
@@ -36,7 +36,7 @@ const OVER_ALIGNED_ALLOCATIONS: usize = 0;
 
 /// Two forks of one deterministically seeded network, each holding
 /// [`VALUES_PER_SIDE`] values the other lacks.
-fn divergent_fixture() -> (Rumors<u64>, Rumors<u64>) {
+fn divergent_fixture() -> (Peer<u64>, Peer<u64>) {
     let seed = seeded::<u64>();
     let a = join_fork(&seed);
     let b = join_fork(&seed);

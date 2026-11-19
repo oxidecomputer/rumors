@@ -25,7 +25,7 @@ use rumors::testing::LANE_CAPACITY;
 use rumors::testing::{
     EdgeSend, MEMORY_CAPACITY, MemoryEnd, QueueKind, memory_connection, observe_edge_sends,
 };
-use rumors::{Rumors, default};
+use rumors::{Peer, default};
 use rumors_testkit::bench::session::{Shape, pair};
 
 /// What the sends on one kind of edge did, summed over both sides.
@@ -73,7 +73,7 @@ fn record(send: EdgeSend) {
 }
 
 /// Gossip once over `end`, returning the frames this side sent.
-async fn gossip(peer: Rumors<String>, end: MemoryEnd) -> u64 {
+async fn gossip(peer: Peer<String>, end: MemoryEnd) -> u64 {
     let (gossiped, ..) = peer
         .gossip_once(end.read, end.write)
         .await

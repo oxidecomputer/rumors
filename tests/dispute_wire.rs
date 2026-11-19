@@ -17,7 +17,7 @@ use rumors_testkit::common;
 use bytes::Bytes;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::Rumors;
+use rumors::Peer;
 use rumors::testing::{dispute_overhead_bytes, reference_wire_bytes};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -76,16 +76,16 @@ fn diverged<T>(
     divergent: usize,
     budget: BudgetChoice,
     mut make: impl FnMut(&mut ChaChaRng) -> T,
-) -> (Rumors<T>, Rumors<T>)
+) -> (Peer<T>, Peer<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let left = budget.apply(network.peer()).into_rumors();
+    let left = budget.seed(network.builder());
     // Fixed, so the pinned byte counts are measured on the same corpus every
     // run.
     let mut rng = ChaChaRng::seed_from_u64(0x0b05_2026_d15b_073e);
-    let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut ChaChaRng| {
-        rumors.send_all((0..n).map(|_| make(rng))).unwrap();
+    let mut send = |peer: &Peer<T>, n: usize, rng: &mut ChaChaRng| {
+        peer.send_all((0..n).map(|_| make(rng))).unwrap();
     };
     send(&left, common, &mut rng);
     let right = common::wire::join_fork_with_budget(&left, budget);
@@ -97,7 +97,7 @@ where
 /// The end-to-end wire bytes of one session between `a` and `b`: every item,
 /// control and frame alike, both directions, counted at the write side of each
 /// end.
-fn session_wire_bytes<T>(a: &Rumors<T>, b: &Rumors<T>) -> usize
+fn session_wire_bytes<T>(a: &Peer<T>, b: &Peer<T>) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {

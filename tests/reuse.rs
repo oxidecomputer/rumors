@@ -1,6 +1,6 @@
 //! Connection reuse: back-to-back gossip sessions on one transport.
 //!
-//! A [`rumors::Rumors::gossip_once`] session that returns `Ok` leaves the
+//! A [`rumors::Peer::gossip_once`] session that returns `Ok` leaves the
 //! stream at a session boundary, so a single connection can host any number of
 //! sequential sessions. These tests pin that promise at the two interleavings
 //! that matter: rounds separated by a cross-peer barrier, and rounds where one
@@ -13,7 +13,7 @@ use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::time::Duration;
 
-use rumors::Rumors;
+use rumors::Peer;
 use rumors::testing::{IoPlan, IoSide, wrap_io};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
@@ -34,8 +34,8 @@ const ROUNDS: u64 = 3;
 /// Create a connected, party-disjoint pair: the first peer of the network
 /// `network` names and a join fork of it. The two ends of one connection
 /// they will keep reusing are created per test.
-async fn pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+async fn pair(network: NetworkSeed) -> (Peer<u64>, Peer<u64>) {
+    let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
     let b = join_fork_async(&a).await;
     (a, b)
 }

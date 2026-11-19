@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Rumors, Version};
+use rumors::{Peer, Version};
 
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
@@ -45,9 +45,9 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn causal_staging_has_no_per_version_allocation(network in network_seed()) {
-        let rumors = network.peer::<u64>().into_rumors();
-        rumors.send_all(0..ALLOCATION_BACKLOG).unwrap();
-        let mut messages = rumors.causal_messages();
+        let peer = network.peer::<u64>();
+        peer.send_all(0..ALLOCATION_BACKLOG).unwrap();
+        let mut messages = peer.causal_messages();
 
         let (stats, first) = alloc_meter::measure(|| messages.try_next());
 
@@ -93,7 +93,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn single_party_backlog_replays_in_send_order(network in network_seed()) {
-        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let known = network.builder::<u64>().sync_memory_budget(0).seed();
         for v in 0..8u64 {
             known.send(v).unwrap(); // one commit per send: strictly increasing versions
         }
@@ -120,7 +120,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn converged_backlog_has_no_inversions(network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let b = join_fork(&a);
 
         for v in 0..4u64 {
@@ -154,7 +154,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn snapshot_items_sort_by_ranked_version(network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let cause = a.send(0).unwrap();
         let b = join_fork(&a);
         let left = a.send(1).unwrap();
@@ -183,7 +183,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn identical_backlogs_use_the_same_staging_order(network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let b = join_fork(&a);
 
         a.send_all([1, 2]).unwrap();
@@ -212,7 +212,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn live_passes_preserve_causal_order_cumulatively(network in network_seed()) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let b = join_fork(&a);
 
         let mut obs = a.causal_messages();
@@ -251,7 +251,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn checkpoint_lags_until_the_backlog_drains(network in network_seed()) {
-        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let known = network.builder::<u64>().sync_memory_budget(0).seed();
         let genesis = known.snapshot().latest().clone();
         known.send(1).unwrap();
         known.send(2).unwrap();
@@ -291,7 +291,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn observer_drains_the_final_state_causally_then_ends(network in network_seed()) {
-        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let known = network.builder::<u64>().sync_memory_budget(0).seed();
         known.send_all([1, 2, 3]).unwrap();
         let expected = live_map(&known);
 
@@ -318,7 +318,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn stream_face_is_causal_and_terminates(network in network_seed()) {
-        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let known = network.builder::<u64>().sync_memory_budget(0).seed();
         for v in 0..6u64 {
             known.send(v).unwrap();
         }
@@ -350,7 +350,7 @@ proptest! {
         count in 2u64..10,
         network in network_seed(),
     ) {
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network.builder::<u64>().sync_memory_budget(0).seed();
         let b = join_fork(&a);
         a.send_all(0..count).unwrap();
         b.send(count).unwrap();
@@ -377,7 +377,7 @@ proptest! {
         remote in any::<bool>(),
         network in network_seed(),
     ) {
-        redact_during_pass(network, values, taken, redactions, remote, Rumors::causal_messages)?;
+        redact_during_pass(network, values, taken, redactions, remote, Peer::causal_messages)?;
     }
 
     /// Delivery remains duplicate-free and covers the final live set across
@@ -385,7 +385,7 @@ proptest! {
     /// Every pair of delivered messages also respects causal order.
     #[test]
     fn causal_delivery_under_interleaving(ops in arb_ops(), network in network_seed()) {
-        let delivered = interleave(network, &ops, Rumors::causal_messages)?;
+        let delivered = interleave(network, &ops, Peer::causal_messages)?;
         assert_causal(&delivered);
     }
 
@@ -399,7 +399,7 @@ proptest! {
         complete_drain in any::<bool>(),
         network in network_seed(),
     ) {
-        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let known = network.builder::<u64>().sync_memory_budget(0).seed();
         for v in &phase_one {
             known.send(*v).unwrap(); // separate commits: a strict causal chain
         }
@@ -482,7 +482,7 @@ proptest! {
         for taken in [taken.index(total + 1), total] {
             // Two replicas of one network: `known` is the crashing process,
             // `partner` survives it to seed the rebuild.
-            let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let known = network.builder::<u64>().sync_memory_budget(0).seed();
             let partner = join_fork(&known);
             for v in &local {
                 known.send(*v).unwrap();
@@ -595,7 +595,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn final_pop_checkpoint_still_replays_the_last_message(network in network_seed()) {
-        let known = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let known = network.builder::<u64>().sync_memory_budget(0).seed();
         known.send(7).unwrap();
 
         // The unordered observer under the probe's protocol — deliver the only

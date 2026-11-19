@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rumors::Rumors;
+use rumors::Peer;
 
 use crate::common::budget::{BudgetAssignment, arb_budget_assignment};
 use crate::common::oracle::{readout, readout_multiset, version_key};
@@ -68,7 +68,7 @@ proptest! {
             );
         }
 
-        let survivors: Vec<Rumors<u64>> =
+        let survivors: Vec<Peer<u64>> =
             result.live().map(|(_, peer)| peer.local.clone()).collect();
         assert_party_invariants(&survivors, 0);
     }

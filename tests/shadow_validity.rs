@@ -61,7 +61,7 @@ divided_proptest! {
         quiesce(&mut empty);
         assert!(empty.is_empty());
 
-        let mut peer = Peer::new(network.peer().sync_memory_budget(0).into_rumors());
+        let mut peer = Peer::new(network.builder().sync_memory_budget(0).seed());
         peer.insert_one(42);
         let snapshot = peer.local.snapshot();
         let observations = peer.observations();

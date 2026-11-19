@@ -70,7 +70,7 @@ where
     A: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     B: Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
 {
-    let sender = network.peer::<A>().into_rumors();
+    let sender = network.peer::<A>();
     sender.send(payload).unwrap();
 
     let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -78,14 +78,13 @@ where
     let server = tokio::spawn(async move {
         serve.gossip_once(far.read, far.write).await.unwrap();
     });
-    let receiver = (match Peer::<B>::join(&mut near.read, &mut near.write).await {
+    let receiver = match Peer::<B>::join(&mut near.read, &mut near.write).await {
         rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
         _ => panic!("the sender is established"),
-    })
-    .into_rumors();
+    };
     server.await.expect("the serving task");
 
     let snapshot = receiver.snapshot();
@@ -177,7 +176,7 @@ divided_proptest! {
     #[test]
     fn undecodable_payload_fails_join_cleanly(network in network_seed()) {
         tokio_block_on(async {
-            let sender = network.peer::<String>().into_rumors();
+            let sender = network.peer::<String>();
             sender.send("not a number".to_string()).unwrap();
 
             let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
@@ -210,19 +209,18 @@ divided_proptest! {
     #[test]
     fn out_of_range_payload_fails_gossip_cleanly(network in network_seed()) {
         tokio_block_on(async {
-            let sender = network.peer::<u64>().into_rumors();
+            let sender = network.peer::<u64>();
             sender.send(7u64).unwrap();
 
             let (mut near, far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let serve = sender.clone();
             let server = tokio::spawn(async move { serve.gossip_once(far.read, far.write).await });
-            let receiver = (match Peer::<u32>::join(&mut near.read, &mut near.write)
+            let receiver = match Peer::<u32>::join(&mut near.read, &mut near.write)
                 .await
             {
                 rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                 _ => panic!("the sender is established"),
-            })
-            .into_rumors();
+            };
             server
                 .await
                 .expect("the serving task completes")

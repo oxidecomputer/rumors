@@ -6,7 +6,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use rumors::Rumors;
+use rumors::Peer;
 use serde::{Deserialize, Serialize};
 
 use common::wire::{join_fork, wire_gossip};
@@ -39,7 +39,7 @@ impl Drop for Payload {
 }
 
 /// Replace this message with a new one when the commit releases it.
-fn replaces_itself(replica: &Rumors<Payload>) -> Payload {
+fn replaces_itself(replica: &Peer<Payload>) -> Payload {
     let replica = replica.clone();
     Payload {
         value: 1,
@@ -72,7 +72,7 @@ fn completes(test: impl FnOnce() + Send + 'static) {
 }
 
 /// The destructor ran once and its send survived the surrounding commit.
-fn assert_replaced(replica: &Rumors<Payload>) {
+fn assert_replaced(replica: &Peer<Payload>) {
     let snapshot = replica.snapshot();
     assert_eq!(snapshot.len(), 1);
     assert_eq!(snapshot.iter().next().unwrap().1.value, 2);
@@ -87,7 +87,7 @@ divided_proptest! {
     #[test]
     fn redact_allows_destructor_access(network in network_seed()) {
         completes(move || {
-            let replica = network.peer().into_rumors();
+            let replica = network.peer();
             let version = replica.send(replaces_itself(&replica)).unwrap();
             replica.redact(&version);
             assert_replaced(&replica);
@@ -100,7 +100,7 @@ divided_proptest! {
     #[test]
     fn batch_allows_destructor_access(network in network_seed()) {
         completes(move || {
-            let replica = network.peer().into_rumors();
+            let replica = network.peer();
             let mut version = replica.snapshot().latest().clone();
             version.tick(&replica.dangerously_alias_party());
             replica
@@ -124,7 +124,7 @@ divided_proptest! {
     #[test]
     fn gossip_allows_destructor_access(network in network_seed()) {
         completes(move || {
-            let replica = network.peer().into_rumors();
+            let replica = network.peer();
             let version = replica.send(replaces_itself(&replica)).unwrap();
             let other = join_fork(&replica);
             other.redact(&version);

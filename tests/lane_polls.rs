@@ -21,7 +21,7 @@ use rumors::testing::LANE_CAPACITY;
 use rumors::testing::{
     MEMORY_CAPACITY, MemoryEnd, MultiplexerPoll, memory_connection, observe_multiplexers,
 };
-use rumors::{Rumors, default};
+use rumors::{Peer, default};
 use rumors_testkit::bench::session::{Shape, pair};
 
 /// What a session's multiplexers did, summed over both sides.
@@ -81,7 +81,7 @@ fn record(poll: MultiplexerPoll) {
 }
 
 /// Gossip once over `end`, returning the frames this side sent.
-async fn gossip(peer: Rumors<String>, end: MemoryEnd) -> u64 {
+async fn gossip(peer: Peer<String>, end: MemoryEnd) -> u64 {
     let (gossiped, ..) = peer
         .gossip_once(end.read, end.write)
         .await
