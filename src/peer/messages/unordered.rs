@@ -8,7 +8,7 @@ use tokio::sync::watch;
 
 use super::channel::Channel;
 
-/// A stream yielding messages from a [`Rumors`](crate::Rumors), in completely
+/// A stream yielding messages from a [`Peer`](crate::Peer), in completely
 /// arbitrary (*non-causal*) order.
 ///
 /// This stream yields items of type `(Version, Arc<T>)`.
@@ -19,8 +19,7 @@ use super::channel::Channel;
 /// order.
 ///
 /// Holding this stream open does not prevent
-/// [`try_into_peer`](crate::Rumors::try_into_peer) from reclaiming the
-/// [`Peer`](crate::Peer).
+/// [`retire`](crate::Peer::retire).
 pub struct UnorderedMessages<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,
@@ -105,7 +104,7 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// may replay any number of them.
     ///
     /// After the stream ends (i.e. yields `None`), this is the final
-    /// [`Version`] of the underlying [`Rumors`](crate::Rumors).
+    /// [`Version`] of the underlying [`Peer`](crate::Peer).
     pub fn checkpoint(&self) -> &Version {
         &self.checkpoint
     }

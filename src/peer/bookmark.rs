@@ -2,31 +2,34 @@
 
 use std::fmt;
 
-use crate::bookmark::{Bookmark, BookmarkIo, NoBookmark};
+use crate::bookmark::{
+    Bookmark, BookmarkHandle, MaybeBookmark, NoBookmark, NullBookmark, StorageIo, Token,
+};
 
-use super::Peer;
+use super::Replica;
+use crate::Peer;
 
 /// The result of failing to attach a [`Bookmark`], with the
 /// [`Peer`] returned unchanged.
 ///
-/// This error is returned by [`Peer::bookmark`] or
+/// This error is returned by [`PeerBuilder::seed`](super::PeerBuilder::seed) or
 /// [`Join::Unbookmarked`](super::Join::Unbookmarked). The peer is still
 /// usable without a bookmark, though it cannot persist or reclaim identity
 /// space. Repair or replace the storage, then try again.
 #[derive(thiserror::Error)]
 #[error("could not attach bookmark to peer")]
 #[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
-pub struct Unbookmarked<T: Send + Sync + 'static, B: Bookmark> {
+pub struct Unbookmarked<T: Send + Sync + 'static, B: MaybeBookmark> {
     /// The unchanged [`Peer`], without any bookmark attached.
-    pub peer: Peer<T, NoBookmark>,
+    peer: Replica<T, NoBookmark>,
     /// The underlying storage or decoding failure.
     #[source]
-    pub error: BookmarkIo<B::Error>,
+    pub error: B::Failure,
 }
 
 /// Format a bookmark failure without requiring debuggable message or storage
 /// types.
-impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
+impl<T: Send + Sync + 'static, B: MaybeBookmark> fmt::Debug for Unbookmarked<T, B> {
     /// Format the error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Unbookmarked")
@@ -36,38 +39,50 @@ impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
     }
 }
 
+/// Construct the unbookmarked state, and leave it by retrying attachment or
+/// proceeding without a bookmark.
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Unbookmarked<T, B> {
+    /// Pair `peer`, which holds no bookmark, with the failure to attach one.
+    pub(crate) fn new(peer: Replica<T, NoBookmark>, error: B::Failure) -> Self {
+        Self { peer, error }
+    }
+
+    /// Retry attaching a bookmark, either the same repaired storage or a
+    /// different one.
+    pub async fn retry_bookmark<B2: Bookmark>(
+        self,
+        bookmark: B2,
+    ) -> Result<Peer<T, B2>, Unbookmarked<T, B2>> {
+        self.peer.attach_bookmark(bookmark).await.map(Peer::new)
+    }
+
+    /// Proceed without a bookmark.
+    pub fn continue_unbookmarked(self) -> Peer<T> {
+        Peer::new(self.peer)
+    }
+}
+
 /// Attach [`Bookmark`] storage to a [`Peer`] which lacks it.
-impl<T: Send + Sync + 'static> Peer<T> {
-    /// Rumors uses a [`Bookmark`] to record identity and local
-    /// write progress, reclaiming old "identity space" opportunistically. This
-    /// limits the storage used by [`Version`](crate::Version)s across
-    /// restarts.
-    ///
-    /// Bookmarks do not store the contents of messages. Their use is a
-    /// (recommended!) optional optimization to prevent a space leak in the
-    /// event that a peer restarts without first [`retire`](Peer::retire)-ing
-    /// into another [`Peer`].
-    ///
-    /// You should reuse the same underlying bookmark storage whenever this peer
-    /// restarts.
-    ///
-    /// For a simple bookmark implementation that uses a single file to store
-    /// the bookmark, supply [`FileBookmark`](crate::FileBookmark).
-    ///
-    /// To attach a bookmark immediately while joining an existing network
-    /// (rather than after the peer joins), use
-    /// [`Joining::bookmark`](super::Joining::bookmark).
-    ///
-    /// # Errors
-    ///
-    /// Any failure returns the original peer, unchanged and without a bookmark
-    /// attached, in the [`Unbookmarked`] error. It is safe to retry attaching
-    /// the bookmark in case of transient failures.
-    pub async fn bookmark<B: Bookmark>(
+impl<T: Send + Sync + 'static> Replica<T> {
+    /// Attach `bookmark`, recording this peer's identity in it unless the peer
+    /// is a pristine seed.
+    pub(crate) async fn attach_bookmark<B: Bookmark>(
         self,
         bookmark: B,
-    ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
-        let peer = self.with_bookmark(bookmark);
+    ) -> Result<Replica<T, B>, Unbookmarked<T, B>> {
+        let handle = BookmarkHandle::new(bookmark, self.bookmark.size_limit());
+        self.attach_handle::<B>(handle).await
+    }
+
+    /// Attach the storage `handle` holds, recording this peer's identity in it
+    /// unless the peer is a pristine seed.
+    ///
+    /// A handle whose record is already loaded is not read again.
+    pub(crate) async fn attach_handle<B: MaybeBookmark>(
+        self,
+        handle: BookmarkHandle<B::Storage>,
+    ) -> Result<Replica<T, B>, B::Unbookmarked<T>> {
+        let peer = self.with_handle::<B>(handle);
 
         // A pristine seed has no identity worth recording yet. Anything the
         // peer knows, through content or changed ownership, must be durable
@@ -85,42 +100,44 @@ impl<T: Send + Sync + 'static> Peer<T> {
         // so the unbookmarked peer remains safe to return.
         match peer.record_bookmark().await {
             Ok(()) => Ok(peer),
-            Err(error) => Err(Unbookmarked {
-                peer: peer.with_bookmark(NoBookmark),
-                error,
-            }),
+            Err(error) => {
+                let handle = BookmarkHandle::new(NullBookmark, peer.bookmark.size_limit());
+                Err(B::unbookmarked(
+                    peer.with_handle::<NoBookmark>(handle),
+                    error,
+                    Token(()),
+                ))
+            }
         }
     }
 }
 
-/// Change a peer's bookmark type without disturbing its other configuration.
-impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Replace bookmark storage while carrying the configured size limit
-    /// forward.
+/// Change a peer's bookmark without disturbing its other configuration.
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
+    /// Replace the bookmark handle, keeping every other part of the peer.
     ///
-    /// The new storage gets a fresh record and lock, and the size limit lives
-    /// outside the old lock, so this never waits on the old lock or reads
-    /// through it.
-    fn with_bookmark<N: Bookmark>(self, persist: N) -> Peer<T, N> {
-        let Peer {
+    /// The new handle brings its own record and lock, so this never waits on
+    /// the old lock or reads through it.
+    fn with_handle<N: MaybeBookmark>(self, bookmark: BookmarkHandle<N::Storage>) -> Replica<T, N> {
+        let Replica {
+            keys,
+            settings,
+            inner,
+            bookmark: _,
+            codec,
+        } = self;
+        Replica {
             keys,
             settings,
             inner,
             bookmark,
-            codec,
-        } = self;
-        Peer {
-            keys,
-            settings,
-            inner,
-            bookmark: bookmark.replace(persist),
             codec,
         }
     }
 
     /// Record this peer's current ownership without reclaiming stored
     /// identities.
-    async fn record_bookmark(&self) -> Result<(), BookmarkIo<B::Error>> {
+    async fn record_bookmark(&self) -> Result<(), StorageIo<B>> {
         let mut bookmark = self.bookmark.lock().await;
         let loaded = bookmark.load().await?;
         let store = {

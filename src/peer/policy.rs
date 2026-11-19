@@ -7,7 +7,7 @@ use futures::future::{BoxFuture, Either, FutureExt, Shared};
 use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
 
-use crate::{Changes, Error, Gossip, bookmark::Bookmark};
+use crate::{Changes, Error, Gossip, bookmark::MaybeBookmark};
 
 /// A new policy stream for one connection, given its own change subscription.
 type Initiation<T> = dyn Fn(Changes<T>) -> BoxStream<'static, Gossip> + Send + Sync;
@@ -84,7 +84,7 @@ impl<T: Send + Sync + 'static> Policy<T> {
 
     /// Race a complete wire exchange against one application-owned deadline. A
     /// ready session result wins, preserving confirmed completion or a failure.
-    pub(super) async fn run<R, B: Bookmark>(
+    pub(super) async fn run<R, B: MaybeBookmark>(
         &self,
         session: impl Future<Output = Result<R, Error<B>>>,
     ) -> Result<R, Error<B>> {

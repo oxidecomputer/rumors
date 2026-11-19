@@ -36,7 +36,7 @@ use before::{Party, Version};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::{Mutex, MutexGuard};
 
-use crate::{Network, default};
+use crate::Network;
 
 mod error;
 #[cfg(feature = "fs")]
@@ -55,7 +55,7 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// Persistent bookkeeping to limit the growth of message
 /// [`Version`]s.
 ///
-/// Every [`Peer`](crate::Peer) created by [`joining`](crate::Peer::joining) another
+/// Every [`Peer`](crate::Peer) created by [`joining`](crate::Peer::join) another
 /// obtains a unique donated fragment of the other peer's "identity space",
 /// which it then can use to stamp its own messages with [`Version`]s. When that
 /// peer finally [`retire`](crate::Peer::retire)s into another peer, this unique
@@ -78,9 +78,8 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 ///
 /// When a peer starts or restarts, join the gossip network again with the same
 /// bookmark selected through
-/// [`Joining::bookmark`](crate::Joining::bookmark), or attach it through
-/// [`Peer::bookmark`](crate::Peer::bookmark) immediately after joining: the
-/// peer is now bookmarked; you don't need to do anything else.
+/// [`PeerBuilder::bookmark`](crate::PeerBuilder::bookmark): the peer is now
+/// bookmarked; you don't need to do anything else.
 ///
 /// Using a [`Bookmark`] does not allow a peer to persist the contents of the
 /// set of messages; it solely recovers the peer's internal identity, which is
@@ -92,9 +91,9 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// A bookmark can retain many identity fragments from any [`Network`]s a peer
 /// might have joined. To prevent indefinite growth, bookmarks are size-limited,
 /// discarding least-recently-used information. The default size limit is
-/// [`default::BOOKMARK_SIZE_LIMIT`], which is configurable with
-/// [`Peer::bookmark_size_limit`](crate::Peer::bookmark_size_limit) or
-/// [`Joining::bookmark_size_limit`](crate::Joining::bookmark_size_limit).
+/// [`default::BOOKMARK_SIZE_LIMIT`](crate::default::BOOKMARK_SIZE_LIMIT), which
+/// is configurable with
+/// [`PeerBuilder::bookmark_size_limit`](crate::PeerBuilder::bookmark_size_limit).
 ///
 /// # Storage requirements
 ///
@@ -137,9 +136,9 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 /// use rumors::{FileBookmark, Peer, TokioBlocking};
 ///
 /// # #[expect(dead_code)]
-/// # async fn attach(peer: Peer<String>) -> Result<(), Box<dyn std::error::Error>> {
+/// # async fn attach() -> Result<(), Box<dyn std::error::Error>> {
 /// let bookmark = FileBookmark::new("peer.bookmark", TokioBlocking).await?;
-/// let peer = peer.bookmark(bookmark).await?;
+/// let peer = Peer::<String>::builder().bookmark(bookmark).seed().await?;
 /// # let _ = peer;
 /// # Ok(())
 /// # }
@@ -190,33 +189,47 @@ pub enum BookmarkIo<E> {
 /// The default [`Bookmark`] which persists nothing.
 ///
 /// This is replaced by another type of bookmark persistence upon calling
-/// [`Peer::bookmark`](crate::Peer::bookmark).
+/// [`PeerBuilder::bookmark`](crate::PeerBuilder::bookmark).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NoBookmark;
 
-///  Peers that do not use a bookmark get no persistence.
-impl Bookmark for NoBookmark {
-    /// This implementation never does anything that could fail.
-    type Error = std::convert::Infallible;
+/// The storage a peer without a bookmark holds.
+mod null {
+    use super::Bookmark;
 
-    /// No stored bookmark is ever returned.
-    type Reader = tokio::io::Empty;
+    /// Storage that persists nothing, held by every peer without a bookmark.
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct NullBookmark;
 
-    /// Report that no bookmark is stored.
-    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
-        Ok(None)
-    }
+    ///  Peers that do not use a bookmark get no persistence.
+    impl Bookmark for NullBookmark {
+        /// This implementation never does anything that could fail.
+        type Error = std::convert::Infallible;
 
-    /// Discard the bookmark when persistence is disabled.
-    async fn store(&self, _bytes: Vec<u8>) -> Result<(), Self::Error> {
-        Ok(())
+        /// No stored bookmark is ever returned.
+        type Reader = tokio::io::Empty;
+
+        /// Report that no bookmark is stored.
+        async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
+            Ok(None)
+        }
+
+        /// Discard the bookmark when persistence is disabled.
+        async fn store(&self, _bytes: Vec<u8>) -> Result<(), Self::Error> {
+            Ok(())
+        }
     }
 }
+
+pub(crate) use null::NullBookmark;
 
 /// Seal [`MaybeBookmark`] to [`NoBookmark`] and the [`Bookmark`]s.
 mod sealed {
     /// The bookmark choices a peer can be built with.
     pub trait Sealed {}
+
+    /// No bookmark.
+    impl Sealed for super::NoBookmark {}
 
     /// A bookmark.
     impl<B: super::Bookmark> Sealed for B {}
@@ -256,10 +269,66 @@ pub trait MaybeBookmark: sealed::Sealed + Sized {
     /// Report a failure of this choice's storage as an [`Error`](crate::Error).
     #[doc(hidden)]
     fn failure(error: StorageIo<Self>, token: Token) -> Self::Failure;
+
+    /// Report a failure to attach this choice's storage to `peer`.
+    #[doc(hidden)]
+    fn unbookmarked<T: Send + Sync + 'static>(
+        peer: crate::peer::Replica<T, NoBookmark>,
+        error: StorageIo<Self>,
+        token: Token,
+    ) -> Self::Unbookmarked<T>;
 }
 
 /// A failure of the storage that `M` holds.
 pub(crate) type StorageIo<M> = BookmarkIo<<<M as MaybeBookmark>::Storage as Bookmark>::Error>;
+
+/// No bookmark: the peer holds storage that persists nothing, so nothing about
+/// it can fail.
+impl MaybeBookmark for NoBookmark {
+    /// Storage that persists nothing.
+    type Storage = NullBookmark;
+    /// Uninhabited: attaching no bookmark cannot fail.
+    type Unbookmarked<T: Send + Sync + 'static> = std::convert::Infallible;
+    /// Uninhabited: storage that persists nothing cannot fail.
+    type Failure = std::convert::Infallible;
+
+    /// Storage that persists nothing.
+    fn into_storage(self, _: Token) -> NullBookmark {
+        NullBookmark
+    }
+
+    /// No bookmark.
+    fn from_storage(_: NullBookmark, _: Token) -> Self {
+        NoBookmark
+    }
+
+    /// Storage that persists nothing never fails.
+    fn failure(error: StorageIo<Self>, _: Token) -> std::convert::Infallible {
+        null_failure(error)
+    }
+
+    /// Storage that persists nothing never fails.
+    fn unbookmarked<T: Send + Sync + 'static>(
+        _: crate::peer::Replica<T, NoBookmark>,
+        error: StorageIo<Self>,
+        _: Token,
+    ) -> std::convert::Infallible {
+        null_failure(error)
+    }
+}
+
+/// Discharge a failure of storage that persists nothing.
+///
+/// Its storage error is uninhabited, and it never returns a stored record, so
+/// it never decodes one and never reports a format error.
+fn null_failure(error: BookmarkIo<std::convert::Infallible>) -> std::convert::Infallible {
+    match error {
+        BookmarkIo::Io(never) => match never {},
+        BookmarkIo::Format(error) => {
+            unreachable!("storage that persists nothing never returns a record to decode: {error}")
+        }
+    }
+}
 
 /// Any bookmark is [`MaybeBookmark`], because it is one.
 impl<B: Bookmark> MaybeBookmark for B {
@@ -285,6 +354,15 @@ impl<B: Bookmark> MaybeBookmark for B {
     /// The storage failure itself.
     fn failure(error: BookmarkIo<B::Error>, _: Token) -> BookmarkIo<B::Error> {
         error
+    }
+
+    /// The peer without its bookmark, paired with the failure.
+    fn unbookmarked<T: Send + Sync + 'static>(
+        peer: crate::peer::Replica<T, NoBookmark>,
+        error: BookmarkIo<B::Error>,
+        _: Token,
+    ) -> crate::Unbookmarked<T, B> {
+        crate::Unbookmarked::new(peer, error)
     }
 }
 
@@ -350,7 +428,7 @@ impl Reservations {
 }
 
 /// One peer view's hold on its bookmark: the storage and record it shares with
-/// every [`Rumors`](crate::Rumors) clone, behind the session lock, and the size
+/// every [`Peer`](crate::Peer) clone, behind the session lock, and the size
 /// limit to store under, which is read without that lock.
 ///
 /// The limit is a setting of the peer, like its memory budget: only an
@@ -369,11 +447,15 @@ pub(crate) struct BookmarkHandle<B> {
 
 /// Construct, share, configure, and lock a peer's bookmark.
 impl<B> BookmarkHandle<B> {
-    /// Hold `persist` at the default size limit, without reading it until the
-    /// first update.
-    pub(crate) fn new(persist: B) -> Self {
+    /// Hold `persist`, without reading it until the first update.
+    ///
+    /// Select the store limit, raised to the size of an empty record.
+    ///
+    /// The limit takes effect at the next store, so until then the stored
+    /// record may exceed it.
+    pub(crate) fn new(persist: B, size_limit: usize) -> Self {
         Self {
-            size_limit: default::BOOKMARK_SIZE_LIMIT,
+            size_limit: size_limit.max(format::record_size(0, 0)),
             state: Arc::new(Mutex::new(Bookmarked::new(persist))),
         }
     }
@@ -383,15 +465,6 @@ impl<B> BookmarkHandle<B> {
         Self {
             size_limit: self.size_limit,
             state: Arc::clone(&self.state),
-        }
-    }
-
-    /// Hold `persist` instead, with a fresh record and lock, carrying the size
-    /// limit forward.
-    pub(crate) fn replace<N>(&self, persist: N) -> BookmarkHandle<N> {
-        BookmarkHandle {
-            size_limit: self.size_limit,
-            state: Arc::new(Mutex::new(Bookmarked::new(persist))),
         }
     }
 
@@ -405,8 +478,7 @@ impl<B> BookmarkHandle<B> {
         self.size_limit = bytes.max(format::record_size(0, 0));
     }
 
-    /// The configured limit, for tests that check where it reached.
-    #[cfg(test)]
+    /// The configured limit.
     pub(crate) fn size_limit(&self) -> usize {
         self.size_limit
     }
@@ -438,6 +510,19 @@ impl<B> BookmarkHandle<B> {
             Err(shared) => shared,
         };
         Self { size_limit, state }
+    }
+
+    /// Return the storage, discarding any record loaded from it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the handle has been shared, which only the peer it belongs to
+    /// does.
+    pub(crate) fn into_storage(self) -> B {
+        let state = Arc::try_unwrap(self.state)
+            .ok()
+            .expect("a handle is unshared until a peer holds it");
+        state.into_inner().persist
     }
 
     /// Wait for exclusive use of the storage and record.

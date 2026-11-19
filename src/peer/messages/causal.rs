@@ -43,25 +43,24 @@ impl PartialOrd for StageKey {
     }
 }
 
-/// A stream yielding messages from a [`Rumors`](crate::Rumors) in causal order.
+/// A stream yielding messages from a [`Peer`](crate::Peer) in causal order.
 ///
 /// This stream yields items of type `(Version, Arc<T>)`.
 ///
 /// For any two messages with [`Version`]s `v` and `w`, if `v <
 /// w` then the `v` message is yielded first. Concurrent messages (i.e. those
 /// with incomparable versions) are delivered in arbitrary order, which may
-/// differ between [`gossip`](crate::Rumors::gossip)ing replicas of the same
-/// [`Rumors`](crate::Rumors).
+/// differ between [`gossip`](crate::Peer::gossip)ing replicas of the same
+/// [`Peer`](crate::Peer).
 ///
 /// Unlike [`UnorderedMessages`](super::UnorderedMessages), keeping this stream
 /// causally ordered may cost up to an extra amortized factor of space and time,
 /// logarithmic in the number of messages held by the underlying peer. Both
 /// costs may burst arbitrarily, up to the total number of messages in the
-/// underlying [`Rumors`](crate::Rumors).
+/// underlying [`Peer`](crate::Peer).
 ///
 /// Holding this stream open does not prevent
-/// [`try_into_peer`](crate::Rumors::try_into_peer) from reclaiming the
-/// [`Peer`](crate::Peer).
+/// [`retire`](crate::Peer::retire).
 pub struct CausalMessages<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,
@@ -152,7 +151,7 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// may replay any number of them.
     ///
     /// After the stream ends (i.e. yields `None`), this is the final
-    /// [`Version`] of the underlying [`Rumors`](crate::Rumors).
+    /// [`Version`] of the underlying [`Peer`](crate::Peer).
     pub fn checkpoint(&self) -> &Version {
         &self.checkpoint
     }

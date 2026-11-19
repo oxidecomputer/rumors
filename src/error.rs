@@ -19,7 +19,7 @@ use std::fmt;
 
 use crate::{
     Count, Network, Protocol,
-    bookmark::{Bookmark, NoBookmark},
+    bookmark::{MaybeBookmark, NoBookmark},
     observe::SessionErrorKind,
     tree::mirror::preamble,
 };
@@ -97,7 +97,7 @@ pub enum Mismatch {
 /// A failure returned during reconciliation.
 #[non_exhaustive]
 #[derive(thiserror::Error)]
-pub enum Error<B: Bookmark = NoBookmark> {
+pub enum Error<B: MaybeBookmark = NoBookmark> {
     /// A transport operation failed or the peer closed the connection before it
     /// completed.
     ///
@@ -125,15 +125,16 @@ pub enum Error<B: Bookmark = NoBookmark> {
     #[error("gossip timeout exceeded; discard the connection and reconnect")]
     GossipTimeout,
 
-    /// The application's [`Bookmark`] failed to load, persist, or parse.
+    /// The application's [`Bookmark`](crate::Bookmark) failed to load, persist,
+    /// or parse.
     ///
     /// In case of non-transient errors, repair or replace the underlying
     /// storage before retrying.
     #[error(transparent)]
-    Bookmark(BookmarkIo<B::Error>),
+    Bookmark(B::Failure),
 }
 
-impl<B: Bookmark> Error<B> {
+impl<B: MaybeBookmark> Error<B> {
     /// Reduce this error to the category exposed to session observers.
     pub(crate) fn session_error_kind(&self) -> SessionErrorKind {
         match self {
@@ -148,7 +149,7 @@ impl<B: Bookmark> Error<B> {
 
 /// Format failures without requiring the bookmark handle itself to be
 /// debuggable.
-impl<B: Bookmark> fmt::Debug for Error<B> {
+impl<B: MaybeBookmark> fmt::Debug for Error<B> {
     /// Formats the error and its actionable diagnostic fields.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -189,16 +190,13 @@ impl From<preamble::Error> for Error {
 /// Adapt errors from sessions that have no bookmark-specific storage failure.
 impl Error {
     /// Retag an error under a bookmark type without losing its cause.
-    pub(crate) fn widen<B: Bookmark>(self) -> Error<B> {
+    pub(crate) fn widen<B: MaybeBookmark>(self) -> Error<B> {
         match self {
             Self::Transport(error) => Error::Transport(error),
             Self::Protocol(error) => Error::Protocol(error),
             Self::Mismatch(error) => Error::Mismatch(error),
             Self::GossipTimeout => Error::GossipTimeout,
-            Self::Bookmark(error) => match error {
-                BookmarkIo::Io(never) => match never {},
-                BookmarkIo::Format(error) => Error::Bookmark(BookmarkIo::Format(error)),
-            },
+            Self::Bookmark(never) => match never {},
         }
     }
 }

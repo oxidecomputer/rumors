@@ -414,7 +414,6 @@ mod network;
 pub mod observe;
 mod peer;
 mod protocol;
-mod rumors;
 pub mod sizing;
 mod snapshot;
 pub mod tags;
@@ -455,10 +454,10 @@ pub use error::Error;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    Connection, Gossip, Gossiped, Join, Joining, Led, Peer, Retire, Settings, Unbookmarked,
+    CausalMessages, Changes, Connection, Gossip, Gossiped, Join, Participant, Peer, PeerBuilder,
+    Retire, Settings, TryNext, TryTick, Unbookmarked, UnorderedMessages,
 };
 pub use protocol::Protocol;
-pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::{Iter, Snapshot};
 pub use tree::mirror::streaming::stats::SessionStats;
 

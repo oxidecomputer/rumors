@@ -278,7 +278,7 @@ impl Allowances {
     /// saturating.
     ///
     /// This is the test path's
-    /// ([`ledger_budget`](crate::testing::ledger_budget)).
+    /// ([`ledger_budget`](crate::PeerBuilder::ledger_budget)).
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) const fn ledger(self, ledger: usize) -> SessionBudget {
         SessionBudget {

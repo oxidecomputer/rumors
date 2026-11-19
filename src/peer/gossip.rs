@@ -1,5 +1,5 @@
-//! The wire-session drivers for [`Peer`]: [`join`](crate::Joining::join),
-//! [`gossip_stream`](crate::Rumors::gossip_stream), and
+//! The wire-session drivers for [`Peer`]: [`join`](crate::PeerBuilder::join),
+//! [`gossip_stream`](crate::Peer::gossip_stream), and
 //! [`retire`](Peer::retire).
 //!
 //! A [`ForkGuard`] restores donation forks abandoned before transmission.
@@ -24,7 +24,9 @@ use crate::observe::{SessionCompletion, SessionHandle, SessionKind, SessionOutco
 use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
 use crate::{
-    bookmark::{Bookmark, BookmarkHandle, BookmarkIo, NoBookmark, Reservation},
+    bookmark::{
+        BookmarkHandle, MaybeBookmark, NoBookmark, NullBookmark, Reservation, StorageIo, Token,
+    },
     tree::mirror::{
         party,
         preamble::{self, Counterparty, Intent},
@@ -37,7 +39,8 @@ use crate::{
     },
 };
 
-use super::{Inner, Peer, SessionSizing, connection::Connection, join::Joining};
+use super::{Inner, Replica, SessionSizing, builder::PeerBuilder, connection::Connection};
+use crate::Peer;
 
 /// The completion marker each side writes after all of its session work, in the
 /// closing exchange: the CBOR text item `"."`.
@@ -92,7 +95,7 @@ type RemoteParticipant<'a> = streaming_remote::Handshaking<Local, DynRead<'a>, D
 ///     could be transient, so it would be reasonable to retry with the same
 ///     counterparty in some circumstances.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
-pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
+pub enum Retire<T: Send + Sync + 'static, R, W, B: MaybeBookmark = NoBookmark> {
     /// This [`Peer`] has successfully retired from the gossip network.
     ///
     /// The peer cannot resume gossip or retry. With [`Connection::Reusable`],
@@ -132,7 +135,7 @@ pub enum Retire<T: Send + Sync + 'static, R, W, B: Bookmark = NoBookmark> {
 
 /// Format retirement outcomes without requiring any generic types to be
 /// debuggable.
-impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W, B> {
+impl<T: Send + Sync + 'static, R, W, B: MaybeBookmark> fmt::Debug for Retire<T, R, W, B> {
     /// Formats the result and any returned peer, connection, or error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -155,8 +158,8 @@ impl<T: Send + Sync + 'static, R, W, B: Bookmark> fmt::Debug for Retire<T, R, W,
 
 /// Information about one completed gossip session.
 ///
-/// This is returned by [`gossip_once`](crate::Rumors::gossip_once) or yielded
-/// by [`gossip_stream`](crate::Rumors::gossip_stream) repeatedly.
+/// This is returned by [`gossip_once`](crate::Peer::gossip_once) or yielded
+/// by [`gossip_stream`](crate::Peer::gossip_stream) repeatedly.
 ///
 /// This report originates only from successful gossip sessions; failures report
 /// an `Err` instead.
@@ -176,7 +179,15 @@ pub struct Gossiped {
     ///
     /// Both sides may believe they initiated: if both race to initiate, the two
     /// symmetrical initiations merge into one gossip session.
-    pub led: Led,
+    ///
+    /// If the local peer reports that it [`Participant::Local`], the
+    /// remote peer may or may not also believe the same.
+    ///
+    /// If the local peer reports that the remote
+    /// [`Participant::Remote`], then the remote definitely believes
+    /// that it [`Participant::Local`]; two peers cannot both
+    /// simultaneously believe that the other side initiated.
+    pub led: Participant,
     /// Local statistics about the gossip session, useful for reporting
     /// metrics.
     ///
@@ -184,31 +195,17 @@ pub struct Gossiped {
     pub stats: SessionStats,
 }
 
-/// Which side of the connection *this peer* believes initiated a round of
-/// gossip.
-///
-/// If both peers race to initiate, each one may believe that it
-/// [`Led::Local`], because simultaneous gossip sessions merge.
+/// One of the two peers in a gossip session, seen from the local peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Led {
-    /// The local [`gossip_when`](crate::Peer::gossip_when) policy or an
-    /// explicit call to [`gossip_once`](crate::Rumors::gossip_once) initiated
-    /// this gossip session.
-    ///
-    /// If the local peer reports that it [`Led::Local`], the
-    /// remote peer may or may not also believe the same.
+pub enum Participant {
+    /// The local peer.
     Local,
-    /// The remote peer initiated gossip.
-    ///
-    /// If the local peer reports that the remote
-    /// [`Led::Remote`], then the remote definitely believes
-    /// that it [`Led::Local`]; two peers cannot both
-    /// simultaneously believe that the other side initiated.
+    /// The remote peer.
     Remote,
 }
 
 /// The policy by which a stream item for
-/// [`Peer::gossip_when`](crate::Peer::gossip_when) requests a gossip session.
+/// [`PeerBuilder::gossip_when`](crate::PeerBuilder::gossip_when) requests a gossip session.
 ///
 /// Note that `(): Into<Gossip>` where `().into() == Gossip::WhenChanged`, so an
 /// ordinary stream of `()` acts as a sequence of "ticks" which initiate gossip
@@ -244,7 +241,7 @@ struct Received {
 }
 
 /// Create joined peers and attach bookmark storage.
-impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
+impl<T: Send + Sync + 'static> Replica<T, NoBookmark> {
     /// Run a join session over any connection, returning the new peer, if this
     /// side received its whole identity, beside the session's result.
     ///
@@ -255,7 +252,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// A thin generic funnel: the only monomorphized-per-transport code is the
     /// erasure of the two halves here.
     pub(crate) fn join_inner<'a, R, W>(
-        config: Joining<T>,
+        config: PeerBuilder<T>,
         read: &'a mut R,
         write: &'a mut W,
     ) -> BoxFuture<'a, (Option<Self>, Result<(), Error>)>
@@ -317,13 +314,14 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
 
     /// The peer a join that received its whole party becomes, carrying the
     /// builder's settings.
-    fn joined(config: Joining<T>, codec: PayloadCodec, received: Received) -> Self {
+    fn joined(config: PeerBuilder<T>, codec: PayloadCodec, received: Received) -> Self {
         let Received { keys, party, root } = received;
+        let bookmark = BookmarkHandle::new(NullBookmark, config.bookmark_size_limit);
         Self {
             keys: Arc::clone(&keys),
             settings: config.settings,
             inner: watch::Sender::new(Inner::new(party, Tree::from_root(keys, root))),
-            bookmark: BookmarkHandle::new(NoBookmark),
+            bookmark,
             codec,
         }
     }
@@ -425,32 +423,25 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
 }
 
 /// Run sessions and maintain bookmarks across ownership changes.
-impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Reconcile and donate, returning the peer only when handoff has not
-    /// begun.
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
+    /// Reconcile and donate.
     ///
     /// Reconciliation publishes on both sides. Surviving message observers
     /// drain the retiring peer's final merged state before they end.
-    pub(crate) async fn retire_inner<R, W>(self, mut read: R, mut write: W) -> Retire<T, R, W, B>
+    pub(crate) async fn retire_inner<R, W>(
+        &self,
+        outcome: &mut Intent,
+        read: &mut R,
+        write: &mut W,
+    ) -> Result<(), Error<B>>
     where
         R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
         let mut staged = preamble::Staged::new();
-        let (intent, result) = self
-            .session(Intent::Retire, &mut staged, &mut read, &mut write)
-            .await;
-        match (intent, result) {
-            (Intent::Retire, result) => Retire::Retired {
-                connection: Connection::from_session(result.map(drop), read, write),
-            },
-            (Intent::Remain, Ok(_)) => Retire::Declined {
-                peer: self,
-                read,
-                write,
-            },
-            (Intent::Remain, Err(error)) => Retire::Recovered { peer: self, error },
-        }
+        self.session(Intent::Retire, outcome, &mut staged, read, write)
+            .await
+            .map(drop)
     }
 
     /// Gossip with a remote peer to synchronize sets of messages.
@@ -464,8 +455,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         W: AsyncWrite + Unpin + Send,
     {
         let mut staged = preamble::Staged::new();
-        let (_, result) = self
-            .session(Intent::Remain, &mut staged, &mut read, &mut write)
+        let result = self
+            .session(
+                Intent::Remain,
+                &mut Intent::Remain,
+                &mut staged,
+                &mut read,
+                &mut write,
+            )
             .await;
         // A one-shot session is always locally led: the call itself is
         // this side's trigger. A remote preamble already in flight merges
@@ -475,7 +472,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         Ok((
             Gossiped {
                 converged,
-                led: Led::Local,
+                led: Participant::Local,
                 stats,
             },
             read,
@@ -491,11 +488,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     async fn session(
         &self,
         intent: Intent,
+        outcome: &mut Intent,
         staged: &mut preamble::Staged,
         read: DynRead<'_>,
         write: DynWrite<'_>,
-    ) -> (Intent, Result<(Version, SessionStats), Error<B>>) {
-        let mut outcome = Intent::Remain;
+    ) -> Result<(Version, SessionStats), Error<B>> {
         let kind = match intent {
             Intent::Remain => SessionKind::Gossip,
             Intent::Retire => SessionKind::Retire,
@@ -507,7 +504,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut result = self
             .settings
             .gossip_policy
-            .run(self.gossip_inner(intent, &mut outcome, staged, read, write, observe, stats))
+            .run(self.gossip_inner(intent, outcome, staged, read, write, observe, stats))
             .await;
         if let Ok((_, stats)) = &mut result {
             stats.elapsed = started.elapsed();
@@ -519,7 +516,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             }),
             Err(error) => completion.finish(SessionOutcome::Failed(error.session_error_kind())),
         }
-        (outcome, result)
+        result
     }
 
     /// Reclaim caught-up identities and checkpoint our own writes when needed.
@@ -528,7 +525,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// only to read its current version and update the party. This records all
     /// local events visible at that instant without holding the replica during
     /// I/O. Remote-only version advances leave our checkpoint current.
-    async fn bookmark_update(&self) -> Result<(), BookmarkIo<B::Error>> {
+    async fn bookmark_update(&self) -> Result<(), StorageIo<B>> {
         let mut bookmark = self.bookmark.lock().await;
         let loaded = bookmark.load().await?;
         let mut store = None;
@@ -559,7 +556,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     ///
     /// Success includes session statistics and the converged frontier, before
     /// concurrent local commits. The
-    /// [`gossip_stream`](crate::Rumors::gossip_stream) driver uses that frontier
+    /// [`gossip_stream`](crate::Peer::gossip_stream) driver uses that frontier
     /// to decide whether further gossip is needed.
     ///
     /// `staged` holds any preamble bytes already read by the continuous gossip
@@ -626,7 +623,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         let mut prior_tree = None;
         {
             let mut bookmark = self.bookmark.lock().await;
-            let loaded = bookmark.load().await.map_err(Error::Bookmark)?;
+            let loaded = bookmark
+                .load()
+                .await
+                .map_err(|error| Error::Bookmark(B::failure(error, Token(()))))?;
             let mut store = None;
             Inner::update_party(&self.inner, |inner| {
                 store = loaded.checkpoint(
@@ -641,7 +641,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                 }
             });
             if let Some(store) = store {
-                store.await.map_err(Error::Bookmark)?;
+                store
+                    .await
+                    .map_err(|error| Error::Bookmark(B::failure(error, Token(()))))?;
             }
         }
         let prior_tree = prior_tree.expect("set in closure");
@@ -693,14 +695,19 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
             // next checkpoint records even if the removal reached storage.
             {
                 let mut bookmark = self.bookmark.lock().await;
-                let loaded = bookmark.load().await.map_err(Error::Bookmark)?;
+                let loaded = bookmark
+                    .load()
+                    .await
+                    .map_err(|error| Error::Bookmark(B::failure(error, Token(()))))?;
                 let store = if self_retiring {
                     loaded.donate(self.network(), &self.inner.borrow().party)
                 } else {
                     let (fork, _) = guarded.fork.as_ref().expect("donation fork");
                     loaded.donate(self.network(), fork)
                 };
-                store.await.map_err(Error::Bookmark)?;
+                store
+                    .await
+                    .map_err(|error| Error::Bookmark(B::failure(error, Token(()))))?;
             }
 
             // `send` encodes immediately and retains no party borrow. Release
@@ -753,7 +760,9 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         // it in ours before confirming absorption, or a crash could lose it.
         // Report a failed write even though the in-memory join has committed.
         if peer_retiring {
-            self.bookmark_update().await.map_err(Error::Bookmark)?;
+            self.bookmark_update()
+                .await
+                .map_err(|error| Error::Bookmark(B::failure(error, Token(()))))?;
         }
 
         // Confirm that both sides completed their commits, including any
@@ -769,7 +778,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
 }
 
 /// Drive repeated sessions over one connection with application-owned timing.
-impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
     /// Run the continuous driver under this peer's initiation policy.
     #[must_use = "the driver does nothing until the returned stream is polled"]
     pub(crate) fn gossip_driver<'a, R, W>(
@@ -824,7 +833,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                     // ends cleanly. Once any bytes arrive, this same poll
                     // proceeds to the session before it can suspend again.
                     Trigger::Arrival(Ok(false)) | Trigger::Tick(None) => return None,
-                    Trigger::Arrival(Ok(true)) => Led::Remote,
+                    Trigger::Arrival(Ok(true)) => Participant::Remote,
                     Trigger::Tick(Some(Gossip::WhenChanged)) => {
                         // Suppression: a WhenChanged request initiates only
                         // if the local frontier has advanced past what
@@ -839,21 +848,22 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
                         if !news {
                             continue;
                         }
-                        Led::Local
+                        Participant::Local
                     }
                     // An unconditional request's purpose is a session that
                     // may have nothing to say: the round-trip is the
                     // liveness probe, and the convergence is the
                     // anti-entropy pull.
-                    Trigger::Tick(Some(Gossip::Unconditionally)) => Led::Local,
+                    Trigger::Tick(Some(Gossip::Unconditionally)) => Participant::Local,
                 };
 
                 // `unfold` keeps the session and its deadline alive when
                 // the caller drops a `next()` future between polls.
-                let (_, result) = drive
+                let result = drive
                     .peer
                     .session(
                         Intent::Remain,
+                        &mut Intent::Remain,
                         &mut drive.staged,
                         &mut *drive.read,
                         &mut *drive.write,
@@ -1111,9 +1121,9 @@ enum Trigger {
 }
 
 /// State retained between sessions; `unfold` also retains the active future.
-struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
+struct Drive<'a, T: Send + Sync + 'static, B: MaybeBookmark> {
     /// The replica served by every session on this connection.
-    peer: &'a Peer<T, B>,
+    peer: &'a Replica<T, B>,
     /// The connection's read half, retained across session boundaries and boxed
     /// so the driver is not generic over the transport.
     read: Box<dyn AsyncBufRead + Unpin + Send + 'a>,
@@ -1164,6 +1174,104 @@ impl<T: Send + Sync + 'static> Drop for ForkGuard<'_, T> {
                 );
             });
         }
+    }
+}
+
+/// Gossip.
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Peer<T, B> {
+    /// Gossip over one connection until it ends.
+    ///
+    /// To observe details about each completed gossip session, use
+    /// [`gossip_stream`](Self::gossip_stream) and iterate over its returned
+    /// stream of [`Gossiped`] status reports.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[expect(dead_code)]
+    /// # async fn example(
+    /// #     rumors: &rumors::Peer<String>,
+    /// #     connection: impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
+    /// # ) -> Result<(), rumors::Error> {
+    /// let (read, write) = tokio::io::split(connection);
+    /// let read = tokio::io::BufReader::new(read);
+    ///
+    /// rumors.gossip(read, write).await
+    /// # }
+    /// ```
+    pub async fn gossip<R, W>(&self, read: R, write: W) -> Result<(), Error<B>>
+    where
+        R: AsyncBufRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        let mut sessions = self.gossip_stream(read, write).await;
+        while let Some(session) = sessions.next().await {
+            session?;
+        }
+        Ok(())
+    }
+
+    /// Gossip over one connection until it ends, yielding a report after each
+    /// gossip session.
+    ///
+    /// Each successful [`Gossiped`] reports the converged [`Version`], and
+    /// various statistics about the session. **You must keep polling the
+    /// resultant stream to drive the connection.**
+    ///
+    /// To force one immediate gossip session regardless of the configured
+    /// policies on the [`Peer`], use [`gossip_once`](Self::gossip_once). To
+    /// drive the connection without inspecting each session, use
+    /// [`gossip`](Self::gossip).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # #[expect(dead_code)]
+    /// # async fn example(
+    /// #     rumors: &rumors::Peer<String>,
+    /// #     connection: impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
+    /// # ) -> Result<(), rumors::Error> {
+    /// use futures::StreamExt;
+    ///
+    /// let (read, write) = tokio::io::split(connection);
+    /// let read = tokio::io::BufReader::new(read);
+    ///
+    /// let mut sessions = rumors.gossip_stream(read, write).await;
+    /// while let Some(session) = sessions.next().await {
+    ///     let gossiped = session?;
+    ///     // Inspect `gossiped` or continue driving the connection.
+    ///     # let _ = gossiped;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use = "the driver does nothing until the returned stream is polled"]
+    pub async fn gossip_stream<'a, R, W>(
+        &'a self,
+        read: R,
+        write: W,
+    ) -> impl FusedStream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
+    where
+        R: AsyncBufRead + Unpin + Send + 'a,
+        W: AsyncWrite + Unpin + Send + 'a,
+    {
+        self.replica.gossip_driver(read, write)
+    }
+
+    /// Run a single gossip session with a remote peer.
+    ///
+    /// The configured
+    /// [`PeerBuilder::gossip_timeout`](crate::PeerBuilder::gossip_timeout) applies
+    /// to this exchange. The initiation policy does not: this call always starts
+    /// a gossip session, regardless of
+    /// [`PeerBuilder::gossip_when`](crate::PeerBuilder::gossip_when) and
+    /// [`PeerBuilder::gossip_until`](crate::PeerBuilder::gossip_until).
+    pub async fn gossip_once<R, W>(&self, read: R, write: W) -> Result<(Gossiped, R, W), Error<B>>
+    where
+        R: AsyncBufRead + Unpin + Send,
+        W: AsyncWrite + Unpin + Send,
+    {
+        self.replica.gossip_once(read, write).await
     }
 }
 

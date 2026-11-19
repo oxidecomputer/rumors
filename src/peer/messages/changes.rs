@@ -21,13 +21,12 @@ use super::channel::Channel;
 /// [`Peer`](crate::Peer) with no messages at all. Later polls coalesce all
 /// changes since the last poll into one `()`.
 ///
-/// The stream ends once the [`Peer`](crate::Peer) and every
-/// [`Rumors`](crate::Rumors) handle for the replica have dropped and the final
+/// The stream ends once every
+/// [`Peer`](crate::Peer) handle for the replica has dropped and the final
 /// change has been reported to whoever is consuming the stream.
 ///
 /// Holding this stream open does not prevent
-/// [`try_into_peer`](crate::Rumors::try_into_peer) from recovering the
-/// [`Peer`](crate::Peer).
+/// [`retire`](crate::Peer::retire).
 pub struct Changes<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,

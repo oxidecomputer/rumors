@@ -58,7 +58,7 @@ use rand_chacha::ChaChaRng;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::Peer;
+use crate::{Peer, PeerBuilder};
 
 pub use crate::divided_proptest;
 
@@ -81,7 +81,7 @@ impl NetworkSeed {
     ///
     /// [`peer`](Self::peer) draws the secret from the start of this stream. A
     /// test that also draws its workload from the stream after the secret
-    /// passes it to `Peer::seed_rng` itself.
+    /// passes it to `PeerBuilder::dangerously_override_rng` itself.
     pub fn rng(self) -> ChaChaRng {
         ChaChaRng::seed_from_u64(self.0)
     }
@@ -91,7 +91,16 @@ impl NetworkSeed {
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
-        Peer::seed_rng(&mut self.rng())
+        self.builder().seed()
+    }
+
+    /// Configure the first peer of the network this seed names, before
+    /// seeding it.
+    pub fn builder<T>(self) -> PeerBuilder<T>
+    where
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+    {
+        Peer::builder().dangerously_override_rng(&mut self.rng())
     }
 }
 

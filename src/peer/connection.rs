@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::Error;
-use crate::bookmark::{Bookmark, NoBookmark};
+use crate::bookmark::{MaybeBookmark, NoBookmark};
 
 /// Whether a connection can carry another session, once we've finished using
 /// it.
@@ -18,7 +18,7 @@ use crate::bookmark::{Bookmark, NoBookmark};
 /// [`into_halves`](Self::into_halves); if the connection is reusable, you'll
 /// get it back, and if it's not, `?` passes the error on.
 #[must_use = "a reusable connection returns its halves; a lost one carries the session's error"]
-pub enum Connection<R, W, B: Bookmark = NoBookmark> {
+pub enum Connection<R, W, B: MaybeBookmark = NoBookmark> {
     /// The session completed, and both sides are aware of this.
     ///
     /// The connection halves rest exactly at the boundary between sessions,
@@ -42,7 +42,7 @@ pub enum Connection<R, W, B: Bookmark = NoBookmark> {
 }
 
 /// Settle a connection's fate from its session's result.
-impl<R, W, B: Bookmark> Connection<R, W, B> {
+impl<R, W, B: MaybeBookmark> Connection<R, W, B> {
     /// Return the halves if the session completed, or else its error.
     pub(crate) fn from_session(completed: Result<(), Error<B>>, read: R, write: W) -> Self {
         match completed {
@@ -54,7 +54,7 @@ impl<R, W, B: Bookmark> Connection<R, W, B> {
 
 /// Take back a reusable connection's halves, throwing an error if this can't be
 /// done.
-impl<R, W, B: Bookmark> Connection<R, W, B> {
+impl<R, W, B: MaybeBookmark> Connection<R, W, B> {
     /// Return a reusable connection's halves, or the error that broke the
     /// connection.
     ///
@@ -90,7 +90,7 @@ impl<R, W, B: Bookmark> Connection<R, W, B> {
 }
 
 /// Format a connection result without requiring debuggable transport types.
-impl<R, W, B: Bookmark> fmt::Debug for Connection<R, W, B> {
+impl<R, W, B: MaybeBookmark> fmt::Debug for Connection<R, W, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Reusable { .. } => f.debug_struct("Reusable").finish_non_exhaustive(),

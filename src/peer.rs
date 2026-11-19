@@ -9,13 +9,12 @@ use std::{
 };
 
 use before::Party;
-use rand::CryptoRng;
-use rand::rand_core::UnwrapErr;
-use rand::rngs::SysRng;
 use tokio::io::{AsyncBufRead, AsyncWrite};
 use tokio::sync::watch;
 
-use crate::bookmark::{BookmarkHandle, NoBookmark, Reservation, Reservations};
+use crate::bookmark::{
+    BookmarkHandle, MaybeBookmark, NoBookmark, NullBookmark, Reservation, Reservations,
+};
 use crate::counter::widen;
 use crate::default;
 use crate::message::{EncodeError, MessageDepthLimit, PayloadCodec};
@@ -27,10 +26,7 @@ use crate::tree::mirror::streaming::{
     materialized::{self, SessionBudget},
 };
 use crate::tree::{self, Tree};
-use crate::{
-    Batch, Bookmark, CausalMessages, Changes, Committed, Network, Rumors, Snapshot,
-    UnorderedMessages, Version,
-};
+use crate::{Batch, Committed, Network, Snapshot, Version};
 
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -58,13 +54,13 @@ pub(crate) enum MemoryBudget {
     /// what it affords, and raise it to the minimum for the clamped target.
     Requested(usize),
     /// A ledger budget the test path sets
-    /// ([`ledger_budget`](crate::testing::ledger_budget)): sessions run on the
+    /// ([`ledger_budget`](crate::PeerBuilder::ledger_budget)): sessions run on the
     /// memory budget that leaves their ledgers exactly this, at whatever
     /// target, below the minimum included.
     #[cfg(any(test, feature = "test-internals"))]
     Ledger(usize),
     /// The serial configuration the test path sets
-    /// ([`serial_budget`](crate::testing::serial_budget)): one unit of each
+    /// ([`serial_budget`](crate::PeerBuilder::serial_budget)): one unit of each
     /// kind and depth at a time.
     ///
     /// Sessions run their ledgers at a budget of zero with every kind and
@@ -149,14 +145,11 @@ pub(crate) struct SessionLimits {
 /// limits from the pair its peer stored ([`limits`](Self::limits)).
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct SessionSizing {
-    /// The memory budget selected by [`Peer::sync_memory_budget`] or
-    /// [`Joining::sync_memory_budget`], as given.
+    /// The memory budget selected by [`PeerBuilder::sync_memory_budget`], as given.
     pub(crate) sync_memory_budget: MemoryBudget,
-    /// The supply-run byte budget selected by [`Peer::target_message_size`] or
-    /// [`Joining::target_message_size`], as given.
+    /// The supply-run byte budget selected by [`PeerBuilder::target_message_size`], as given.
     pub(crate) run_budget: RunBudget,
-    /// The write batch range selected by [`Peer::write_batch_range`] or
-    /// [`Joining::write_batch_range`].
+    /// The write batch range selected by [`PeerBuilder::write_batch_range`].
     pub(crate) write_batch: WriteBatch,
 }
 
@@ -197,7 +190,7 @@ impl SessionSizing {
     }
 }
 
-/// The settings a peer's sessions run under, which a [`Joining`] builder
+/// The settings a peer's sessions run under, which a [`PeerBuilder`]
 /// selects and the peer it joins inherits whole.
 ///
 /// The message nesting limit is not among them: a peer holds it inside its
@@ -208,8 +201,7 @@ pub(crate) struct SessionSettings<T: Send + Sync + 'static> {
     pub(crate) sizing: SessionSizing,
     /// Initiation and deadline factories inherited by every gossip handle.
     pub(crate) gossip_policy: policy::Policy<T>,
-    /// The wire observers added through [`Peer::observe`] or
-    /// [`Joining::observe`].
+    /// The wire observers added through [`PeerBuilder::observe`].
     pub(crate) observe: Attachment,
 }
 
@@ -247,38 +239,43 @@ impl Default for MemoryBudget {
 }
 
 mod bookmark;
+mod builder;
 mod connection;
 mod gossip;
 mod join;
+mod messages;
 mod policy;
+mod reunion;
 
 pub use bookmark::Unbookmarked;
+pub use builder::PeerBuilder;
 pub use connection::Connection;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use gossip::COMPLETION_MARKER;
-pub use gossip::{Gossip, Gossiped, Led, Retire};
-pub use join::{Join, Joining};
+pub use gossip::{Gossip, Gossiped, Participant, Retire};
+pub use join::Join;
+pub use messages::{CausalMessages, Changes, TryNext, TryTick, UnorderedMessages};
+use reunion::Reunion;
 
-/// The start and end of the lifecycle for [`Rumors`].
+/// A handle for [`send`](Peer::send)ing and [`redact`](Peer::redact)ing
+/// messages, and [`gossip`](Peer::gossip)ing the results with peers.
+///
+/// [`Peer`] is [`Clone`]: any number of tasks may interact
+/// with clones concurrently. All synchronization is internal and automatic:
+/// anything one [`Peer`] learns, all clones of it do.
 ///
 /// Create a new gossip network with [`Peer::seed`](Self::seed), or join an
-/// established peer's network with [`Peer::joining`](Self::joining) ---
-/// both result in a [`Peer`], which can be additionally configured before
-/// proceeding to using it.
+/// established peer's network with [`Peer::join`](Self::join) ---
+/// both result in a [`Peer`].
 ///
-///  A [`Peer`] cannot be cloned and exists only while no [`Rumors`] handles to
-/// that replica remain. This API design ensures that when a [`Peer`]
-/// [`retire`](Self::retire)s, it cannot interrupt another handle's gossip
-/// sessions.
+/// [`Peer::retire`](Self::retire) waits until every other handle to that
+/// replica has been dropped or is also retiring. This API design ensures that
+/// when a [`Peer`] [`retire`](Self::retire)s, it cannot interrupt another
+/// handle's gossip sessions.
 ///
-/// To use and clone the replica, convert the [`Peer`] into a [`Rumors`] using
-/// [`into_rumors`](Peer::into_rumors), then use the [`Rumors`] API to interact
-/// with the set of messages and gossip with other peers.
-///
-/// When finished, convert any
-/// [`Rumors`] clone back into a [`Peer`] using
-/// [`try_into_peer`](crate::Rumors::try_into_peer), and optionally
-/// [`retire`](Peer::retire) the [`Peer`] before stopping your application.
+/// When finished, it is preferable to [`retire`](Peer::retire) the [`Peer`]
+/// before stopping your application. Doing so recycles "identity space" and
+/// keeps the space consumed by [`Version`](crate::Version)s smaller.
 ///
 /// # Example
 ///
@@ -294,7 +291,7 @@ pub use join::{Join, Joining};
 /// #     .block_on(async {
 /// // To connect to a peer, we pass the read/write halves of one connection.
 /// // In this example, we assume we've already set up a connection to some remote peer.
-/// # let counterparty = Peer::<String>::seed().into_rumors();
+/// # let counterparty = Peer::<String>::seed();
 /// # let (connection, far) = duplex(64 * 1024);
 /// let (read, write) = split(connection);
 /// let read = BufReader::new(read);
@@ -306,21 +303,17 @@ pub use join::{Join, Joining};
 /// # });
 ///
 /// // Join the network through an existing peer.
-/// let Join::Connected { peer, .. } = Peer::<String>::joining().join(read, write).await else {
+/// let Join::Connected { peer, .. } = Peer::<String>::join(read, write).await else {
 ///     panic!("the established counterparty must serve the joining party");
 /// };
 ///
-/// // `Peer: !Clone`, so we trade it for `Rumors` to send, listen, and gossip concurrently.
-/// let rumors = peer.into_rumors();
-/// let other = rumors.clone();
+/// // Clones of the `Peer` send, listen, and gossip concurrently.
+/// let other = peer.clone();
 ///
-/// // ... use the `Rumors` handles concurrently however you want ...
+/// // ... use the handles concurrently however you want ...
 ///
-/// // Once all but one `Rumors` has been dropped, a unique `Peer` can be reclaimed.
+/// // Retirement waits until every other handle has been dropped.
 /// drop(other);
-/// let Some(peer) = rumors.try_into_peer().await else {
-///     unreachable!("all other handles were dropped already");
-/// };
 ///
 /// // Leave the network by retiring into any peer; it need not be the one we joined.
 /// // Here, we pretend we have another connection to another peer already in hand.
@@ -358,7 +351,7 @@ pub use join::{Join, Joining};
 /// Absent any true consensus on who should create the gossip network, another
 /// reasonable approach to bootstrapping a [`Network`] is for *every* [`Peer`]
 /// to initially call [`Peer::seed`] and attempt to
-/// [`gossip`](crate::Rumors::gossip) with all others. Initially, peers will
+/// [`gossip`](Peer::gossip) with all others. Initially, peers will
 /// each report [`Mismatch::Network`](crate::error::Mismatch::Network); whenever
 /// a peer observes such an error, it can use a deterministic metric to decide
 /// whether it or its peer should dominate.
@@ -382,7 +375,19 @@ pub use join::{Join, Joining};
 /// mechanism is desirable) is a decision `rumors` doesn't try to make for
 /// you --- your own application and its constraints should dictate the
 /// trade-offs here.
-pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
+pub struct Peer<T: Send + Sync + 'static, B: MaybeBookmark = NoBookmark> {
+    /// A peer view sharing this replica's state and configuration.
+    ///
+    /// CAUTION: LOAD-BEARING DROP ORDER: This is declared before `reunion`, so
+    /// that dropping a handle drops `replica` before its `alive` sender, as
+    /// [`Reunion`] requires.
+    pub(crate) replica: Replica<T, B>,
+    /// Tracks live handles and holds the view that reunion hands back.
+    reunion: Reunion<T, B>,
+}
+
+/// A peer view sharing this replica's state and configuration.
+pub struct Replica<T: Send + Sync + 'static, B: MaybeBookmark = NoBookmark> {
     /// The keys of the network this replica belongs to, derived from the secret
     /// drawn at seed or received at join. Its public identifier is
     /// [`network`](Self::network).
@@ -396,41 +401,41 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Shared replica state and change notifications for handles and drivers.
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
-    /// behind an async mutex and shared with every [`Rumors`] clone, beside the
-    /// size limit selected by
-    /// [`bookmark_size_limit`](Self::bookmark_size_limit).
+    /// behind an async mutex and shared with every [`Peer`] clone, beside the
+    /// size limit selected by [`bookmark_size_limit`].
     ///
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`BookmarkHandle`].
-    pub(crate) bookmark: BookmarkHandle<B>,
+    ///
+    /// [`bookmark_size_limit`]: PeerBuilder::bookmark_size_limit
+    pub(crate) bookmark: BookmarkHandle<B::Storage>,
     /// The payload codec built at construction: the typed ingress every gossip
     /// session's supplied leaf records decode through.
     ///
-    /// Carries the [`message_depth_limit`](Self::message_depth_limit) beside
+    /// Carries the [`message_depth_limit`](PeerBuilder::message_depth_limit) beside
     /// the codec's fn pointers (see [`PayloadCodec`]).
     pub(crate) codec: PayloadCodec,
 }
 
 /// The settings configured on a [`Peer`].
 ///
-/// These are queryable via [`Peer::settings`] or
-/// [`Rumors::settings`](crate::Rumors::settings).
+/// These are queryable via [`Peer::settings`].
 ///
-/// Non-inspectable gossip policies set via [`gossip_when`](Peer::gossip_when)
-/// and [`gossip_until`](Peer::gossip_until), and
-/// [`gossip_timeout`](Peer::gossip_timeout) are not represented here.
+/// Non-inspectable gossip policies set via [`gossip_when`](PeerBuilder::gossip_when)
+/// and [`gossip_until`](PeerBuilder::gossip_until), and
+/// [`gossip_timeout`](PeerBuilder::gossip_timeout) are not represented here.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
-    /// The configured [`Peer::sync_memory_budget`], adjusted for what is
+    /// The configured [`PeerBuilder::sync_memory_budget`], adjusted for what is
     /// possible to achieve based on internal constraints.
     pub sync_memory_budget: usize,
-    /// The configured [`Peer::target_message_size`].
+    /// The configured [`PeerBuilder::target_message_size`].
     pub target_message_size: usize,
-    /// The configured [`Peer::write_batch_range`], normalized to a pair of
+    /// The configured [`PeerBuilder::write_batch_range`], normalized to a pair of
     /// non-crossed bounds.
     pub write_batch_range: (Bound<usize>, Bound<usize>),
-    /// The configured [`Peer::message_depth_limit`], required to match between
+    /// The configured [`PeerBuilder::message_depth_limit`], required to match between
     /// any two peers which gossip.
     pub message_depth_limit: u64,
 }
@@ -678,10 +683,18 @@ impl<T: Send + Sync + 'static> Inner<T> {
 mod tests;
 
 /// A bounded summary, independent of `T: Debug`.
-impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Peer<T, B> {
+impl<T: Send + Sync + 'static, B: MaybeBookmark> std::fmt::Debug for Replica<T, B> {
     /// Summarize the replica without printing its contents.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_summary("Peer", f)
+    }
+}
+
+/// A summary, independent of `T: Debug`.
+impl<T: Send + Sync + 'static, B: MaybeBookmark> std::fmt::Debug for Peer<T, B> {
+    /// Debug the replica without printing payloads.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.replica.fmt_summary("Peer", f)
     }
 }
 
@@ -697,64 +710,51 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     ///
     /// Panics if the operating system's random number generator fails.
     pub fn seed() -> Self {
-        // The secret comes from the operating system on every call, never
-        // from a generator whose state lives in this process: a forked
-        // child inherits that state, so siblings forked after one shared
-        // draw would seed networks with one secret, one identifier and one
-        // seed party, and gossip as one network.
-        Self::seed_from_rng(&mut UnwrapErr(SysRng))
+        PeerBuilder::new().seed()
     }
 
     /// Create a new peer belonging to an existing gossip network by connecting
     /// to a peer who is already in it.
     ///
     /// To configure options prior to joining the network, use
-    /// [`Peer::joining`].
+    /// [`Peer::builder`].
     pub async fn join<R, W>(read: R, write: W) -> Join<T, R, W>
     where
         R: AsyncBufRead + Unpin + Send,
         W: AsyncWrite + Unpin + Send,
     {
-        Joining::new().join(read, write).await
+        PeerBuilder::new().join(read, write).await
     }
 
-    /// Configure options for joining an existing gossip network before
-    /// connecting to a peer who is already in it.
-    pub fn joining() -> Joining<T> {
-        Joining::new()
+    /// Configure options before seeding a gossip network or joining one.
+    pub fn builder() -> PeerBuilder<T> {
+        PeerBuilder::new()
     }
+}
 
-    /// Create a network with a caller-supplied random source.
-    ///
-    /// This test-support hook makes network secrets, and with them network
-    /// identifiers, reproducible.
-    #[doc(hidden)]
-    #[cfg(any(test, feature = "test-internals"))]
-    pub fn seed_rng<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
-        Self::seed_from_rng(rng)
-    }
-
-    /// Create a new network using `rng` for its secret.
-    fn seed_from_rng<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
-        let keys = Arc::new(NetworkKeys::new(NetworkSecret::from_rng(rng)));
+/// Seed the internal view a new handle wraps.
+impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Replica<T, NoBookmark> {
+    /// Create a new network from `secret`, carrying the builder's settings.
+    fn seeded(builder: PeerBuilder<T>, secret: NetworkSecret) -> Self {
+        let keys = Arc::new(NetworkKeys::new(secret));
+        let bookmark = BookmarkHandle::new(NullBookmark, builder.bookmark_size_limit);
         Self {
             keys: Arc::clone(&keys),
-            settings: SessionSettings::default(),
+            settings: builder.settings,
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new(keys))),
-            bookmark: BookmarkHandle::new(NoBookmark),
-            codec: PayloadCodec::new::<T>(MessageDepthLimit::default()),
+            bookmark,
+            codec: PayloadCodec::new::<T>(builder.message_depth_limit),
         }
     }
 }
 
-/// Share peer internals when cloning a [`Rumors`] handle, and repair what
+/// Share peer internals when cloning a [`Peer`] handle, and repair what
 /// leaked sessions left behind when reclaiming the peer.
-impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
     /// Share this peer's replica, configuration, and bookmark with a new
     /// handle.
     ///
-    /// Only [`Rumors::clone`] uses this internal operation; the public [`Peer`]
-    /// remains uniquely owned.
+    /// Only [`Peer::clone`] uses this internal operation.
     pub(crate) fn share(&self) -> Self {
         Self {
             keys: Arc::clone(&self.keys),
@@ -775,46 +775,48 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     }
 }
 
-/// Retire an exclusively held [`Peer`].
-impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Leave the gossip network after synchronizing one final time with another
-    /// peer.
-    ///
-    /// While it is possible to simply drop a [`Peer`] with no special ceremony,
-    /// explicitly retiring the peer helps keep the representation of
-    /// [`Version`]s efficient as peers come and go.
-    ///
-    /// The outcome of this function, [`Retire`], reports whether this peer
-    /// successfully retired from the network, or whether it remains (e.g. due
-    /// to a failure which could be retried), and whether the connection can
-    /// carry another session.
-    pub async fn retire<R, W>(self, read: R, write: W) -> Retire<T, R, W, B>
-    where
-        R: AsyncBufRead + Unpin + Send,
-        W: AsyncWrite + Unpin + Send,
-    {
-        self.retire_inner(read, write).await
-    }
-}
-
-/// Inspect and configure settings for gossip.
-impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
-    /// Return the gossip network to which this replica belongs.
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Peer<T, B> {
+    /// Return the globally unique identifier of the gossip network to which
+    /// this replica belongs.
     pub fn network(&self) -> Network {
-        self.keys.network()
+        self.replica.network()
     }
 
     /// Return the local settings used to configure gossip sessions.
     ///
     /// This excludes the gossip initiation and termination policies defined by
-    /// [`gossip_when`](Peer::gossip_when) [`gossip_until`](Peer::gossip_until),
-    /// and [`gossip_timeout`](Peer::gossip_timeout), which are specified as
+    /// [`gossip_when`](crate::PeerBuilder::gossip_when) [`gossip_until`](crate::PeerBuilder::gossip_until),
+    /// and [`gossip_timeout`](crate::PeerBuilder::gossip_timeout), which are specified as
     /// async closures and therefore cannot be meaningfully inspected.
     pub fn settings(&self) -> Settings {
+        self.replica.settings()
+    }
+
+    /// Alias the live identity for invariant assertions in tests.
+    ///
+    /// Compare it or use it in an accounting fold; never tick with it. An alias
+    /// shares the original identity's space and cannot act as another peer.
+    #[cfg(any(test, feature = "test-internals"))]
+    #[doc(hidden)]
+    pub fn dangerously_alias_party(&self) -> before::Party {
+        self.replica.dangerously_alias_party()
+    }
+}
+
+/// Inspect and configure settings for gossip.
+impl<T: Send + Sync + 'static, B: MaybeBookmark> Replica<T, B> {
+    /// Return the gossip network to which this replica belongs.
+    pub(crate) fn network(&self) -> Network {
+        self.keys.network()
+    }
+
+    /// Return the local settings used to configure the underlying
+    /// [`Peer`].
+    pub(crate) fn settings(&self) -> Settings {
         Settings::effective(self.settings.sizing, self.codec.limit())
     }
 
-    /// Format the bounded summary shared by [`Peer`] and [`Rumors`].
+    /// Format the bounded summary of a [`Peer`].
     pub(crate) fn fmt_summary(
         &self,
         name: &str,
@@ -1090,19 +1092,6 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Convert the [`Peer`] into a [`Rumors`] so it can [`send`](Rumors::send),
-    /// [`redact`](Rumors::redact), and [`gossip`](Rumors::gossip) with other
-    /// peers.
-    ///
-    /// Unlike [`Peer`], [`Rumors`] is [`Clone`], so that you can
-    /// [`gossip`](crate::Rumors::gossip) with many other peers concurrently.
-    /// Once a single [`Rumors`] handle remains,
-    /// [`try_into_peer`](Rumors::try_into_peer) will convert it back into the
-    /// original [`Peer`].
-    pub fn into_rumors(self) -> Rumors<T, B> {
-        Rumors::new(self)
-    }
-
     /// Create an empty batch against this replica.
     fn new_batch(&self) -> Batch<'_, T> {
         Batch::new(&self.inner, self.codec)
@@ -1192,13 +1181,10 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         Changes::subscribe(&self.inner)
     }
 
-    /// Alias the live identity for invariant assertions in tests.
-    ///
-    /// Compare it or use it in an accounting fold; never tick with it. An alias
-    /// shares the original identity's space and cannot act as another peer.
+    /// Alias this set's live party for invariant assertions in tests; see
+    /// [`Peer::dangerously_alias_party`] for what the caller must uphold.
     #[cfg(any(test, feature = "test-internals"))]
-    #[doc(hidden)]
-    pub fn dangerously_alias_party(&self) -> Party {
+    pub(crate) fn dangerously_alias_party(&self) -> Party {
         self.inner.borrow().party.dangerously_alias()
     }
 }

@@ -18,7 +18,6 @@ use tokio::io::{AsyncRead, BufReader, DuplexStream};
 
 use crate::{
     Snapshot,
-    peer::MemoryBudget,
     tree::{
         mirror::streaming::{
             Backend, Local,
@@ -72,7 +71,7 @@ pub use crate::tree::mirror::streaming::remote::{
 /// ([`SESSION_ALLOWANCE`] at the default target), so its ledger admits work
 /// against the budget less both.
 ///
-/// A memory budget at or below the two together, which only [`ledger_budget`]
+/// A memory budget at or below the two together, which only [`ledger_budget`](crate::PeerBuilder::ledger_budget)
 /// reaches, admits work within the bounds alone.
 pub const FLOOR_ALLOWANCE: usize =
     floor_allowance::<<Local as Backend>::Erased, <Local as Backend>::Error>();
@@ -147,44 +146,6 @@ pub const fn memory_budget_admitting(bytes: usize) -> usize {
 /// saturate.
 pub const fn ledger_budget_within(budget: usize) -> usize {
     Allowances::of::<Local>(crate::default::TARGET_MESSAGE_SIZE).left(budget)
-}
-
-/// Set the budget `peer`'s sessions' ledgers admit work against to exactly
-/// `bytes`, at whatever message-size target the peer runs at.
-///
-/// Its sessions run on that budget beside the floor allowance and the session
-/// allowance at the peer's target.
-///
-/// Unlike a budget set through
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget), which lowers
-/// a target it cannot afford and which a session raises to the minimum for its
-/// target ([`MIN_SYNC_MEMORY_BUDGET`] at the default target), this one
-/// sessions run on as given, at the peer's target as given. So it reaches
-/// ledger budgets below the largest grant, zero included, where sessions
-/// pipeline within each kind and depth's bound alone, which the budget
-/// analyses probe. The serial configuration, one unit of each kind and
-/// depth at a time, is [`serial_budget`]'s.
-pub fn ledger_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
-    mut peer: crate::Peer<T, B>,
-    bytes: usize,
-) -> crate::Peer<T, B> {
-    peer.settings.sizing.sync_memory_budget = MemoryBudget::Ledger(bytes);
-    peer
-}
-
-/// Run `peer`'s sessions' ledgers in the serial configuration: a budget of zero
-/// with every kind and depth's bound zero.
-///
-/// Admission then grants a unit only while its kind and depth hold nothing, so
-/// each walk has at most one unit of each kind and depth admitted at a time:
-/// the configuration the liveness argument rests on at its most serial. A
-/// ledger budget of zero alone ([`ledger_budget`]) still lets each kind and
-/// depth hold up to its bound ([`grant_bound`]).
-pub fn serial_budget<T: Send + Sync + 'static, B: crate::Bookmark>(
-    mut peer: crate::Peer<T, B>,
-) -> crate::Peer<T, B> {
-    peer.settings.sizing.sync_memory_budget = MemoryBudget::Serial;
-    peer
 }
 
 /// The largest grant any unit of work can take in a session over the in-memory
