@@ -7,9 +7,8 @@ use crate::tls::Tls;
 impl Node {
     pub async fn retire(&self, tls: &Tls, peers: &[Authority]) {
         let replica = self.current.lock().await.send_replace(None);
-        if let Some(replica) = replica
-            && let Some(mut peer) = replica.rumors.try_into_peer().await
-        {
+        if let Some(replica) = replica {
+            let mut peer = replica.peer;
             for address in peers {
                 if let Ok((read, write)) = tls.connect(address).await {
                     use rumors::Retire::*;

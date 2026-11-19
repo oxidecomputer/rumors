@@ -21,20 +21,24 @@ impl Node {
             return Ok(replica);
         }
 
-        match Peer::joining()
+        let stop = self.stop.child_token();
+        let until = stop.clone();
+        match Peer::builder()
             .gossip_timeout(|| sleep(GOSSIP_TIMEOUT))
+            .gossip_until(move || until.clone().cancelled_owned())
             .bookmark(self.claim_bookmark().await?)
             .join(read, write)
             .await
         {
             Join::Connected { peer, connection } => {
                 debug!(network = %peer.network(), "joined network");
-                let replica = Replica::new(peer, &self.stop);
+                let replica = Replica::new(peer, stop);
                 current.send_replace(Some(replica.clone()));
                 self.tasks.spawn(replica.clone().keep_updated());
                 connection.into_halves()?;
                 Ok(replica)
             }
+            Join::BookmarkFailed { error, .. } => Err(error.into()),
             Join::Unbookmarked { unbookmarked, .. } => Err(unbookmarked.error.into()),
             Join::Bounced { .. } => bail!("both ends were waiting to join a network"),
             Join::Failed { error, .. } => Err(error.into()),

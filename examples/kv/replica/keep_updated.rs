@@ -4,13 +4,13 @@ use super::Replica;
 
 impl Replica {
     pub async fn keep_updated(self) {
-        let mut updates = self.rumors.causal_messages();
+        let mut updates = self.peer.causal_messages();
         while let Some(Some((version, update))) =
             self.stop.run_until_cancelled(updates.next()).await
         {
             self.table.send_modify(|table| {
                 if let Some(obsolete) = table.update(version, &update) {
-                    self.rumors.redact(&obsolete);
+                    self.peer.redact(&obsolete);
                 }
             });
         }

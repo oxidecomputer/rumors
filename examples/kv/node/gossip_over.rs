@@ -28,7 +28,7 @@ impl Node {
         };
 
         if let Some(replica) = replica
-            && let Err(error) = replica.rumors.gossip(&mut read, &mut write).await
+            && let Err(error) = replica.peer.gossip(&mut read, &mut write).await
         {
             let yielding = match &error {
                 rumors::Error::Mismatch(Mismatch::Network(mismatch)) => {
@@ -42,8 +42,8 @@ impl Node {
                 Some(Participant::Local) => {
                     let current = self.current.lock().await;
                     let abandoning = current.borrow().as_ref().is_some_and(|held| {
-                        held.rumors.network() == replica.rumors.network()
-                            && held.rumors.snapshot().latest().is_empty()
+                        held.peer.network() == replica.peer.network()
+                            && held.peer.snapshot().latest().is_empty()
                     });
                     if abandoning {
                         current.send_replace(None);
