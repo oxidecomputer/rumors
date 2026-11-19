@@ -5,9 +5,10 @@
 //! observable consequence on the wire: a divergent root child draws exactly one
 //! nonempty `Query` frame in the whole session.
 
-use rumors::Rumors;
+use rumors::Peer;
 
 use rumors_testkit::common::gossip_snapshot::capture_gossip_returning;
+use rumors_testkit::common::scoped::scoped_observer;
 use rumors_testkit::common::seed::NetworkSeed;
 use rumors_testkit::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
 use rumors_testkit::common::wire::{block_on, join_fork_async};
@@ -23,8 +24,8 @@ const NETWORK: NetworkSeed = NetworkSeed::new(0);
 
 /// A peer founding [`NETWORK`], so the capture is deterministic.
 fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
--> Rumors<T> {
-    NETWORK.peer().into_rumors()
+-> Peer<T> {
+    NETWORK.builder().observe(scoped_observer()).seed()
 }
 
 /// Pool size for the one-byte path search staging the disputed sibling.
@@ -73,7 +74,7 @@ fn divergent_root_child_has_one_question_owner() {
     // (the disputed child), and the responder keeps three ballast leaves
     // outside that radix, making it the larger set.
     let (a, b, first) = block_on(async {
-        let a: Rumors<u64> = seeded();
+        let a: Peer<u64> = seeded();
         let first = a.send(1).unwrap();
         let b = join_fork_async(&a).await;
         (a, b, first)

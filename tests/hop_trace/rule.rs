@@ -125,7 +125,7 @@
 
 use std::cmp::{Ordering, Reverse};
 
-use rumors::Rumors;
+use rumors::Peer;
 
 /// One side of a session, by the tracer's label for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,9 +164,9 @@ pub struct Replica {
 }
 
 impl Replica {
-    /// Read the leaf paths and latest version of `rumors`'s current snapshot.
-    pub fn of<T: Send + Sync + 'static>(rumors: &Rumors<T>) -> Self {
-        let snapshot = rumors.snapshot();
+    /// Read the leaf paths and latest version of `peer`'s current snapshot.
+    pub fn of<T: Send + Sync + 'static>(peer: &Peer<T>) -> Self {
+        let snapshot = peer.snapshot();
         let mut paths: Vec<[u8; 32]> = snapshot
             .versions()
             .map(|version| rumors::testing::leaf_path(&snapshot, version))

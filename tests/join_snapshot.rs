@@ -23,29 +23,28 @@
 
 use rumors_testkit::common;
 
-use rumors::{Peer, Rumors};
+use rumors::Peer;
 
-use crate::common::gossip_snapshot::{capture_session, observed, seeded};
+use crate::common::gossip_snapshot::{capture_session, seeded};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 /// Capture one successful join: `provider` serves its state via `gossip`
 /// (party A) while a fresh newcomer runs [`Peer::join`] (party B) and is
 /// expected to be served a successor.
-fn capture_join<T>(provider: Rumors<T>) -> String
+fn capture_join<T>(provider: Peer<T>) -> String
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     capture_session(
-        move |mut end, hook| async move {
-            let provider = observed(provider, hook).await;
+        move |mut end, _hook| async move {
             provider
                 .gossip_once(&mut end.read, &mut end.write)
                 .await
                 .expect("provider gossip");
         },
         move |mut end, hook| async move {
-            match Peer::<T>::joining()
+            match Peer::<T>::builder()
                 .observe(hook)
                 .join(&mut end.read, &mut end.write)
                 .await
@@ -65,7 +64,7 @@ where
 /// party — the shortest path by which a newcomer joins a network.
 #[test]
 fn empty_provider() {
-    let provider: Rumors<u64> = seeded();
+    let provider: Peer<u64> = seeded();
     insta::assert_snapshot!(capture_join(provider));
 }
 
@@ -76,7 +75,7 @@ fn empty_provider() {
 /// whole-tree frame that the empty case never exercises.
 #[test]
 fn populated_provider() {
-    let provider: Rumors<u64> = seeded();
+    let provider: Peer<u64> = seeded();
     provider.send_all([1, 2, 3]).unwrap();
     insta::assert_snapshot!(capture_join(provider));
 }
@@ -89,7 +88,7 @@ fn populated_provider() {
 /// leaf.
 #[test]
 fn string_payload() {
-    let provider: Rumors<String> = seeded();
+    let provider: Peer<String> = seeded();
     provider
         .send_all(["hello".to_string(), "world".to_string()])
         .unwrap();
@@ -105,7 +104,7 @@ fn string_payload() {
 fn mutual_join_bounces() {
     let capture = capture_session(
         |mut end, hook| async move {
-            let out = Peer::<u64>::joining()
+            let out = Peer::<u64>::builder()
                 .observe(hook)
                 .join(&mut end.read, &mut end.write)
                 .await;
@@ -115,7 +114,7 @@ fn mutual_join_bounces() {
             );
         },
         |mut end, hook| async move {
-            let out = Peer::<u64>::joining()
+            let out = Peer::<u64>::builder()
                 .observe(hook)
                 .join(&mut end.read, &mut end.write)
                 .await;

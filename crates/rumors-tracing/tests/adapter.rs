@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use rumors::Peer;
 use rumors::observe::{Observer, Role, SessionInfo, SessionObserver, StreamInfo, StreamObserver};
+use rumors::testing::arming::{ArmedObserver, Arming};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::divided_proptest;
@@ -194,7 +195,7 @@ divided_proptest! {
                 .build()
                 .expect("current-thread runtime");
             runtime.block_on(async {
-                let alice = network.peer::<String>().into_rumors();
+                let alice = network.peer::<String>();
                 alice
                     .send("from the seed".to_string())
                     .expect("a flat string admits");
@@ -204,16 +205,15 @@ divided_proptest! {
                 let ((near_read, near_write), (far_read, far_write)) = connection();
                 let (served, joined) = tokio::join!(
                     alice.gossip_once(far_read, far_write),
-                    Peer::<String>::joining()
+                    Peer::<String>::builder()
                         .observe(counting.clone())
                         .join(near_read, near_write),
                 );
                 served.expect("provider session");
-                let bob = (match joined {
+                let bob = match joined {
                     rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                     _ => panic!("alice is established, not herself joining"),
-                })
-                .into_rumors();
+                };
 
                 // Diverge both replicas so the follow-up gossip elects a
                 // role and moves data-stream frames both ways.
@@ -346,27 +346,29 @@ divided_proptest! {
                 .build()
                 .expect("current-thread runtime");
             runtime.block_on(async {
-                let alice = network.peer::<String>().into_rumors();
+                let alice = network.peer::<String>();
                 alice
                     .send("from the seed".to_string())
                     .expect("a flat string admits");
 
-                // Join both counterparties unobserved, and attach the
-                // adapter to bob only after his join: the two concurrent
-                // gossip sessions are then the first sessions the adapter
-                // sees.
+                // Join both counterparties unobserved: bob selects the adapter
+                // behind a switch armed only after his join, so the two
+                // concurrent gossip sessions are the first sessions the
+                // adapter sees.
+                let arming = Arming::default();
                 let ((near_read, near_write), (far_read, far_write)) = connection();
                 let (served, joined) = tokio::join!(
                     alice.gossip_once(far_read, far_write),
-                    Peer::<String>::join(near_read, near_write),
+                    Peer::<String>::builder()
+                        .observe(ArmedObserver::new(arming.clone(), Arc::new(TracingObserver::new())))
+                        .join(near_read, near_write),
                 );
                 served.expect("provider session");
-                let bob = (match joined {
+                let bob = match joined {
                     rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                     _ => panic!("alice is established, not herself joining"),
-                })
-                .observe(Arc::new(TracingObserver::new()))
-                .into_rumors();
+                };
+                arming.arm();
 
                 let ((near_read, near_write), (far_read, far_write)) = connection();
                 let (served, joined) = tokio::join!(
@@ -374,11 +376,10 @@ divided_proptest! {
                     Peer::<String>::join(near_read, near_write),
                 );
                 served.expect("provider session");
-                let carol = (match joined {
+                let carol = match joined {
                     rumors::Join::Connected { peer, connection: rumors::Connection::Reusable { .. } } => peer,
                     _ => panic!("alice is established, not herself joining"),
-                })
-                .into_rumors();
+                };
 
                 // Diverge all three replicas so both sessions elect roles
                 // and move data-stream frames.

@@ -1,6 +1,6 @@
 //! Protocol preamble exchange.
 //!
-//! Drives [`rumors::Rumors::gossip_once`] against a counterparty driven by hand
+//! Drives [`rumors::Peer::gossip_once`] against a counterparty driven by hand
 //! over an in-memory connection ([`rumors::testing::memory_connection`]). Each
 //! rejection test checks the outbound wire spelling, the reported error, and
 //! that the local set remains unchanged. The preamble is one self-described
@@ -14,7 +14,7 @@
 use rumors_testkit::common;
 
 use rumors::error::Mismatch;
-use rumors::{Error, Gossiped, Protocol, Rumors};
+use rumors::{Error, Gossiped, Peer, Protocol};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::common::wire::{assert_connection_drained, join_fork_async};
@@ -63,7 +63,7 @@ fn preamble(opening: [u8; 11], version: u8, network: [u8; 16], intent: u8) -> [u
 /// only that field is omitted. A rejected reply must leave the local set
 /// byte-for-byte unchanged.
 async fn gossip_against(network: NetworkSeed, reply: &[u8]) -> Result<Gossiped, Error> {
-    let alice: Rumors<String> = network.peer().sync_memory_budget(0).into_rumors();
+    let alice: Peer<String> = network.builder().sync_memory_budget(0).seed();
     let before = alice.snapshot();
     let (a_end, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
     let mut b_read = b.read;
@@ -95,7 +95,7 @@ divided_proptest! {
         pollster::block_on(async {
             // `bob` is a party-disjoint fork of `alice`, so the two share a
             // network.
-            let alice: Rumors<String> = network.peer().sync_memory_budget(0).into_rumors();
+            let alice: Peer<String> = network.builder().sync_memory_budget(0).seed();
             let bob = join_fork_async(&alice).await;
 
             let (mut a_end, mut b_end) =

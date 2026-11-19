@@ -26,9 +26,9 @@
 
 use rumors_testkit::common;
 
-use rumors::{Connection, Peer, Retire, Rumors};
+use rumors::{Connection, Peer, Retire};
 
-use crate::common::gossip_snapshot::{capture_session, observed, seeded};
+use crate::common::gossip_snapshot::{capture_session, seeded};
 use crate::common::wire::join_fork;
 
 /// Capture one successful retire: `retiree` runs [`Peer::retire`] (party B)
@@ -37,21 +37,15 @@ use crate::common::wire::join_fork;
 ///
 /// The retiree is expected to commit, its connection reusable
 /// ([`Retire::Retired`] with [`Connection::Reusable`]).
-fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
+fn capture_retire(absorber: Peer<u64>, retiree: Peer<u64>) -> String {
     capture_session(
-        move |mut end, hook| async move {
-            let absorber = observed(absorber, hook).await;
+        move |mut end, _hook| async move {
             absorber
                 .gossip_once(&mut end.read, &mut end.write)
                 .await
                 .expect("absorber gossip");
         },
-        move |mut end, hook| async move {
-            let retiree = retiree
-                .try_into_peer()
-                .await
-                .expect("the sole handle reclaims the Peer")
-                .observe(hook);
+        move |mut end, _hook| async move {
             let outcome = retiree.retire(&mut end.read, &mut end.write).await;
             assert!(
                 matches!(
@@ -108,24 +102,14 @@ fn mutual_retire_declines() {
     b.send_all([3, 4]).unwrap();
 
     let capture = capture_session(
-        move |mut end, hook| async move {
-            let a = a
-                .try_into_peer()
-                .await
-                .expect("a's sole handle")
-                .observe(hook);
+        move |mut end, _hook| async move {
             let outcome = a.retire(&mut end.read, &mut end.write).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
             );
         },
-        move |mut end, hook| async move {
-            let b = b
-                .try_into_peer()
-                .await
-                .expect("b's sole handle")
-                .observe(hook);
+        move |mut end, _hook| async move {
             let outcome = b.retire(&mut end.read, &mut end.write).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
@@ -152,7 +136,7 @@ fn retire_into_joiner() {
 
     let capture = capture_session(
         |mut end, hook| async move {
-            match Peer::<u64>::joining()
+            match Peer::<u64>::builder()
                 .observe(hook)
                 .join(&mut end.read, &mut end.write)
                 .await
@@ -164,12 +148,7 @@ fn retire_into_joiner() {
                 _ => panic!("the retiree served the join"),
             };
         },
-        move |mut end, hook| async move {
-            let retiree = retiree
-                .try_into_peer()
-                .await
-                .expect("the sole handle reclaims the Peer")
-                .observe(hook);
+        move |mut end, _hook| async move {
             let outcome = retiree.retire(&mut end.read, &mut end.write).await;
             assert!(
                 matches!(

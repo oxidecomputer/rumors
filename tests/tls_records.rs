@@ -26,8 +26,9 @@ use rumors::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamInfo, StreamObserver,
 };
 use rumors::testing::CUTS_TO_GROW;
-use rumors::{Rumors, default};
+use rumors::{Peer, default};
 use rumors_testkit::bench::session::{Shape, pair};
+use rumors_testkit::common::scoped::in_scope;
 use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, DuplexStream, ReadBuf};
@@ -257,7 +258,7 @@ struct Side {
 /// session writes; `records` holds what the side wrote beneath TLS, and
 /// `handshake` how many of those records the handshake wrote.
 async fn gossip<S>(
-    peer: Rumors<String>,
+    peer: Peer<String>,
     stream: S,
     records: Arc<Mutex<Records>>,
     handshake: usize,
@@ -266,16 +267,13 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let items = ItemLog::default();
-    let peer = peer
-        .try_into_peer()
-        .await
-        .expect("a fixture peer has one handle")
-        .observe(Arc::new(items.clone()))
-        .into_rumors();
     let (read, write) = tokio::io::split(stream);
-    peer.gossip_once(BufReader::new(read), write)
-        .await
-        .expect("a session over TLS completes");
+    in_scope(
+        Arc::new(items.clone()),
+        peer.gossip_once(BufReader::new(read), write),
+    )
+    .await
+    .expect("a session over TLS completes");
     let items = items.0.lock().expect("item log lock").clone();
     let records = records.lock().expect("records lock").records[handshake..].to_vec();
     Side { items, records }

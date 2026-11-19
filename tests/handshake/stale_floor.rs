@@ -9,9 +9,9 @@
 //!
 //! The shared-state set of messages makes that desynchronization
 //! unrepresentable: there is no snapshot type that can serve a join, and
-//! `Rumors::gossip_once` snapshots the served tree and forks the party in one
+//! `Peer::gossip_once` snapshots the served tree and forks the party in one
 //! critical section, so the newcomer's floor always matches its region.
-//! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Rumors`] clones share
+//! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Peer`] clones share
 //! one synchronized state rather than freezing one.)
 //!
 //! This test pins the sound invariant positively, in the shape the hazard would
@@ -34,7 +34,7 @@ divided_proptest! {
     #[test]
     fn message_sent_after_join_survives_gossip(network in network_seed()) {
         block_on(async {
-            let f = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+            let f = network.builder::<u64>().sync_memory_budget(0).seed();
             // F ticks well past genesis before serving anyone.
             {
                 f.send_all(0..16u64).unwrap();

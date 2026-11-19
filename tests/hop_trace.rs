@@ -48,8 +48,9 @@ use rand_chacha::ChaChaRng;
 use rumors::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
-use rumors::{Peer, Rumors, SessionStats, Version, default};
+use rumors::{Peer, SessionStats, Version, default};
 use rumors_testkit::bench::latency;
+use rumors_testkit::common::scoped::{in_scope, scoped_observer};
 use rumors_testkit::common::shape::path_radix;
 use rumors_testkit::divided_proptest;
 use tokio::io::{AsyncRead, AsyncWrite, BufReader, ReadBuf};
@@ -283,31 +284,15 @@ impl AsyncRead for TracedReader {
     }
 }
 
-/// Attach `side`'s frame hook to a sole handle.
-async fn hooked<T>(rumors: Rumors<T>, side: char, trace: &Trace) -> Rumors<T>
-where
-    T: Send + Sync + 'static,
-{
-    rumors
-        .try_into_peer()
-        .await
-        .expect("the traced session holds each peer's sole handle")
-        .observe(Arc::new(FrameHook {
-            side,
-            trace: trace.clone(),
-        }))
-        .into_rumors()
-}
-
 /// A traced session's record: its trace, both handles, and what each side's
 /// session measured about itself.
 struct Traced<T: Send + Sync + 'static> {
     /// The frame and wire-event log of the session.
     trace: Trace,
     /// Side `'A'`'s handle.
-    a: Rumors<T>,
+    a: Peer<T>,
     /// Side `'B'`'s handle.
-    b: Rumors<T>,
+    b: Peer<T>,
     /// Side `'A'`'s session statistics.
     a_stats: SessionStats,
     /// Side `'B'`'s session statistics.
@@ -318,7 +303,7 @@ struct Traced<T: Send + Sync + 'static> {
 /// handles, and each side's session statistics.
 ///
 /// Each handle must be its peer's sole one, so the hook can attach.
-fn traced_session<T>(a: Rumors<T>, b: Rumors<T>) -> Traced<T>
+fn traced_session<T>(a: Peer<T>, b: Peer<T>) -> Traced<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -348,11 +333,16 @@ where
         .build()
         .expect("build paused current-thread runtime");
     runtime.block_on(async {
-        let a = hooked(a, 'A', &trace).await;
-        let b = hooked(b, 'B', &trace).await;
+        // Each side's frame hook is in scope only while its own session runs.
+        let hook = |side| -> Arc<dyn rumors::observe::Observer> {
+            Arc::new(FrameHook {
+                side,
+                trace: trace.clone(),
+            })
+        };
         let (a_result, b_result) = tokio::join!(
-            a.gossip_once(a_read, a_write),
-            b.gossip_once(b_read, b_write)
+            in_scope(hook('A'), a.gossip_once(a_read, a_write)),
+            in_scope(hook('B'), b.gossip_once(b_read, b_write))
         );
         let (a_report, ..) = a_result.expect("peer A gossip");
         let (b_report, ..) = b_result.expect("peer B gossip");
@@ -444,14 +434,15 @@ fn report(name: &str, trace: &Trace) {
 
 /// Two peers at the default budget with a shared history and insertions on both
 /// sides, mirroring the pipelining test's shape at reduced scale.
-fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
+fn diverged_insertions() -> (Peer<u64>, Peer<u64>) {
     const COMMON: usize = 2_048;
     const DIVERGENT_PER_SIDE: usize = 512;
 
     let left = NETWORK
-        .peer()
+        .builder()
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
-        .into_rumors();
+        .observe(scoped_observer())
+        .seed();
     // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x9e37_79b9_7f4a_7c15);
     send_random(&left, COMMON, &mut rng);
@@ -463,14 +454,15 @@ fn diverged_insertions() -> (Rumors<u64>, Rumors<u64>) {
 }
 
 /// Two peers at the default budget diverged purely by disjoint redactions.
-fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
+fn diverged_redactions() -> (Peer<u64>, Peer<u64>) {
     const COMMON: usize = 2_048;
     const REDACT_PER_SIDE: usize = 256;
 
     let left = NETWORK
-        .peer()
+        .builder()
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
-        .into_rumors();
+        .observe(scoped_observer())
+        .seed();
     // Fixed, as is the shuffle below, so the trace prints the same session,
     // with the same redactions, every run.
     let mut rng = ChaChaRng::seed_from_u64(0x2545_f491_4f6c_dd1d);
@@ -486,13 +478,13 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
 }
 
 /// Send `count` messages with payloads drawn from `rng`, as one batch.
-fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut ChaChaRng) {
-    rumors.send_all((0..count).map(|_| rng.next_u64())).unwrap();
+fn send_random(peer: &Peer<u64>, count: usize, rng: &mut ChaChaRng) {
+    peer.send_all((0..count).map(|_| rng.next_u64())).unwrap();
 }
 
 /// Join `parent`'s network with a new peer holding its messages, at the default
 /// memory budget and with the given target message size.
-fn join_fork<T>(parent: &Rumors<T>, target_message_size: usize) -> Rumors<T>
+fn join_fork<T>(parent: &Peer<T>, target_message_size: usize) -> Peer<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -500,19 +492,20 @@ where
         let (parent_end, newcomer_end) = rumors::testing::memory_connection(CAPACITY);
         let (served, newcomer) = tokio::join!(
             parent.gossip_once(parent_end.read, parent_end.write),
-            Peer::<T>::join(newcomer_end.read, newcomer_end.write),
+            Peer::<T>::builder()
+                .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
+                .observe(scoped_observer())
+                .target_message_size(target_message_size)
+                .join(newcomer_end.read, newcomer_end.write),
         );
         served.expect("serve join");
-        (match newcomer {
+        match newcomer {
             rumors::Join::Connected {
                 peer,
                 connection: rumors::Connection::Reusable { .. },
             } => peer,
             _ => panic!("provider is established"),
-        })
-        .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
-        .target_message_size(target_message_size)
-        .into_rumors()
+        }
     })
 }
 
@@ -554,7 +547,7 @@ fn assert_converged<T: Send + Sync + 'static>(traced: &Traced<T>) {
 /// Trace a session between `a` and `b`, print its critical path under `name`
 /// with the rule's prediction, and check that it converged within the rule's
 /// setting.
-fn trace_point<T>(name: &str, a: Rumors<T>, b: Rumors<T>) -> (Traced<T>, Prediction)
+fn trace_point<T>(name: &str, a: Peer<T>, b: Peer<T>) -> (Traced<T>, Prediction)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -607,27 +600,28 @@ fn trace_redaction_session() {
 /// both directions. A leaf's path is its version's hash keyed by the network's
 /// secret, and the network is seeded, so the shape is a property of the created
 /// version sequence; the self-checks below verify it.
-fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
+fn transfer_pair() -> (Peer<u64>, Peer<u64>) {
     // Stage by pool search: paths derive from versions under the seeded
     // network's secret, so the shape is a deterministic function of the
     // send order — send a pool, pick the versions whose
     // paths land the shape, redact the rest. The left peer keeps exactly two leaves sharing a root radix;
     // the right keeps three ballast leaves outside it and advertises the
     // larger set.
-    let keep_only = |rumors: &Rumors<u64>, keep: &[u64]| {
-        let losers: Vec<Version> = rumors
+    let keep_only = |peer: &Peer<u64>, keep: &[u64]| {
+        let losers: Vec<Version> = peer
             .snapshot()
             .iter()
             .filter(|(_, m)| !keep.contains(m))
             .map(|(v, _)| v.clone())
             .collect();
-        rumors.redact_all(&losers);
+        peer.redact_all(&losers);
     };
 
     let left = NETWORK
-        .peer()
+        .builder()
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
-        .into_rumors();
+        .observe(scoped_observer())
+        .seed();
     let right = join_fork(&left, default::TARGET_MESSAGE_SIZE);
     {
         left.send_all(0..64u64).unwrap();
@@ -731,9 +725,10 @@ fn trace_bulk_initiator_session() {
 #[test]
 fn trace_empty_session() {
     let left = NETWORK
-        .peer()
+        .builder()
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
-        .into_rumors();
+        .observe(scoped_observer())
+        .seed();
     // Fixed, so the trace prints the same session every run.
     let mut rng = ChaChaRng::seed_from_u64(0x1234_5678_9abc_def0);
     send_random(&left, 64, &mut rng);
@@ -793,7 +788,7 @@ struct Divergence {
 impl Divergence {
     /// Diverge `side` from the shared history held in `shared`, sending
     /// `payload` as every new message.
-    fn apply(&self, side: &Rumors<Bytes>, shared: &rumors::Snapshot<Bytes>, payload: &Bytes) {
+    fn apply(&self, side: &Peer<Bytes>, shared: &rumors::Snapshot<Bytes>, payload: &Bytes) {
         side.send_all(iter::repeat_n(payload.clone(), self.inserts))
             .expect("a byte payload encodes");
         let sent: Vec<Version> = side
@@ -840,13 +835,14 @@ impl PairPlan {
     /// Build the pair in the network `network` names: side `'A'` creates the
     /// network and sends the shared history, side `'B'` joins it by join,
     /// and then each side diverges.
-    fn build(&self, network: NetworkSeed) -> (Rumors<Bytes>, Rumors<Bytes>) {
+    fn build(&self, network: NetworkSeed) -> (Peer<Bytes>, Peer<Bytes>) {
         let payload = Bytes::from(vec![0; self.payload_len]);
         let a = network
-            .peer()
+            .builder()
             .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
+            .observe(scoped_observer())
             .target_message_size(self.a.target_message_size)
-            .into_rumors();
+            .seed();
         a.send_all(iter::repeat_n(payload.clone(), self.common))
             .expect("a byte payload encodes");
         let b = join_fork(&a, self.b.target_message_size);
@@ -996,11 +992,12 @@ fn placed_path(value: u64, depth: usize) -> [u8; 32] {
 ///
 /// Inside a placement ([`with_leaf_paths`]), every leaf takes the path
 /// [`placed_path`] gives its message.
-fn placed_pair(a_initiates: bool) -> (Rumors<u64>, Rumors<u64>) {
+fn placed_pair(a_initiates: bool) -> (Peer<u64>, Peer<u64>) {
     let a = NETWORK
-        .peer()
+        .builder()
         .sync_memory_budget(default::SYNC_MEMORY_BUDGET)
-        .into_rumors();
+        .observe(scoped_observer())
+        .seed();
     a.send_all(PLACED_SHARED).expect("a u64 encodes");
     let b = join_fork(&a, default::TARGET_MESSAGE_SIZE);
     a.send_all([PLACED_EXCLUSIVE]).expect("a u64 encodes");
