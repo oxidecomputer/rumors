@@ -1608,3 +1608,107 @@ divided_proptest! {
         );
     }
 }
+
+/// What one observed session did before it ended: whether it elected a role,
+/// and how many data streams carried a frame.
+#[derive(Default)]
+struct SessionShape {
+    /// Whether the session elected a role.
+    elected: std::sync::Mutex<bool>,
+    /// How many data streams carried a frame.
+    streams: std::sync::Mutex<usize>,
+}
+
+/// Record every session's [`SessionShape`] into one shared record.
+struct ShapeObserver(Arc<SessionShape>);
+
+/// Record one session's [`SessionShape`].
+struct ShapeSession(Arc<SessionShape>);
+
+/// Hand every session to a shape recorder.
+impl Observer for ShapeObserver {
+    /// Record this session's shape.
+    fn session(&self, _session: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
+        Some(Box::new(ShapeSession(self.0.clone())))
+    }
+}
+
+/// Note an election, and count the data streams.
+impl SessionObserver for ShapeSession {
+    /// Note that the session elected a role.
+    fn elected(&self, _role: crate::observe::Role) {
+        *self.0.elected.lock().unwrap() = true;
+    }
+
+    /// Count a data stream, and observe none of its items.
+    fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
+        // The control stream's two directions open with the session itself;
+        // a data stream's handler is created at its first frame, so only data
+        // streams witness the descent starting.
+        if matches!(stream.id, StreamId::Data { .. }) {
+            *self.0.streams.lock().unwrap() += 1;
+        }
+        None
+    }
+}
+
+divided_proptest! {
+    #![divisor(SESSION_DIVISOR)]
+
+    /// Peers with different message depth limits abort on both sides with
+    /// the typed mismatch, each error naming both limits from its own
+    /// vantage.
+    ///
+    /// The session carries no data frame and elects no role: the check runs
+    /// after the greetings and before anything else.
+    ///
+    /// The pair is *converged* (freshly forked, no divergence), so the check
+    /// also precedes the equal-versions short-circuit: a mixed configuration
+    /// is caught even on a no-op session.
+    ///
+    /// Joining checks that the limits match, so two members of one network
+    /// differ only when one peer's limit is set directly, as here.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn mismatched_limits_abort_both_sides_at_the_handshake(network in network_seed()) {
+        use crate::error::Mismatch;
+
+        let arming = Arming::default();
+        let shapes = [Arc::new(SessionShape::default()), Arc::new(SessionShape::default())];
+        let observer = |shape: &Arc<SessionShape>| {
+            crate::testing::arming::ArmedObserver::new(arming.clone(), Arc::new(ShapeObserver(shape.clone())))
+        };
+        let a = network.builder::<u64>().sync_memory_budget(0).observe(observer(&shapes[0])).seed();
+        let (a, mut b) = join_from_with(a, Peer::builder().observe(observer(&shapes[1])));
+        let raised = crate::default::MESSAGE_DEPTH_LIMIT + 1;
+        b.replica.codec = PayloadCodec::new::<u64>(MessageDepthLimit::new(raised));
+        arming.arm();
+
+        let (a_err, b_err) = pollster::block_on(async {
+            let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
+            let (a_out, b_out) = tokio::join!(
+                a.gossip_once(&mut a_end.read, &mut a_end.write),
+                b.gossip_once(&mut b_end.read, &mut b_end.write)
+            );
+            (
+                a_out.expect_err("mismatched limits must abort"),
+                b_out.expect_err("mismatched limits must abort"),
+            )
+        });
+
+        let Error::Mismatch(Mismatch::MessageDepth { local, remote, .. }) = a_err else {
+            panic!("a's error must be the typed mismatch: {a_err:?}");
+        };
+        assert_eq!((local, remote), (crate::default::MESSAGE_DEPTH_LIMIT, raised));
+        let Error::Mismatch(Mismatch::MessageDepth { local, remote, .. }) = b_err else {
+            panic!("b's error must be the typed mismatch: {b_err:?}");
+        };
+        assert_eq!((local, remote), (raised, crate::default::MESSAGE_DEPTH_LIMIT));
+
+        for shape in &shapes {
+            assert!(!*shape.elected.lock().unwrap(), "the mismatch precedes the role election");
+            assert_eq!(*shape.streams.lock().unwrap(), 0, "the mismatch carries no data frame");
+        }
+    }
+}
