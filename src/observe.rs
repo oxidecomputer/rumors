@@ -1,11 +1,10 @@
 //! Instrumentation to observe the wire protocol directly, primarily for
 //! debugging.
 //!
-//! This provides hooks which can be attached to a [`Peer`](crate::Peer)
-//! ([`Peer::observe`](crate::Peer::observe)) or a
-//! [`Joining`](crate::Joining) builder
-//! ([`Joining::observe`](crate::Joining::observe)) to watch every protocol
-//! message the peer exchanges, as a stream of bytes on the wire. Because the
+//! This provides hooks which can be attached to a
+//! [`PeerBuilder`](crate::PeerBuilder)
+//! ([`PeerBuilder::observe`](crate::PeerBuilder::observe)) to watch every
+//! protocol message the peer exchanges, as a stream of bytes on the wire. Because the
 //! `rumors` protocol is a stream of CBOR-encoded items, such a hook can
 //! be agnostic to `rumors`, and parse the stream of bytes using any CBOR decoder.
 //!
@@ -47,9 +46,9 @@ use crate::{Protocol, SessionStats, Version};
 /// A peer-level observation handler: yields one [`SessionObserver`] per
 /// session.
 ///
-/// Attach this to a peer using [`Peer::observe`](crate::Peer::observe) or
-/// [`Joining::observe`](crate::Joining::observe). The attached handler is
-/// shared by every clone of the peer's [`Rumors`](crate::Rumors) handle.
+/// Attach this to a peer using
+/// [`PeerBuilder::observe`](crate::PeerBuilder::observe). The attached handler is
+/// shared by every clone of the peer's [`Peer`](crate::Peer) handle.
 /// Because sessions run concurrently, it may be asked for session handlers from
 /// concurrent tasks.
 pub trait Observer: Send + Sync {

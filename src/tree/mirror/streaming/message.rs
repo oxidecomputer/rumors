@@ -90,7 +90,7 @@ pub struct Greeting {
     /// violation (a protocol violation if exceeded).
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
-    /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).
+    /// ([`PeerBuilder::target_message_size`](crate::PeerBuilder::target_message_size)).
     ///
     /// The session's encoders on both ends run at the **minimum** of the two
     /// exchanged targets: each side's setting bounds the frames it builds *and*
@@ -98,7 +98,7 @@ pub struct Greeting {
     /// pace.
     pub target_message_size: u64,
     /// The sender's configured message nesting-depth limit
-    /// ([`Peer::message_depth_limit`](crate::Peer::message_depth_limit)), in
+    /// ([`PeerBuilder::message_depth_limit`](crate::PeerBuilder::message_depth_limit)), in
     /// decode recursion steps.
     ///
     /// A session proceeds only if the two exchanged values are equal: the limit

@@ -9,7 +9,7 @@ use std::ops::RangeInclusive;
 
 use crate::tree::mirror::streaming::remote::WRITE_BUFFER_BYTES;
 
-/// The default [`Peer::write_batch_range`](crate::Peer::write_batch_range).
+/// The default [`PeerBuilder::write_batch_range`](crate::PeerBuilder::write_batch_range).
 ///
 /// This value is tuned to optimize for TLS 1.3 over TCP over IPv4, on a path
 /// whose MTU is Ethernet’s 1,500 bytes.

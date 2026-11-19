@@ -23,7 +23,7 @@
 //! ([`WRITE_BUFFER_BYTES`](super::super::pipe::WRITE_BUFFER_BYTES)) holds
 //! copies of the bytes written since it was last written out, never more than
 //! its capacity in all. Applications configure the target with
-//! [`Peer::target_message_size`](crate::Peer::target_message_size).
+//! [`PeerBuilder::target_message_size`](crate::PeerBuilder::target_message_size).
 //!
 //! The wire stores run length in a `u32`. [`RunBudget::from_bytes`] therefore
 //! caps every target at [`MAX_RUN_BUDGET_BYTES`]. A single record beyond that
@@ -68,7 +68,7 @@ pub const SUPPLY_FRAME_OVERHEAD: usize = FRAME_OPENER_LEN + SUPPLY_HEAD_LEN;
 /// The wire represents the run-body length as a `u32`; subtracting the frame
 /// overhead ensures that every run accumulated within budget can be encoded.
 /// `RunBudget::from_bytes` saturates a peer's
-/// [`target_message_size`](crate::Peer::target_message_size) here, which the
+/// [`target_message_size`](crate::PeerBuilder::target_message_size) here, which the
 /// public docs call the wire's limit of about 4 GiB.
 pub const MAX_RUN_BUDGET_BYTES: usize = u32::MAX as usize - SUPPLY_FRAME_OVERHEAD;
 

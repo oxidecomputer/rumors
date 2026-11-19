@@ -67,7 +67,7 @@ pub struct SessionStats {
     ///
     /// Compare it with [`bytes_sent`](Self::bytes_sent) to observe batching and
     /// average frame size under
-    /// [`target_message_size`](crate::Peer::target_message_size).
+    /// [`target_message_size`](crate::PeerBuilder::target_message_size).
     pub frames_sent: u64,
     /// Bytes received to compare and transfer messages *specifically*.
     ///
@@ -82,10 +82,10 @@ pub struct SessionStats {
     ///
     /// Compare it with [`bytes_received`](Self::bytes_received) to observe
     /// batching and average frame size under
-    /// [`target_message_size`](crate::Peer::target_message_size).
+    /// [`target_message_size`](crate::PeerBuilder::target_message_size).
     pub frames_received: u64,
     /// Number of times this peer applied internal backpressure until its
-    /// [memory budget](crate::Peer::sync_memory_budget) had room to continue.
+    /// [memory budget](crate::PeerBuilder::sync_memory_budget) had room to continue.
     ///
     /// This measure shows whether (and to what extent) the configured budget
     /// limited pipelining during the gossip session. At zero, the session kept

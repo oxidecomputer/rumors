@@ -75,7 +75,7 @@ pub enum Mismatch {
     /// The peers have different configured message depth limits, and are thus
     /// incompatible.
     ///
-    /// Align [`Peer::message_depth_limit`](crate::Peer::message_depth_limit)
+    /// Align [`PeerBuilder::message_depth_limit`](crate::PeerBuilder::message_depth_limit)
     /// across all peers in the gossip network, then reconnect.
     #[error("peer's message depth limit ({remote} steps) differs from ours ({local} steps)")]
     #[non_exhaustive]

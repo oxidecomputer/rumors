@@ -35,7 +35,7 @@ pub struct Message {
 /// A peer's message nesting-depth limit, counted in the CBOR decode engine's
 /// recursion steps.
 ///
-/// Selected by [`Peer::message_depth_limit`](crate::Peer::message_depth_limit)
+/// Selected by [`PeerBuilder::message_depth_limit`](crate::PeerBuilder::message_depth_limit)
 /// (whose docs carry the full contract); defaults to
 /// [`default::MESSAGE_DEPTH_LIMIT`]. A step is the engine's own accounting
 /// (arrays, maps, tags, and type-driven wrappers such as an enum's variant
@@ -96,14 +96,14 @@ pub enum EncodeError {
     #[error("message failed to serialize")]
     Serialize(#[source] io::Error),
     /// The message's encoding nests deeper than the [`Peer`](crate::Peer)'s
-    /// configured [`message_depth_limit`](crate::Peer::message_depth_limit).
+    /// configured [`message_depth_limit`](crate::PeerBuilder::message_depth_limit).
     ///
     /// Every peer in a gossip network decodes under the same limit, so every
     /// receiver would reject this message.
     #[error("message nests deeper than the configured message depth limit ({limit} steps)")]
     TooDeep {
         /// The configured
-        /// [`message_depth_limit`](crate::Peer::message_depth_limit) which the
+        /// [`message_depth_limit`](crate::PeerBuilder::message_depth_limit) which the
         /// message would have exceeded.
         limit: u64,
     },

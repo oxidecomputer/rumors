@@ -111,7 +111,7 @@ pub const fn budgeted_message_bytes(target: usize) -> usize {
 /// message-size target ([`budgeted_message_bytes`]): about 512 KiB on 64-bit
 /// targets.
 ///
-/// `Peer::sync_memory_budget`'s docs state this figure in prose, and
+/// `PeerBuilder::sync_memory_budget`'s docs state this figure in prose, and
 /// `the_message_room_is_the_documented_figure` checks it; suites size a lone
 /// record beyond it to exercise a message the budget leaves uncovered.
 pub const MAX_BUDGETED_MESSAGE_SIZE: usize =
@@ -338,7 +338,7 @@ pub struct NodeCensus {
 ///
 /// Every constructed or cloned node handle counts one and every drop releases
 /// one, so `peak` is exact concurrent residency: the measurable shadow of the
-/// memory bound [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)
+/// memory bound [`PeerBuilder::sync_memory_budget`](crate::PeerBuilder::sync_memory_budget)
 /// derives. The counters are process-global; tests that assert on them must own
 /// the process (one test per process under nextest).
 pub fn node_census() -> NodeCensus {

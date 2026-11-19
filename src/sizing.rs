@@ -2,14 +2,14 @@
 // links. They come from the test kit's simulated link, which leaves out
 // loss, congestion control, and the time computation takes.
 //! Guidance on choosing a
-//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget).
+//! [`PeerBuilder::sync_memory_budget`](crate::PeerBuilder::sync_memory_budget).
 //!
 //! # Why does this parameter exist?
 //!
 //! `rumors` uses internal pipelining to cover for network latency, keeping your
 //! network busy in both directions as much as possible, and therefore
 //! dramatically speeding up gossip.
-//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) constrains how
+//! [`PeerBuilder::sync_memory_budget`](crate::PeerBuilder::sync_memory_budget) constrains how
 //! much transient memory `rumors` is permitted to use for this pipeline during
 //! each gossip session. When actual memory usage approaches this bound,
 //! `rumors` will apply backpressure internally to slow the session down and
@@ -22,7 +22,7 @@
 //!
 //! <div class="warning">
 //!
-//! **Important:** [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)
+//! **Important:** [`PeerBuilder::sync_memory_budget`](crate::PeerBuilder::sync_memory_budget)
 //! constrains the memory used by *one gossip session*. If `N` concurrent gossip
 //! sessions could be happening at once, the total possible memory used could be
 //! as much as `N` times the configured budget.

@@ -947,7 +947,7 @@ pub struct WriteBatch {
 
 impl WriteBatch {
     /// The write batch `range` describes, as
-    /// [`Peer::write_batch_range`](crate::Peer::write_batch_range) documents
+    /// [`PeerBuilder::write_batch_range`](crate::PeerBuilder::write_batch_range) documents
     /// the conversion.
     ///
     /// Each bound converts to an inclusive size: an excluded start `s` to
