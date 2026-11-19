@@ -10,7 +10,7 @@ use rumors_testkit::common;
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
-use rumors::Rumors;
+use rumors::Peer;
 
 use crate::common::oracle::{readout, readout_multiset};
 use crate::common::overlap::{self, arb_overlap_schedule, execute_overlap_and_quiesce};
@@ -24,17 +24,13 @@ use rumors_testkit::divided_proptest;
 const SWEEP_DIVISOR: u32 = 256;
 
 /// Build three replicas of the network `network` names at a ledger budget of
-/// zero ([`ledger_budget`](rumors::testing::ledger_budget)), then redact
+/// zero ([`ledger_budget`](rumors::PeerBuilder::ledger_budget)), then redact
 /// `target` only at B.
 ///
 /// The seed makes the trio reproducible: two calls with one seed build trios
 /// whose sessions take the same rounds.
-fn redacted_trio(
-    network: NetworkSeed,
-    n: u64,
-    target: u64,
-) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
-    let a = rumors::testing::ledger_budget(network.peer(), 0).into_rumors();
+fn redacted_trio(network: NetworkSeed, n: u64, target: u64) -> (Peer<u64>, Peer<u64>, Peer<u64>) {
+    let a = network.builder().ledger_budget(0).seed();
     a.send_all(0..n).unwrap();
     let b = join_fork(&a);
     let c = join_fork(&a);
@@ -55,7 +51,7 @@ fn redacted_trio(
 ///
 /// Panics if they fail to agree within a bounded number of full-mesh rounds:
 /// overlapped sessions must still converge.
-fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
+fn converge(a: &Peer<u64>, b: &Peer<u64>, c: &Peer<u64>) -> BTreeMap<Vec<u8>, u64> {
     /// Maximum full-mesh passes allowed to settle the already completed
     /// sessions.
     const ROUNDS: usize = 8;

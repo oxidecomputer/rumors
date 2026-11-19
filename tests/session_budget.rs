@@ -1,7 +1,7 @@
 //! The session memory budget against the transient heap a session allocates,
 //! under the most adverse link and data this suite constructs.
 //!
-//! [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) caps the
+//! [`PeerBuilder::sync_memory_budget`](rumors::PeerBuilder::sync_memory_budget) caps the
 //! memory one session uses beyond the replica. This suite measures that claim
 //! directly: with budget `B`, the heap a session allocates *transiently*,
 //! meaning allocations made during the session that do not survive into the
@@ -170,12 +170,12 @@
 //! against the rest. Every budget this suite names is that rest, what the
 //! ledgers admit against: each peer's memory budget is the named budget beside
 //! the two allowances at its run target
-//! ([`ledger_budget`](rumors::testing::ledger_budget)), so that the suite's
+//! ([`ledger_budget`](rumors::PeerBuilder::ledger_budget)), so that the suite's
 //! fixtures admit work as their names say. Some of those budgets lie below the
 //! largest grant, which the public setter's minimum
 //! ([`MIN_SYNC_MEMORY_BUDGET`](rumors::testing::MIN_SYNC_MEMORY_BUDGET)) keeps every
 //! application's session above, so the suite sets each ledger budget directly
-//! ([`ledger_budget`](rumors::testing::ledger_budget)).
+//! ([`ledger_budget`](rumors::PeerBuilder::ledger_budget)).
 //!
 //! Each side keeps a ledger of what its session holds and of the room it sets
 //! aside for the replies its questions invite, and admits its walk's work
@@ -289,11 +289,11 @@ use rumors::testing::{
     attribute_allocations, budgeted_message_bytes, join_snapshots, ledger_scratch,
     observe_admissions, observe_fits, observe_ledgers, wire_allowance, with_leaf_paths,
 };
-use rumors::{Peer, Rumors, SessionStats, Version};
+use rumors::{Peer, SessionStats, Version};
 use rumors_testkit::common::budget::BudgetChoice;
 use rumors_testkit::common::property::divided_cases;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
-use rumors_testkit::common::wire::{block_on, join_fork_then};
+use rumors_testkit::common::wire::{block_on, join_fork_configured};
 use rumors_testkit::divided_proptest;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -336,7 +336,7 @@ const SETUP_EVENTS: usize = 1 << 16;
 /// messages are `T`.
 struct Fixture<T: Send + Sync + 'static> {
     /// The two peers, `A` then `B`.
-    peers: [Rumors<T>; 2],
+    peers: [Peer<T>; 2],
     /// What each side's sends allocated, in [`Side::BOTH`] order: building its
     /// own messages into its replica.
     sends: [Stats; 2],
@@ -377,19 +377,16 @@ fn fixture(
     redacted: u64,
     ledger: BudgetChoice,
 ) -> Fixture<u64> {
-    let configure = |peer: Peer<u64>| {
-        ledger
-            .apply(peer)
-            .target_message_size(COMPARISON_FRAME_BYTES)
-    };
+    // The forks select their run target and ledger before they join.
+    let builder = || Peer::builder().target_message_size(COMPARISON_FRAME_BYTES);
     let (built, [a, b]) = measure(|| {
         block_on(async {
-            let seed = network.peer::<u64>().into_rumors();
+            let seed = network.peer::<u64>();
             seed.send_all((0..redacted).map(|value| 2_000_000 + value))
                 .expect("the shared messages encode");
             [
-                join_fork_then(&seed, Peer::joining(), configure).await,
-                join_fork_then(&seed, Peer::joining(), configure).await,
+                join_fork_configured(&seed, builder(), ledger).await,
+                join_fork_configured(&seed, builder(), ledger).await,
             ]
         })
     });
@@ -2030,15 +2027,15 @@ fn payload_fixture(
     target: usize,
     budget: usize,
 ) -> Fixture<Vec<u8>> {
-    let configure = |peer: Peer<Vec<u8>>| {
-        rumors::testing::ledger_budget(peer, budget).target_message_size(target)
-    };
+    // The forks select their run target and ledger before they join.
+    let builder = || Peer::builder().target_message_size(target);
+    let ledger = BudgetChoice::Ledger(budget);
     let (built, [a, b]) = measure(|| {
         block_on(async {
-            let seed = network.peer::<Vec<u8>>().into_rumors();
+            let seed = network.peer::<Vec<u8>>();
             [
-                join_fork_then(&seed, Peer::joining(), configure).await,
-                join_fork_then(&seed, Peer::joining(), configure).await,
+                join_fork_configured(&seed, builder(), ledger).await,
+                join_fork_configured(&seed, builder(), ledger).await,
             ]
         })
     });
@@ -2100,7 +2097,7 @@ fn decoding(payload: usize) -> (usize, usize, usize) {
 /// over one payload granule. Here each side sends [`LARGE_PAYLOADS`], each at
 /// its own target, and the session is held to the suite's bounds
 /// ([`bound_violation`]) with three of them widened, each by what
-/// [`Peer::sync_memory_budget`](rumors::Peer::sync_memory_budget) names as held
+/// [`PeerBuilder::sync_memory_budget`](rumors::PeerBuilder::sync_memory_budget) names as held
 /// beyond the budget, computed independently of the session:
 ///
 /// - Wire buffering may also hold, in each direction, a lone record's excess
