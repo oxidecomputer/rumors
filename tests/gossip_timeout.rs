@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 use futures::channel::oneshot;
 use futures::{FutureExt, StreamExt, stream};
 use proptest::prelude::*;
-use rumors::{Error, Gossip, Peer, Rumors, testing::run_to_quiescence};
+use rumors::testing::arming::{Arming, armed_timeout};
+use rumors::{Error, Gossip, Peer, testing::run_to_quiescence};
 use tokio::io::AsyncWriteExt;
 
 use common::wire::{block_on, join_fork_async};
@@ -67,13 +68,13 @@ proptest! {
         block_on(async {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0)
+            let a: Peer<u64> = network.builder().sync_memory_budget(0)
                 .gossip_when(|_| stream::pending::<()>())
-                .gossip_timeout(move || factory.start()).into_rumors();
+                .gossip_timeout(move || factory.start()).seed();
             a.send(7).unwrap();
             let before = a.snapshot().hash();
             let (mut end, mut remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut sessions = a.gossip_stream(&mut end.read, &mut end.write);
+            let mut sessions = a.gossip_stream(&mut end.read, &mut end.write).await;
             for _ in 0..idle_polls {
                 assert!(sessions.next().now_or_never().is_none());
                 assert_eq!(deadlines.count(), 0, "idle is untimed");
@@ -109,17 +110,22 @@ proptest! {
         block_on(async {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            // The counted deadlines stay inert while A serves the two joins.
+            let arming = Arming::default();
+            let a: Peer<u64> = network
+                .builder()
+                .sync_memory_budget(0)
+                .gossip_when(|changes| changes.map(|()| Gossip::WhenChanged))
+                .gossip_timeout(armed_timeout(arming.clone(), move || factory.start()))
+                .seed();
             let b = join_fork_async(&a).await;
             let c = join_fork_async(&a).await;
-            let a = a.try_into_peer().await.unwrap()
-                .gossip_when(|changes| changes.map(|()| Gossip::WhenChanged))
-                .gossip_timeout(move || factory.start()).into_rumors();
+            arming.arm();
             let other_handle = a.clone();
             let (mut ab, mut ba) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (mut ac, mut ca) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut to_b = a.gossip_stream(&mut ab.read, &mut ab.write);
-            let mut to_c = other_handle.gossip_stream(&mut ac.read, &mut ac.write);
+            let mut to_b = a.gossip_stream(&mut ab.read, &mut ab.write).await;
+            let mut to_c = other_handle.gossip_stream(&mut ac.read, &mut ac.write).await;
             for round in 0..rounds {
                 b.send(round).unwrap();
                 let (left, right) = futures::join!(to_b.next(), b.gossip_once(&mut ba.read, &mut ba.write));
@@ -139,7 +145,6 @@ proptest! {
             // Idle driver cancellation leaves the connection at a session
             // boundary, ready for another session. Reclaim also
             // preserves the factories for explicit one-shot gossip.
-            let a = a.try_into_peer().await.unwrap().into_rumors();
             let (left, right) = futures::join!(a.gossip_once(&mut ab.read, &mut ab.write), b.gossip_once(&mut ba.read, &mut ba.write));
             left.unwrap(); right.unwrap();
             assert_eq!(deadlines.count(), 2 * rounds as usize + 1);
@@ -157,10 +162,9 @@ divided_proptest! {
     fn one_shot_uses_deadline_but_ignores_initiation_policy(network in network_seed()) {
         let deadlines = Deadlines::default();
         let factory = deadlines.clone();
-        let a: Rumors<()> = network.peer()
+        let a: Peer<()> = network.builder()
             .gossip_when(|_| stream::pending::<()>())
-            .gossip_timeout(move || factory.start())
-            .into_rumors();
+            .gossip_timeout(move || factory.start()).seed();
         let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
         assert!(session.as_mut().now_or_never().is_none());
@@ -177,9 +181,8 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn an_available_session_result_wins_the_deadline_race(network in network_seed()) {
-        let a: Rumors<()> = network.peer()
-            .gossip_timeout(|| std::future::ready(()))
-            .into_rumors();
+        let a: Peer<()> = network.builder()
+            .gossip_timeout(|| std::future::ready(())).seed();
         let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         drop(remote);
         assert!(matches!(
@@ -207,14 +210,13 @@ divided_proptest! {
             .build()
             .expect("build a paused current-thread runtime")
             .block_on(async {
-                let a: Rumors<()> = network
-                    .peer()
+                let a: Peer<()> = network
+                    .builder()
                     .gossip_when(|_| stream::pending::<()>())
-                    .gossip_timeout(|| sleep(Duration::from_secs(1)))
-                    .into_rumors();
+                    .gossip_timeout(|| sleep(Duration::from_secs(1))).seed();
                 let (mut end, mut remote) =
                     rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-                let mut sessions = a.gossip_stream(&mut end.read, &mut end.write);
+                let mut sessions = a.gossip_stream(&mut end.read, &mut end.write).await;
                 assert!(sessions.next().now_or_never().is_none());
                 advance(Duration::from_secs(60)).await;
                 assert!(sessions.next().now_or_never().is_none());
@@ -240,11 +242,11 @@ proptest! {
         use rumors::{Connection, Join};
 
         block_on(async {
-            let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+            let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
             a.send(42).unwrap();
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let config = Peer::<u64>::joining()
+            let config = Peer::<u64>::builder()
                 .gossip_when(|_| stream::pending::<()>())
                 .gossip_timeout(move || factory.start());
             let store = Arc::new(Mutex::new(None));
@@ -257,7 +259,7 @@ proptest! {
                 assert!(joining.as_mut().now_or_never().is_none());
                 assert_eq!(deadlines.count(), generation + 1);
                 deadlines.expire(generation);
-                let Join::Failed { joining: returned, error: Error::GossipTimeout } = joining.await else {
+                let Join::Failed { builder: returned, error: Error::GossipTimeout } = joining.await else {
                     panic!("expiry must return the builder");
                 };
                 assert!(store.lock().unwrap().is_none(), "no post-join attachment");
@@ -266,13 +268,12 @@ proptest! {
             let (mut near, mut far) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
             let (served, joined) = futures::join!(a.gossip_once(&mut near.read, &mut near.write), builder.join(&mut far.read, &mut far.write));
             served.unwrap();
-            let Join::Connected { peer, connection: Connection::Reusable { .. } } = joined else { panic!("join succeeds") };
+            let Join::Connected { peer: b, connection: Connection::Reusable { .. } } = joined else { panic!("join succeeds") };
             assert_eq!(deadlines.count(), attempts + 1);
             assert!(deadlines.dropped(attempts));
             assert!(store.lock().unwrap().is_some());
-            let b = peer.into_rumors();
             assert_eq!(a.snapshot().hash(), b.snapshot().hash());
-            let mut sessions = b.gossip_stream(&mut far.read, &mut far.write);
+            let mut sessions = b.gossip_stream(&mut far.read, &mut far.write).await;
             assert!(sessions.next().now_or_never().is_none(), "passive policy survives join");
             assert_eq!(deadlines.count(), attempts + 1, "idle is untimed");
             drop(sessions);
@@ -297,31 +298,40 @@ divided_proptest! {
         block_on(async {
             let deadlines = Deadlines::default();
             let factory = deadlines.clone();
-            let a: Rumors<u64> = network.peer()
-                .sync_memory_budget(0)
-                .gossip_when(|_| stream::pending::<()>())
-                .gossip_timeout(move || factory.start())
-                .into_rumors();
-            a.send(42).unwrap();
-            let peer = a.try_into_peer().await.unwrap();
-            let failure = peer
-                .bookmark(FlakyInMemoryBookmark::new(
-                    Arc::new(Mutex::new(None)),
-                    Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true]))),
-                    0,
-                ))
-                .await
-                .expect_err("attachment's write fails");
-            let a = failure.peer.into_rumors();
+            let server: Peer<u64> = network.builder().sync_memory_budget(0).seed();
+            server.send(42).unwrap();
+            let (mut joiner_end, mut server_end) =
+                rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
+            let (joined, served) = tokio::join!(
+                Peer::<u64>::builder()
+                    .sync_memory_budget(0)
+                    .gossip_when(|_| stream::pending::<()>())
+                    .gossip_timeout(move || factory.start())
+                    .bookmark(FlakyInMemoryBookmark::new(
+                        Arc::new(Mutex::new(None)),
+                        Arc::new(Mutex::new(FaultFeed::new(vec![], vec![true]))),
+                        0,
+                    ))
+                    .join(&mut joiner_end.read, &mut joiner_end.write),
+                server.gossip_once(&mut server_end.read, &mut server_end.write),
+            );
+            served.expect("the server serves the join");
+            let rumors::Join::Unbookmarked { unbookmarked, .. } = joined else {
+                panic!("attachment's write fails");
+            };
+            let a = unbookmarked.continue_unbookmarked();
+            // The join session ran under the deadline factory too, so later
+            // deadlines count from the ones it started.
+            let joined_deadlines = deadlines.count();
             let (mut end, _remote) =
                 rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
-            let mut sessions = a.gossip_stream(&mut end.read, &mut end.write);
+            let mut sessions = a.gossip_stream(&mut end.read, &mut end.write).await;
             assert!(sessions.next().now_or_never().is_none());
-            assert_eq!(deadlines.count(), 0);
+            assert_eq!(deadlines.count(), joined_deadlines);
             drop(sessions);
             let mut session = Box::pin(a.gossip_once(&mut end.read, &mut end.write));
             assert!(session.as_mut().now_or_never().is_none());
-            deadlines.expire(0);
+            deadlines.expire(joined_deadlines);
             assert!(matches!(session.await, Err(Error::GossipTimeout)));
         });
     }

@@ -5,9 +5,10 @@ use ciborium::value::Value;
 use futures::channel::oneshot;
 use proptest::prelude::*;
 use rumors::error::Phase;
-use rumors::{Connection, Error, Network, Retire};
+use rumors::testing::arming::DeadlineSlot;
+use rumors::{Connection, Error, Network, Peer, Retire};
 
-use super::{GatedBookmark, Msg, Rumors, block_on, gossip, join_from};
+use super::{GatedBookmark, Msg, block_on, gossip, join_from_with};
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::flaky::{DurableStore, persisted_record};
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
@@ -15,13 +16,15 @@ use rumors_testkit::common::seed::{NetworkSeed, network_seed};
 /// A converged pair with current durable records at both endpoints.
 struct Pair {
     /// The donor, consumed by retirement.
-    donor: Rumors<Msg, GatedBookmark>,
+    donor: Peer<Msg, GatedBookmark>,
     /// The recipient, which remains writable throughout the session.
-    receiver: Rumors<Msg, GatedBookmark>,
+    receiver: Peer<Msg, GatedBookmark>,
     /// Control over the donor's durable writes.
     donor_bookmark: GatedBookmark,
     /// Control over the recipient's durable writes.
     receiver_bookmark: GatedBookmark,
+    /// The deadline of the donor's next session, empty through setup.
+    donor_deadline: DeadlineSlot,
 }
 
 /// Construct the state needed to isolate identity transfer from reconciliation.
@@ -34,19 +37,27 @@ impl Pair {
             let receiver_bookmark = GatedBookmark::new(DurableStore::default());
             let donor_bookmark = GatedBookmark::new(DurableStore::default());
             let receiver = network
-                .peer::<Msg>()
+                .builder::<Msg>()
                 .bookmark(receiver_bookmark.clone())
+                .seed()
                 .await
-                .unwrap()
-                .into_rumors();
+                .unwrap();
             receiver.send_all(0..initial as u64).unwrap();
-            let donor = join_from(&receiver, donor_bookmark.clone()).await;
+            let donor_deadline = DeadlineSlot::default();
+            let donor = join_from_with(
+                &receiver,
+                Peer::builder()
+                    .gossip_timeout(donor_deadline.factory())
+                    .bookmark(donor_bookmark.clone()),
+            )
+            .await;
             gossip(&donor, &receiver).await;
             Self {
                 donor,
                 receiver,
                 donor_bookmark,
                 receiver_bookmark,
+                donor_deadline,
             }
         })
     }
@@ -85,7 +96,6 @@ fn boundaries(network: NetworkSeed, initial: usize) -> (usize, usize, usize) {
     // The final control item is the completion marker, a CBOR text ".".
     let completion = encoded_len(Value::Text(".".into()));
     block_on(async {
-        let donor = donor.try_into_peer().await.unwrap();
         let (a, mut b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let (mut a, meter) = fault::metered(a);
         let (outcome, accepted) = tokio::join!(
@@ -175,18 +185,16 @@ proptest! {
             let (outcome, accepted) = block_on(async {
                 let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let (a, stalled) = fault::stall_at(a, Vanish { offset: cut });
-                let deadline = std::sync::Mutex::new(Some(stalled));
-                let donor = pair.donor.try_into_peer().await.unwrap()
-                    .gossip_timeout(move || deadline.lock().unwrap().take().unwrap());
+                pair.donor_deadline.supply(stalled);
+                let donor = pair.donor;
                 let outgoing = async move { donor.retire(a.read, a.write).await };
                 tokio::join!(outgoing, pair.receiver.gossip_once(b.read, b.write))
             });
             if matches!(stage, Failure::Preamble | Failure::Reconciliation) {
-                let Retire::Recovered { peer, error: Error::GossipTimeout } = outcome else {
+                let Retire::Recovered { peer: live, error: Error::GossipTimeout } = outcome else {
                     panic!("expiry before handoff must recover, stage {stage:?}: {outcome:?}");
                 };
-                assert_eq!(peer.dangerously_alias_party(), identity);
-                let live = peer.gossip_timeout(std::future::pending).into_rumors();
+                assert_eq!(live.dangerously_alias_party(), identity);
                 live.send(999).unwrap();
                 block_on(gossip(&live, &pair.receiver));
                 assert_eq!(live.snapshot().hash(), pair.receiver.snapshot().hash());
@@ -222,12 +230,8 @@ proptest! {
             if stage == Cancellation::BeforeRemoval { gate.arm(); } else { gate.arm_after_write(); }
             let (outcome, _) = block_on(async {
                 let (expire, deadline) = oneshot::channel();
-                let deadline = std::sync::Mutex::new(Some(deadline));
-                let donor = pair.donor.try_into_peer().await.unwrap()
-                    .gossip_timeout(move || {
-                        let deadline = deadline.lock().unwrap().take().unwrap();
-                        async move { deadline.await.unwrap() }
-                    });
+                pair.donor_deadline.supply(async move { deadline.await.unwrap() });
+                let donor = pair.donor;
                 let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let outgoing = async move {
                     let outcome = {
@@ -256,11 +260,10 @@ proptest! {
                 assert!(matches!(outcome, Retire::Retired { connection: Connection::Lost { error: Error::GossipTimeout } }));
                 expected_receiver.join(identity).unwrap();
             } else {
-                let Retire::Recovered { peer, error: Error::GossipTimeout } = outcome else {
+                let Retire::Recovered { peer: live, error: Error::GossipTimeout } = outcome else {
                     panic!("expiry before handoff must recover: {outcome:?}");
                 };
-                assert_eq!(peer.dangerously_alias_party(), identity);
-                let live = peer.gossip_timeout(std::future::pending).into_rumors();
+                assert_eq!(live.dangerously_alias_party(), identity);
                 live.send(999).unwrap();
                 block_on(gossip(&live, &pair.receiver));
                 assert_eq!(live.snapshot().hash(), pair.receiver.snapshot().hash());
@@ -305,7 +308,7 @@ proptest! {
                 },
             };
             let (outcome, accepted) = block_on(async {
-                let donor = pair.donor.try_into_peer().await.unwrap();
+                let donor = pair.donor;
                 let (a, b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 let outgoing = async move {
                     let a = fault::faulty(a, plan);
@@ -314,20 +317,18 @@ proptest! {
                 // Each session owns its connection end, so a storage failure
                 // closes the wire and wakes a donor awaiting confirmation.
                 let incoming = async {
-                    let b = b;
                     pair.receiver.gossip_once(b.read, b.write).await
                 };
                 tokio::join!(outgoing, incoming)
             });
             if matches!(stage, Failure::Preamble | Failure::Reconciliation | Failure::Removal | Failure::AfterRemoval) {
-                let Retire::Recovered { peer, error } = outcome else {
+                let Retire::Recovered { peer: live, error } = outcome else {
                     panic!("before handoff must recover, stage {stage:?}: {outcome:?}");
                 };
                 if matches!(stage, Failure::Removal | Failure::AfterRemoval) {
                     assert!(matches!(error, Error::Bookmark(_)));
                 }
-                assert_eq!(peer.dangerously_alias_party(), identity);
-                let live = peer.into_rumors();
+                assert_eq!(live.dangerously_alias_party(), identity);
                 live.send(999).unwrap();
                 assert_eq!(live.snapshot().len(), initial + 1);
                 if stage == Failure::AfterRemoval {
@@ -376,7 +377,7 @@ proptest! {
             let mut expected_receiver = pair.receiver.dangerously_alias_party();
             let network = pair.donor.network();
             block_on(async {
-                let donor = pair.donor.try_into_peer().await.unwrap();
+                let donor = pair.donor;
                 let (mut a, mut b) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
                 if stage == Cancellation::DonationPrefix {
                     // Drop the actual retirement future with a strict prefix of

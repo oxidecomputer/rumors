@@ -17,7 +17,7 @@ mod retirement;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use rumors::{Bookmark, Peer, Rumors, Version};
+use rumors::{Bookmark, Peer, PeerBuilder, Version};
 use tokio::sync::Notify;
 
 use crate::common::flaky::{DurableStore, persisted_record};
@@ -166,19 +166,30 @@ divided_proptest! {
     fn attachment_error_after_replacement_can_retry(network in network_seed()) {
         block_on(async {
             let bookmark = GatedBookmark::new(DurableStore::default());
-            let rumors = network.peer::<Msg>().into_rumors();
-            rumors.send(7).unwrap();
-            let peer = rumors.try_into_peer().await.unwrap();
-            let identity = peer.dangerously_alias_party();
+            let server = network.peer::<Msg>();
+            server.send(7).unwrap();
+            // The joiner's first store is its attachment, which fails after its
+            // record reaches storage.
             bookmark.fail_at(1, true);
-            let rumors::Unbookmarked { peer, error } =
-                peer.bookmark(bookmark.clone()).await.unwrap_err();
-            assert!(matches!(error, rumors::error::BookmarkIo::Io(_)));
-            assert_eq!(peer.dangerously_alias_party(), identity);
+            let (mut joiner_end, mut server_end) =
+                rumors::testing::memory_connection(MEMORY_CAPACITY);
+            let (joined, served) = tokio::join!(
+                Peer::<Msg>::builder()
+                    .bookmark(bookmark.clone())
+                    .join(&mut joiner_end.read, &mut joiner_end.write),
+                server.gossip_once(&mut server_end.read, &mut server_end.write),
+            );
+            served.expect("serve join");
+            let rumors::Join::Unbookmarked { unbookmarked, .. } = joined else {
+                panic!("the attachment's store fails");
+            };
+            assert!(matches!(unbookmarked.error, rumors::error::BookmarkIo::Io(_)));
             let record = persisted_record(&bookmark.store);
-            assert_eq!(record[&peer.network()][0].party(), &identity);
+            let identity = record[&server.network()][0].party();
 
-            let live = peer.bookmark(bookmark).await.unwrap().into_rumors();
+            // The retry hands back the very peer whose identity reached storage.
+            let live = unbookmarked.retry_bookmark(bookmark).await.unwrap();
+            assert_eq!(&live.dangerously_alias_party(), identity);
             let joined = join_from(&live, GatedBookmark::new(DurableStore::default())).await;
             gossip(&live, &joined).await;
             assert_eq!(live.snapshot().hash(), joined.snapshot().hash());
@@ -200,13 +211,13 @@ divided_proptest! {
         use rumors::{Connection, Join};
 
         block_on(async {
-            let provider = network.peer::<Msg>().into_rumors();
+            let provider = network.peer::<Msg>();
             provider.send(7).unwrap();
             let bookmark = GatedBookmark::new(DurableStore::default());
             bookmark.arm();
             let (expire, deadline) = oneshot::channel();
             let deadline = std::sync::Mutex::new(Some(deadline));
-            let builder = Peer::<Msg>::joining()
+            let builder = Peer::<Msg>::builder()
                 .gossip_timeout(move || {
                     let deadline = deadline.lock().unwrap().take().unwrap();
                     async move { deadline.await.unwrap() }
@@ -235,7 +246,7 @@ divided_proptest! {
             };
             assert_eq!(
                 provider.snapshot().hash(),
-                peer.into_rumors().snapshot().hash()
+                peer.snapshot().hash()
             );
             crate::common::wire::assert_connection_drained(a, b);
         });
@@ -243,24 +254,33 @@ divided_proptest! {
 }
 
 /// Join a fresh peer with bookmark `bm` from `server` over a clean
-/// in-memory connection, returning the joined peer's [`Rumors`].
+/// in-memory connection, returning the joined peer's [`Peer`].
 async fn join_from(
-    server: &Rumors<Msg, GatedBookmark>,
+    server: &Peer<Msg, GatedBookmark>,
     bm: GatedBookmark,
-) -> Rumors<Msg, GatedBookmark> {
+) -> Peer<Msg, GatedBookmark> {
+    join_from_with(server, Peer::builder().bookmark(bm)).await
+}
+
+/// Join a fresh peer configured by `builder` from `server` over a clean
+/// in-memory connection, returning the joined peer's [`Peer`].
+async fn join_from_with(
+    server: &Peer<Msg, GatedBookmark>,
+    builder: PeerBuilder<Msg, GatedBookmark>,
+) -> Peer<Msg, GatedBookmark> {
     let server = server.clone();
     let (joiner_side, serve_side) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (join_out, serve_out) = tokio::join!(
         async move {
             let mut end = joiner_side;
-            let peer = match Peer::<Msg>::join(&mut end.read, &mut end.write).await {
+            match builder.join(&mut end.read, &mut end.write).await {
                 rumors::Join::Connected {
                     peer,
                     connection: rumors::Connection::Reusable { .. },
                 } => peer,
+                rumors::Join::Unbookmarked { .. } => panic!("in-memory persist"),
                 _ => panic!("the server is established"),
-            };
-            peer.bookmark(bm).await.expect("in-memory persist")
+            }
         },
         async move {
             let end = serve_side;
@@ -268,11 +288,11 @@ async fn join_from(
         },
     );
     serve_out.expect("serve join");
-    join_out.into_rumors()
+    join_out
 }
 
 /// One clean gossip session between two peers, both sides required to succeed.
-async fn gossip(a: &Rumors<Msg, GatedBookmark>, b: &Rumors<Msg, GatedBookmark>) {
+async fn gossip(a: &Peer<Msg, GatedBookmark>, b: &Peer<Msg, GatedBookmark>) {
     let (a, b) = (a.clone(), b.clone());
     let (side_a, side_b) = rumors::testing::memory_connection(MEMORY_CAPACITY);
     let (out_a, out_b) = tokio::join!(
@@ -290,9 +310,8 @@ async fn gossip(a: &Rumors<Msg, GatedBookmark>, b: &Rumors<Msg, GatedBookmark>) 
 }
 
 /// The version stamped on the live leaf carrying `payload`, if present.
-fn leaf_version(rumors: &Rumors<Msg, GatedBookmark>, payload: Msg) -> Option<Version> {
-    rumors
-        .snapshot()
+fn leaf_version(peer: &Peer<Msg, GatedBookmark>, payload: Msg) -> Option<Version> {
+    peer.snapshot()
         .iter()
         .find(|(_, value)| **value == payload)
         .map(|(version, _)| version.clone())
@@ -301,11 +320,11 @@ fn leaf_version(rumors: &Rumors<Msg, GatedBookmark>, payload: Msg) -> Option<Ver
 /// A sender holding local M1, and two peers that received only M0.
 struct Scene {
     /// Sender that commits M1 after its session snapshot is fixed.
-    a: Rumors<Msg, GatedBookmark>,
+    a: Peer<Msg, GatedBookmark>,
     /// Recipient of the gated session, which must not receive M1.
-    b: Rumors<Msg, GatedBookmark>,
+    b: Peer<Msg, GatedBookmark>,
     /// Source for restarting A from the progress shared before the pause.
-    c: Rumors<Msg, GatedBookmark>,
+    c: Peer<Msg, GatedBookmark>,
     /// Handle controlling A's store, separate from its replica handle.
     bm_a: GatedBookmark,
     /// A's durable bytes, retained when its live handles are dropped.
@@ -323,12 +342,12 @@ async fn transmit_during_persist(network: NetworkSeed) -> Scene {
     let store_a = DurableStore::default();
     let bm_a = GatedBookmark::new(store_a.clone());
     let a = network
-        .peer::<Msg>()
+        .builder::<Msg>()
         .sync_memory_budget(0)
         .bookmark(bm_a.clone())
+        .seed()
         .await
-        .expect("a pristine seed attaches its bookmark without touching storage")
-        .into_rumors();
+        .expect("a pristine seed attaches its bookmark without touching storage");
     a.send(M0).unwrap();
 
     // Both newcomers receive M0. Donation invalidates A's last checkpoint,
@@ -436,12 +455,11 @@ divided_proptest! {
             // donations, record persisted at M0's frontier.
             let store_a = DurableStore::default();
             let bm_a = GatedBookmark::new(store_a.clone());
-            let a = network.peer::<Msg>()
+            let a = network.builder::<Msg>()
                 .sync_memory_budget(0)
-                .bookmark(bm_a.clone())
+                .bookmark(bm_a.clone()).seed()
                 .await
-                .expect("a pristine seed attaches its bookmark without touching storage")
-                .into_rumors();
+                .expect("a pristine seed attaches its bookmark without touching storage");
             a.send(M0).unwrap();
             let b = join_from(&a, GatedBookmark::new(DurableStore::default())).await;
             let _c = join_from(&a, GatedBookmark::new(DurableStore::default())).await;
@@ -584,12 +602,11 @@ divided_proptest! {
             block_on(async {
                 let store_a = DurableStore::default();
                 let bm_a = GatedBookmark::new(store_a.clone());
-                let a = network.peer::<Msg>()
+                let a = network.builder::<Msg>()
                     .sync_memory_budget(0)
-                    .bookmark(bm_a.clone())
+                    .bookmark(bm_a.clone()).seed()
                     .await
-                    .expect("a pristine seed attaches its bookmark without touching storage")
-                    .into_rumors();
+                    .expect("a pristine seed attaches its bookmark without touching storage");
                 a.send(M0).unwrap();
                 let b = join_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
@@ -667,12 +684,11 @@ divided_proptest! {
         block_on(async {
             let store_a = DurableStore::default();
             let bm_a = GatedBookmark::new(store_a.clone());
-            let a = network.peer::<Msg>()
+            let a = network.builder::<Msg>()
                 .sync_memory_budget(0)
-                .bookmark(bm_a.clone())
+                .bookmark(bm_a.clone()).seed()
                 .await
-                .expect("a pristine seed attaches its bookmark without touching storage")
-                .into_rumors();
+                .expect("a pristine seed attaches its bookmark without touching storage");
             a.send(M0).unwrap();
             let b = join_from(&a, GatedBookmark::new(DurableStore::default())).await;
             let party_before = a.dangerously_alias_party();
