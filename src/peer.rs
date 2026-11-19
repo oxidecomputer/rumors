@@ -435,6 +435,22 @@ pub struct Settings {
     pub message_depth_limit: u64,
 }
 
+/// Compute the settings a [`Peer`] or a [`PeerBuilder`] reports.
+impl Settings {
+    /// The effective settings for `sizing` and `message_depth_limit`: the
+    /// memory budget raised to the minimum its target needs, and the target
+    /// as the budget clamps it.
+    pub(crate) fn effective(sizing: SessionSizing, message_depth_limit: MessageDepthLimit) -> Self {
+        let limits = sizing.limits();
+        Self {
+            sync_memory_budget: limits.budget.memory,
+            target_message_size: limits.target.bytes(),
+            write_batch_range: sizing.write_batch.range(),
+            message_depth_limit: message_depth_limit.get(),
+        }
+    }
+}
+
 /// The replica's identity and content, shared through a watch channel.
 ///
 /// Retirement owns the consumed `Peer`, excluding other writable handles.
@@ -795,14 +811,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// and [`gossip_timeout`](Peer::gossip_timeout), which are specified as
     /// async closures and therefore cannot be meaningfully inspected.
     pub fn settings(&self) -> Settings {
-        let sizing = self.settings.sizing;
-        let limits = sizing.limits();
-        Settings {
-            sync_memory_budget: limits.budget.memory,
-            target_message_size: limits.target.bytes(),
-            write_batch_range: sizing.write_batch.range(),
-            message_depth_limit: self.codec.limit().get(),
-        }
+        Settings::effective(self.settings.sizing, self.codec.limit())
     }
 
     /// Format the bounded summary shared by [`Peer`] and [`Rumors`].
