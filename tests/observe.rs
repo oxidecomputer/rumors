@@ -24,7 +24,7 @@ use rumors::observe::{
     SessionOutcome, StreamId, StreamInfo, StreamObserver,
 };
 use rumors::testing::PipeCapture;
-use rumors::{Connection, Peer, Retire, Rumors, SessionStats, Version};
+use rumors::{Connection, Peer, Retire, SessionStats, Version};
 
 use crate::common::budget::BudgetChoice;
 use crate::common::gossip_snapshot::{capture_sides, corpora, payloads};
@@ -318,7 +318,7 @@ divided_proptest! {
     #[test]
     fn failed_session_reports_its_error_category_once(network in network_seed()) {
         let observer = Arc::new(Recording::default());
-        let peer = network.peer::<u64>().observe(observer.clone()).into_rumors();
+        let peer = network.builder::<u64>().observe(observer.clone()).seed();
         let (mut end, remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         drop(remote);
 
@@ -337,10 +337,9 @@ divided_proptest! {
     #[test]
     fn deadline_reports_its_error_category_once(network in network_seed()) {
         let observer = Arc::new(Recording::default());
-        let peer = network.peer::<u64>()
+        let peer = network.builder::<u64>()
             .gossip_timeout(|| std::future::ready(()))
-            .observe(observer.clone())
-            .into_rumors();
+            .observe(observer.clone()).seed();
         let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
 
         assert!(matches!(
@@ -360,7 +359,7 @@ divided_proptest! {
     #[test]
     fn cancelled_session_reports_cancellation_once(network in network_seed()) {
         let observer = Arc::new(Recording::default());
-        let peer = network.peer::<u64>().observe(observer.clone()).into_rumors();
+        let peer = network.builder::<u64>().observe(observer.clone()).seed();
         let (mut end, _remote) = rumors::testing::memory_connection(rumors::testing::MEMORY_CAPACITY);
         let mut gossip = Box::pin(peer.gossip_once(&mut end.read, &mut end.write));
         assert!(gossip.as_mut().now_or_never().is_none());
@@ -377,21 +376,21 @@ fn seeded(
     network: NetworkSeed,
     observer: Option<&Arc<Recording>>,
     payloads: &[Vec<u8>],
-) -> Rumors<Vec<u8>> {
+) -> Peer<Vec<u8>> {
     // The wire-neutrality test runs two separate networks from one seed, so
     // their captures are comparable; peers from those runs never interact.
-    let mut peer = network.peer().sync_memory_budget(0);
+    let mut builder = network.builder().sync_memory_budget(0);
     if let Some(observer) = observer {
-        peer = peer.observe(observer.clone());
+        builder = builder.observe(observer.clone());
     }
-    let peer = peer.into_rumors();
+    let peer = builder.seed();
     peer.send_all(payloads.iter().cloned()).unwrap();
     peer
 }
 
 /// Join the parent's network, attaching the observer before join begins.
-fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors<Vec<u8>> {
-    let mut joining = Peer::joining();
+fn forked(observer: Option<&Arc<Recording>>, parent: &Peer<Vec<u8>>) -> Peer<Vec<u8>> {
+    let mut joining = Peer::builder();
     if let Some(observer) = observer {
         joining = joining.observe(observer.clone());
     }
@@ -462,7 +461,7 @@ proptest! {
         let rec_provider = Arc::new(Recording::default());
         let rec_newcomer = Arc::new(Recording::default());
         let provider = seeded(network, Some(&rec_provider), &payloads);
-        let joining = Peer::<Vec<u8>>::joining().observe(rec_newcomer.clone());
+        let joining = Peer::<Vec<u8>>::builder().observe(rec_newcomer.clone());
         let (provider_capture, newcomer_capture) = capture_sides(
             |mut end| async move {
                 provider.gossip_once(&mut end.read, &mut end.write).await.expect("provider gossip");
@@ -497,7 +496,6 @@ proptest! {
             absorber.send_all(only_a).unwrap();
             retiree.send_all(only_b).unwrap();
         }
-        let retiree = block_on(retiree.try_into_peer()).expect("the retiree handle is unique");
         let (absorber_capture, retiree_capture) = capture_sides(
             |mut end| async move {
                 absorber.gossip_once(&mut end.read, &mut end.write).await.expect("absorber gossip");

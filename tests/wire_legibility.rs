@@ -14,7 +14,7 @@ use rumors_testkit::common;
 
 use ciborium::value::Value;
 use proptest::prelude::*;
-use rumors::{Peer, Rumors};
+use rumors::Peer;
 
 use crate::common::gossip_snapshot::{capture_sides, corpora};
 use crate::common::wire::{block_on, join_fork_async};
@@ -80,17 +80,17 @@ fn assert_legible(side: &str, capture: &PipeCapture) {
 }
 
 /// The first peer of the network `network` names, loaded with `payloads`.
-fn founded(network: NetworkSeed, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
-    loaded(network.peer().sync_memory_budget(0).into_rumors(), payloads)
+fn founded(network: NetworkSeed, payloads: &[Vec<u8>]) -> Peer<Vec<u8>> {
+    loaded(network.builder().sync_memory_budget(0).seed(), payloads)
 }
 
 /// A join fork of `parent`, in its network, loaded with `payloads`.
-fn forked(parent: &Rumors<Vec<u8>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
+fn forked(parent: &Peer<Vec<u8>>, payloads: &[Vec<u8>]) -> Peer<Vec<u8>> {
     loaded(block_on(join_fork_async(parent)), payloads)
 }
 
 /// `peer`, once it has sent each of `payloads`.
-fn loaded(peer: Rumors<Vec<u8>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
+fn loaded(peer: Peer<Vec<u8>>, payloads: &[Vec<u8>]) -> Peer<Vec<u8>> {
     for payload in payloads {
         peer.send(payload.clone()).unwrap();
     }
@@ -166,8 +166,6 @@ proptest! {
         for payload in &only_absorber {
             absorber.send(payload.clone()).unwrap();
         }
-        let retiree = block_on(retiree.try_into_peer())
-            .expect("the retiree handle is unique");
         let (absorber_capture, retiree_capture) = capture_sides(
             {
                 let absorber = absorber.clone();

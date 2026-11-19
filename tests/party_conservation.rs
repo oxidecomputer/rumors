@@ -9,7 +9,7 @@
 //! reviewer to spot the hazard.
 //!
 //! Four invariant families, each observed through the accounting-only alias
-//! (`Rumors::dangerously_alias_party`; aliases here are compared and folded,
+//! (`Peer::dangerously_alias_party`; aliases here are compared and folded,
 //! never ticked or treated as live):
 //!
 //! 1. **Disjointness** (the Law of Disjointness): all live parties are pairwise
@@ -41,7 +41,7 @@ use std::collections::BTreeMap;
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::{Connection, Retire, Rumors};
+use rumors::{Connection, Peer, Retire};
 
 use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
@@ -64,14 +64,14 @@ const MAX_FLEET: usize = 16;
 ///
 /// The alias is compared, folded, and dropped — never ticked, and never joined
 /// into any live peer's state — per the
-/// [`dangerously_alias_party`](Rumors::dangerously_alias_party) contract.
-fn alias(handle: &Rumors<u64>) -> Party {
+/// [`dangerously_alias_party`](Peer::dangerously_alias_party) contract.
+fn alias(handle: &Peer<u64>) -> Party {
     handle.dangerously_alias_party()
 }
 
 /// Assert every pair of live parties disjoint: the Law of Disjointness, checked
 /// directly rather than via a fold, so a violation names the pair.
-fn assert_pairwise_disjoint(fleet: &[Rumors<u64>]) {
+fn assert_pairwise_disjoint(fleet: &[Peer<u64>]) {
     let parties: Vec<Party> = fleet.iter().map(alias).collect();
     for (i, pi) in parties.iter().enumerate() {
         for (j, pj) in parties.iter().enumerate().skip(i + 1) {
@@ -86,7 +86,7 @@ fn assert_pairwise_disjoint(fleet: &[Rumors<u64>]) {
 
 /// Assert the fold-join of all live parties reconstitutes exactly the seed's
 /// whole interval: identity is conserved, and none is in flight.
-fn assert_seed_conserved(fleet: &[Rumors<u64>]) {
+fn assert_seed_conserved(fleet: &[Peer<u64>]) {
     let mut parties = fleet.iter().map(alias);
     let mut whole = parties
         .next()
@@ -104,12 +104,8 @@ fn assert_seed_conserved(fleet: &[Rumors<u64>]) {
 /// Retire `retiree` into `absorber` over a clean in-memory connection,
 /// requiring the retirement to complete (a clean wire and a gossiping
 /// counterparty admit no other outcome).
-fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
+fn retire_into(retiree: Peer<u64>, absorber: &Peer<u64>) {
     let outcome = block_on(async move {
-        let retiree = retiree
-            .try_into_peer()
-            .await
-            .expect("the fleet holds each set's sole handle");
         let (mut r_end, mut a_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
         let (retired, gossiped) = tokio::join!(
             retiree.retire(&mut r_end.read, &mut r_end.write),
@@ -167,7 +163,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
 /// Steps whose lifecycle preconditions cannot be met at the current fleet size
 /// — gossip or retirement with no distinct counterparty — are skipped, so the
 /// fleet never empties and every executed session respects the API's contract.
-fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
+fn apply(fleet: &mut Vec<Peer<u64>>, op: Op) {
     let n = fleet.len();
     match op {
         Op::Send { peer, value } => {
@@ -198,8 +194,8 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
 
 /// Run `ops` from the network that `network` seeds, invoking `check` on the
 /// live fleet at the baseline and after every step.
-fn run_schedule(network: NetworkSeed, ops: &[Op], check: impl Fn(&[Rumors<u64>])) {
-    let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
+fn run_schedule(network: NetworkSeed, ops: &[Op], check: impl Fn(&[Peer<u64>])) {
+    let mut fleet = vec![network.builder::<u64>().sync_memory_budget(0).seed()];
     check(&fleet);
     for &op in ops {
         apply(&mut fleet, op);
@@ -246,7 +242,7 @@ proptest! {
     /// No other identity moved, none was created, none was lost.
     #[test]
     fn join_donates_exactly_once(actions in arb_local_actions(), network in network_seed()) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         // A provider holding a proper sub-share (not the whole seed), with
         // arbitrary content: the general donation case.
         let provider = build_local(join_fork(&seed), &actions);
@@ -282,7 +278,7 @@ proptest! {
         absorber_actions in arb_local_actions(),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let absorber = build_local(join_fork(&seed), &absorber_actions);
         let retiree = build_local(join_fork(&seed), &retiree_actions);
 
@@ -319,7 +315,7 @@ proptest! {
         k in 1usize..=12,
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         // The provider under test holds a proper sub-share, the general
         // case; the seed handle stays live holding the complement.
         let p = join_fork(&seed);
@@ -363,14 +359,14 @@ proptest! {
             .prop_flat_map(|m| Just((0..m).collect::<Vec<usize>>()).prop_shuffle()),
         network in network_seed(),
     ) {
-        let seed = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let seed = network.builder::<u64>().sync_memory_budget(0).seed();
         let p = join_fork(&seed);
         let baseline = alias(&p);
 
         // Join all newcomers first (in creation order), then retire
         // them in the shuffled order: reabsorption never matches the order
         // the forks were split off in.
-        let mut newcomers: Vec<Option<Rumors<u64>>> = (0..order.len())
+        let mut newcomers: Vec<Option<Peer<u64>>> = (0..order.len())
             .map(|i| {
                 let newcomer = join_fork(&p);
                 newcomer.send(i as u64).unwrap();
@@ -413,7 +409,7 @@ proptest! {
         // Each newcomer sends a distinct value. Remember its version so the
         // final check catches missing messages, duplicates, or rewritten versions.
         let mut expected = BTreeMap::new();
-        let mut fleet = vec![network.peer::<u64>().sync_memory_budget(0).into_rumors()];
+        let mut fleet = vec![network.builder::<u64>().sync_memory_budget(0).seed()];
         for (i, &provider) in providers.iter().enumerate() {
             apply(&mut fleet, Op::Join { provider });
             let newest = fleet.len() - 1;

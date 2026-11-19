@@ -24,7 +24,7 @@
 use rumors_testkit::common;
 use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
-use rumors::{Connection, Peer, Retire, Rumors};
+use rumors::{Connection, Peer, Retire};
 
 use rumors_testkit::common::property::FLEET_DIVISOR;
 use rumors_testkit::common::seed::{NetworkSeed, network_seed};
@@ -68,7 +68,7 @@ const DIVERGENT_MESSAGES: u64 = 8;
 /// Gossip `a` and `b` to completion over a fresh connection of the given
 /// per-direction capacity, both sides polled concurrently. Every session is
 /// held to the clean-drain invariant at its boundary.
-async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
+async fn gossip_over(a: &Peer<u64>, b: &Peer<u64>, capacity: usize) {
     let (mut a_end, mut b_end) = rumors::testing::memory_connection(capacity);
     let (a_out, b_out) = tokio::join!(
         a.gossip_once(&mut a_end.read, &mut a_end.write),
@@ -79,7 +79,7 @@ async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
     assert_connection_drained(a_end, b_end);
 }
 
-/// Widen `rumors`'s causal version over roomy connections: fork [`ORIGINATORS`]
+/// Widen `peer`'s causal version over roomy connections: fork [`ORIGINATORS`]
 /// disjoint peers with pairwise-distinct commit counts, gossip each back, and
 /// run one join→retire cycle.
 ///
@@ -87,22 +87,22 @@ async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
 /// event-tree normalization.
 ///
 /// `payload_base` keeps distinct seasoned replicas' payloads disjoint.
-async fn season(rumors: &Rumors<u64>, payload_base: u64) {
+async fn season(peer: &Peer<u64>, payload_base: u64) {
     let mut payload = payload_base;
     // Live originators: dropped at the end of seasoning (their regions leak,
     // benignly), but their events — a different count per region — stay in
     // the version forever, keeping it branchy.
     let mut originators = Vec::new();
     for originator in 0..ORIGINATORS {
-        let fork = join_fork_async(rumors).await;
+        let fork = join_fork_async(peer).await;
         for _ in 0..(originator + 1) * MESSAGES_PER_ORIGINATOR {
             fork.send(payload).unwrap();
             payload += 1;
         }
         // The seed ticks between forks too, so regions interleave.
-        rumors.send(payload).unwrap();
+        peer.send(payload).unwrap();
         payload += 1;
-        gossip_over(rumors, &fork, ROOMY_CAPACITY).await;
+        gossip_over(peer, &fork, ROOMY_CAPACITY).await;
         originators.push(fork);
     }
     // A second, differently uneven round: each originator advances again
@@ -115,20 +115,16 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
         }
     }
     for fork in &originators {
-        gossip_over(rumors, fork, ROOMY_CAPACITY).await;
+        gossip_over(peer, fork, ROOMY_CAPACITY).await;
     }
     // One join→retire cycle: the retiree's region rejoins the seed's,
     // exercising the id-space shape a recycled identity leaves behind.
-    let cycled = join_fork_async(rumors).await;
+    let cycled = join_fork_async(peer).await;
     cycled.send(payload).unwrap();
-    let cycled = cycled
-        .try_into_peer()
-        .await
-        .expect("cycled fork is the sole handle");
     let (mut fork_end, mut seed_end) = rumors::testing::memory_connection(ROOMY_CAPACITY);
     let (retired, gossiped) = tokio::join!(
         cycled.retire(&mut fork_end.read, &mut fork_end.write),
-        rumors.gossip_once(&mut seed_end.read, &mut seed_end.write)
+        peer.gossip_once(&mut seed_end.read, &mut seed_end.write)
     );
     gossiped.expect("absorbing gossip completes");
     assert!(
@@ -143,7 +139,7 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     assert_connection_drained(fork_end, seed_end);
     // Keep the seasoned version wide and branchy. The one-byte window alone
     // guarantees a multi-fill greeting; this check guards the fixture shape.
-    let width = rumors.snapshot().latest().as_bytes().len();
+    let width = peer.snapshot().latest().as_bytes().len();
     assert!(
         width >= GREETING_FLOOR * MIN_CAPACITY,
         "seasoned version is {width} bytes; the matrix needs at least \
@@ -152,8 +148,8 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
 }
 
 /// The network `network` names, given a wide version and the selected budget.
-async fn seasoned(network: NetworkSeed, budget: BudgetChoice) -> Rumors<u64> {
-    let seed: Rumors<u64> = budget.apply(network.peer()).into_rumors();
+async fn seasoned(network: NetworkSeed, budget: BudgetChoice) -> Peer<u64> {
+    let seed: Peer<u64> = budget.seed(network.builder());
     season(&seed, 0).await;
     seed
 }
@@ -167,7 +163,7 @@ async fn seasoned_pair(
     network: NetworkSeed,
     a_budget: BudgetChoice,
     b_budget: BudgetChoice,
-) -> (Rumors<u64>, Rumors<u64>) {
+) -> (Peer<u64>, Peer<u64>) {
     let a = seasoned(network, a_budget).await;
     let b = join_fork_with_budget_async(&a, b_budget).await;
     // The fork originates a little of its own before converging, so the
@@ -245,7 +241,7 @@ async fn bulk_initiator_session(network: NetworkSeed) {
 /// the other is seasoned (a wide one), so the two greeting frames are maximally
 /// asymmetric and the descent is one-sided.
 async fn empty_meets_populated_session(network: NetworkSeed) {
-    let seed: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+    let seed: Peer<u64> = network.builder().sync_memory_budget(0).seed();
     // Fork the empty side out before any content exists, then season only
     // the seed.
     let empty = join_fork_async(&seed).await;
@@ -268,14 +264,13 @@ async fn join_session(network: NetworkSeed) {
         Peer::<u64>::join(&mut n_end.read, &mut n_end.write),
     );
     served.expect("the serving session completes");
-    let newcomer = (match joined {
+    let newcomer = match joined {
         rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
         _ => panic!("the provider serves the join"),
-    })
-    .into_rumors();
+    };
     assert_eq!(newcomer.snapshot().hash(), provider.snapshot().hash());
     assert_connection_drained(p_end, n_end);
 }
@@ -288,10 +283,9 @@ async fn retire_session(network: NetworkSeed) {
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
     }
-    let retiree = a.try_into_peer().await.expect("a is the sole handle");
     let (mut r_end, mut p_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (retired, gossiped) = tokio::join!(
-        retiree.retire(&mut r_end.read, &mut r_end.write),
+        a.retire(&mut r_end.read, &mut r_end.write),
         b.gossip_once(&mut p_end.read, &mut p_end.write)
     );
     gossiped.expect("the absorbing session completes");
@@ -344,10 +338,6 @@ async fn mutual_join_session() {
 async fn retire_into_joiner_session(network: NetworkSeed) {
     let retiree = seasoned(network, BudgetChoice::Serial).await;
     let before = retiree.snapshot();
-    let retiree = retiree
-        .try_into_peer()
-        .await
-        .expect("the seasoned replica is the sole handle");
     let (mut r_end, mut n_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (retired, joined) = tokio::join!(
         retiree.retire(&mut r_end.read, &mut r_end.write),
@@ -362,14 +352,13 @@ async fn retire_into_joiner_session(network: NetworkSeed) {
         ),
         "the joiner absorbs the retiree, got {retired:?}"
     );
-    let successor = (match joined {
+    let successor = match joined {
         rumors::Join::Connected {
             peer,
             connection: rumors::Connection::Reusable { .. },
         } => peer,
         _ => panic!("the retiree serves the join"),
-    })
-    .into_rumors();
+    };
     let after = successor.snapshot();
     assert_eq!(after.len(), before.len(), "no content is lost in handoff");
     assert_eq!(
@@ -384,8 +373,6 @@ async fn retire_into_joiner_session(network: NetworkSeed) {
 /// after the preamble and both replicas survive intact.
 async fn mutual_retire_session(network: NetworkSeed) {
     let (a, b) = seasoned_pair(network, BudgetChoice::Serial, BudgetChoice::Serial).await;
-    let a = a.try_into_peer().await.expect("a is the sole handle");
-    let b = b.try_into_peer().await.expect("b is the sole handle");
     let (mut a_end, mut b_end) = rumors::testing::memory_connection(MIN_CAPACITY);
     let (a_out, b_out) = tokio::join!(
         a.retire(&mut a_end.read, &mut a_end.write),
