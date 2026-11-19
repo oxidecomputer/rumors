@@ -1,4 +1,4 @@
-//! A leaked session future cannot wedge the peer reclaimed from its handles,
+//! A leaked session future cannot wedge the peer a failed retirement returns,
 //! nor keep the replica alive for its observers.
 
 use std::future::{Future, pending, poll_fn};
@@ -13,7 +13,7 @@ use futures::future::join_all;
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
-use rumors::{Bookmark, Connection, Join, Peer, Rumors};
+use rumors::{Bookmark, Connection, Join, Peer, Retire};
 use rumors_testkit::common::property::SESSION_DIVISOR;
 use rumors_testkit::common::seed::network_seed;
 use rumors_testkit::common::sim::assert_parties_partition;
@@ -84,7 +84,7 @@ impl Bookmark for StallingBookmark {
 }
 
 /// Join a fresh unbookmarked peer from `server` over a clean connection.
-async fn join_from(server: &Rumors<u64, StallingBookmark>) -> Rumors<u64> {
+async fn join_from(server: &Peer<u64, StallingBookmark>) -> Peer<u64> {
     let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
     let (served, joined) = futures::join!(
         server.gossip_once(&mut near.read, &mut near.write),
@@ -98,26 +98,41 @@ async fn join_from(server: &Rumors<u64, StallingBookmark>) -> Rumors<u64> {
     else {
         panic!("a reliable join succeeds")
     };
-    peer.into_rumors()
+    peer
 }
 
-/// Reclaim the peer from `live`'s generation while it has `handles` handles and
-/// `reuniters` reuniters compete, checking that exactly one of them reclaims
-/// it.
-async fn reclaim<B: Bookmark>(
-    live: Rumors<u64, B>,
+/// Retire every handle of `live`'s generation over a dead connection, with
+/// `handles` ordinary handles dropped first and `retirers` handles retiring.
+///
+/// Each retirement must fail before the point of no return and return a
+/// handle to the same identity.
+async fn reclaim<B: rumors::MaybeBookmark>(
+    live: Peer<u64, B>,
     handles: usize,
-    reuniters: usize,
+    retirers: usize,
 ) -> Peer<u64, B> {
+    let identity = live.dangerously_alias_party();
     let others: Vec<_> = (1..handles).map(|_| live.clone()).collect();
-    let waiting: Vec<_> = (0..reuniters)
-        .map(|_| live.clone().try_into_peer())
+    let retiring: Vec<_> = (0..retirers)
+        .map(|_| live.clone().retire(tokio::io::empty(), tokio::io::sink()))
         .collect();
     drop(others);
     drop(live);
-    let mut claimed = join_all(waiting).await.into_iter().flatten();
-    let peer = claimed.next().expect("one reuniter reclaims the peer");
-    assert!(claimed.next().is_none(), "the peer cannot be claimed twice");
+    let mut returned = join_all(retiring)
+        .await
+        .into_iter()
+        .map(|retired| match retired {
+            Retire::Recovered { peer, .. } => peer,
+            other => panic!("a dead connection fails before the point of no return: {other:?}"),
+        });
+    let peer = returned.next().expect("at least one handle retires");
+    for other in returned {
+        assert_eq!(
+            other.dangerously_alias_party(),
+            identity,
+            "every handle returned is the same peer"
+        );
+    }
     peer
 }
 
@@ -130,7 +145,8 @@ async fn reclaim<B: Bookmark>(
 /// store, and throughout reconciliation.
 const MAX_LEAK_POLLS: usize = 24;
 
-/// One session serving a joining peer, leaked, and the reunion after it.
+/// One session serving a joining peer, leaked, and the failed retirement after
+/// it.
 #[derive(Clone, Copy, Debug)]
 struct Leak {
     /// Which of the session's stores waits forever: its checkpoint's (1) or its
@@ -139,10 +155,10 @@ struct Leak {
     /// How many rounds to poll the session and its joiner before leaking it, or
     /// `None` to poll them until the stalled store begins waiting.
     polls: Option<usize>,
-    /// The generation's handles when the peer is reclaimed.
+    /// The generation's ordinary handles when its handles retire.
     handles: usize,
-    /// The reuniters competing to reclaim it.
-    reuniters: usize,
+    /// The handles retiring over dead connections.
+    retirers: usize,
 }
 
 /// Leaks at every point of a joiner's service, from before its fork is reserved
@@ -154,11 +170,11 @@ fn leak() -> impl Strategy<Value = Leak> {
         1usize..4,
         1usize..4,
     )
-        .prop_map(|(stalled_store, polls, handles, reuniters)| Leak {
+        .prop_map(|(stalled_store, polls, handles, retirers)| Leak {
             stalled_store,
             polls,
             handles,
-            reuniters,
+            retirers,
         })
 }
 
@@ -166,27 +182,27 @@ divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
     /// A session leaked anywhere in serving a joining peer pauses identity
-    /// reclamation only until the peer is reclaimed.
+    /// reclamation only until a retirement of the peer fails.
     ///
     /// The next session reclaims the fork the leaked session reserved, so
     /// the live parties again partition the whole identity space, none held
     /// twice. The leaked fork was never sent, and its region is still in the
     /// bookmark's record, so reclaiming it is what makes the partition
-    /// whole. Each leak is followed by a reunion, and a joiner served at the
-    /// end receives a fork of the reclaimed space without overlap.
+    /// whole. Each leak is followed by a failed retirement, and a joiner
+    /// served at the end receives a fork of the reclaimed space without
+    /// overlap.
     #[test]
-    fn reclaiming_resumes_reclamation_after_a_leaked_join(
+    fn failed_retirement_resumes_reclamation_after_a_leaked_join(
         leaks in vec(leak(), 1..4),
         network in network_seed(),
     ) {
         run_to_quiescence(async {
             let storage = StallingBookmark::default();
             let mut live = network
-                .peer::<u64>()
-                .bookmark(storage.clone())
+                .builder::<u64>()
+                .bookmark(storage.clone()).seed()
                 .await
-                .expect("in-memory storage attaches")
-                .into_rumors();
+                .expect("in-memory storage attaches");
             live.send(0).unwrap();
             let remote = join_from(&live).await;
 
@@ -216,14 +232,14 @@ divided_proptest! {
                 drop(joiner);
                 storage.disarm();
 
-                live = reclaim(live, leak.handles, leak.reuniters).await.into_rumors();
+                live = reclaim(live, leak.handles, leak.retirers).await;
                 live.send(round + 1_000).unwrap();
                 let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
                 let (local, partner) = futures::join!(
                     live.gossip_once(&mut near.read, &mut near.write),
                     remote.gossip_once(&mut far.read, &mut far.write),
                 );
-                local.expect("the reclaimed peer's session completes");
+                local.expect("the returned peer's session completes");
                 partner.expect("its partner's session completes");
                 assert_parties_partition(
                     vec![live.dangerously_alias_party(), remote.dangerously_alias_party()],
@@ -241,32 +257,31 @@ divided_proptest! {
                 0,
             );
         })
-        .expect("sessions on the reclaimed peer make progress");
+        .expect("sessions on the returned peer make progress");
     }
 }
 
 divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
-    /// The peer reclaimed after a session future leaked while waiting on
-    /// bookmark storage configures its bookmark and completes later sessions.
+    /// The peer a failed retirement returns after a session future leaked
+    /// while waiting on bookmark storage completes later sessions.
     ///
     /// The leaked future keeps the bookmark locked. The claim holds whatever
-    /// the number of handles and reuniters the generation had.
+    /// the number of ordinary and retiring handles the generation had.
     #[test]
-    fn reclaiming_releases_a_leaked_sessions_bookmark(
+    fn failed_retirement_releases_a_leaked_sessions_bookmark(
         handles in 1usize..4,
-        reuniters in 1usize..4,
+        retirers in 1usize..4,
         network in network_seed(),
     ) {
         run_to_quiescence(async {
             let storage = StallingBookmark::default();
             let live = network
-                .peer::<u64>()
-                .bookmark(storage.clone())
+                .builder::<u64>()
+                .bookmark(storage.clone()).seed()
                 .await
-                .expect("in-memory storage attaches")
-                .into_rumors();
+                .expect("in-memory storage attaches");
             live.send(0).unwrap();
             let remote = join_from(&live).await;
 
@@ -288,25 +303,21 @@ divided_proptest! {
             mem::forget(leaked);
             drop(partner);
 
-            // Reclaim the peer while several handles exist and several
-            // reuniters compete.
-            let peer = reclaim(live, handles, reuniters).await;
+            // Retire every handle over a dead connection while several
+            // ordinary handles exist and several handles retire.
+            let live = reclaim(live, handles, retirers).await;
 
-            // Configuring the bookmark neither waits nor panics, and a later
-            // session takes the bookmark lock and completes.
-            let live = peer
-                .bookmark_size_limit(rumors::default::BOOKMARK_SIZE_LIMIT)
-                .into_rumors();
+            // A later session takes the bookmark lock and completes.
             let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
             let (local, partner) = futures::join!(
                 live.gossip_once(&mut near.read, &mut near.write),
                 remote.gossip_once(&mut far.read, &mut far.write),
             );
-            local.expect("the reclaimed peer's session completes");
+            local.expect("the returned peer's session completes");
             partner.expect("its partner's session completes");
             assert_eq!(remote.snapshot().len(), 2, "the later session delivers the leaked session's message");
         })
-        .expect("sessions on the reclaimed peer make progress");
+        .expect("sessions on the returned peer make progress");
     }
 
     /// Once every handle is gone, the replica's observers drain and end,
@@ -319,11 +330,10 @@ divided_proptest! {
         run_to_quiescence(async {
             let storage = StallingBookmark::default();
             let live = network
-                .peer::<u64>()
-                .bookmark(storage.clone())
+                .builder::<u64>()
+                .bookmark(storage.clone()).seed()
                 .await
-                .expect("in-memory storage attaches")
-                .into_rumors();
+                .expect("in-memory storage attaches");
             live.send(0).unwrap();
             let remote = join_from(&live).await;
             let mut observer = live.unordered_messages();

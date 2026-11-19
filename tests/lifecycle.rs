@@ -15,8 +15,6 @@
 use rumors_testkit::common;
 #[path = "lifecycle/leak.rs"]
 mod leak;
-#[path = "lifecycle/reunion.rs"]
-mod reunion;
 
 use std::future::Future;
 use std::io::{self, IoSlice};
@@ -31,7 +29,7 @@ use rumors::testing::{
     COMPLETION_MARKER, IoFault, IoFaultUnit, IoOperation, IoPlan, IoSide, MEMORY_CAPACITY,
     memory_connection, wrap_io,
 };
-use rumors::{Error, Rumors, Snapshot};
+use rumors::{Error, Peer, Snapshot};
 use tokio::io::AsyncWrite;
 
 use crate::common::fault::{self, FaultPlan};
@@ -63,8 +61,8 @@ const MAX_MID_FLIGHT_POLLS: usize = 100_000;
 /// the version alone, so two calls with one seed build pairs whose gossip
 /// sessions are byte-for-byte the same size. The epilogue-residue test's
 /// measure-then-replay rests on this.
-async fn divergent_pair(network: NetworkSeed) -> (Rumors<u64>, Rumors<u64>) {
-    let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+async fn divergent_pair(network: NetworkSeed) -> (Peer<u64>, Peer<u64>) {
+    let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
     let b = join_fork_async(&a).await;
     for v in 0..DIVERGENT_MESSAGES {
         a.send(v).unwrap();
@@ -151,7 +149,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for FlushLog<W> {
 /// are forks of the network `network` names.
 fn handshake_flushes(network: NetworkSeed) -> usize {
     let (a, b) = block_on(async {
-        let a: Rumors<u64> = network.peer().sync_memory_budget(0).into_rumors();
+        let a: Peer<u64> = network.builder().sync_memory_budget(0).seed();
         let b = join_fork_async(&a).await;
         (a, b)
     });
@@ -470,7 +468,7 @@ fn clean_session(network: NetworkSeed) -> [Clean; 2] {
 /// If it holds anything else: a session published part of its reconciliation.
 /// `context` names the session in the message.
 fn held(
-    replica: &Rumors<u64>,
+    replica: &Peer<u64>,
     before: &Snapshot<u64>,
     reconciled: &Snapshot<u64>,
     context: &str,
