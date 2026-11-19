@@ -10,6 +10,10 @@ use rumors_testkit::common::wire::ROOMY_CAPACITY;
 
 use std::{
     future::{Future, poll_fn},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::Poll,
     time::Duration,
 };
@@ -684,6 +688,26 @@ divided_proptest! {
             assert_eq!(a.snapshot().len(), 3);
         });
     }
+}
+
+/// One step of a schedule exercising `gossip_until`'s stop factory.
+#[derive(Clone, Copy, Debug)]
+enum StopEvent {
+    /// Start a driver on a fresh idle connection.
+    Start,
+    /// Resolve the most recently created stop signal, unless it has resolved.
+    Resolve,
+    /// Poll the driver this picks, once.
+    Poll(prop::sample::Index),
+}
+
+/// Schedules of driver starts, resolutions, and polls, in any order.
+fn stop_event() -> impl Strategy<Value = StopEvent> {
+    prop_oneof![
+        Just(StopEvent::Start),
+        Just(StopEvent::Resolve),
+        any::<prop::sample::Index>().prop_map(StopEvent::Poll),
+    ]
 }
 
 /// A stop factory whose signals the test resolves by creation order.
@@ -1388,5 +1412,250 @@ divided_proptest! {
             );
             assert_eq!(signals.created(), 2, "the later driver called the factory");
         });
+    }
+
+    /// Drivers share one stop signal from the factory until it resolves; the
+    /// first driver created afterwards calls the factory for a fresh one.
+    ///
+    /// A driver chooses its signal when it is created: it checks the current
+    /// signal, and calls the factory if that has resolved or none exists. For
+    /// every schedule of driver starts, resolutions of the current signal, and
+    /// driver polls, a polled driver has ended exactly when the signal it was
+    /// created under has resolved, so a driver created before a resolution but
+    /// first polled after it has ended, and the factory is called once per
+    /// signal the schedule needs, at the start that needs it.
+    #[test]
+    fn gossip_until_shares_each_signal_until_it_resolves(
+        network in network_seed(),
+        schedule in prop::collection::vec(stop_event(), 1..16),
+    ) {
+        block_on(async {
+            let signals = StopSignals::default();
+            let factory = signals.clone();
+            let (a, _b) = pair_with(
+                network,
+                |builder| {
+                    builder
+                        .gossip_when(|_| stream::pending::<()>())
+                        .gossip_until(move || factory.next())
+                },
+                |builder| builder,
+            )
+            .await;
+
+            let starts = schedule.iter().filter(|event| matches!(event, StopEvent::Start)).count();
+            let mut ends: Vec<_> = (0..starts).map(|_| connection()).collect();
+            let mut free = ends.iter_mut();
+            let mut drivers = Vec::new();
+            // Each signal the model expects the factory to have created, by
+            // whether it has resolved, and the signal each driver was created
+            // under.
+            let mut model: Vec<bool> = Vec::new();
+            let mut created_under = Vec::new();
+            for event in &schedule {
+                match *event {
+                    StopEvent::Start => {
+                        if model.last().is_none_or(|&resolved| resolved) {
+                            model.push(false);
+                        }
+                        created_under.push(model.len() - 1);
+                        // The remote end stays open in `ends`, so the driver idles.
+                        let (end, _) = free.next().expect("a connection per start");
+                        drivers.push(a.gossip_stream(&mut end.read, &mut end.write).await);
+                    }
+                    StopEvent::Resolve => {
+                        if let Some(resolved) = model.last_mut()
+                            && !*resolved
+                        {
+                            *resolved = true;
+                            signals.resolve(model.len() - 1);
+                        }
+                    }
+                    StopEvent::Poll(pick) => {
+                        if drivers.is_empty() {
+                            continue;
+                        }
+                        let index = pick.index(drivers.len());
+                        let ended = match drivers[index].next().now_or_never() {
+                            None => false,
+                            Some(None) => true,
+                            Some(Some(item)) => panic!("an idle driver runs no session: {item:?}"),
+                        };
+                        assert_eq!(
+                            ended,
+                            model[created_under[index]],
+                            "driver {index} has ended exactly when its signal has resolved"
+                        );
+                    }
+                }
+                assert_eq!(signals.created(), model.len(), "one factory call per signal");
+            }
+        });
+    }
+
+    /// The stop factory and the first poll of a stop signal may each start and
+    /// poll a gossip driver on the same peer, and creating and polling drivers
+    /// still completes.
+    ///
+    /// Creating the first driver calls the factory, which creates and polls a
+    /// second driver; creating that one calls the factory again and installs
+    /// its signal, and polling it polls that signal for the first time, which
+    /// creates and polls a third driver. The first driver then shares the
+    /// installed signal, and the factory's first signal is discarded. Every
+    /// reentrant start is counted, so the test fails if any of them did not
+    /// happen.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_until_admits_drivers_started_from_its_own_code(network in network_seed()) {
+        block_on(async {
+            let peer: Arc<OnceLock<Peer<u64>>> = Arc::default();
+            let reentered = Arc::new(AtomicUsize::new(0));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let (factory_peer, factory_reentered, factory_calls) =
+                (peer.clone(), reentered.clone(), calls.clone());
+            let (a, _b) = pair_with(
+                network,
+                move |builder| {
+                    builder.gossip_when(|_| stream::pending::<()>()).gossip_until(move || {
+                        if factory_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                            start_driver(&factory_peer, &factory_reentered);
+                        }
+                        StartsDriverWhenPolled {
+                            peer: factory_peer.clone(),
+                            reentered: factory_reentered.clone(),
+                            polled: false,
+                        }
+                    })
+                },
+                |builder| builder,
+            )
+            .await;
+            assert!(peer.set(a.clone()).is_ok(), "the slot is empty before the peer is stored");
+
+            let (mut first, _first_remote) = connection();
+            let mut driver = a.gossip_stream(&mut first.read, &mut first.write).await;
+            assert_eq!(calls.load(Ordering::SeqCst), 2, "the factory's driver called it again");
+            assert_eq!(reentered.load(Ordering::SeqCst), 2, "the factory and the signal each started a driver");
+            assert!(driver.next().now_or_never().is_none(), "the driver idles under its signal");
+        });
+    }
+
+    /// A signal that resolves while no driver runs is checked when the next
+    /// driver is created, which then runs under a fresh signal instead of
+    /// ending at once.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_until_gives_a_driver_created_after_an_unwatched_stop_a_fresh_signal(
+        network in network_seed(),
+    ) {
+        block_on(async {
+            let signals = StopSignals::default();
+            let factory = signals.clone();
+            let (a, _b) = pair_with(
+                network,
+                |builder| {
+                    builder
+                        .gossip_when(|_| stream::pending::<()>())
+                        .gossip_until(move || factory.next())
+                },
+                |builder| builder,
+            )
+            .await;
+            let (mut first, _first_remote) = connection();
+            drop(a.gossip_stream(&mut first.read, &mut first.write).await);
+            assert_eq!(signals.created(), 1, "creating the first driver calls the factory");
+
+            // No driver runs while the signal resolves.
+            signals.resolve(0);
+
+            let (mut next, _next_remote) = connection();
+            let mut driver = a.gossip_stream(&mut next.read, &mut next.write).await;
+            assert_eq!(signals.created(), 2, "the next driver sees the stop and takes a fresh signal");
+            assert!(driver.next().now_or_never().is_none(), "the next driver runs instead of ending");
+        });
+    }
+
+    /// A factory whose signals are already resolved ends every driver at its
+    /// first poll without a session.
+    ///
+    /// A cancelled `CancellationToken`'s `cancelled_owned` futures are such
+    /// signals. Each driver calls the factory for a fresh signal, which is
+    /// resolved too.
+    ///
+    /// The claim holds for every network seed.
+    #[test]
+    fn gossip_until_with_resolved_signals_ends_every_driver(
+        network in network_seed(),
+        drivers in 1usize..5,
+    ) {
+        block_on(async {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let factory_calls = calls.clone();
+            let (a, _b) = pair_with(
+                network,
+                move |builder| {
+                    builder.gossip_until(move || {
+                        factory_calls.fetch_add(1, Ordering::SeqCst);
+                        std::future::ready(())
+                    })
+                },
+                |builder| builder,
+            )
+            .await;
+            let mut ends: Vec<_> = (0..drivers).map(|_| connection()).collect();
+            for (started, (end, _)) in ends.iter_mut().enumerate() {
+                let mut driver = a.gossip_stream(&mut end.read, &mut end.write).await;
+                assert!(
+                    matches!(driver.next().now_or_never(), Some(None)),
+                    "a driver under a resolved signal ends at once"
+                );
+                assert_eq!(calls.load(Ordering::SeqCst), started + 1, "each driver takes a fresh signal");
+            }
+        });
+    }
+}
+
+/// Start a gossip driver on the peer in `peer`, poll it once, and drop it,
+/// counting the start in `reentered`.
+fn start_driver(peer: &OnceLock<Peer<u64>>, reentered: &AtomicUsize) {
+    let peer = peer
+        .get()
+        .expect("the peer is stored before any driver starts");
+    let (mut end, _remote) = connection();
+    let mut driver = peer
+        .gossip_stream(&mut end.read, &mut end.write)
+        .now_or_never()
+        .expect("creating a driver completes at once");
+    reentered.fetch_add(1, Ordering::SeqCst);
+    assert!(
+        driver.next().now_or_never().is_none(),
+        "a reentrant driver idles"
+    );
+}
+
+/// A stop signal that never resolves, and whose first poll starts a gossip
+/// driver on the peer in `peer`.
+struct StartsDriverWhenPolled {
+    /// Where the peer is stored once it is built.
+    peer: Arc<OnceLock<Peer<u64>>>,
+    /// The count of drivers started from the signal's or factory's code.
+    reentered: Arc<AtomicUsize>,
+    /// Whether this signal has been polled.
+    polled: bool,
+}
+
+/// Start a driver on the first poll, and never resolve.
+impl Future for StartsDriverWhenPolled {
+    type Output = ();
+
+    /// Pend, starting a driver the first time.
+    fn poll(mut self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<()> {
+        if !self.polled {
+            self.polled = true;
+            start_driver(&self.peer, &self.reentered);
+        }
+        Poll::Pending
     }
 }
