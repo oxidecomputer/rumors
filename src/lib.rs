@@ -59,7 +59,7 @@
 //!   messages during gossip, peers store some information about messages in
 //!   flight in memory. However, *you* can control the budget for the maximum
 //!   permissible amount of memory to spend on such pipelining by tuning
-//!   [`Peer::sync_memory_budget`]. Most gossip sessions will be unaffected by
+//!   [`PeerBuilder::sync_memory_budget`]. Most gossip sessions will be unaffected by
 //!   even the minimum budget, but reconciliations between widely divergent
 //!   peers will exert backpressure internally to make sure they don't balloon
 //!   beyond your budget.
@@ -129,19 +129,18 @@
 //! // In a real application, you'd likely use an application-specific message.
 //! let alice: Peer<String> = Peer::seed();
 //!
-//! // At this point, she could configure the peer further, but in this example,
-//! // she just converts the `Peer` into a `Rumors`, so she can use it for gossip.
-//! let alice = alice.into_rumors();
+//! // She could have configured the peer before seeding it, through
+//! // `Peer::builder`, but in this example, she uses the defaults.
 //!
 //! // She sends a message, to be received by all future peers.
 //! alice.send("the meeting is at noon".to_string())?;
 //!
-//! // Alice clones the `Rumors` so that she can concurrently gossip,
+//! // Alice clones the `Peer` so that she can concurrently gossip,
 //! // as well as interact with her clone of the set of messages.
 //! let serve = alice.clone();
 //! spawn(async move {
 //!     // In this example, we only gossip once; typically, we'd use
-//!     // `Rumors::gossip` to repeatedly gossip on changes, in a loop.
+//!     // `Peer::gossip` to repeatedly gossip on changes, in a loop.
 //!     serve.gossip_once(alice_read, alice_write).await.unwrap();
 //! });
 //!
@@ -150,10 +149,8 @@
 //!     panic!("Alice must allow Bob to join");
 //! };
 //!
-//! // This gives Bob a `Peer`, which he converts into a `Rumors`, just like Alice
-//! // did when she seeded the initial network. But now Bob's set of messages is
-//! // linked to Alice's, because he joined from her.
-//! let bob = bob.into_rumors();
+//! // This gives Bob a `Peer`. Bob's set of messages is linked to Alice's,
+//! // because he joined from her.
 //!
 //! // Now, Bob immediately has the message Alice sent before they ever met.
 //! let (_version, message) = bob.snapshot().iter().next().expect("one message");
@@ -165,25 +162,25 @@
 //! # How should you react to messages?
 //!
 //! A typical application built atop `rumors` will run in some kind of loop
-//! where peers [`send`](Rumors::send) and [`redact`](Rumors::redact) messages
+//! where peers [`send`](Peer::send) and [`redact`](Peer::redact) messages
 //! in response to both local events as well as other messages sent by other
 //! peers.
 //!
 //! Depending on your application, you might want to use any of these
 //! interfaces to examine and react to gossiped messages:
 //!
-//! - [`Rumors::snapshot`] returns a **point-in-time** [`Snapshot`]: you can
+//! - [`Peer::snapshot`] returns a **point-in-time** [`Snapshot`]: you can
 //!   iterate over all messages, or over just some using [`Snapshot::range`], or
 //!   you can look up an individual message by its [`Version`] using
 //!   [`Snapshot::get`].
-//! - [`Rumors::causal_messages`] returns a **live stream of new messages, in
+//! - [`Peer::causal_messages`] returns a **live stream of new messages, in
 //!   causal order**. A message arrives only after everything it causally
 //!   depends on. Use it when consumers require causal delivery.
-//! - [`Rumors::unordered_messages`] returns a **live stream of new messages, in
+//! - [`Peer::unordered_messages`] returns a **live stream of new messages, in
 //!   arbitrary order**. This is more efficient than iterating over messages in
 //!   causal order, but it can result in surprising consequences where an
 //!   "effect" arrives before its "cause".
-//! - [`Rumors::changes`] is a **signal of change, with no content**. This
+//! - [`Peer::changes`] is a **signal of change, with no content**. This
 //!   stream yields one coalesced `()` each time the set of messages changes.
 //!   This can be useful for waking work that reacts to changes without needing
 //!   to consume the stream of messages directly.
@@ -195,7 +192,7 @@
 //!
 //! All of the above observe the *set of messages*. For instrumenting the *wire
 //! protocol itself*, attach a handler from the [`observe`] module via
-//! [`Peer::observe`].
+//! [`PeerBuilder::observe`].
 //!
 //! # What types can be messages?
 //!
@@ -215,24 +212,24 @@
 //! messages through the `rumors` API.
 //!
 //! That said, Rust's type system can't check the following properties, so
-//! [`send`](Rumors::send) checks each one at runtime and returns an
+//! [`send`](Peer::send) checks each one at runtime and returns an
 //! [`EncodeError`](error::EncodeError) for any message that violates it. A
 //! rejected message is never stored or gossiped, so that violations fail early
-//! at the time of [`send`](Rumors::send) rather than too-late upon arrival at
+//! at the time of [`send`](Peer::send) rather than too-late upon arrival at
 //! another peer.
 //!
 //! - **Every message must serialize.** Prefer types whose `Serialize`
 //!   cannot fail. [`std::path::PathBuf`], for example, fails on paths that are
-//!   not UTF-8, and [`send`](Rumors::send) would reject such a path with
+//!   not UTF-8, and [`send`](Peer::send) would reject such a path with
 //!   [`EncodeError::Serialize`](error::EncodeError::Serialize).
 //! - **Every message must successfully deserialize back to itself.**
-//!   [`send`](Rumors::send) checks that the deserialization of the serialization
+//!   [`send`](Peer::send) checks that the deserialization of the serialization
 //!   of each message is equal to the original message, according to its own `Eq`
 //!   implementation. If not, it returns
 //!   [`EncodeError::Deserialize`](error::EncodeError::Deserialize) or
 //!   [`EncodeError::Roundtrip`](error::EncodeError::Roundtrip).
 //! - **Nesting depth must be bounded.** Decoding a message may recur at most
-//!   [`Peer::message_depth_limit`] steps (256 by default). [`send`](Rumors::send)
+//!   [`PeerBuilder::message_depth_limit`] steps (256 by default). [`send`](Peer::send)
 //!   rejects an over-deep value with
 //!   [`EncodeError::TooDeep`](error::EncodeError::TooDeep),
 //!   rather than letting it (potentially) overflow the recipient's stack.
@@ -293,7 +290,7 @@
 //!   gossip.
 //! - **Buffered reads**: the read-end of the connection is wrapped in a
 //!   `BufReader`, which is required by the type signature for
-//!   [`Rumors::gossip`], and ensures that reads do not invoke a syscall each.
+//!   [`Peer::gossip`], and ensures that reads do not invoke a syscall each.
 //! - **Nagle's algorithm disabled**: `TcpStream::set_nodelay(true)` is set on
 //!   both ends, to prevent needless latency.
 //!
@@ -302,7 +299,7 @@
 //! use std::net::SocketAddr;
 //! use std::sync::Arc;
 //!
-//! use rumors::Rumors;
+//! use rumors::Peer;
 //! use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 //! use rustls::server::WebPkiClientVerifier;
 //! use rustls::{ClientConfig, RootCertStore, ServerConfig};
@@ -331,7 +328,7 @@
 //!
 //! // Run gossip continuously over the provided stream, indefinitely.
 //! async fn gossip_over(
-//!     rumors: Rumors<String>,
+//!     rumors: Peer<String>,
 //!     stream: impl AsyncRead + AsyncWrite + Send + Unpin,
 //! ) -> Result<(), Box<dyn Error>> {
 //!     let (read, write) = split(stream);
@@ -342,7 +339,7 @@
 //! // Connect to a peer over TLS, then gossip with them indefinitely.
 //! # #[expect(dead_code)]
 //! async fn connect(
-//!     rumors: Rumors<String>,
+//!     rumors: Peer<String>,
 //!     tls: &TlsConnector,
 //!     addr: SocketAddr,
 //!     name: ServerName<'static>,
@@ -357,7 +354,7 @@
 //! // which will gossip indefinitely when awaited (e.g. in a spawned task).
 //! # #[expect(dead_code)]
 //! async fn accept(
-//!     rumors: Rumors<String>,
+//!     rumors: Peer<String>,
 //!     tls: &TlsAcceptor,
 //!     listener: &TcpListener,
 //! ) -> Result<impl Future<Output = Result<(), Box<dyn Error>>> + Send, Box<dyn Error>> {
@@ -370,7 +367,7 @@
 //!
 //! A departed peer that never closes the connection leaves a session waiting,
 //! as does a transport whose writes don't complete; configure
-//! [`Peer::gossip_timeout`] to bound such waits.
+//! [`PeerBuilder::gossip_timeout`] to bound such waits.
 //!
 //! # Features
 //!
