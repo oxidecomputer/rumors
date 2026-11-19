@@ -10,13 +10,14 @@ use before::Party;
 use tokio::io::{BufReader, DuplexStream};
 use tokio::sync::watch;
 
-use crate::bookmark::{Bookmark, BookmarkHandle, NoBookmark};
+use crate::bookmark::{Bookmark, BookmarkHandle, MaybeBookmark, NullBookmark};
 use crate::message::{MessageDepthLimit, PayloadCodec};
 use crate::network::NetworkSecret;
 use crate::observe::{
     Direction, Observer, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
 use crate::peer::SessionSettings;
+use crate::testing::arming::{Arming, armed_timeout};
 use crate::testing::property::{
     FLEET_DIVISOR, LOCAL_DIVISOR, NetworkSeed, SESSION_DIVISOR, distinct_network_seeds,
     divided_proptest, network_seed,
@@ -36,8 +37,8 @@ fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
 }
 
 /// Read a `Peer`'s party for assertions.
-fn party_of<B: Bookmark>(k: &Peer<u64, B>) -> Party {
-    k.inner.borrow().party.dangerously_alias()
+fn party_of<B: MaybeBookmark>(k: &Peer<u64, B>) -> Party {
+    k.replica.inner.borrow().party.dangerously_alias()
 }
 
 /// Drive `child.retire` against `survivor.gossip` over a memory connection,
@@ -66,11 +67,17 @@ fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
 /// Drive `provider.gossip` against a fresh `join`, returning the
 /// post-serve provider and the joined peer.
 fn join_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
+    join_from_with(provider, Peer::builder())
+}
+
+/// Join a new peer configured by `builder` from `provider`, returning
+/// `(provider, joined)`.
+fn join_from_with(provider: Peer<u64>, builder: crate::PeerBuilder<u64>) -> (Peer<u64>, Peer<u64>) {
     pollster::block_on(async {
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         let (provider_out, join_out) = tokio::join!(
             provider.gossip_once(&mut a_end.read, &mut a_end.write),
-            Peer::<u64>::join(&mut b_end.read, &mut b_end.write),
+            builder.join(&mut b_end.read, &mut b_end.write),
         );
         provider_out.expect("provider gossip");
         (
@@ -104,19 +111,19 @@ divided_proptest! {
         // Forge a retiree sharing the survivor's network and its *exact* party
         // region (not a disjoint fork), with an empty tree so its version equals the
         // survivor's and the survivor takes the absorb branch.
-        let forged = Peer::<u64> {
+        let forged = Peer::new(crate::peer::Replica::<u64> {
             codec: PayloadCodec::new::<u64>(MessageDepthLimit::default()),
-            keys: survivor.keys.clone(),
+            keys: survivor.replica.keys.clone(),
             settings: SessionSettings {
-                sizing: survivor.settings.sizing,
+                sizing: survivor.replica.settings.sizing,
                 ..SessionSettings::default()
             },
             inner: watch::Sender::new(Inner::new(
                 party_of(&survivor),
-                Tree::from_root(survivor.keys.clone(), Root::default()),
+                Tree::from_root(survivor.replica.keys.clone(), Root::default()),
             )),
-            bookmark: BookmarkHandle::new(NoBookmark),
-        };
+            bookmark: BookmarkHandle::new(NullBookmark, crate::default::BOOKMARK_SIZE_LIMIT),
+        });
 
         // Each side's future owns its halves: the absorber rejects the overlap
         // *before* writing its completion marker, so only its halves' drop lets the
@@ -243,7 +250,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized, message::Greeting};
     use crate::tree::typed::Prefix;
 
-    let root: streaming::Root<Local> = retiree.inner.borrow().tree.clone().root.into();
+    let root: streaming::Root<Local> = retiree.replica.inner.borrow().tree.clone().root.into();
     let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root.clone()))
         .expect("the in-memory backend lists exactly the children it reports");
     // Reassemble the greeting from the same fields as the session, then
@@ -256,12 +263,12 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
             .as_ref()
             .map_or(0, |node| node.grandchild_count() as u64),
         max_version_bytes: root.max_version_bytes(),
-        message_depth_limit: retiree.codec.limit().get(),
-        target_message_size: retiree.settings.sizing.run_budget.bytes() as u64,
+        message_depth_limit: retiree.replica.codec.limit().get(),
+        target_message_size: retiree.replica.settings.sizing.run_budget.bytes() as u64,
         listing: materialized::fan_listing(
             Prefix::new().erase(),
             &fan,
-            Some(retiree.keys.as_ref()),
+            Some(retiree.replica.keys.as_ref()),
         )
         .expect("the in-memory backend keeps every count in range"),
     };
@@ -627,15 +634,16 @@ fn cancelled_join(network: NetworkSeed, joiner_at: usize, provider_at: usize) ->
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
     let provider = with_messages(
         network
-            .peer::<u64>()
-            .gossip_timeout(expire_at_poll(&polls[1], provider_at)),
+            .builder::<u64>()
+            .gossip_timeout(expire_at_poll(&polls[1], provider_at))
+            .seed(),
         &[1, 2, 3],
     );
     let (served, joined) = pollster::block_on(async {
         let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
         let (served, joined) = tokio::join!(
             provider.gossip_once(a_end.read, a_end.write),
-            Peer::<u64>::joining()
+            Peer::<u64>::builder()
                 .gossip_timeout(expire_at_poll(&polls[0], joiner_at))
                 .join(b_end.read, b_end.write),
         );
@@ -738,6 +746,8 @@ enum RetireOutcome {
 /// What one cancelled retirement left on each side, and how often each side's
 /// session suspended.
 struct CancelledRetire {
+    /// The switch arming both sides' deadlines; disarmed, they never expire.
+    arming: Arming,
     /// The absorber, after its session.
     absorber: Peer<u64>,
     /// The absorber's party before the session.
@@ -762,11 +772,26 @@ fn cancelled_retire(
     absorber_at: usize,
 ) -> CancelledRetire {
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
-    let (absorber, retiree) = join_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
-    let retiree =
-        with_messages(retiree, &[4, 5]).gossip_timeout(expire_at_poll(&polls[0], retiree_at));
-    let absorber =
-        with_messages(absorber, &[6]).gossip_timeout(expire_at_poll(&polls[1], absorber_at));
+    // The deadlines stay inert through the join, and cancel only the
+    // retirement.
+    let arming = Arming::default();
+    let absorber = network
+        .builder::<u64>()
+        .gossip_timeout(armed_timeout(
+            arming.clone(),
+            expire_at_poll(&polls[1], absorber_at),
+        ))
+        .seed();
+    let (absorber, retiree) = join_from_with(
+        with_messages(absorber, &[1, 2, 3]),
+        Peer::builder().gossip_timeout(armed_timeout(
+            arming.clone(),
+            expire_at_poll(&polls[0], retiree_at),
+        )),
+    );
+    let retiree = with_messages(retiree, &[4, 5]);
+    let absorber = with_messages(absorber, &[6]);
+    arming.arm();
     let absorber_before = party_of(&absorber);
     let retired = pollster::block_on(async {
         let (a_end, b_end) = memory_connection(MEMORY_CAPACITY);
@@ -787,6 +812,7 @@ fn cancelled_retire(
         Retire::Declined { .. } => panic!("the absorber is not retiring"),
     };
     CancelledRetire {
+        arming,
         absorber,
         absorber_before,
         outcome,
@@ -842,10 +868,8 @@ divided_proptest! {
                         let mut whole = party_of(&retiree);
                         assert!(whole.join(absorber).is_ok(), "{at}: one identity on both sides");
                         assert_eq!(whole, Party::seed(), "{at}: a recovered retiree stranded identity");
-                        let survivor = retire_child_into(
-                            cancelled.absorber.gossip_timeout(std::future::pending::<()>),
-                            retiree.gossip_timeout(std::future::pending::<()>),
-                        );
+                        cancelled.arming.disarm();
+                        let survivor = retire_child_into(cancelled.absorber, retiree);
                         assert_eq!(party_of(&survivor), Party::seed(), "{at}: the retried retirement left identity behind");
                     }
                     RetireOutcome::Lost => {
@@ -897,7 +921,23 @@ fn cancelled_gossip(
     b_at: usize,
 ) -> ([GossipSide; 2], [usize; 2]) {
     let polls = [(); 2].map(|()| Arc::new(std::sync::atomic::AtomicUsize::new(0)));
-    let (a, b) = join_from(with_messages(network.peer::<u64>(), &[1, 2, 3]));
+    // The deadlines stay inert through the join, and cancel only the first
+    // gossip session.
+    let arming = Arming::default();
+    let a = network
+        .builder::<u64>()
+        .gossip_timeout(armed_timeout(
+            arming.clone(),
+            expire_at_poll(&polls[0], a_at),
+        ))
+        .seed();
+    let (a, b) = join_from_with(
+        with_messages(a, &[1, 2, 3]),
+        Peer::builder().gossip_timeout(armed_timeout(
+            arming.clone(),
+            expire_at_poll(&polls[1], b_at),
+        )),
+    );
     let a = with_messages(a, &[6]);
     let one = a
         .snapshot()
@@ -905,8 +945,8 @@ fn cancelled_gossip(
         .find(|(_, value)| **value == 1)
         .map(|(version, _)| version.clone());
     assert!(a.redact(&one.expect("the first side holds message 1")));
-    let a = a.gossip_timeout(expire_at_poll(&polls[0], a_at));
-    let b = with_messages(b, &[4, 5]).gossip_timeout(expire_at_poll(&polls[1], b_at));
+    let b = with_messages(b, &[4, 5]);
+    arming.arm();
     let before = [live_values(&a), live_values(&b)];
     let reconciled = vec![2, 3, 4, 5, 6];
     let results = pollster::block_on(async {
@@ -937,8 +977,7 @@ fn cancelled_gossip(
             GossipSide::FailedUnchanged
         };
     }
-    let a = a.gossip_timeout(std::future::pending::<()>);
-    let b = b.gossip_timeout(std::future::pending::<()>);
+    arming.disarm();
     pollster::block_on(async {
         let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
         let (a_out, b_out) = tokio::join!(
@@ -1132,7 +1171,7 @@ divided_proptest! {
                     budget: provider_bytes - crate::peer::COMPLETION_MARKER.len(),
                 };
                 let serve = provider.gossip_once(&mut a_end.read, &mut stalled);
-                let join = Peer::<u64>::joining()
+                let join = Peer::<u64>::builder()
                     .gossip_timeout(|| tokio::time::sleep(std::time::Duration::from_secs(1)))
                     .bookmark(record.clone())
                     .join(&mut b_end.read, &mut b_end.write);
@@ -1253,14 +1292,14 @@ divided_proptest! {
         let provider_items = Arc::new(ObservedItems::default());
         let joiner_items = Arc::new(ObservedItems::default());
         let provider = with_messages(
-            network.peer::<u64>().observe(Arc::new(RecordItems(provider_items.clone()))),
+            network.builder::<u64>().observe(Arc::new(RecordItems(provider_items.clone()))).seed(),
             &[1, 2, 3],
         );
         let joiner = pollster::block_on(async {
             let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
             let (served, joined) = tokio::join!(
                 provider.gossip_once(&mut a_end.read, &mut a_end.write),
-                Peer::<u64>::joining()
+                Peer::<u64>::builder()
                     .observe(Arc::new(RecordItems(joiner_items.clone())))
                     .join(&mut b_end.read, &mut b_end.write),
             );
@@ -1271,7 +1310,7 @@ divided_proptest! {
             }
         });
         assert!(
-            joiner.keys == provider.keys,
+            joiner.replica.keys == provider.replica.keys,
             "the joiner holds the network's secret"
         );
 
@@ -1330,7 +1369,7 @@ divided_proptest! {
         ] {
             for (stream, direction, bytes) in items {
                 assert!(
-                    !contains_run(bytes, provider.keys.secret().as_bytes()),
+                    !contains_run(bytes, provider.replica.keys.secret().as_bytes()),
                     "the {side}'s {direction:?} {stream:?} observation carries the secret",
                 );
             }
@@ -1352,7 +1391,7 @@ divided_proptest! {
     ) {
         let left = with_messages(network.peer::<u64>(), &[1]);
         let right = other_network.peer::<u64>();
-        let keys = [left.keys.clone(), right.keys.clone()];
+        let keys = [left.replica.keys.clone(), right.replica.keys.clone()];
         let error = pollster::block_on(async {
             let (mut a_end, mut b_end) = memory_connection(MEMORY_CAPACITY);
             let (left_out, _) = tokio::join!(
@@ -1364,7 +1403,7 @@ divided_proptest! {
         assert!(
             matches!(
                 error,
-                Error::Mismatch(crate::error::Mismatch::Network { .. })
+                Error::Mismatch(crate::error::Mismatch::Network(_))
             ),
             "got {error:?}",
         );
@@ -1373,8 +1412,8 @@ divided_proptest! {
             left.snapshot(),
             left.network(),
             left.network(),
-            left.keys,
-            right.keys,
+            left.replica.keys,
+            right.replica.keys,
         );
         for keys in &keys {
             for rendering in renderings(keys.secret()) {
@@ -1391,13 +1430,13 @@ divided_proptest! {
     #![divisor(SESSION_DIVISOR)]
 
     /// An uncontained supply crossing a real peer session surfaces through
-    /// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
+    /// [`Peer::gossip`](crate::Peer::gossip) as its typed violation.
     ///
     /// The error is [`Error::Protocol`] carrying the wire decoder's
     /// `UncontainedSupply`, naming the escaped leaf's keyed path, and the
     /// replica's content is untouched.
     ///
-    /// This observes through [`Rumors::gossip`](crate::Rumors::gossip) the same
+    /// This observes through [`Peer::gossip`](crate::Peer::gossip) the same
     /// rejection the wire tests exercise directly. A local [`Tree::join`]
     /// builds the invalid store because session validation cannot guard an
     /// in-process join.
@@ -1422,30 +1461,29 @@ divided_proptest! {
         // Poison the serving peer's store: the escaped leaf plants above the
         // declared ceiling while leaving that ceiling unchanged, creating the
         // store a nonconforming implementation would serve.
-        let base = poisoned.inner.borrow().tree.latest().clone();
+        let base = poisoned.replica.inner.borrow().tree.latest().clone();
         let (escaped_root, _, escaped) = crate::tree::arb::poisoned_root(
-            poisoned.inner.borrow().tree.path_key(),
+            poisoned.replica.inner.borrow().tree.path_key(),
             &party_of(&poisoned),
             &base,
             Message::new(0u64),
         );
-        poisoned.inner.send_modify(|inner| {
+        poisoned.replica.inner.send_modify(|inner| {
             inner
                 .tree
-                .join(Tree::from_root(poisoned.keys.clone(), escaped_root));
+                .join(Tree::from_root(poisoned.replica.keys.clone(), escaped_root));
         });
         assert!(
-            !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),
+            !crate::tree::mirror::contained(&escaped, poisoned.replica.inner.borrow().tree.latest()),
             "the planted leaf's version escapes the declared ceiling",
         );
         // Both peers share the network, so either one's path key places the
         // escaped leaf where the receiver's decoder names it.
         let path = <[u8; 32]>::from(Path::for_leaf(
-            poisoned.inner.borrow().tree.path_key(),
+            poisoned.replica.inner.borrow().tree.path_key(),
             &escaped,
         ));
 
-        let receiver = receiver.into_rumors();
         let before = receiver.snapshot().hash();
 
         // The receiving side's decoder diagnoses the violation mid-session, so the poisoned counterparty never reaches a

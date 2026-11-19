@@ -196,7 +196,7 @@ proptest! {
         let bytes = Bytes::from(cbor_vec(&*value));
         let codec = PayloadCodec::new::<Arr>(MessageDepthLimit::new(depth));
         let lower_limit = MessageDepthLimit::new(depth - 1);
-        let lower = codec.with_limit(lower_limit);
+        let lower = PayloadCodec::new::<Arr>(lower_limit);
         let error = lower.message(value.clone()).unwrap_err();
         prop_assert!(matches!(error, super::EncodeError::TooDeep { limit } if limit == lower_limit.get()), "unexpected admission error: {:?}", error);
         prop_assert_eq!(

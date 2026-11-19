@@ -131,7 +131,7 @@ fn redacted_history_root(network: NetworkSeed, events: u64) -> tree::Root {
         !snapshot.latest().is_empty(),
         "the redactions advanced the ceiling"
     );
-    donor.inner.borrow().tree.clone().root
+    donor.replica.inner.borrow().tree.clone().root
 }
 
 /// Drive one session as a joiner whose greeting version comes from
@@ -213,7 +213,7 @@ fn provider_with(network: NetworkSeed, values: &[u64]) -> Peer<u64> {
 
 /// Read a provider's live party for before/after comparison.
 fn party_of(provider: &Peer<u64>) -> Party {
-    provider.inner.borrow().party.dangerously_alias()
+    provider.replica.inner.borrow().party.dangerously_alias()
 }
 
 divided_proptest! {
@@ -551,8 +551,19 @@ divided_proptest! {
         };
         use std::task::Poll;
 
+        // The test's single-use deadline stays inert through the join, and
+        // applies only to the session armed for it.
+        let (expire, deadline) = futures::channel::oneshot::channel();
+        let deadline = Mutex::new(Some(deadline));
+        let arming = crate::testing::arming::Arming::default();
         let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
-        let a = network.peer::<u64>().sync_memory_budget(0).into_rumors();
+        let a = network
+            .builder::<u64>()
+            .sync_memory_budget(0)
+            .gossip_timeout(crate::testing::arming::armed_timeout(arming.clone(), move || {
+                deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap())
+            }))
+            .seed();
         let (served, joined) = run_to_quiescence(async {
             futures::join!(
                 a.gossip_once(&mut near.read, &mut near.write),
@@ -561,19 +572,13 @@ divided_proptest! {
         })
         .unwrap();
         served.unwrap();
-        let crate::Join::Connected { peer, connection: crate::Connection::Reusable { .. } } = joined else {
+        let crate::Join::Connected { peer: b, connection: crate::Connection::Reusable { .. } } = joined else {
             panic!("join succeeds")
         };
-        let b = peer.into_rumors();
         a.send(1).unwrap();
         b.send(2).unwrap();
 
-        let (expire, deadline) = futures::channel::oneshot::channel();
-        let deadline = Mutex::new(Some(deadline));
-        let a = pollster::block_on(a.try_into_peer())
-            .unwrap()
-            .gossip_timeout(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
-            .into_rumors();
+        arming.arm();
         let reached = Arc::new(AtomicBool::new(false));
         let mut far_write = HoldCompletion {
             inner: far.write,
@@ -600,12 +605,9 @@ divided_proptest! {
         ));
         drop(right);
 
-        // The peer's content is intact; remove the test's single-use deadline
-        // factory before checking ordinary gossip over a fresh connection.
-        let a = pollster::block_on(a.try_into_peer())
-            .unwrap()
-            .gossip_timeout(std::future::pending)
-            .into_rumors();
+        // The peer's content is intact; disarm the test's single-use deadline
+        // before checking ordinary gossip over a fresh connection.
+        arming.disarm();
         let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
         let (left, right) = run_to_quiescence(async {
             futures::join!(

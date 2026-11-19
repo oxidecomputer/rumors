@@ -12,7 +12,7 @@ use proptest::prelude::*;
 use super::*;
 use crate::testing::property::{SESSION_DIVISOR, divided_proptest, network_seed};
 use crate::testing::{MEMORY_CAPACITY, memory_connection, run_to_quiescence};
-use crate::{Connection, Join, Peer};
+use crate::{Connection, Join, Peer, Retire};
 
 /// Whether a store confirms durability or fails on either side of replacement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -77,7 +77,7 @@ impl Bookmark for Memory {
 
 /// The size limit the cache tests store under: large enough that encoding keeps
 /// every identity, since they test reloading rather than the bound.
-const LIMIT: usize = default::BOOKMARK_SIZE_LIMIT;
+const LIMIT: usize = crate::default::BOOKMARK_SIZE_LIMIT;
 
 /// Require the public future to remain usable on an executor that needs `Send`.
 fn sendable<F: Future + Send>(future: F) -> F {
@@ -112,21 +112,19 @@ divided_proptest! {
     #[test]
     fn non_sync_bookmark_can_attach_and_gossip(network in network_seed()) {
         run_to_quiescence(async {
-            let rumors = network.peer::<u64>().into_rumors();
-            rumors.send(7).unwrap();
-            let peer = rumors.try_into_peer().await.unwrap();
-            let peer = sendable(peer.bookmark(Memory::default())).await.unwrap();
-            let rumors = peer.into_rumors();
+            let unbookmarked = network.peer::<u64>();
+            unbookmarked.send(7).unwrap();
+            let bookmarked = Peer::new(sendable(unbookmarked.replica.attach_bookmark(Memory::default())).await.unwrap());
             let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
             let (served, joined) = futures::join!(
-                sendable(rumors.gossip_once(&mut near.read, &mut near.write)),
+                sendable(bookmarked.gossip_once(&mut near.read, &mut near.write)),
                 sendable(Peer::<u64>::join(&mut far.read, &mut far.write)),
             );
             served.unwrap();
             let Join::Connected { peer, connection: Connection::Reusable { .. } } = joined else {
                 panic!("the peer must join")
             };
-            let received = peer.into_rumors().snapshot();
+            let received = peer.snapshot();
             assert_eq!(
                 received.iter().map(|(_, value)| *value).collect::<Vec<_>>(),
                 [7]
@@ -209,24 +207,6 @@ proptest! {
             prop_assert_eq!(format::encode(&loaded.cache().record), expected);
             prop_assert_eq!(bookmark.persist.loads.get(), reads + usize::from(fail));
         }
-    }
-}
-
-proptest! {
-    /// A checkpoint is current exactly when the next update stores under the
-    /// limit the checkpoint was stored under: an update under any other limit
-    /// stores again, and one under the same limit may skip its store.
-    #[test]
-    fn checkpoints_are_current_only_under_their_limit(stored in 0usize..300, next in 0usize..300) {
-        let floor = format::record_size(0, 0);
-        let (stored, next) = (stored.max(floor), next.max(floor));
-        let network = Network::from_bytes([0x3e; 16]);
-        let (mut party, version) = Clock::seed().into_parts();
-        let mut bookmark = Bookmarked::new(Memory::default());
-        let loaded = run_to_quiescence(bookmark.load(stored)).unwrap().unwrap();
-        run_to_quiescence(update(loaded, false, network, &mut party, &version)).unwrap().unwrap();
-        let loaded = run_to_quiescence(bookmark.load(next)).unwrap().unwrap();
-        prop_assert_eq!(loaded.checkpointed(&party, &version), stored == next);
     }
 }
 
@@ -325,8 +305,9 @@ proptest! {
 }
 
 proptest! {
-    /// The public limit applies to the first join checkpoint, survives the
-    /// Rumors-to-Peer round trip, and lowering it forces another store.
+    /// The limit configured on the builder governs the first join checkpoint,
+    /// survives a failed retirement, and governs the checkpoints of later
+    /// sessions on the handle that failure returns.
     #[test]
     fn configured_limit_controls_checkpoints(
         limit in 0usize..300,
@@ -334,35 +315,37 @@ proptest! {
         network in network_seed(),
     ) {
         run_to_quiescence(async {
-            let seed = network.peer::<u64>().into_rumors();
+            let seed = network.peer::<u64>();
             let joining = if configure_first {
-                Peer::<u64>::joining().bookmark_size_limit(limit).bookmark(Memory::default())
+                Peer::<u64>::builder().bookmark_size_limit(limit).bookmark(Memory::default())
             } else {
-                Peer::<u64>::joining().bookmark(Memory::default()).bookmark_size_limit(limit)
+                Peer::<u64>::builder().bookmark(Memory::default()).bookmark_size_limit(limit)
             };
             let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
             let (served, joined) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), joining.join(&mut far.read, &mut far.write));
             served.unwrap();
             let Join::Connected { peer, connection: Connection::Reusable { .. } } = joined else { panic!("reliable join must join") };
             {
-                let applied = peer.bookmark.size_limit();
+                let applied = peer.replica.bookmark.size_limit();
                 assert_eq!(applied, limit.max(format::record_size(0, 0)));
-                let bookmark = peer.bookmark.lock().await;
+                let bookmark = peer.replica.bookmark.lock().await;
                 assert!(bookmark.state.persist.bytes.borrow().as_ref().unwrap().len() <= applied);
             }
-            let rumors = peer.into_rumors();
-            drop(rumors.clone());
-            let peer = rumors.try_into_peer().await.unwrap().bookmark_size_limit(0);
-            let rumors = peer.into_rumors();
+            let Retire::Recovered { peer: returned, .. } =
+                peer.retire(tokio::io::empty(), tokio::io::sink()).await
+            else {
+                panic!("a dead connection fails before the point of no return");
+            };
+            // A later session checkpoints a new message under the same limit.
+            seed.send(7).unwrap();
             let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
-            let (a, b) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), rumors.gossip_once(&mut far.read, &mut far.write));
+            let (a, b) = futures::join!(seed.gossip_once(&mut near.read, &mut near.write), returned.gossip_once(&mut far.read, &mut far.write));
             a.unwrap(); b.unwrap();
-            let peer = rumors.try_into_peer().await.unwrap();
-            let bookmark = peer.bookmark.lock().await;
+            let applied = returned.replica.bookmark.size_limit();
+            assert_eq!(applied, limit.max(format::record_size(0, 0)));
+            let bookmark = returned.replica.bookmark.lock().await;
             let bytes = bookmark.state.persist.bytes.borrow();
-            let bytes = bytes.as_ref().unwrap();
-            assert_eq!(bytes.len(), format::record_size(0, 0));
-            assert!(format::decode(bytes).unwrap().networks.is_empty());
+            assert!(bytes.as_ref().unwrap().len() <= applied);
         }).expect("sessions must make progress");
     }
 
@@ -375,38 +358,27 @@ proptest! {
         network in network_seed(),
     ) {
         run_to_quiescence(async {
-            let rumors = network.peer::<u64>().into_rumors();
-            rumors.send(7).unwrap();
-            let peer = rumors.try_into_peer().await.unwrap().bookmark_size_limit(limit);
+            let server = network.peer::<u64>();
+            server.send(7).unwrap();
             let storage = Memory::default();
             storage.outcome.set(if after { Outcome::FailAfter } else { Outcome::FailBefore });
-            let unbookmarked = peer.bookmark(storage).await.unwrap_err();
-            let peer = unbookmarked.peer.bookmark(Memory::default()).await.unwrap();
-            let applied = peer.bookmark.size_limit();
+            let (mut near, mut far) = memory_connection(MEMORY_CAPACITY);
+            let (joined, served) = futures::join!(
+                crate::Peer::<u64>::builder()
+                    .bookmark_size_limit(limit)
+                    .bookmark(storage)
+                    .join(&mut near.read, &mut near.write),
+                server.gossip_once(&mut far.read, &mut far.write),
+            );
+            served.unwrap();
+            let crate::Join::Unbookmarked { unbookmarked, .. } = joined else {
+                panic!("the attachment's store fails");
+            };
+            let peer = unbookmarked.retry_bookmark(Memory::default()).await.unwrap();
+            let applied = peer.replica.bookmark.size_limit();
             assert_eq!(applied, limit.max(format::record_size(0, 0)));
-            let bookmark = peer.bookmark.lock().await;
+            let bookmark = peer.replica.bookmark.lock().await;
             assert!(bookmark.state.persist.bytes.borrow().as_ref().unwrap().len() <= applied);
         }).unwrap();
-    }
-
-    /// Configuring the size limit and attaching storage never wait on or panic
-    /// at the bookmark lock, even while a forgotten guard holds it forever.
-    ///
-    /// A leaked session future's guard holds the lock that way. The limit
-    /// still reaches the attached storage.
-    #[test]
-    fn configuration_ignores_a_held_lock(limit in 0usize..300, network in network_seed()) {
-        run_to_quiescence(async {
-            let rumors = network.peer::<u64>().into_rumors();
-            rumors.send(7).unwrap();
-            let peer = rumors.try_into_peer().await.unwrap();
-            std::mem::forget(peer.bookmark.lock().await);
-            let peer = peer.bookmark_size_limit(limit);
-            let peer = peer.bookmark(Memory::default()).await.unwrap();
-            let applied = peer.bookmark.size_limit();
-            assert_eq!(applied, limit.max(format::record_size(0, 0)));
-            let bookmark = peer.bookmark.lock().await;
-            assert!(bookmark.state.persist.bytes.borrow().as_ref().unwrap().len() <= applied);
-        }).expect("configuration must not wait on the held lock");
     }
 }

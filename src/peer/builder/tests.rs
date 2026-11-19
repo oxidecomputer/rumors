@@ -5,9 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
 
-use super::{Join, Joining};
+use super::{Join, PeerBuilder};
 use crate::Connection;
 use crate::bookmark::Bookmark;
+use crate::bookmark::MaybeBookmark;
 use crate::default;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
 use crate::peer::MemoryBudget;
@@ -71,9 +72,9 @@ impl Bookmark for Storage {
 
 /// Retry failed and mutually joining sessions, then join the network
 /// `network` founds and gossip.
-fn retry_then_join<B: Bookmark>(
+fn retry_then_join<B: MaybeBookmark>(
     network: NetworkSeed,
-    mut joining: Joining<u64, B>,
+    mut joining: PeerBuilder<u64, B>,
     fail: &[bool],
     sessions: &Sessions,
     stored: Option<&Stored>,
@@ -89,8 +90,9 @@ fn retry_then_join<B: Bookmark>(
                 crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
             joining = if fail {
                 drop(far);
-                let Join::Failed { joining, .. } =
-                    joining.join(&mut near.read, &mut near.write).await
+                let Join::Failed {
+                    builder: joining, ..
+                } = joining.join(&mut near.read, &mut near.write).await
                 else {
                     panic!("a closed provider must fail the attempt");
                 };
@@ -98,12 +100,15 @@ fn retry_then_join<B: Bookmark>(
             } else {
                 let (ours, theirs) = tokio::join!(
                     joining.join(&mut near.read, &mut near.write),
-                    Joining::<u64>::new()
+                    PeerBuilder::<u64>::new()
                         .message_depth_limit(depth.get())
                         .join(&mut far.read, &mut far.write),
                 );
                 assert!(matches!(theirs, Join::Bounced { .. }));
-                let Join::Bounced { joining, .. } = ours else {
+                let Join::Bounced {
+                    builder: joining, ..
+                } = ours
+                else {
                     panic!("two joiners must both return their builders");
                 };
                 joining
@@ -112,16 +117,18 @@ fn retry_then_join<B: Bookmark>(
             assert_eq!(joining.settings.sizing.run_budget, target);
             assert_eq!(joining.message_depth_limit, depth);
             assert_eq!(sessions.0.load(Ordering::Relaxed), attempt + 1);
+            // Every attempt reads storage once, before its session, and none
+            // stores.
             if let Some(stored) = stored {
-                assert_eq!(stored.loads.load(Ordering::Relaxed), 0);
+                assert_eq!(stored.loads.load(Ordering::Relaxed), attempt + 1);
                 assert_eq!(stored.stores.load(Ordering::Relaxed), 0);
             }
         }
 
         let provider = network
-            .peer::<u64>()
+            .builder::<u64>()
             .message_depth_limit(depth.get())
-            .into_rumors();
+            .seed();
         provider.send(42).unwrap();
         let (mut near, mut far) =
             crate::testing::memory_connection(crate::testing::MEMORY_CAPACITY);
@@ -131,18 +138,19 @@ fn retry_then_join<B: Bookmark>(
         );
         served.unwrap();
         let Join::Connected {
-            peer,
+            peer: joined,
             connection: Connection::Reusable { .. },
         } = joined
         else {
             panic!("the returned builder must remain usable with an established provider");
         };
-        assert_eq!(peer.settings.sizing.sync_memory_budget, budget);
-        assert_eq!(peer.settings.sizing.run_budget, target);
-        assert_eq!(peer.codec.limit(), depth);
+        assert_eq!(joined.replica.settings.sizing.sync_memory_budget, budget);
+        assert_eq!(joined.replica.settings.sizing.run_budget, target);
+        assert_eq!(joined.replica.codec.limit(), depth);
         assert_eq!(sessions.0.load(Ordering::Relaxed), fail.len() + 1);
+        // The successful join reads storage exactly once more, and stores once.
         if let Some(stored) = stored {
-            assert_eq!(stored.loads.load(Ordering::Relaxed), 1);
+            assert_eq!(stored.loads.load(Ordering::Relaxed), fail.len() + 1);
             assert_eq!(stored.stores.load(Ordering::Relaxed), 1);
             let bytes = stored.bytes.lock().unwrap();
             let record = crate::bookmark::format::decode(bytes.as_ref().unwrap()).unwrap();
@@ -151,7 +159,6 @@ fn retry_then_join<B: Bookmark>(
 
         // Exercise the retained observer and identity after the join,
         // including a write that must survive reconciliation in both directions.
-        let joined = peer.into_rumors();
         assert_eq!(joined.snapshot(), provider.snapshot());
         joined.send(7).unwrap();
         let (ours, theirs) = tokio::join!(
@@ -188,7 +195,7 @@ proptest! {
             RunBudget::from_bytes(target),
             crate::message::MessageDepthLimit::new(depth),
         );
-        let config = Joining::<u64>::new()
+        let config = PeerBuilder::<u64>::new()
             .sync_memory_budget(budget)
             .target_message_size(target)
             .message_depth_limit(depth);
@@ -202,7 +209,7 @@ proptest! {
         let stored = Arc::new(Stored::default());
         let bookmarked_sessions = Arc::new(Sessions::default());
         let config = if configure_after_bookmark {
-            Joining::<u64>::new().bookmark(Storage(stored.clone()))
+            PeerBuilder::<u64>::new().bookmark(Storage(stored.clone()))
                 .sync_memory_budget(budget)
                 .target_message_size(target)
                 .message_depth_limit(depth)
@@ -226,7 +233,7 @@ divided_proptest! {
     /// The claim holds for every network seed.
     #[test]
     fn configuration_defaults_and_saturation(network in network_seed()) {
-        let config = Joining::<u64>::new();
+        let config = PeerBuilder::<u64>::new();
         assert_eq!(
             config.settings.sizing.sync_memory_budget,
             MemoryBudget::Requested(default::SYNC_MEMORY_BUDGET)
@@ -249,7 +256,7 @@ divided_proptest! {
                 crate::message::MessageDepthLimit::default(),
             ),
         );
-        let saturated = Joining::<u64>::new().target_message_size(usize::MAX);
+        let saturated = PeerBuilder::<u64>::new().target_message_size(usize::MAX);
         assert_eq!(saturated.settings.sizing.run_budget, RunBudget::from_bytes(usize::MAX));
         assert_ne!(saturated.settings.sizing.run_budget.bytes(), usize::MAX);
     }

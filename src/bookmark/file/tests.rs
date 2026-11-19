@@ -110,16 +110,15 @@ async fn bookmarked_sessions_run_on_spawned_tasks() {
     let bookmark = FileBookmark::new(directory.path().join("bookmark"), TokioBlocking)
         .await
         .unwrap();
-    let Ok(peer) = Peer::<String>::seed().bookmark(bookmark).await else {
+    let Ok(peer) = Peer::<String>::builder().bookmark(bookmark).seed().await else {
         panic!("a pristine seed attaches its bookmark without storage I/O");
     };
-    let rumors = peer.into_rumors();
     let (near, far) = tokio::io::duplex(64 * 1024);
     drop(far);
     let (read, write) = tokio::io::split(near);
     let session = tokio::spawn(async move {
         let read = tokio::io::BufReader::new(read);
-        rumors.gossip_once(read, write).await.map(drop)
+        peer.gossip_once(read, write).await.map(drop)
     });
     assert!(matches!(session.await.unwrap(), Err(Error::Transport(_))));
 }

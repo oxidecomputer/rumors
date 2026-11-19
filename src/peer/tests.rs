@@ -79,7 +79,7 @@ fn on_drop(callback: impl Fn() + Send + Sync + 'static) -> Message {
 divided_proptest! {
     #![divisor(LOCAL_DIVISOR)]
 
-    /// Settings remain readable across the Peer/Rumors split, with message targets
+    /// Settings and the `Debug` summary report effective values, with message targets
     /// reported after the saturation applied to the wire greeting, and the
     /// write batch range's end after saturation at the write buffer's
     /// capacity.
@@ -91,11 +91,11 @@ divided_proptest! {
         // Just above the minimum for the target it sets, so the session
         // runs on it as given.
         let budget = Allowances::of::<Local>(MAX_RUN_BUDGET_BYTES).minimum() + 1_234;
-        let peer = network.peer::<u64>()
+        let peer = network.builder::<u64>()
             .sync_memory_budget(budget)
             .target_message_size(usize::MAX)
             .write_batch_range(5..=usize::MAX)
-            .message_depth_limit(depth);
+            .message_depth_limit(depth).seed();
         let expected = super::Settings {
             sync_memory_budget: budget,
             target_message_size: MAX_RUN_BUDGET_BYTES,
@@ -109,14 +109,6 @@ divided_proptest! {
         assert!(peer_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
         assert!(peer_debug.contains(&format!("write_batch_range: (Included(5), Included({WRITE_BUFFER_BYTES}))")));
         assert!(peer_debug.contains("message_depth_limit: 17"));
-
-        let rumors = peer.into_rumors();
-        assert_eq!(rumors.settings(), expected);
-        let rumors_debug = format!("{rumors:?}");
-        assert!(rumors_debug.contains(&format!("sync_memory_budget: {budget}")));
-        assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
-        assert!(rumors_debug.contains(&format!("write_batch_range: (Included(5), Included({WRITE_BUFFER_BYTES}))")));
-        assert!(rumors_debug.contains("message_depth_limit: 17"));
     }
 }
 
@@ -142,7 +134,7 @@ fn batch_bound() -> impl Strategy<Value = Bound<usize>> {
 }
 
 /// The write batch range a session applies for the bounds `start` and `end`,
-/// step by step as `Peer::write_batch_range` documents it.
+/// step by step as `PeerBuilder::write_batch_range` documents it.
 ///
 /// Each bound converts to an inclusive size, the end saturates at the write
 /// buffer's capacity, and the start is lowered to the end, or to the capacity
@@ -186,8 +178,8 @@ proptest! {
     /// The write batch range reads back as its documented conversion
     /// applies it, and selects the same batching when passed back in.
     ///
-    /// It also follows the peer through `into_rumors`, cloning, reunion
-    /// into a `Peer`, and bookmark attachment, as its docs promise.
+    /// It also follows the peer through cloning and bookmark attachment, as
+    /// its docs promise.
     ///
     /// Each bound is drawn included, excluded, or unbounded, at sizes on
     /// both sides of every edge the conversion has: zero, the write
@@ -201,20 +193,17 @@ proptest! {
     ) {
         let expected = applied_range(start, end);
         let read = |settings: super::Settings| settings.write_batch_range;
-        let peer = network.peer::<u64>().write_batch_range((start, end));
+        let peer = network.builder::<u64>().write_batch_range((start, end)).seed();
         prop_assert_eq!(read(peer.settings()), expected);
-        let again = network.peer::<u64>().write_batch_range(expected);
+        let again = network.builder::<u64>().write_batch_range(expected).seed();
         prop_assert_eq!(read(again.settings()), expected);
-        let rumors = peer.into_rumors();
-        let clone = rumors.clone();
+        let clone = peer.clone();
         prop_assert_eq!(read(clone.settings()), expected);
         drop(clone);
-        let peer = pollster::block_on(rumors.try_into_peer())
-            .expect("the last handle reunites into a peer");
         prop_assert_eq!(read(peer.settings()), expected);
-        let peer = pollster::block_on(peer.bookmark(crate::bookmark::NoBookmark))
+        let replica = pollster::block_on(peer.replica.attach_bookmark(crate::bookmark::NullBookmark))
             .unwrap_or_else(|_| panic!("attaching an inert bookmark succeeds"));
-        prop_assert_eq!(read(peer.settings()), expected);
+        prop_assert_eq!(read(replica.settings()), expected);
     }
 }
 
@@ -267,8 +256,7 @@ proptest! {
     ///
     /// Every sequence of calls, both setters interleaved and repeated,
     /// gives on a `Peer` what setting the two last values once gives in
-    /// either order, and the same through `into_rumors` and on a
-    /// `Join` builder. A setter the sequence never calls holds its
+    /// either order, and the same on a `Join` builder. A setter the sequence never calls holds its
     /// default. Budgets lie on both sides of the minimum and across the
     /// range where the target is lowered, and targets on both sides of the
     /// default and of the wire's cap. What the two values are is
@@ -298,22 +286,24 @@ proptest! {
         let read = |settings: super::Settings| {
             (settings.sync_memory_budget, settings.target_message_size)
         };
-        let budget_first = network.peer::<u64>()
+        let budget_first = network.builder::<u64>()
             .sync_memory_budget(budget)
-            .target_message_size(target);
+            .target_message_size(target).seed();
         let expected = read(budget_first.settings());
-        let target_first = network.peer::<u64>()
+        let target_first = network.builder::<u64>()
             .target_message_size(target)
-            .sync_memory_budget(budget);
+            .sync_memory_budget(budget).seed();
         prop_assert_eq!(read(target_first.settings()), expected);
-        let sequenced = calls.iter().fold(network.peer::<u64>(), |peer, call| match *call {
-            Setting::Budget(bytes) => peer.sync_memory_budget(bytes),
-            Setting::Target(bytes) => peer.target_message_size(bytes),
-        });
+        let sequenced = calls
+            .iter()
+            .fold(network.builder::<u64>(), |builder, call| match *call {
+                Setting::Budget(bytes) => builder.sync_memory_budget(bytes),
+                Setting::Target(bytes) => builder.target_message_size(bytes),
+            })
+            .seed();
         prop_assert_eq!(read(sequenced.settings()), expected);
-        prop_assert_eq!(read(sequenced.into_rumors().settings()), expected);
 
-        let joining = calls.iter().fold(Peer::<u64>::joining(), |builder, call| match *call {
+        let joining = calls.iter().fold(Peer::<u64>::builder(), |builder, call| match *call {
             Setting::Budget(bytes) => builder.sync_memory_budget(bytes),
             Setting::Target(bytes) => builder.target_message_size(bytes),
         });
@@ -342,9 +332,9 @@ proptest! {
         target in targets(),
         network in network_seed(),
     ) {
-        let settings = network.peer::<u64>()
+        let settings = network.builder::<u64>()
             .sync_memory_budget(budget)
-            .target_message_size(target)
+            .target_message_size(target).seed()
             .settings();
         let (memory, lowered) = (settings.sync_memory_budget, settings.target_message_size);
         let minimum = |target: usize| Allowances::of::<Local>(target).minimum();
@@ -361,9 +351,9 @@ proptest! {
         prop_assert!(lowered >= saturated.min(default::TARGET_MESSAGE_SIZE));
         prop_assert!(lowered == saturated || minimum(lowered + 1) > affords);
 
-        let again = network.peer::<u64>()
+        let again = network.builder::<u64>()
             .sync_memory_budget(budget)
-            .target_message_size(lowered)
+            .target_message_size(lowered).seed()
             .settings();
         prop_assert_eq!(again, settings);
     }
@@ -927,7 +917,7 @@ divided_proptest! {
         let calls = Rc::new(Cell::new(0usize));
         let sent = Rc::new(RefCell::new(Vec::new()));
         BEFORE_SWAP.with_borrow_mut(|hook| {
-            let racer = a.share();
+            let racer = a.clone();
             let calls = calls.clone();
             let sent = sent.clone();
             let mut chunks = chunks.into_iter();

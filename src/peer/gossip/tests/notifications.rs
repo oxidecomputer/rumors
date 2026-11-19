@@ -23,7 +23,7 @@ proptest! {
         let provider = network.peer::<u64>();
         provider.send_all(0..initial).unwrap();
         let original_party = party_of(&provider);
-        let mut changes = provider.inner.subscribe();
+        let mut changes = provider.replica.inner.subscribe();
         let (served, joined) = run_to_quiescence(async {
             let (serving, joining) = memory_connection(MEMORY_CAPACITY);
             tokio::join!(
@@ -65,12 +65,12 @@ proptest! {
         provider.send_all(0..initial).unwrap();
         let original_party = party_of(&provider);
         let before = provider.snapshot();
-        let changes = provider.inner.subscribe();
+        let changes = provider.replica.inner.subscribe();
         let mut donation = None;
-        Inner::update_party(&provider.inner, |inner| {
+        Inner::update_party(&provider.replica.inner, |inner| {
             donation = Some(inner.reserve());
         });
-        drop(ForkGuard { fork: donation, recover: &provider.inner });
+        drop(ForkGuard { fork: donation, recover: &provider.replica.inner });
         prop_assert_eq!(party_of(&provider), original_party);
         prop_assert!(provider.snapshot() == before);
         prop_assert!(!changes.has_changed().unwrap());

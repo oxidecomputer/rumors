@@ -146,7 +146,7 @@ fn begin_creates_the_control_handlers() {
 #[test]
 fn join_debug_reports_observer_count() {
     let observer = Arc::new(Counting::default());
-    let joining = crate::Peer::<()>::joining().observe(observer);
+    let joining = crate::Peer::<()>::builder().observe(observer);
     let debug = format!("{joining:?}");
     assert!(
         debug.contains("observe: Attachment { observers: 1 }"),
