@@ -15,6 +15,8 @@
 use rumors_testkit::common;
 #[path = "lifecycle/leak.rs"]
 mod leak;
+#[path = "lifecycle/retirement.rs"]
+mod retirement;
 
 use std::future::Future;
 use std::io::{self, IoSlice};
