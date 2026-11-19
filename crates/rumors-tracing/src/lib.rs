@@ -26,9 +26,9 @@
 //!     // Install your subscriber first (tracing_subscriber::fmt(),
 //!     // a test collector, anything): the adapter emits, it never
 //!     // installs.
-//!     let alice = Peer::<String>::seed()
-//!         .observe(Arc::new(TracingObserver::new()))
-//!         .into_rumors();
+//!     let alice = Peer::<String>::builder()
+//!         .observe(Arc::new(TracingObserver::new())).seed()
+//!         ;
 //!     alice.send("the meeting is at noon".to_string())?;
 //!
 //!     // A session takes the two halves of one connection.
@@ -38,7 +38,7 @@
 //!     let (near_read, far_read) = (BufReader::new(near_read), BufReader::new(far_read));
 //!     let (served, joined) = tokio::join!(
 //!         alice.gossip_once(far_read, far_write),
-//!         Peer::<String>::joining().join(near_read, near_write),
+//!         Peer::<String>::builder().join(near_read, near_write),
 //!     );
 //!     served?;
 //!     let rumors::Join::Connected { peer: _bob, .. } = joined else {
@@ -107,7 +107,7 @@
 //!
 //! - **To watch the replica's *contents*** — what messages exist, in what order
 //!   — use `rumors`' own pull-based observers
-//!   ([`rumors::Rumors::unordered_messages`] and friends); the wire view is the
+//!   ([`rumors::Peer::unordered_messages`] and friends); the wire view is the
 //!   wrong altitude for application state.
 //! - **To capture sessions for byte-exact replay or assertion**, implement
 //!   [`rumors::observe::Observer`] directly and keep the bytes: this adapter
@@ -127,8 +127,7 @@ mod render;
 /// The bridge from [`rumors::observe`] to [`tracing`]: attach one to a peer and
 /// every session it enters is emitted as spans and events.
 ///
-/// Attach with [`rumors::Peer::observe`] (or [`rumors::Joining::observe`], to
-/// watch the joining session itself):
+/// Attach with [`rumors::PeerBuilder::observe`]:
 ///
 /// ```
 /// use std::sync::Arc;
@@ -136,7 +135,7 @@ mod render;
 /// use rumors::Peer;
 /// use rumors_tracing::TracingObserver;
 ///
-/// let peer = Peer::<u64>::seed().observe(Arc::new(TracingObserver::new()));
+/// let peer = Peer::<u64>::builder().observe(Arc::new(TracingObserver::new())).seed();
 /// ```
 ///
 /// One instance serves every session of a peer, concurrent sessions included;
@@ -151,7 +150,7 @@ pub struct TracingObserver {
 }
 
 impl TracingObserver {
-    /// Creates an adapter; attach it with [`rumors::Peer::observe`].
+    /// Creates an adapter; attach it with [`rumors::PeerBuilder::observe`].
     pub fn new() -> Self {
         Self::default()
     }

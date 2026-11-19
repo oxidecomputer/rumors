@@ -30,9 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Install your subscriber first (tracing_subscriber::fmt(),
     // a test collector, anything): the adapter emits, it never
     // installs.
-    let alice = Peer::<String>::seed()
-        .observe(Arc::new(TracingObserver::new()))
-        .into_rumors();
+    let alice = Peer::<String>::builder()
+        .observe(Arc::new(TracingObserver::new())).seed()
+        ;
     alice.send("the meeting is at noon".to_string())?;
 
     // A session takes the two halves of one connection.
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (near_read, far_read) = (BufReader::new(near_read), BufReader::new(far_read));
     let (served, joined) = tokio::join!(
         alice.gossip_once(far_read, far_write),
-        Peer::<String>::joining().join(near_read, near_write),
+        Peer::<String>::builder().join(near_read, near_write),
     );
     served?;
     let rumors::Join::Connected { peer: _bob, .. } = joined else {
@@ -111,7 +111,7 @@ as any slow `StreamObserver` would: keep slow sinks behind a channel.
 
 - **To watch the replica's *contents*** — what messages exist, in what order
   — use `rumors`' own pull-based observers
-  (`rumors::Rumors::unordered_messages` and friends); the wire view is the
+  (`rumors::Peer::unordered_messages` and friends); the wire view is the
   wrong altitude for application state.
 - **To capture sessions for byte-exact replay or assertion**, implement
   `rumors::observe::Observer` directly and keep the bytes: this adapter
